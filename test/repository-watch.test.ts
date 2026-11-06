@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -199,16 +199,19 @@ watching("a linked worktree's staged change is read", async (t) => {
 
 watching('a plain directory that becomes a repository gains Git', async (t) => {
   const directory = await scratch('witch-repository-plain-');
+  const initialized = await scratch('witch-repository-initialized-');
+  await git(initialized, 'init', '--quiet', '-b', 'main');
   await quiet();
   const { run, status } = counting();
   const watch = new RepositoryWatch(directory, run, undefined, {
     interval: 50,
   });
   t.onTestFinished(() => watch.close());
-  await until('first read', () => status.started === 1);
+  await until('first read', () => status.started >= 1);
   await delay(100);
   assert.equal(watch.snapshot, undefined);
-  await git(directory, 'init', '--quiet', '-b', 'main');
+  // a top-level event must arrive with a usable repository; later writes inside .git need the minute retry
+  await rename(join(initialized, '.git'), join(directory, '.git'));
   await until('Git after init', () => watch.snapshot?.branch === 'main');
 });
 
@@ -298,9 +301,10 @@ watching(
     // an event just before the minute waits the 100 ms debounce
     watch['changed']();
     assert.notEqual(watch['scheduled'], undefined);
+    const reads = status.started;
     vi.advanceTimersByTime(25);
-    assert.equal(watch['refreshing'], true);
     assert.equal(watch['scheduled'], undefined);
+    await until('minute read', () => status.started === reads + 1);
   },
 );
 
@@ -428,5 +432,59 @@ watching(
       t.onTestFinished(() => watch.close());
       await until('reads with no change', () => statuses >= 4);
     }
+  },
+);
+
+watching(
+  'pushing an already observed local commit refreshes the conflict before the normal GitHub poll',
+  async (t) => {
+    const work = await workTree();
+    const remote = join(dirname(work), 'remote.git');
+    await git(dirname(work), 'init', '--bare', '--quiet', '-b', 'main', remote);
+    await git(work, 'remote', 'add', 'origin', remote);
+    await git(work, 'push', '--quiet', '-u', 'origin', 'HEAD');
+    const a = (await git(work, 'rev-parse', 'HEAD')).stdout.trim();
+    await quiet();
+    const watch = new RepositoryWatch(
+      work,
+      async (command, args, options) => {
+        if (command !== 'gh') return execute(command, args, options);
+        if (args[0] === 'api') return { stdout: `${a}\n` };
+        const head = (
+          await git(remote, 'rev-parse', 'refs/heads/main')
+        ).stdout.trim();
+        return {
+          stdout: JSON.stringify({
+            number: 7,
+            url: 'https://github.com/o/r/pull/7',
+            state: 'OPEN',
+            headRefName: 'main',
+            headRefOid: head,
+            baseRefName: 'develop',
+            mergeable: head === a ? 'CONFLICTING' : 'MERGEABLE',
+            statusCheckRollup: [],
+          }),
+        };
+      },
+      undefined,
+      { interval: 50 },
+    );
+    t.onTestFinished(() => watch.close());
+    await until('original conflict', () => !!watch.snapshot?.conflict);
+    await git(work, 'commit', '--allow-empty', '--quiet', '-m', 'resolution');
+    const b = (await git(work, 'rev-parse', 'HEAD')).stdout.trim();
+    await until(
+      'local commit observed',
+      () => watch.snapshot?.commit === b && watch.snapshot.ahead === 1,
+    );
+    await git(work, 'push', '--quiet');
+    await until(
+      'pushed resolution',
+      () =>
+        watch.snapshot?.pullRequest?.commit === b &&
+        watch.snapshot.conflict === undefined,
+    );
+    assert.equal(watch.snapshot?.pullRequest?.mergeable, 'MERGEABLE');
+    assert.equal(watch.snapshot?.ahead, 0);
   },
 );

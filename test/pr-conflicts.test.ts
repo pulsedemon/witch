@@ -39,6 +39,7 @@ function fixture(
     } as unknown as Snapshot,
     conflict: undefined as Conflict | undefined,
     repair: {
+      setRefresh: () => {},
       observe: (repository: Repository | undefined) =>
         observed.push(repository),
     },
@@ -91,6 +92,7 @@ function stubRepository() {
       return () => listeners.delete(listener);
     },
     refreshPullRequest: () => refreshes++,
+    readPullRequest: async () => {},
   };
   const publish = async (snapshot: Repository | undefined) => {
     repository.snapshot = snapshot;

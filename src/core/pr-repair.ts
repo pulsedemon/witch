@@ -89,12 +89,17 @@ interface RepairHost {
  */
 export class PullRequestRepair {
   private repository?: Repository;
+  private refresh?: () => Promise<void>;
   private readonly declined = new Set<string>();
   private readonly noticed = new Set<string>();
   private executing?: Repair;
   private revoked?: Repair;
 
   constructor(private readonly host: RepairHost) {}
+
+  setRefresh(refresh: (() => Promise<void>) | undefined): void {
+    this.refresh = refresh;
+  }
 
   observe(repository: Repository | undefined): void {
     this.repository = repository;
@@ -130,6 +135,8 @@ export class PullRequestRepair {
       current.mergeable === 'CONFLICTING' &&
       current.url === conflict.pullRequest.url &&
       current.commit === conflict.pullRequest.commit;
+    if (conflicting && (!this.refresh || repository.commit !== current.commit))
+      return;
     const recorded = [
       ...(record.conflictRepairs ?? []).map(conflictKey),
       ...(record.checkRepairs ?? []).map(checkKey),
@@ -163,9 +170,23 @@ export class PullRequestRepair {
   async run(): Promise<boolean> {
     const found = this.candidate();
     if (!found) return false;
-    const { record, id, repair } = found;
+    const { record, id } = found;
+    let { repair } = found;
     let refusal: string | undefined;
     try {
+      if (!repair.failed) {
+        await this.refresh!();
+        const fresh = this.candidate();
+        if (
+          !fresh ||
+          fresh.record !== record ||
+          fresh.repair.claim !== repair.claim ||
+          fresh.id !== id ||
+          !this.host.ready()
+        )
+          return false;
+        repair = fresh.repair;
+      }
       if (
         !(await this.host
           .coordination()!
@@ -263,7 +284,7 @@ export class PullRequestRepair {
 export function watchConflicts(
   repository: Pick<
     RepositoryWatch,
-    'snapshot' | 'subscribe' | 'refreshPullRequest'
+    'snapshot' | 'subscribe' | 'refreshPullRequest' | 'readPullRequest'
   >,
   coordinator: Pick<
     Coordinator,
@@ -275,6 +296,7 @@ export function watchConflicts(
   let stopped = false;
   const check = () => {
     pending = undefined;
+    if (stopped) return;
     const status = repository.snapshot;
     if (status) conflict = status.conflict;
     coordinator.conflict = conflict;
@@ -310,9 +332,14 @@ export function watchConflicts(
     coordinator.subscribe(schedule),
     ...(coordination ? [coordination.subscribe(merged)] : []),
   ];
+  coordinator.repair.setRefresh(async () => {
+    await repository.readPullRequest();
+    check();
+  });
   schedule();
   return () => {
     stopped = true;
+    coordinator.repair.setRefresh(undefined);
     if (pending) clearImmediate(pending);
     for (const stop of stops) stop();
   };
