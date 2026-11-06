@@ -1207,55 +1207,58 @@ test('process names do not alter start identities', () => {
 });
 
 for (const admission of ['direct', 'handed', 'reported', 'marked']) {
-  test(`tmux trees stay out of ${admission} admission`, async () => {
-    const directory = await scratch('witch-jobs-tmux-');
-    const server = {
-      ...orphanRow(100101),
-      ppid:
-        admission === 'direct'
-          ? agentRow.pid
-          : admission === 'marked'
-            ? 1
-            : process.pid,
-      name: 'tmux',
-      leadsSession: admission === 'direct',
-    };
-    const pane = { ...orphanRow(100102), ppid: server.pid };
-    const ordinary = {
-      ...orphanRow(100103),
-      ppid: admission === 'marked' ? 1 : agentRow.pid,
-      name: 'tmux-helper',
-      leadsSession: admission !== 'marked',
-    };
-    let rows: Row[] = [];
-    const jobs = new JobWatch({
-      directory,
-      interval: 60_000,
-      processes: async () => rows,
-      describe: leaders,
-      marked: async (pids) => (admission === 'marked' ? pids : []),
-    });
-    try {
-      await jobs.list();
-      rows = [agentRow, server, pane, ordinary];
-      if (admission === 'handed') jobs.track(server.pgid);
-      if (admission === 'reported')
-        await writeFile(join(directory, String(server.pid)), '');
-      assert.deepEqual(
-        (await jobs.list()).map(({ group }) => group),
-        [100103],
-      );
-      if (admission === 'marked') {
-        rows.push({ ...orphanRow(100104), ppid: server.pid });
+  test.each(['tmux', 'zellij'])(
+    `%s trees stay out of ${admission} admission`,
+    async (name) => {
+      const directory = await scratch(`witch-jobs-${name}-`);
+      const server = {
+        ...orphanRow(100101),
+        ppid:
+          admission === 'direct'
+            ? agentRow.pid
+            : admission === 'marked'
+              ? 1
+              : process.pid,
+        name,
+        leadsSession: admission === 'direct',
+      };
+      const pane = { ...orphanRow(100102), ppid: server.pid };
+      const ordinary = {
+        ...orphanRow(100103),
+        ppid: admission === 'marked' ? 1 : agentRow.pid,
+        name: `${name}-helper`,
+        leadsSession: admission !== 'marked',
+      };
+      let rows: Row[] = [];
+      const jobs = new JobWatch({
+        directory,
+        interval: 60_000,
+        processes: async () => rows,
+        describe: leaders,
+        marked: async (pids) => (admission === 'marked' ? pids : []),
+      });
+      try {
+        await jobs.list();
+        rows = [agentRow, server, pane, ordinary];
+        if (admission === 'handed') jobs.track(server.pgid);
+        if (admission === 'reported')
+          await writeFile(join(directory, String(server.pid)), '');
         assert.deepEqual(
           (await jobs.list()).map(({ group }) => group),
           [100103],
         );
+        if (admission === 'marked') {
+          rows.push({ ...orphanRow(100104), ppid: server.pid });
+          assert.deepEqual(
+            (await jobs.list()).map(({ group }) => group),
+            [100103],
+          );
+        }
+      } finally {
+        jobs.close();
       }
-    } finally {
-      jobs.close();
-    }
-  });
+    },
+  );
 }
 
 test('a mixed group preserves ordinary ownership while excluding tmux', async () => {
