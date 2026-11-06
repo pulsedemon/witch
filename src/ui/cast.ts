@@ -1,21 +1,57 @@
 import { useEffect, useState } from 'react';
 import type { DisplayItem } from '../core/state.js';
-import { accent, colors, potion } from './theme.js';
+import { accent, accentDim, colors } from './theme.js';
 
-export const castFrames = 12;
-export const castMs = castFrames * 100;
-const glyphs = ['✧', '✦', '✶', '✦'];
-const word = 'Spell';
+const stepMs = 100;
+export const castFrames = 20;
+export const castMs = castFrames * stepMs;
+const title = '✦ Spell';
+const hot = '#fff1c2';
+const fire = '#fb923c';
+const ember = '#7c3a2b';
 
-/** a frame keeps the final title's width, so the transcript never shifts under it. */
-export function castTitle(frame?: number): string {
-  const title = colors.hex(accent).bold;
-  if (frame === undefined) return title(`✦ ${word}`);
-  const lit = frame % word.length;
-  const letters = [...word].map((letter, index) =>
-    index === lit ? colors.hex(potion).bold(letter) : letter,
+/** decoration stays on the heading's row; the cached title remains the copy and scroll anchor. */
+export function castTitle(frame?: number, width = title.length): string {
+  if (frame === undefined) return colors.hex(accent).bold(title);
+  const ignition = frame >= 4 && frame < 6;
+  const heading = ignition
+    ? colors.hex(hot).bgHex('#9a3412').bold(title)
+    : colors
+        .hex(frame < 4 ? '#d8b4fe' : frame < 13 ? fire : accent)
+        .bold(title);
+  const reach = Math.min(width, 48) - title.length - 1;
+  if (reach <= 0) return heading;
+  const progress = (frame - 6) / 6;
+  const front = Math.round(
+    (frame < 4 ? 1 - (frame / 3) ** 2 : 1 - (1 - progress) ** 2) * (reach - 1),
   );
-  return title(`${glyphs[frame % glyphs.length]} ${letters.join('')}`);
+  const sparks = Array.from({ length: reach }, (_, column) => {
+    if (frame < 4) {
+      const behind = column - front;
+      if (behind === 0) return colors.hex('#e9d5ff').bold('*');
+      if (behind === 3 || behind === 7) return colors.hex(accent)('+');
+      return colors.hex(accentDim)(column % 5 === frame ? '.' : ' ');
+    }
+    if (ignition)
+      return colors.hex(column < 5 ? hot : fire).bgHex('#261333')(
+        column < 5 ? '*:+:*'[column]! : column % 4 === 0 ? '.' : ' ',
+      );
+    if (frame < 13) {
+      const behind = front - column;
+      if (behind === 0) return colors.hex(hot).bold('*');
+      const glyph =
+        behind > 0 && (column + frame) % 3 !== 0
+          ? behind < 5
+            ? '+'
+            : ':'
+          : ' ';
+      return colors.hex(behind < 5 ? fire : ember).bgHex('#1c1028')(glyph);
+    }
+    const age = frame - 13;
+    const glowing = (column * 7) % 11 >= (age * 10) / 6;
+    return colors.hex(age < 3 ? ember : accentDim)(glowing ? '.' : ' ');
+  });
+  return `${heading} ${sparks.join('')}`;
 }
 
 function live(items: readonly DisplayItem[], now: number) {
@@ -23,7 +59,8 @@ function live(items: readonly DisplayItem[], now: number) {
   for (const item of items) {
     if (!item.cast || !item.at) continue;
     const age = now - Date.parse(item.at);
-    if (age >= 0 && age < castMs) casting.set(item.id, Math.floor(age / 100));
+    if (age >= 0 && age < castMs)
+      casting.set(item.id, Math.floor(age / stepMs));
   }
   return casting;
 }
@@ -45,7 +82,7 @@ export function useCasting(
     if (!update()) return;
     const timer = setInterval(() => {
       if (!update()) clearInterval(timer);
-    }, 100);
+    }, stepMs);
     return () => clearInterval(timer);
   }, [items]);
   return casting;
