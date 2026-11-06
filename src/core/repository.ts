@@ -481,9 +481,9 @@ export class RepositoryWatch {
     if (this.closed) return;
     const previous = this.snapshot;
     if (
-      previous &&
       repository &&
-      (previous.branch !== repository.branch ||
+      (!previous ||
+        previous.branch !== repository.branch ||
         previous.commit !== repository.commit ||
         previous.upstream !== repository.upstream ||
         previous.ahead !== repository.ahead ||

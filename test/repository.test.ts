@@ -1089,3 +1089,57 @@ for (const kind of ['status', 'pull request'] as const) {
     assert.equal(publications, before);
   });
 }
+
+for (const change of ['head', 'upstream status'] as const) {
+  test(`status recovery refreshes a cached conflict after the ${change} changes`, async (t) => {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'Date'],
+      now: 0,
+    });
+    let fail = false,
+      reads = 0;
+    let commit = 'a1b2c3',
+      ahead = 1,
+      mergeable = 'CONFLICTING';
+    const watch = new RepositoryWatch('/work', async (command, args) => {
+      if (command !== 'gh') {
+        if (args.includes('status') && fail)
+          throw Object.assign(new Error('status unavailable'), { code: 128 });
+        return {
+          stdout: `# branch.head feat/x\n# branch.oid ${commit}\n# branch.upstream origin/feat/x\n# branch.ab +${ahead} -0\n`,
+        };
+      }
+      if (args[0] === 'api') return { stdout: 'f00\n' };
+      reads++;
+      return {
+        stdout: view({
+          state: 'OPEN',
+          url: 'https://github.com/o/r/pull/4',
+          headRefOid: commit,
+          mergeable,
+        }),
+      };
+    });
+    t.onTestFinished(() => watch.close());
+    await until('initial conflict', () => !!watch.snapshot?.conflict);
+    assert.equal(reads, 1);
+    fail = true;
+    vi.advanceTimersByTime(5000);
+    await until('failed local read', () => watch.snapshot === undefined);
+    if (change === 'head') commit = 'd4e5f6';
+    else ahead = 0;
+    mergeable = 'MERGEABLE';
+    fail = false;
+    vi.advanceTimersByTime(5000);
+    await until(
+      'resolution after recovery',
+      () => watch.snapshot?.pullRequest?.mergeable === 'MERGEABLE',
+    );
+    assert.equal(watch.snapshot?.conflict, undefined);
+    assert.equal(
+      watch.snapshot?.pullRequest?.commit,
+      change === 'head' ? 'd4e5f6' : 'a1b2c3',
+    );
+    assert.equal(reads, 2);
+  });
+}
