@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { test } from 'vitest';
+import { writeJson } from '../src/persistence/json.js';
 import { fileURLToPath } from 'node:url';
 import { scratch } from './fixtures/scratch.js';
 import { compiledCli } from './fixtures/compiled-cli.js';
@@ -172,31 +173,25 @@ async function check(
       const next = `shutdown-next-${randomUUID()}`;
       await submit(next);
       await wait('next native input', () => input(next));
-      await writeFile(
-        join(project, 'events.next'),
-        JSON.stringify(
-          runtime === 'codex'
-            ? [
-                {
-                  method: 'turn/completed',
-                  params: {
-                    threadId: 'native-thread',
-                    turn: { id: 'turn-1', status: 'completed', error: null },
-                  },
-                },
-              ]
-            : [
-                {
-                  type: 'system',
-                  subtype: 'session_state_changed',
-                  state: 'idle',
-                },
-              ],
-        ),
-      );
-      await rename(
-        join(project, 'events.next'),
+      await writeJson(
         join(project, 'events-1.json'),
+        runtime === 'codex'
+          ? [
+              {
+                method: 'turn/completed',
+                params: {
+                  threadId: 'native-thread',
+                  turn: { id: 'turn-1', status: 'completed', error: null },
+                },
+              },
+            ]
+          : [
+              {
+                type: 'system',
+                subtype: 'session_state_changed',
+                state: 'idle',
+              },
+            ],
       );
       await wait('next completed turn', async () => {
         const current = await record();

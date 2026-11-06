@@ -11,7 +11,7 @@ import {
   frameWriter,
   jsonLines,
 } from './fixtures/claude-adapter.js';
-import { until, within } from './fixtures/within.js';
+import { settled, until, within } from './fixtures/within.js';
 
 async function scripted(sessionState = true) {
   const events: AgentEvent[] = [];
@@ -27,11 +27,8 @@ async function scripted(sessionState = true) {
     f.child,
   );
   const compact = async () => {
-    let settled = false;
-    const result = f.session.compact().then((r) => {
-      settled = true;
-      return r;
-    });
+    const result = f.session.compact();
+    const isSettled = settled(result);
     let uuid = '';
     await until('compact request', async () =>
       readFile(join(f.cwd, 'compact.json'), 'utf8').then(
@@ -47,7 +44,7 @@ async function scripted(sessionState = true) {
         () => false,
       ),
     );
-    return { result, uuid, settled: () => settled };
+    return { result, uuid, settled: isSettled };
   };
   return { ...f, events, emit, compact };
 }
@@ -82,11 +79,8 @@ async function busy() {
       events.some((e) => e.type === 'skills' && e.skills[0]?.name === name),
     f.child,
   );
-  let parentDone = false;
-  const parent = f.session.send('initial').then((outcome) => {
-    parentDone = true;
-    return outcome;
-  });
+  const parent = f.session.send('initial');
+  const parentDone = settled(parent);
   await until('ordinary result', () =>
     events.some((e) => e.type === 'skills' && e.skills[0]?.name === 'result-1'),
   );
@@ -101,10 +95,7 @@ async function busy() {
   const compact = async () => {
     const promise = f.session.compactDuringTurn!();
     assert.ok(promise);
-    let settled = false;
-    void promise.then(() => {
-      settled = true;
-    });
+    const isSettled = settled(promise);
     let input: SDKUserMessage | undefined;
     await until('raw compact input', async () => {
       input = (
@@ -113,7 +104,7 @@ async function busy() {
       return !!input;
     });
     assert.equal(Object.hasOwn(input!, 'client_composed'), false);
-    return { promise, uuid: input!.uuid!, settled: () => settled };
+    return { promise, uuid: input!.uuid!, settled: isSettled };
   };
   const release = () =>
     emit(
@@ -134,7 +125,7 @@ async function busy() {
     compact,
     release,
     parent,
-    parentDone: () => parentDone,
+    parentDone,
   };
 }
 
@@ -405,11 +396,8 @@ test('Claude awaits a fresh context read without waiting for account usage and r
       'context with account usage held',
     );
     await writeFile(join(f.cwd, 'hold-context'), '');
-    let settled = false;
-    const stale = f.session.contextUsage().then((value) => {
-      settled = true;
-      return value;
-    });
+    const stale = f.session.contextUsage();
+    const isSettled = settled(stale);
     const request = async (previous = '') => {
       let id = '';
       await until('context read', async () =>
@@ -422,7 +410,7 @@ test('Claude awaits a fresh context read without waiting for account usage and r
       return id;
     };
     const first = await request();
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     await f.session.selectModel('claude-b');
     const reply = (request_id: string, percentage: number, maxTokens: number) =>
       f.emit({

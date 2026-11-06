@@ -9,7 +9,7 @@ import {
 } from '../src/core/models.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { scratch } from './fixtures/scratch.js';
-import { within } from './fixtures/within.js';
+import { settled, within } from './fixtures/within.js';
 
 test('catalogs preserve runtime order and identity, and reuse inactive lists until a refresh, without connecting inactive agents', async () => {
   const [a, b, missing] = ['a', 'b', 'missing'].map(
@@ -99,16 +99,8 @@ test('catalog cancellation waits for every discovery to finish cleanup before re
     agents.map((adapter) => ({ adapter, executable: adapter.id })),
     (error) => errors.push(error),
   );
-  let settled = false;
   const pending = catalog.read('/fixture');
-  void pending.then(
-    () => {
-      settled = true;
-    },
-    () => {
-      settled = true;
-    },
-  );
+  const isSettled = settled(pending);
   const rejected = assert.rejects(
     within(pending, 2000, 'catalog cancellation'),
     { name: 'AbortError' },
@@ -119,7 +111,7 @@ test('catalog cancellation waits for every discovery to finish cleanup before re
     assert.ok(signals.every((signal) => signal.aborted));
     closed[0]!.resolve();
     await setImmediate();
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     closed[1]!.resolve();
     await rejected;
     assert.deepEqual(errors, []);

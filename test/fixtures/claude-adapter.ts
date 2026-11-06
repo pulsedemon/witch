@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeJson } from '../../src/persistence/json.js';
 import { ClaudeAdapter } from '../../src/agents/claude.js';
 import type { AgentEvent, SessionOptions } from '../../src/agents/types.js';
 import { scratch } from './scratch.js';
@@ -142,8 +143,7 @@ export function frameWriter(
   let sequence = 0;
   return async (...frames: object[]) => {
     const index = ++sequence;
-    await writeFile(join(cwd, 'events.next'), JSON.stringify(frames));
-    await rename(join(cwd, 'events.next'), join(cwd, `events-${index}.json`));
+    await writeJson(join(cwd, `events-${index}.json`), frames);
     const started = performance.now();
     try {
       await until('native frame barrier', () => received(`barrier-${index}`));

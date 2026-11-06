@@ -5,7 +5,7 @@ import { test, vi } from 'vitest';
 import { Workspace } from '../src/memory/workspace.js';
 import { fixture, holdSettlement, readRecord } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
-import { within, until } from './fixtures/within.js';
+import { settled, within, until } from './fixtures/within.js';
 import type { TurnResult } from '../src/agents/types.js';
 
 test('manual compaction preserves the conversation and makes persisted resume receive full accepted memory', async () => {
@@ -753,15 +753,12 @@ test('busy foreground compact waits for parent settlement before admitting model
     const native = f.a.sessions.at(-1)!,
       completed = Promise.withResolvers<TurnResult>();
     native.session.compactDuringTurn = () => completed.promise;
-    let settled = false;
-    const compact = c.compact().then((result) => {
-      settled = true;
-      return result;
-    });
+    const compact = c.compact();
+    const isSettled = settled(compact);
     completed.resolve({ status: 'completed', text: '' });
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     gate.open();
     assert.equal(await within(compact, 3000, 'parent settlement'), true);
     assert.equal(c.snapshot.phase, 'idle');
