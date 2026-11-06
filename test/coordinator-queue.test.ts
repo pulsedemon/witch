@@ -8,7 +8,7 @@ import { test, vi } from 'vitest';
 import { Memory } from '../src/memory/memory.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
-import { fixture, turns } from './fixtures/coordinator.js';
+import { fixture, unitFixture, turns } from './fixtures/coordinator.js';
 import { png } from './fixtures/png.js';
 import { until, within } from './fixtures/within.js';
 
@@ -64,7 +64,7 @@ for (const [source, expectedError] of [
   ['inactive discovery', 'b: Discovery failed'],
 ] as const)
   test(`a ${source} failure during reconnect leaves queued prompts runnable`, async () => {
-    const { coordinator, a } = await fixture(undefined, (_a, b) => {
+    const { coordinator, a } = await unitFixture(undefined, (_a, b) => {
       b.failDiscovery = source === 'inactive discovery';
     });
     const gate = new TurnGate();
@@ -113,7 +113,7 @@ for (const [name, prompt] of [
   ['an unlisted command', '/unlisted-command'],
 ] as const)
   test(`a prompt that starts with ${name} steers into the running turn`, async () => {
-    const { coordinator, a } = await fixture(undefined, (a) => {
+    const { coordinator, a } = await unitFixture(undefined, (a) => {
       a.skills = [review];
     });
     const gate = new TurnGate();
@@ -137,7 +137,7 @@ for (const [name, prompt] of [
   });
 
 test('a prompt sent behind a spell the turn refused steers past it, and the spell goes alone next', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [review];
   });
   const gate = new TurnGate();
@@ -167,7 +167,7 @@ test('a prompt sent behind a spell the turn refused steers past it, and the spel
 });
 
 test('a spell an interrupt leaves unread goes alone next with its skill call', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [review];
   });
   const gate = new TurnGate();
@@ -194,7 +194,7 @@ test('a spell an interrupt leaves unread goes alone next with its skill call', a
 });
 
 test('prompts queued behind a queued prompt steer into the turn it starts, and a ! command and what follows wait', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [review];
   });
   const first = new TurnGate();
@@ -232,7 +232,7 @@ test('prompts queued behind a queued prompt steer into the turn it starts, and a
 });
 
 test('a spell refused behind a queued turn stays queued while the prompts after it steer', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [review];
   });
   const first = new TurnGate();
@@ -267,7 +267,7 @@ test('a spell refused behind a queued turn stays queued while the prompts after 
 });
 
 test('an ordinary prompt refused behind a queued turn keeps the prompts after it behind it', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [review];
   });
   const first = new TurnGate();
@@ -308,7 +308,7 @@ test('an ordinary prompt refused behind a queued turn keeps the prompts after it
 });
 
 test('a prompt sent behind a prompt the turn refused waits behind it', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -333,7 +333,7 @@ test('a prompt sent behind a prompt the turn refused waits behind it', async () 
 });
 
 test('a queued prompt that starts with a path joins the prompts after it in one turn', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -355,7 +355,7 @@ test('a queued prompt that starts with a path joins the prompts after it in one 
 });
 
 test('a turn whose input was never written puts its steered prompts back between the batch and the rest', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     const { session } = a.sessions.at(-1)!;
@@ -387,7 +387,7 @@ test('a turn whose input was never written puts its steered prompts back between
 });
 
 test('a prompt naming a pasted image sends the image saved in its conversation, and its row shows it', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     const { marker, data } = await paste(f, 'shot');
     await f.coordinator.send(`look ${marker}`);
@@ -403,7 +403,7 @@ test('a prompt naming a pasted image sends the image saved in its conversation, 
 });
 
 test('a queued batch sends the images of each of its prompts in order', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const gate = new TurnGate();
   try {
     const first = await paste(f, 'first');
@@ -432,7 +432,7 @@ test('a queued batch sends the images of each of its prompts in order', async ()
 });
 
 test('a prompt or spell steered with a pasted image passes it, and its row appears only once the turn accepts it', async () => {
-  const f = await fixture(undefined, (a) => {
+  const f = await unitFixture(undefined, (a) => {
     a.skills = [review];
   });
   const gate = new TurnGate();
@@ -479,7 +479,7 @@ test('a prompt or spell steered with a pasted image passes it, and its row appea
 });
 
 test('a steered image prompt an interrupt leaves unread goes next with its image, and the row it first had gives up the image', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const gate = new TurnGate();
   try {
     const { marker } = await paste(f, 'shot');
@@ -514,7 +514,7 @@ test('a steered image prompt an interrupt leaves unread goes next with its image
 });
 
 test('an interrupt while a turn saves its images sends nothing and leaves the prompt queued', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const held = holdImages();
   try {
     const { marker } = await paste(f, 'shot');
@@ -533,7 +533,7 @@ test('an interrupt while a turn saves its images sends nothing and leaves the pr
 });
 
 test('an interrupt while a pasted image converts stops the conversion, sends nothing, reports no error and leaves the prompt queued', async (t) => {
-  const f = await fixture();
+  const f = await unitFixture();
   t.onTestFinished(() => {
     vi.restoreAllMocks();
     syncBuiltinESMExports();
@@ -617,7 +617,7 @@ test('an interrupt before a turn reaches its images starts no conversion', async
 });
 
 test('a delivery hold that starts while a steer saves its image refuses the steer, and the prompt waits in the queue for its own turn', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const gate = new TurnGate();
   const held = holdImages();
   try {
@@ -649,7 +649,7 @@ test('a delivery hold that starts while a steer saves its image refuses the stee
 });
 
 test('a turn that settles while a steer saves its image refuses the steer, and the prompt goes in its own turn', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const gate = new TurnGate();
   const held = holdImages();
   try {
@@ -677,7 +677,7 @@ test('a turn that settles while a steer saves its image refuses the steer, and t
 });
 
 test("a steer whose image fails to save leaves its prompt queued without an error, and the prompt's own turn saves it again", async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const gate = new TurnGate();
   const held = holdImages();
   try {
@@ -708,7 +708,7 @@ test("a steer whose image fails to save leaves its prompt queued without an erro
 });
 
 test('a turn whose image fails to save reports the error before any input, and its prompt stays queued for the composer', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const held = holdImages();
   try {
     const { marker } = await paste(f, 'shot');
@@ -727,7 +727,7 @@ test('a turn whose image fails to save reports the error before any input, and i
 });
 
 test('a ! command naming a pasted image runs as typed and sends no image', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     const { marker } = await paste(f, 'shot');
     await f.coordinator.send(`!ls ${marker}`);

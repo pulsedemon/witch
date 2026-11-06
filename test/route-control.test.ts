@@ -8,7 +8,7 @@ import type { Policy } from '../src/core/routing.js';
 import { USAGE_CURRENT_MS } from '../src/core/usage.js';
 import { callControl } from '../src/persistence/control.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
-import { coordinationFixture } from './fixtures/coordination.js';
+import { unitCoordinationFixture } from './fixtures/coordination.js';
 import { TurnGate } from './fixtures/agent.js';
 import { until } from './fixtures/within.js';
 
@@ -23,7 +23,7 @@ const window = (percent: number, observedAt = Date.now()): Limit => ({
 });
 
 async function start(register: Parameters<typeof orderedCleanup>[0]) {
-  const { start } = await coordinationFixture(orderedCleanup(register));
+  const { start } = await unitCoordinationFixture(orderedCleanup(register));
   const session = await start('A');
   session.a.catalog.splice(0, 2, { id: 'a-2-model', label: 'A2', efforts: [] });
   session.b.catalog.splice(0, 2, { id: 'b-3-model', label: 'B3', efforts: [] });

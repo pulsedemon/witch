@@ -10,7 +10,7 @@ import type { UserRequest } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { StateStore } from '../src/persistence/store.js';
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-import { fixture, turns } from './fixtures/coordinator.js';
+import { unitFixture, turns } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
 import { until, within } from './fixtures/within.js';
@@ -270,7 +270,7 @@ for (const ending of ['answer', 'resolve', 'exit'])
   });
 
 test('answering retained questions resumes once and preserves the remaining questions', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let answering: Promise<void[]> | undefined;
@@ -329,7 +329,7 @@ test('answering retained questions resumes once and preserves the remaining ques
 });
 
 test('a failed reconnect keeps queued answers and unanswered questions', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     await coordinator.send('Start');
     const original = a.sessions[0]!;
@@ -370,7 +370,7 @@ test('a failed reconnect keeps queued answers and unanswered questions', async (
 });
 
 test('a model refused while disconnected keeps unanswered questions', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     await coordinator.send('Start');
     const original = a.sessions[0]!;
@@ -389,7 +389,7 @@ test('a model refused while disconnected keeps unanswered questions', async () =
 });
 
 test('handoff discards retained questions from the previous agent', async () => {
-  const { coordinator, a, b } = await fixture();
+  const { coordinator, a, b } = await unitFixture();
   try {
     await coordinator.send('Start');
     const original = a.sessions[0]!;
@@ -426,7 +426,7 @@ for (const { failure, failConnect, id, error } of [
   },
 ])
   test(`a handoff whose destination ${failure} keeps the source's questions`, async () => {
-    const { coordinator, a, b } = await fixture();
+    const { coordinator, a, b } = await unitFixture();
     try {
       await coordinator.send('Start');
       const original = a.sessions[0]!;
@@ -448,7 +448,7 @@ for (const { failure, failConnect, id, error } of [
 
 for (const departure of ['conversation', 'handoff'])
   test(`a question arriving during close does not survive ${departure}`, async () => {
-    const { coordinator, a, b } = await fixture();
+    const { coordinator, a, b } = await unitFixture();
     try {
       await coordinator.send('Start');
       const original = a.sessions[0]!;
@@ -476,7 +476,7 @@ for (const departure of ['conversation', 'handoff'])
   });
 
 test('an async question survives turn completion and its answer starts one normal turn', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -523,7 +523,7 @@ test('an async question survives turn completion and its answer starts one norma
 
 for (const refuseSteer of [false, true])
   test(`an async answer ${refuseSteer ? 'queues when steering is refused' : 'steers the active turn'}`, async () => {
-    const { coordinator, a } = await fixture();
+    const { coordinator, a } = await unitFixture();
     const gate = new TurnGate();
     try {
       a.gate = gate;
@@ -564,7 +564,7 @@ for (const refuseSteer of [false, true])
   });
 
 test('declining an async question leaves other questions open and cancelling interrupts without an answer', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -596,7 +596,7 @@ test('declining an async question leaves other questions open and cancelling int
 });
 
 test('a new conversation discards the previous session questions and ignores their late answers', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     a.sessions
       .at(-1)!
@@ -615,7 +615,7 @@ test('a new conversation discards the previous session questions and ignores the
 });
 
 test('async questions arriving during cancellation are ignored until the next turn', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   let gate = new TurnGate();
   try {
     a.gate = gate;

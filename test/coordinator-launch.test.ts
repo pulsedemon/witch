@@ -23,6 +23,7 @@ import {
   activity,
   readRecord,
   fixture,
+  unitFixture,
   stranded,
 } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
@@ -329,7 +330,7 @@ test('an unreadable ledger leaves startup and turns running with a notice naming
 });
 
 test('startup failures leave an exit-capable error state whose lookups reject rather than throw', async () => {
-  const { coordinator: original, root, memory, a } = await fixture();
+  const { coordinator: original, root, memory, a } = await unitFixture();
   await original.close();
   const coordinator = new Coordinator(
     await StateStore.open(join(root, 'state')),
@@ -515,7 +516,7 @@ async function used(
 }
 
 test('continue opens the newest conversation in this directory, ignoring newer ones elsewhere', async () => {
-  const { coordinator: first, store, root, project, a } = await fixture();
+  const { coordinator: first, store, root, project, a } = await unitFixture();
   await first.close();
   const elsewhere = join(root, 'elsewhere');
   await mkdir(elsewhere);
@@ -535,7 +536,7 @@ test('continue opens the newest conversation in this directory, ignoring newer o
 });
 
 test('a conversation id opens that conversation, even one with nothing sent', async () => {
-  const { coordinator: first, store, root, project, a } = await fixture();
+  const { coordinator: first, store, root, project, a } = await unitFixture();
   await first.close();
   await used(store, root, record('fresh', project));
   const coordinator = new Coordinator(store, first.memory, [
@@ -551,7 +552,7 @@ test('a conversation id opens that conversation, even one with nothing sent', as
 });
 
 test('continue with nothing in this directory starts a new conversation here', async () => {
-  const { coordinator: first, store, root, project, a } = await fixture();
+  const { coordinator: first, store, root, project, a } = await unitFixture();
   await first.close();
   const elsewhere = join(root, 'elsewhere');
   await mkdir(elsewhere);
@@ -570,7 +571,7 @@ test('continue with nothing in this directory starts a new conversation here', a
 });
 
 test('a plain launch starts a new conversation even when this directory has one', async () => {
-  const { coordinator: first, store, root, project, a } = await fixture();
+  const { coordinator: first, store, root, project, a } = await unitFixture();
   await first.close();
   await used(store, root, record('earlier', project), 1000);
   const coordinator = new Coordinator(store, first.memory, [
@@ -585,7 +586,7 @@ test('a plain launch starts a new conversation even when this directory has one'
 });
 
 test("/sessions lists only this directory's conversations", async () => {
-  const { coordinator, store, root, project } = await fixture();
+  const { coordinator, store, root, project } = await unitFixture();
   try {
     const elsewhere = join(root, 'elsewhere');
     await mkdir(elsewhere);
@@ -670,7 +671,7 @@ test('a publish failure while settling the launch is added to its report', async
 });
 
 test('opening a conversation connects its agent, at launch, on /new and from /sessions', async () => {
-  const { coordinator, a, store, project } = await fixture();
+  const { coordinator, a, store, project } = await unitFixture();
   try {
     assert.equal(a.sessions.length, 1);
     await coordinator.newConversation();
@@ -717,7 +718,7 @@ async function relaunch(
   installed: string[],
   prepare?: (a: FixtureAgent) => void,
 ) {
-  const context = await fixture();
+  const context = await unitFixture();
   await context.coordinator.close();
   const a = new FixtureAgent('a');
   const b = new FixtureAgent('b');
@@ -817,7 +818,7 @@ test('a failed first connect keeps the remembered model, and a model chosen next
 });
 
 test('a model the agent rejects while disconnected keeps the stored one, so the next turn connects with it', async () => {
-  const { coordinator, a, root } = await fixture();
+  const { coordinator, a, root } = await unitFixture();
   try {
     await coordinator.selectModel({ agent: 'a', id: 'a-big' });
     a.invalidModel = 'a-typo';
@@ -839,7 +840,7 @@ test('a model the agent rejects while disconnected keeps the stored one, so the 
 });
 
 test('an interrupt while a chosen model connects keeps the stored one', async () => {
-  const { coordinator, a, root } = await fixture();
+  const { coordinator, a, root } = await unitFixture();
   try {
     await coordinator.selectModel({ agent: 'a', id: 'a-big' });
     await a.sessions.at(-1)!.session.close();
@@ -861,7 +862,7 @@ test('an interrupt while a chosen model connects keeps the stored one', async ()
 });
 
 test('an interrupt while a reconnected session checks the choice keeps the stored one', async () => {
-  const { coordinator, a, root } = await fixture();
+  const { coordinator, a, root } = await unitFixture();
   try {
     await coordinator.selectModel({ agent: 'a', id: 'a-big' });
     await a.sessions.at(-1)!.session.close();
@@ -886,7 +887,7 @@ test('an interrupt while a reconnected session checks the choice keeps the store
 });
 
 test('a rollback whose close fails still keeps the stored model and reports the refusal', async () => {
-  const { coordinator, a, root } = await fixture();
+  const { coordinator, a, root } = await unitFixture();
   try {
     await coordinator.selectModel({ agent: 'a', id: 'a-big' });
     await a.sessions.at(-1)!.session.close();
@@ -914,7 +915,7 @@ test('a rollback whose close fails still keeps the stored model and reports the 
 });
 
 test('/new copies this conversation for its own agent, starts another agent on its default, and refuses an uninstalled one', async () => {
-  const { coordinator, a, b, store, project } = await fixture();
+  const { coordinator, a, b, store, project } = await unitFixture();
   try {
     const source = await store.create({
       ...record(randomUUID(), project),
@@ -950,7 +951,7 @@ test('/new copies this conversation for its own agent, starts another agent on i
 });
 
 test('a transient native notice shows without making an unused conversation resumable', async () => {
-  const { coordinator, a, root } = await fixture();
+  const { coordinator, a, root } = await unitFixture();
   const id = coordinator.snapshot.conversation!.id;
   try {
     a.sessions[0]!.options.onEvent({

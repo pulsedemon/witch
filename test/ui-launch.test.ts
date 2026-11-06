@@ -9,10 +9,10 @@ import type { Snapshot } from '../src/core/snapshot.js';
 import { App } from '../src/ui/app.js';
 import { show, fake } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
-import { fixture, record } from './fixtures/coordinator.js';
+import { unitFixture, record } from './fixtures/coordinator.js';
 
 test('startup reports missing conversation directories without blocking the initial prompt', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   await f.coordinator.close();
   const missing = join(f.root, 'missing checkout');
   for (const id of ['old-one', 'old-two'])
@@ -60,7 +60,7 @@ test('startup reports missing conversation directories without blocking the init
 
 for (const unreadable of [false, true]) {
   test(`startup ${unreadable ? 'inspection errors' : 'missing-directory notices'} do not become saved conversation history`, async () => {
-    const f = await fixture();
+    const f = await unitFixture();
     const previous = f.coordinator.snapshot.conversation!.id;
     try {
       await f.coordinator.send('previous task');

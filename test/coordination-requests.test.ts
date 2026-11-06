@@ -11,7 +11,7 @@ import type { Ledger } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { StateStore } from '../src/persistence/store.js';
 import {
-  coordinationFixture,
+  unitCoordinationFixture,
   measureControl,
   pauseDiscovery,
 } from './fixtures/coordination.js';
@@ -41,7 +41,7 @@ for (const kind of [
   test(`${kind} discovers once and publishes the resulting ownership`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     pauseDiscovery(vi.spyOn);
-    const { start } = await coordinationFixture(cleanup);
+    const { start } = await unitCoordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const peer = await b.claim('task:peer', 'Peer work');
@@ -172,7 +172,7 @@ function holdDiscovery(observed: { resolve(): void }, finish: Promise<void>) {
 test('human release reuses its lookup and publishes the released state', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start();
   assert.equal((await a.claim()).kind, 'claimed');
   const measured = await measureControl(vi.spyOn, () =>
@@ -187,7 +187,7 @@ test('human release reuses its lookup and publishes the released state', async (
 test('a later query reads the peer reservation made between requests', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   assert.equal((await a.query()).peers[0]?.claim, undefined);
@@ -205,7 +205,7 @@ for (const stage of ['acquisition', 'completion'] as const)
   test(`peer claims survive delayed read ${stage}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     const refreshes = pauseDiscovery(vi.spyOn);
-    const { start, store } = await coordinationFixture(cleanup);
+    const { start, store } = await unitCoordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const peerId = b.coordinator.snapshot.conversation!.id;
@@ -306,7 +306,7 @@ for (const stage of ['acquisition', 'completion'] as const)
 test('an older successful ledger read cannot clear a later read failure', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const refreshes = pauseDiscovery(vi.spyOn);
-  const { start, store } = await coordinationFixture(cleanup);
+  const { start, store } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const reserved = await a.claim('task:known', 'Known work');
   if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
@@ -400,7 +400,7 @@ test('an older successful ledger read cannot clear a later read failure', async 
 test('an older ledger failure cannot replace a later successful observation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const refreshes = pauseDiscovery(vi.spyOn);
-  const { start, store } = await coordinationFixture(cleanup);
+  const { start, store } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const reserved = await a.claim('task:known', 'Known work');
   if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
@@ -457,7 +457,7 @@ test('an older ledger failure cannot replace a later successful observation', as
 test('cancellation publishes the next waiter without another discovery', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const first = await selectionTurn(cleanup, a),
@@ -490,11 +490,14 @@ test('claim finalization preserves newer background observations', async (t) => 
   const refreshes = pauseDiscovery(vi.spyOn);
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
-  const { start, registry } = await coordinationFixture(cleanup, async () => {
-    entered.resolve();
-    await finish.promise;
-    return { assigned: [] };
-  });
+  const { start, registry } = await unitCoordinationFixture(
+    cleanup,
+    async () => {
+      entered.resolve();
+      await finish.promise;
+      return { assigned: [] };
+    },
+  );
   const a = await start(),
     b = await start('B');
   const claiming = a.claim('task:chosen');
@@ -531,7 +534,7 @@ test('claim finalization preserves a newer discovery failure until recovery', as
   const refreshes = pauseDiscovery(vi.spyOn);
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
-  const { start, store } = await coordinationFixture(cleanup, async () => {
+  const { start, store } = await unitCoordinationFixture(cleanup, async () => {
     entered.resolve();
     await finish.promise;
     return { assigned: [] };
@@ -580,7 +583,7 @@ test('claim finalization preserves a newer discovery failure until recovery', as
 test('a pre-mutation refresh cannot publish old ownership after commit', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.query();
@@ -676,7 +679,7 @@ for (const outcome of ['success', 'failure'] as const)
     const refreshes = pauseDiscovery(vi.spyOn);
     const assignmentEntered = Promise.withResolvers<void>(),
       finishAssignment = Promise.withResolvers<void>();
-    const { start, store, registry } = await coordinationFixture(
+    const { start, store, registry } = await unitCoordinationFixture(
       cleanup,
       async () => {
         assignmentEntered.resolve();
@@ -777,7 +780,7 @@ for (const stage of ['waiting', 'verifying'] as const)
   test(`a refresh started while ${stage} never publishes ownership older than the commit`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     const refreshes = pauseDiscovery(vi.spyOn);
-    const { start, registry } = await coordinationFixture(cleanup);
+    const { start, registry } = await unitCoordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const peerId = b.coordinator.snapshot.conversation!.id;
@@ -905,7 +908,7 @@ test('a refresh started during verification retains peer claims after mutation c
   const refreshes = pauseDiscovery(vi.spyOn);
   const assignmentEntered = Promise.withResolvers<void>(),
     finishAssignment = Promise.withResolvers<void>();
-  const { start, registry } = await coordinationFixture(
+  const { start, registry } = await unitCoordinationFixture(
     cleanup,
     async (references) => {
       if (!references.some((reference) => reference.endsWith(':chosen')))
@@ -1011,7 +1014,7 @@ for (const readFails of [false, true])
   test(`post-commit finalization preserves peer claims${readFails ? ' after a later read fails' : ''}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     const refreshes = pauseDiscovery(vi.spyOn);
-    const { start, registry } = await coordinationFixture(cleanup);
+    const { start, registry } = await unitCoordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const owner = a.coordinator.snapshot.conversation!.id;
@@ -1109,7 +1112,7 @@ for (const kind of ['claim', 'release'] as const)
   test(`committed ${kind} remains published after an overlapping ledger read fails`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     const refreshes = pauseDiscovery(vi.spyOn);
-    const { start, store } = await coordinationFixture(cleanup);
+    const { start, store } = await unitCoordinationFixture(cleanup);
     const a = await start();
     const binding = await a.binding();
     let action: CoordinationAction = {
@@ -1198,7 +1201,7 @@ for (const kind of ['claim', 'release'] as const)
 test('a newer discovery survives rejected mutation completion', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const refreshes = pauseDiscovery(vi.spyOn);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const peerId = b.coordinator.snapshot.conversation!.id;
@@ -1302,7 +1305,7 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
 test('a refresh that read the old ledger cannot erase a committed claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const refreshes = pauseDiscovery(vi.spyOn);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();

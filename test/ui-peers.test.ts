@@ -8,7 +8,7 @@ import { callControl } from '../src/persistence/control.js';
 import { App } from '../src/ui/app.js';
 import { TurnGate } from './fixtures/agent.js';
 import {
-  coordinationFixture,
+  unitCoordinationFixture,
   git,
   pauseDiscovery,
 } from './fixtures/coordination.js';
@@ -253,7 +253,7 @@ test('the narrow peers page stays live and read-only during work and describes r
 
 test('a real peer updates its summary and keeps its reservation across an origin change until closing', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start, registry } = await coordinationFixture(cleanup);
+  const { root, start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await start('C');
@@ -303,7 +303,7 @@ test('a real peer updates its summary and keeps its reservation across an origin
 
 test('task release refuses running or background work in chat without changing phase or stopping queued prompts, and then releases only this conversation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.claim('task:mine', 'My current task');
@@ -369,7 +369,7 @@ test('task release refuses running or background work in chat without changing p
 
 test('a refused /task take stays in chat and leaves queued prompts runnable', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const ui = show(
     createElement(App, { coordinator: a.coordinator, onExit() {} }),
@@ -469,7 +469,7 @@ test('queue and suggestion rows preserve task links and detailed activity status
 
 test('task selection advances live and suggested ownership stays visible at narrow width', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('D');
   const a = await f.start(),
     b = await f.start('B'),
@@ -515,7 +515,7 @@ test('task selection advances live and suggested ownership stays visible at narr
 test("/task take shows the idle owner's claim in this conversation's task view", async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const ticks = pauseDiscovery(vi.spyOn);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.claim('task:shared', 'Shared work');

@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { fixture, readRecord } from './fixtures/coordinator.js';
+import { unitFixture, readRecord } from './fixtures/coordinator.js';
 
 for (const outcome of ['interrupted', 'failed'] as const) {
   test(`a ${outcome} first turn retries fixed instructions before recording delivery`, async () => {
-    const f = await fixture();
+    const f = await unitFixture();
     try {
       if (outcome === 'interrupted') f.a.interruptNext = true;
       else f.a.failNext = true;
@@ -33,7 +33,7 @@ for (const outcome of ['interrupted', 'failed'] as const) {
 }
 
 test("the fixed instructions use Witch's names for native skills, subagents and background commands, saying skill only where they map them", async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     await f.coordinator.send('Initial task');
     const context = f.a.inputs.at(-1)!.context!;
@@ -48,7 +48,7 @@ test("the fixed instructions use Witch's names for native skills, subagents and 
 });
 
 test('the fixed instructions lay out transcript replies for scanning and leave voice and text posted elsewhere alone', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     await f.coordinator.send('Initial task');
     const context = f.a.inputs.at(-1)!.context!;
@@ -81,7 +81,7 @@ test('the fixed instructions lay out transcript replies for scanning and leave v
 });
 
 test('the fixed instructions take the recommended route past a blocked step and keep working on a runtime with usage', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     await f.coordinator.send('Initial task');
     const context = f.a.inputs.at(-1)!.context!;
@@ -127,7 +127,7 @@ test('the fixed instructions take the recommended route past a blocked step and 
 });
 
 test("the fixed instructions file an issue at once for a bug the current task won't fix", async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     await f.coordinator.send('Initial task');
     const context = f.a.inputs.at(-1)!.context!;
@@ -184,7 +184,7 @@ test("the fixed instructions file an issue at once for a bug the current task wo
 
 for (const revision of [undefined, '0'.repeat(64)]) {
   test(`a session with ${revision ? 'outdated' : 'missing'} instructions receives them without resending unchanged memory`, async () => {
-    const f = await fixture();
+    const f = await unitFixture();
     try {
       await f.coordinator.send('Initial task');
       const id = f.coordinator.snapshot.conversation!.id;

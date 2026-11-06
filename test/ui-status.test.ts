@@ -6,7 +6,7 @@ import type { Snapshot } from '../src/core/snapshot.js';
 import { App } from '../src/ui/app.js';
 import { show, forgedLink, fake } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
-import { fixture as coordinatorFixture } from './fixtures/coordinator.js';
+import { unitFixture as coordinatorFixture } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { ENTER } from './fixtures/ui.js';
 

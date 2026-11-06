@@ -11,7 +11,7 @@ import { Coordinator } from '../src/core/coordinator.js';
 import { StateStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 
-import { fixture } from './fixtures/coordinator.js';
+import { unitFixture } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
 import { appears, settled, within } from './fixtures/within.js';
@@ -19,7 +19,7 @@ import { appears, settled, within } from './fixtures/within.js';
 for (const restart of [false, true])
   for (const failInterrupt of [false, true])
     test(`shutdown shares its deadline and restart=${restart} through ${failInterrupt ? 'failed' : 'successful'} interruption`, async () => {
-      const { coordinator, a } = await fixture();
+      const { coordinator, a } = await unitFixture();
       a.stops.length = 0;
       a.gate = new TurnGate();
       a.failInterrupt = failInterrupt;

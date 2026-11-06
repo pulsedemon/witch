@@ -9,7 +9,7 @@ import type { TestContext } from 'vitest';
 import { test, vi } from 'vitest';
 import { Attachments, imagePaste } from '../src/core/attachments.js';
 import { StateStore } from '../src/persistence/store.js';
-import { fixture, record } from './fixtures/coordinator.js';
+import { unitFixture, record } from './fixtures/coordinator.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
@@ -308,7 +308,7 @@ test.runIf(process.platform === 'darwin')(
 );
 
 test('a pasted image becomes its marker, spaced from a word before it, and a file removed while it is checked leaves the paste as text', async (t) => {
-  const { coordinator, root } = await fixture();
+  const { coordinator, root } = await unitFixture();
   try {
     const [shot, photo] = [join(root, 'shot.png'), join(root, 'photo.jpg')];
     await writeFile(shot, png(1, 1));

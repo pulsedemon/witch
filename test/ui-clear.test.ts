@@ -5,7 +5,7 @@ import { test } from 'vitest';
 import type { DisplayItem } from '../src/core/state.js';
 import { App } from '../src/ui/app.js';
 import { Screen } from '../src/ui/screen.js';
-import { fixture } from './fixtures/coordinator.js';
+import { unitFixture } from './fixtures/coordinator.js';
 import { show, fake, drag, left, ENTER, SHIFT_ENTER } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
@@ -33,7 +33,7 @@ async function submit(ui: ReturnType<typeof show>, text: string) {
 }
 
 test('clear runs in the current conversation and its visible boundary survives reopening', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   let c = f.coordinator;
   let ui: ReturnType<typeof show> | undefined;
   try {

@@ -6,7 +6,7 @@ import type { ConversationRecord } from '../src/core/state.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { watchTerminal } from '../src/ui/terminal.js';
 import { TurnGate } from './fixtures/agent.js';
-import { fixture, readRecord } from './fixtures/coordinator.js';
+import { fixture, unitFixture, readRecord } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import { within } from './fixtures/within.js';
 
@@ -57,7 +57,7 @@ test('completion identifies the successful activity only after its final save', 
 });
 
 test('a rejected final save publishes no completion', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   const save = ConversationStore.prototype.save;
   let saving: { mockRestore(): void } | undefined;
@@ -140,7 +140,7 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
   });
 
 test('reconnect and restart retain the ordinary outcome without replaying completion', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const output: string[] = [];
   const stop = watchTerminal(f.coordinator, undefined, (data) =>
     output.push(data),
@@ -206,7 +206,7 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
 });
 
 test('conversation adoption clears completion and the internal handoff summary stays silent', async () => {
-  const { coordinator, a, b } = await fixture();
+  const { coordinator, a, b } = await unitFixture();
   const summary = new TurnGate();
   const destination = new TurnGate();
   const signals = new Set<string>();
@@ -253,7 +253,7 @@ test('conversation adoption clears completion and the internal handoff summary s
 
 for (const failed of [false, true])
   test(`terminal completion follows the final queued ${failed ? 'failure' : 'success'}`, async () => {
-    const { coordinator, a } = await fixture();
+    const { coordinator, a } = await unitFixture();
     const gate = new TurnGate();
     const output: string[] = [];
     const stop = watchTerminal(coordinator, undefined, (data) =>

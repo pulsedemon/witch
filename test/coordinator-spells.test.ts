@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import type { Subagent } from '../src/agents/types.js';
 import type { Coordinator } from '../src/core/coordinator.js';
-import { fixture } from './fixtures/coordinator.js';
+import { unitFixture } from './fixtures/coordinator.js';
 
 const tdd = { id: 's1', name: 'tdd' };
 const review = { id: 's2', name: 'review' };
@@ -11,7 +11,7 @@ const casts = (coordinator: Coordinator) =>
   coordinator.snapshot.items.filter((item) => item.cast);
 
 /** closes the session and selects another model, so the next events come from a new connection. */
-async function reconnect(f: Awaited<ReturnType<typeof fixture>>) {
+async function reconnect(f: Awaited<ReturnType<typeof unitFixture>>) {
   const sessions = f.a.sessions.length;
   await f.a.sessions.at(-1)!.session.close();
   await f.coordinator.selectModel({ agent: 'a', id: 'a-big' });
@@ -20,7 +20,7 @@ async function reconnect(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 test('a spell event shows one cast row, which reopening keeps', async () => {
-  const { coordinator, a, project, reopen } = await fixture();
+  const { coordinator, a, project, reopen } = await unitFixture();
   let reopened: Coordinator | undefined;
   try {
     a.sessions[0]!.options.onEvent({ type: 'spell', cast: tdd });
@@ -54,7 +54,7 @@ test('a spell event shows one cast row, which reopening keeps', async () => {
 });
 
 test('a repeated cast keeps its one row and first time, before and after a reconnect', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     const emit = f.a.sessions[0]!.options.onEvent;
     emit({ type: 'spell', cast: tdd });
@@ -70,7 +70,7 @@ test('a repeated cast keeps its one row and first time, before and after a recon
 });
 
 test("a familiar's cumulative spells give one row per cast, which its replayed report after a reconnect does not repeat", async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     const reader: Subagent = {
       id: 'reader',

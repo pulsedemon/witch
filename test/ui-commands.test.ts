@@ -6,7 +6,7 @@ import { App } from '../src/ui/app.js';
 import { parseCommands } from '../src/ui/commands.js';
 import type { WitchCommand } from '../src/ui/commands.js';
 import type { StateStore } from '../src/persistence/store.js';
-import { fixture } from './fixtures/coordinator.js';
+import { unitFixture } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { show, fake, prompts, ENTER, UP } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
@@ -90,7 +90,7 @@ async function submit(ui: ReturnType<typeof show>, text: string) {
 }
 
 test('embedded commands finish compaction and model application before queued prose, with a visible pending row at minimum size', async () => {
-  const f = await fixture(),
+  const f = await unitFixture(),
     c = f.coordinator,
     gate = new TurnGate();
   const ui = show(
@@ -211,7 +211,7 @@ for (const [draft, between] of [
   ['! printf /compact', false],
 ] as const)
   test(`canceling two batches preserves ordinary input ${between ? 'between batches' : 'after batches'} and draft ${JSON.stringify(draft)}`, async () => {
-    const f = await fixture(),
+    const f = await unitFixture(),
       c = f.coordinator,
       gate = new TurnGate();
     const history = prompts([]);
@@ -356,7 +356,7 @@ for (const failure of ['native', 'refusal'] as const)
   });
 
 test('unsafe queued-message merging retains native shell boundaries until an explicit ordinary submission', async () => {
-  const f = await fixture(),
+  const f = await unitFixture(),
     c = f.coordinator,
     gate = new TurnGate();
   const ui = show(createElement(App, { coordinator: c, onExit: () => {} }));

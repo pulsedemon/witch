@@ -9,7 +9,7 @@ import { StateStore } from '../src/persistence/store.js';
 import { FixtureAgent, holdConnect, TurnGate } from './fixtures/agent.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import {
-  coordinationFixture,
+  unitCoordinationFixture,
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
@@ -806,7 +806,7 @@ const outOfUsage = (coordinator: Coordinator) =>
 
 test('an exhausted answer turn does not switch', async (t) => {
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const asker = await f.start('A');
   const owner = await f.start('B');
   const claimed = await owner.claim('task:b-work', 'b work');

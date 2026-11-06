@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { fixture } from './fixtures/coordinator.js';
+import { unitFixture } from './fixtures/coordinator.js';
 
 test('a reported familiar replaces its brew and retitles observed identity without duplicating reports', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const emit = a.sessions[0]!.options.onEvent;
   const worker = {
     id: 'review',
@@ -118,7 +118,7 @@ test('a reported familiar replaces its brew and retitles observed identity witho
 });
 
 test('each familiar notice posts once, before its end row', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const emit = a.sessions[0]!.options.onEvent;
   const worker = {
     id: 'impl',
@@ -166,7 +166,7 @@ test('each familiar notice posts once, before its end row', async () => {
 });
 
 test('a running familiar keeps the job watch active until it ends', async () => {
-  const { coordinator, a, active } = await fixture();
+  const { coordinator, a, active } = await unitFixture();
   const emit = a.sessions[0]!.options.onEvent;
   const worker = {
     id: 'impl',
@@ -193,7 +193,7 @@ test('a running familiar keeps the job watch active until it ends', async () => 
 });
 
 test('familiar and brew rows retain identity, order and reports after reopening', async () => {
-  const { coordinator, a, project, reopen } = await fixture();
+  const { coordinator, a, project, reopen } = await unitFixture();
   let reopened: typeof coordinator | undefined;
   const emit = a.sessions[0]!.options.onEvent;
   const worker = {
@@ -284,7 +284,7 @@ test('familiar and brew rows retain identity, order and reports after reopening'
 });
 
 test('the native agent running on its own keeps the session active until it idles, closes or disconnects', async () => {
-  const { coordinator, a, b, active } = await fixture();
+  const { coordinator, a, b, active } = await unitFixture();
   const shown = () => [
     coordinator.snapshot.nativeRunning,
     coordinator.pentacle.active,
@@ -311,7 +311,7 @@ test('the native agent running on its own keeps the session active until it idle
 });
 
 test('the pentacle spins while the session closes', async () => {
-  const { coordinator } = await fixture();
+  const { coordinator } = await unitFixture();
   assert.equal(coordinator.pentacle.active, false);
   const closing = coordinator.close();
   assert.equal(coordinator.snapshot.phase, 'closing');

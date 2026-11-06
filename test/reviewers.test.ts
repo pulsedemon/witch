@@ -14,13 +14,13 @@ import type { Reviewer } from '../src/core/reviewers.js';
 import { callControl } from '../src/persistence/control.js';
 import { quote } from '../src/shell.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
-import { coordinationFixture } from './fixtures/coordination.js';
+import { unitCoordinationFixture } from './fixtures/coordination.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
 /** a coordinator whose familiar mailbox asks its reviewers first, with `claude` and `codex` fixtures on a private PATH. */
 async function setup(register: Parameters<typeof orderedCleanup>[0]) {
-  const { start } = await coordinationFixture(orderedCleanup(register));
+  const { start } = await unitCoordinationFixture(orderedCleanup(register));
   const session = await start();
   const { coordinator, coordination, a } = session;
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);

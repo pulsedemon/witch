@@ -3,11 +3,11 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { test } from 'vitest';
 import { identifyProcess } from '../src/persistence/process.js';
-import { fixture, readRecord } from './fixtures/coordinator.js';
+import { unitFixture, readRecord } from './fixtures/coordinator.js';
 import { until } from './fixtures/within.js';
 
 test('usage process registration preserves the main identity and ignores reports after its conversation closes', async () => {
-  const { coordinator, a, root, tracked } = await fixture();
+  const { coordinator, a, root, tracked } = await unitFixture();
   const helper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
   try {
     const id = coordinator.snapshot.conversation!.id;
@@ -38,7 +38,7 @@ test('usage process registration preserves the main identity and ignores reports
 
 test('connect reads the other runtime, and each turn carries the account usage without resending the fixed instructions', async () => {
   const weekly = [{ window: '7D', percent: 40, observedAt: Date.now() }];
-  const f = await fixture(undefined, (_a, b) => {
+  const f = await unitFixture(undefined, (_a, b) => {
     b.accountReading = { limits: weekly };
   });
   try {
@@ -72,7 +72,7 @@ test('connect reads the other runtime, and each turn carries the account usage w
 });
 
 test('new credit observations reach each next turn without resending fixed instructions', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     const account = {
       limits: [{ window: '7D', percent: 100, observedAt: Date.now() }],
