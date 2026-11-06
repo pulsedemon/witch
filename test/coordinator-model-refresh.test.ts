@@ -5,7 +5,7 @@ import { identifyProcess } from '../src/persistence/process.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
 import { fixture, readRecord } from './fixtures/coordinator.js';
-import { until, within } from './fixtures/within.js';
+import { settled, until, within } from './fixtures/within.js';
 
 test('interrupting inactive model discovery keeps the connected session', async () => {
   const { coordinator, a, b, root } = await fixture(undefined, (a) => {
@@ -44,16 +44,8 @@ test('interrupting inactive model discovery keeps the connected session', async 
       options.signal!.throwIfAborted();
       return b.catalog;
     };
-    let settled = false;
     refreshing = coordinator.refreshModels();
-    void refreshing.then(
-      () => {
-        settled = true;
-      },
-      () => {
-        settled = true;
-      },
-    );
+    const isSettled = settled(refreshing);
     const signal = await within(entered.promise, 2000, 'inactive discovery');
     await assert.rejects(
       coordinator.refreshModels(),
@@ -63,7 +55,7 @@ test('interrupting inactive model discovery keeps the connected session', async 
     await coordinator.interrupt();
     assert.equal(signal.aborted, true);
     assert.equal(session.closed, false);
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     cleaned.resolve();
     assert.equal(await within(refreshing, 2000, 'refresh cleanup'), false);
     assert.equal(coordinator.snapshot.phase, 'idle');
@@ -126,20 +118,12 @@ test('interrupting an active model read discards its result', async () => {
       entered.resolve();
       return models.promise;
     };
-    let settled = false;
     refreshing = coordinator.refreshModels();
-    void refreshing.then(
-      () => {
-        settled = true;
-      },
-      () => {
-        settled = true;
-      },
-    );
+    const isSettled = settled(refreshing);
     await within(entered.promise, 2000, 'active model read');
     await coordinator.interrupt();
     assert.equal(session.closed, false);
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     models.resolve([{ id: 'late-model', label: 'Late model', efforts: [] }]);
     assert.equal(
       await within(refreshing, 2000, 'active model response'),

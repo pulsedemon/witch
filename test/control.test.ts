@@ -20,7 +20,7 @@ import { identifyProcess } from '../src/persistence/process.js';
 import { writeJson } from '../src/persistence/json.js';
 import { openLocked } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
-import { exists, until, within } from './fixtures/within.js';
+import { settled, exists, until, within } from './fixtures/within.js';
 
 const identity = (await identifyProcess(process.pid))!;
 
@@ -274,29 +274,21 @@ test('the client waits through an incomplete reply before accepting and acknowle
       return text;
     },
   );
-  let settled = false;
   const calling = callControl(bound, { kind: 'peers' });
-  void calling.then(
-    () => {
-      settled = true;
-    },
-    () => {
-      settled = true;
-    },
-  );
+  const isSettled = settled(calling);
   const id = await published(bound);
   const reply = join(bound.directory, 'replies', `${id}.json`);
   try {
     await files.writeFile(reply, '{"id":');
     await within(partialRead.promise, 3000, 'partial reply read');
     await setImmediate();
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     await writeJson(reply, { id, kind: 'released' });
     assert.deepEqual(await calling, { id, kind: 'released' });
     assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
   } finally {
-    if (!settled) await writeJson(reply, { id, kind: 'released' });
+    if (!isSettled()) await writeJson(reply, { id, kind: 'released' });
     await calling.catch(() => {});
   }
 });

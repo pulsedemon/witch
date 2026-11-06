@@ -7,6 +7,7 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setImmediate as nextTick } from 'node:timers/promises';
 import { test, vi } from 'vitest';
+import { writeJson } from '../src/persistence/json.js';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
@@ -499,26 +500,22 @@ for (const name of ['claude', 'codex'] as const) {
           assert.equal(coordinator.snapshot.backgroundCommands.length, 1);
         } else {
           await appears(join(cwd, 'turn-1.json'), 'Codex turn');
-          await writeFile(
-            join(cwd, 'events.next'),
-            JSON.stringify([
-              {
-                method: 'turn/started',
-                params: {
-                  threadId: 'child-thread',
-                  turn: { id: 'child-turn', status: 'inProgress' },
-                },
+          await writeJson(join(cwd, 'events-1.json'), [
+            {
+              method: 'turn/started',
+              params: {
+                threadId: 'child-thread',
+                turn: { id: 'child-turn', status: 'inProgress' },
               },
-              {
-                method: 'turn/completed',
-                params: {
-                  threadId: 'native-thread',
-                  turn: { id: 'turn-1', status: 'completed', error: null },
-                },
+            },
+            {
+              method: 'turn/completed',
+              params: {
+                threadId: 'native-thread',
+                turn: { id: 'turn-1', status: 'completed', error: null },
               },
-            ]),
-          );
-          await rename(join(cwd, 'events.next'), join(cwd, 'events-1.json'));
+            },
+          ]);
           await within(turn, 5000, 'Codex main reply');
         }
         await until('running familiar', () =>

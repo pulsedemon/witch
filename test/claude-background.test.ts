@@ -13,7 +13,7 @@ import {
   launcher,
   working,
 } from './fixtures/claude-adapter.js';
-import { appears, until, within } from './fixtures/within.js';
+import { settled, appears, until, within } from './fixtures/within.js';
 
 const state = (state: string) => ({
   type: 'system',
@@ -151,14 +151,11 @@ test('a session state received between turns makes subsequent results wait for i
     await f.emit(result('First answer.', [f.initial]));
     await within(f.turn, 2000, 'first result');
     await f.emit(state('running'));
-    let settled = false;
-    const next = f.session.send('next').then((value) => {
-      settled = true;
-      return value;
-    });
+    const next = f.session.send('next');
+    const isSettled = settled(next);
     await until('next input', async () => (await f.inputs()).length === 2);
     await f.emit(result('Second answer.', [(await f.inputs())[1]!.uuid!]));
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     await f.emit(state('idle'));
     assert.deepEqual(await within(next, 2000, 'native idle'), {
       status: 'completed',
@@ -191,16 +188,13 @@ test("a prompt sent while Claude Code runs on its own settles on its own result,
     await f.emit(state('idle'));
     await within(f.turn, 2000, 'first turn');
     await f.emit(state('running'));
-    let settled = false;
-    const next = f.session.send('next').then((value) => {
-      settled = true;
-      return value;
-    });
+    const next = f.session.send('next');
+    const isSettled = settled(next);
     await until('next input', async () => (await f.inputs()).length === 2);
     const uuid = (await f.inputs())[1]!.uuid!;
     // as captured, the run's own result names no input
     await f.emit(lifecycle(uuid, 'queued'), result('Brewed.'), state('idle'));
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     await f.emit(
       state('running'),
       lifecycle(uuid, 'started'),

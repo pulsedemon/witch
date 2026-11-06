@@ -29,7 +29,7 @@ import type {
   ScratchUse,
 } from '../src/persistence/scratch-usage.js';
 import { scratch } from './fixtures/scratch.js';
-import { until, within } from './fixtures/within.js';
+import { settled, until, within } from './fixtures/within.js';
 
 const execute = promisify(execFile);
 const fixture = join(import.meta.dirname, 'fixtures/scratch-lifetime.ts');
@@ -123,19 +123,11 @@ test('fresh scratch waits for a competing sweep and records its owner', async (t
     );
     syncBuiltinESMExports();
     opening = ScratchSpace.open(parent, firstBoot);
-    let settled = false;
-    void opening.then(
-      () => {
-        settled = true;
-      },
-      () => {
-        settled = true;
-      },
-    );
+    const isSettled = settled(opening);
     const directory = await within(created.promise, 5000, 'competing sweep');
     await delay(150);
-    if (settled) await opening;
-    assert.equal(settled, false);
+    if (isSettled()) await opening;
+    assert.equal(isSettled(), false);
     await holder!.release();
     holder = undefined;
     const space = await within(opening, 5000, 'fresh scratch acquisition');
