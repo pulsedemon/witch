@@ -1326,9 +1326,10 @@ export function App({
       if (
         row !== undefined &&
         row >= scrollTop &&
-        row - scrollTop < visible.length
+        row - scrollTop < visible.length &&
+        !(ends && row >= ends[0].row && row <= ends[1].row)
       )
-        visible[row - scrollTop] = castTitle(frame);
+        visible[row - scrollTop] = castTitle(frame, bodyWidth);
     }
     const selectedToolRow = transcript.starts.get(selectedTool?.id ?? '');
     if (
