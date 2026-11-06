@@ -154,7 +154,9 @@ function pullRequest({
             ? colors.green('✓')
             : request.checks === 'failing'
               ? colors.red('✗')
-              : colors.yellow('…'),
+              : request.checks === 'none'
+                ? colors.dim('NO CHECKS')
+                : colors.yellow('…'),
         ]
       : []),
     ...(conflict ? [colors.red('CONFLICT')] : []),

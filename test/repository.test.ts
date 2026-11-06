@@ -427,7 +427,7 @@ test('a failing pull request lists its failed runs and statuses with their detai
   assert.equal(read([run('lint', 'SUCCESS')]).failed, undefined);
 });
 
-test("a pull request's checks fail on a failed run or status, stay pending while any runs or none exist, and pass otherwise, and only an open one carries its mergeability", () => {
+test("a pull request's check rollup distinguishes no checks, running checks and completed checks, and only an open one carries its mergeability", () => {
   const checks = (rollup: object[]) =>
     parsePullRequest(view({ state: 'OPEN', statusCheckRollup: rollup })).checks;
   const done = (conclusion: string) => ({
@@ -436,7 +436,7 @@ test("a pull request's checks fail on a failed run or status, stay pending while
     status: 'COMPLETED',
     conclusion,
   });
-  assert.equal(checks([]), 'pending');
+  assert.equal(checks([]), 'none');
   assert.equal(checks([done('SUCCESS'), done('SKIPPED')]), 'passing');
   assert.equal(
     checks([
@@ -491,6 +491,305 @@ test("a pull request's checks fail on a failed run or status, stay pending while
   );
 });
 
+test.each<{
+  name: string;
+  expected: 'none' | 'pending';
+  headWorkflow?: boolean;
+  baseWorkflow?: boolean;
+  baseChecks?: boolean;
+  protection?: boolean;
+  rules?: { type: string }[][];
+  failure?: 'graphql' | 'branch' | 'rules' | 'confirmation';
+  moved?: 'head' | 'base' | 'late-head' | 'late-base';
+}>([
+  { name: 'no workflow files or required checks', expected: 'none' },
+  {
+    name: 'a workflow added on the head',
+    expected: 'pending',
+    headWorkflow: true,
+  },
+  { name: 'a workflow on the base', expected: 'pending', baseWorkflow: true },
+  {
+    name: 'checks reported on the base without workflows',
+    expected: 'pending',
+    baseChecks: true,
+  },
+  {
+    name: 'classic required checks visible to a reader',
+    expected: 'pending',
+    protection: true,
+  },
+  {
+    name: 'required code scanning',
+    expected: 'pending',
+    rules: [[{ type: 'code_scanning' }]],
+  },
+  {
+    name: 'required checks on a later rules page',
+    expected: 'pending',
+    rules: [[{ type: 'pull_request' }], [{ type: 'required_status_checks' }]],
+  },
+  {
+    name: 'required workflows',
+    expected: 'pending',
+    rules: [[{ type: 'workflows' }]],
+  },
+  {
+    name: 'automatic Copilot reviews',
+    expected: 'pending',
+    rules: [[{ type: 'copilot_code_review' }]],
+  },
+  {
+    name: 'unrelated rules',
+    expected: 'none',
+    rules: [[{ type: 'pull_request' }]],
+  },
+  {
+    name: 'unavailable workflow configuration',
+    expected: 'pending',
+    failure: 'graphql',
+  },
+  { name: 'unavailable rules', expected: 'pending', failure: 'rules' },
+  {
+    name: 'unavailable branch protection',
+    expected: 'pending',
+    failure: 'branch',
+  },
+  { name: 'a changed head', expected: 'pending', moved: 'head' },
+  { name: 'a changed base', expected: 'pending', moved: 'base' },
+  {
+    name: 'a head changed during the REST reads',
+    expected: 'pending',
+    moved: 'late-head',
+  },
+  {
+    name: 'a base changed during the REST reads',
+    expected: 'pending',
+    moved: 'late-base',
+  },
+  {
+    name: 'an unavailable final confirmation',
+    expected: 'pending',
+    failure: 'confirmation',
+  },
+])(
+  'an empty rollup with $name shows $expected',
+  async ({
+    expected,
+    headWorkflow,
+    baseWorkflow,
+    baseChecks,
+    protection,
+    rules = [[]],
+    failure,
+    moved,
+  }) => {
+    const calls: string[][] = [];
+    let rulesRead = false;
+    let confirmation: string[] | undefined;
+    const workflow = {
+      __typename: 'Tree',
+      entries: [{ name: 'ci.yml', type: 'blob' }],
+    };
+    const watch = new RepositoryWatch('/work', async (command, args) => {
+      if (command === 'git') return { stdout: '# branch.head feat/x\n' };
+      if (args[0] === 'pr' && args[2] !== '--json') {
+        confirmation = args;
+        if (failure === 'confirmation') throw new Error('unavailable');
+        return {
+          stdout: JSON.stringify({
+            headRefOid:
+              rulesRead && moved === 'late-head' ? 'new-head' : 'a1b2c3',
+            baseRefName:
+              rulesRead && moved === 'late-base'
+                ? 'different-base'
+                : 'release/next',
+          }),
+        };
+      }
+      if (args[0] === 'pr')
+        return {
+          stdout: view({
+            state: 'OPEN',
+            url: 'https://github.example/owner/repo/pull/4',
+            baseRefName: 'release/next',
+            statusCheckRollup: [],
+          }),
+        };
+      calls.push(args);
+      const graphql = args.includes('graphql');
+      const branch = args[3]?.startsWith('repos/owner/repo/branches/');
+      if (failure === (graphql ? 'graphql' : branch ? 'branch' : 'rules'))
+        throw new Error('unavailable');
+      if (branch)
+        return {
+          stdout: JSON.stringify({
+            protection: {
+              required_status_checks: {
+                contexts: protection ? ['external-ci'] : [],
+              },
+            },
+          }),
+        };
+      if (!graphql) rulesRead = true;
+      return {
+        stdout: JSON.stringify(
+          graphql
+            ? {
+                data: {
+                  repository: {
+                    object: baseWorkflow ? workflow : null,
+                    pullRequest: {
+                      headRefOid: moved === 'head' ? 'new-head' : 'a1b2c3',
+                      baseRefName:
+                        moved === 'base' ? 'different-base' : 'release/next',
+                      baseRef: {
+                        target: {
+                          statusCheckRollup: baseChecks
+                            ? { contexts: { totalCount: 1 } }
+                            : null,
+                        },
+                      },
+                      headRepository: {
+                        object: headWorkflow
+                          ? workflow
+                          : {
+                              __typename: 'Tree',
+                              entries: [{ name: '.gitkeep', type: 'blob' }],
+                            },
+                      },
+                    },
+                  },
+                },
+              }
+            : rules,
+        ),
+      };
+    });
+    try {
+      await until('pull request checks', () => !!watch.snapshot?.pullRequest);
+      assert.equal(watch.snapshot?.pullRequest?.checks, expected);
+      assert.equal(watch.snapshot?.pullRequest?.commit, 'a1b2c3');
+      assert.equal(watch.snapshot?.pullRequest?.base, 'release/next');
+      assert.ok(calls[0]?.includes('head=a1b2c3:.github/workflows'));
+      assert.ok(
+        calls[0]?.includes('base=refs/heads/release/next:.github/workflows'),
+      );
+      assert.ok(calls[0]?.includes('owner=owner'));
+      assert.ok(calls[0]?.includes('name=repo'));
+      assert.ok(calls[0]?.includes('number=4'));
+      for (const args of calls)
+        assert.deepEqual(args.slice(0, 3), [
+          'api',
+          '--hostname',
+          'github.example',
+        ]);
+      if (calls.length > 1)
+        assert.deepEqual(calls[1]?.slice(3), [
+          'repos/owner/repo/branches/release%2Fnext',
+        ]);
+      if (calls.length > 2)
+        assert.deepEqual(calls[2]?.slice(3), [
+          'repos/owner/repo/rules/branches/release%2Fnext?per_page=100',
+          '--paginate',
+          '--slurp',
+        ]);
+      if (
+        expected === 'none' ||
+        moved?.startsWith('late-') ||
+        failure === 'confirmation'
+      )
+        assert.deepEqual(confirmation, [
+          'pr',
+          'view',
+          'https://github.example/owner/repo/pull/4',
+          '--json',
+          'headRefOid,baseRefName',
+        ]);
+    } finally {
+      watch.close();
+    }
+  },
+);
+
+test('reported checks skip configuration reads and replace a previous no-check state', async () => {
+  let rollup: object[] = [];
+  let configurationReads = 0;
+  const watch = new RepositoryWatch(
+    '/work',
+    async (command, args) => {
+      if (command === 'git') return { stdout: '# branch.head feat/x\n' };
+      if (args[0] === 'pr')
+        return {
+          stdout: view({
+            state: 'OPEN',
+            url: 'https://github.com/owner/repo/pull/4',
+            statusCheckRollup: rollup,
+          }),
+        };
+      configurationReads++;
+      if (args[3]?.startsWith('repos/owner/repo/branches/'))
+        return {
+          stdout: JSON.stringify({
+            protection: { required_status_checks: { contexts: [] } },
+          }),
+        };
+      return {
+        stdout: JSON.stringify(
+          args.includes('graphql')
+            ? {
+                data: {
+                  repository: {
+                    object: null,
+                    pullRequest: {
+                      headRefOid: 'a1b2c3',
+                      baseRefName: 'develop',
+                      baseRef: { target: { statusCheckRollup: null } },
+                      headRepository: { object: null },
+                    },
+                  },
+                },
+              }
+            : [[]],
+        ),
+      };
+    },
+    undefined,
+    { interval: 5 },
+  );
+  try {
+    await until(
+      'no checks',
+      () => watch.snapshot?.pullRequest?.checks === 'none',
+    );
+    assert.equal(configurationReads, 3);
+    rollup = [{ __typename: 'CheckRun', name: 'ci', status: 'IN_PROGRESS' }];
+    watch.refreshPullRequest();
+    await until(
+      'running check',
+      () => watch.snapshot?.pullRequest?.checks === 'pending',
+    );
+    assert.equal(configurationReads, 3);
+    rollup = [
+      {
+        __typename: 'CheckRun',
+        name: 'ci',
+        status: 'COMPLETED',
+        conclusion: 'FAILURE',
+      },
+    ];
+    watch.refreshPullRequest();
+    await until(
+      'failed check',
+      () => watch.snapshot?.pullRequest?.checks === 'failing',
+    );
+    assert.deepEqual(watch.snapshot?.pullRequest?.failed, [{ name: 'ci' }]);
+    assert.equal(configurationReads, 3);
+  } finally {
+    watch.close();
+  }
+});
+
 test('the watch reads the pull request once per branch, again when the branch changes or 90 seconds pass, and publishes only changes', async () => {
   vi.useFakeTimers({
     toFake: ['setInterval', 'clearInterval', 'Date'],
@@ -516,6 +815,7 @@ test('the watch reads the pull request once per branch, again when the branch ch
   try {
     await delay(20);
     assert.equal(watch.snapshot?.pullRequest?.number, 4);
+    assert.equal(watch.snapshot?.pullRequest?.checks, 'pending');
     assert.match(
       fields ?? '',
       /,headRefName,headRefOid,baseRefName,mergeable,mergedAt$/,
@@ -632,6 +932,8 @@ function conflictWatch(options: {
     async (command, args) => {
       if (command !== 'gh')
         return { stdout: `# branch.head ${options.branch?.() ?? 'main'}\n` };
+      if (args.includes('graphql'))
+        throw new Error('configuration unavailable');
       if (args[0] === 'api') {
         reads.tips.push(args);
         const tip = options.tip?.() ?? 'f00';

@@ -204,7 +204,7 @@ test('limits turn yellow at 70% and red at 90%, a past reset shows dim with its 
 test('a merged pull request says so in magenta, a closed one plainly, checks get their marks, and a conflict is marked even when its pull request read failed', () => {
   const line = (
     state: 'OPEN' | 'MERGED' | 'CLOSED',
-    checks?: 'passing' | 'failing' | 'pending',
+    checks?: 'passing' | 'failing' | 'pending' | 'none',
     { conflict = false, read = true } = {},
   ) => {
     const pullRequest = {
@@ -236,6 +236,7 @@ test('a merged pull request says so in magenta, a closed one plainly, checks get
   assert.ok(pr('OPEN', 'failing').includes('| PR#3 ✗ |'));
   assert.ok(pr('OPEN', 'pending').includes('| PR#3 … |'));
   assert.ok(pr('OPEN', 'passing').includes('| PR#3 ✓ |'));
+  assert.ok(pr('OPEN', 'none').includes('| PR#3 NO CHECKS |'));
   assert.ok(
     pr('OPEN', 'passing', { conflict: true }).includes('| PR#3 ✓ CONFLICT |'),
   );
