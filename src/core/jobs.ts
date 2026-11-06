@@ -121,10 +121,11 @@ async function executables(pids: number[]): Promise<Map<number, string>> {
  * `track`, and of any group a process inside one moves to. a listed group keeps its generation while a process from
  * the last read remains in it, so a command orphaned to launchd still shows.
  *
- * tmux processes, the apps described below and their observed descendants are excluded, including after reparenting.
+ * tmux and Zellij processes, the apps described below and their observed descendants are excluded, including after
+ * reparenting.
  * their entire groups are withheld, but ordinary peers keep their ownership and return with a new generation once the
  * exclusion ends.
- * exclusion stops at this Witch so running it inside tmux leaves its own agent commands available.
+ * exclusion stops at this Witch so running it inside a multiplexer leaves its own agent commands available.
  *
  * with a `directory`, Claude Code runs `script` as its `CLAUDE_ENV_FILE` ahead of each Bash command, in the shell that
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
@@ -313,7 +314,8 @@ export class JobWatch {
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
     const excluded = new Set<string>();
     const boundaries = rows.filter(
-      ({ name, identity }) => name === 'tmux' || this.excluded.has(identity),
+      ({ name, identity }) =>
+        name === 'tmux' || name === 'zellij' || this.excluded.has(identity),
     );
     while (boundaries.length) {
       const row = boundaries.pop()!;
@@ -394,7 +396,7 @@ export class JobWatch {
             );
           if (!bundle || (root.pid !== root.pgid && bundle[1] === 'MacOS'))
             continue;
-          // excluded like a tmux tree, so a process that joins the app's group later can't bring the app back
+          // excluded like a multiplexer tree, so a process that joins the app's group later can't bring the app back
           for (const row of below(root)) {
             excluded.add(row.identity);
             excludedGroups.add(row.pgid);
