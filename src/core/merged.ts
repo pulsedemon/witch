@@ -63,6 +63,8 @@ export interface MergeCleanup {
   detached?: string;
   switchHead?: string;
   moved?: boolean;
+  /** retain the remote used before policy lookup so a resumed cleanup cannot adopt a replacement. */
+  remote?: { name: string; url: string };
   unset?: string;
   plans?: PlanRemoval;
   pull?: CheckoutProgress;
@@ -70,7 +72,7 @@ export interface MergeCleanup {
   configured?: string[];
   failures?: string[];
   pruned?: string[];
-  pruning?: { name: string; head: string };
+  pruning?: { name: string; head: string; retained: boolean };
   result?: { text: string; cleaned: boolean };
   install?: InstallProgress;
 }
@@ -201,17 +203,14 @@ const read = async (git: Git) => parseStatus(await git(...statusArgs));
 const deleting = ({ mergedAt }: PullRequest) =>
   !!mergedAt && Date.now() - Date.parse(mergedAt) < 15_000;
 
-/**
- * true when the repository keeps merged head branches and this one is its own, not a fork's, and isn't its default
- * branch. false for a pull request URL outside GitHub.
- */
-async function remoteKeeps(
-  { url, number, branch }: PullRequest,
+/** the default branch of a repository that retains its own merged heads; forks don't inherit the base's policy. */
+async function retainedDefaultBranch(
+  { url, number }: PullRequest,
   cwd: string,
   signal?: AbortSignal,
-): Promise<boolean> {
+): Promise<string | undefined> {
   const github = gitHubRepository(url);
-  if (!github) return false;
+  if (!github) return undefined;
   const [owner, name] = github.repository.split('/');
   const { stdout } = await runCommand(
     'gh',
@@ -257,7 +256,7 @@ async function remoteKeeps(
     throw new Error('the default branch was missing');
   if (fork !== 'true' && fork !== 'false')
     throw new Error(`isCrossRepository was ${fork || 'empty'}`);
-  return deletes === 'false' && base !== branch && fork === 'false';
+  return deletes === 'false' && fork === 'false' ? base : undefined;
 }
 
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. any other failure throws. */
@@ -324,7 +323,9 @@ const arrived = (
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base and brings it up to date, or detaches
  * at the base's remote branch in a linked worktree or while one holds the base, deletes the branch and its gitignored plans with their
- * gitignored ledgers, and deletes the other merged branches whose remote branch is gone. returns a sentence saying what
+ * gitignored ledgers, and prunes unused merged branches with gone upstreams. when the repository retains its own merged
+ * heads, it also prunes branches at their own upstream tip on the head's remote, excluding the base and default branch.
+ * returns a sentence saying what
  * it did, and whether it moved the checkout, `'changed'` when the checkout left the branch or changed, or nothing when
  * another Witch is updating it or `blocked` says one is working in it.
  */
@@ -377,6 +378,9 @@ async function clean(
   signal?: AbortSignal,
 ): Promise<{ text: string; cleaned: boolean } | 'changed' | undefined> {
   const { number, branch, commit, base } = pullRequest;
+  let policy: Promise<string | undefined> | undefined;
+  const defaultBranch = () =>
+    (policy ??= retainedDefaultBranch(pullRequest, cwd, signal));
   const stopped = (error: unknown): never => {
     if (error === signal?.reason) throw error;
     throw new Error(
@@ -441,6 +445,16 @@ async function clean(
             )
           : `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
     }
+    if (!progress.remote && gitHubRepository(pullRequest.url)) {
+      const name = await configValue(git, `branch.${branch}.remote`).catch(
+        stopped,
+      );
+      if (name && name !== '.')
+        progress.remote = {
+          name,
+          url: await git('remote', 'get-url', name).catch(stopped),
+        };
+    }
     const track = async () => {
       await fetchRemote(git, '--prune').catch(stopped);
       return (
@@ -458,11 +472,13 @@ async function clean(
     let unread = '';
     const keeps =
       onRemote() &&
-      (await remoteKeeps(pullRequest, cwd, signal).catch((error: unknown) => {
-        if (error === signal?.reason) throw error;
-        unread = errorMessage(error).trim();
-        return false;
-      }));
+      (await defaultBranch()
+        .then((name) => name !== undefined && name !== branch)
+        .catch((error: unknown) => {
+          if (error === signal?.reason) throw error;
+          unread = errorMessage(error).trim();
+          return false;
+        }));
     // GitHub can delete the branch, or someone push to it, while the lookup runs
     if (onRemote()) [upstream, tracking, merges] = await track();
     while (!keeps && onRemote() && deleting(pullRequest)) {
@@ -626,34 +642,101 @@ async function clean(
   const failures = (progress.failures ??= []);
   const pruned = (progress.pruned ??= []);
   await reconcilePruning(git, progress, signal);
-  const refs = await git(
-    'for-each-ref',
-    '--merged',
-    'HEAD',
-    // :short would print heads/<name> for a branch a tag shares a name with
-    '--format=%(refname:lstrip=2)%09%(upstream:track)%09%(worktreepath)%09%(objectname)',
-    'refs/heads',
-  ).catch((error: unknown) => {
+  const readBranches = async (name?: string) =>
+    (
+      await git(
+        'for-each-ref',
+        ...(name ? [] : ['--merged', progress.pull!.head!]),
+        // :short would print heads/<name> for a branch a tag shares a name with
+        '--format=%(refname:lstrip=2)%09%(upstream:track)%09%(worktreepath)%09%(objectname)%09%(upstream)%09%(upstream:remotename)%09%(upstream:remoteref)',
+        name ? `refs/heads/${name}` : 'refs/heads',
+      )
+    )
+      .split('\n')
+      .map((line) => {
+        const [name, track, worktree, head, upstream, remote, merges] =
+          line.split('\t');
+        return { name, track, worktree, head, upstream, remote, merges };
+      })
+      .filter(
+        ({ name, head, worktree }) =>
+          name && head && name !== base && !worktree && !pruned.includes(name),
+      );
+  let refs = await readBranches().catch((error: unknown) => {
     if (error === signal?.reason) throw error;
     throw new Error(
       `#${number} merged: ${pulled}, deleted branch ${branch}${removed}${kept && ` (${kept})`}, but could not list other merged branches: ${errorMessage(error)}`,
       { cause: error },
     );
   });
-  for (const line of refs.split('\n')) {
-    const [name, track, worktree, head] = line.split('\t');
-    // a merged pull request's remote branch is gone and a long-lived branch's isn't
-    if (
-      !name ||
-      !head ||
-      track !== '[gone]' ||
-      worktree ||
-      pruned.includes(name)
-    )
-      continue;
-    progress.pruning = { name, head };
+  const retained = (ref: (typeof refs)[number]) =>
+    progress.remote &&
+    ref.track !== '[gone]' &&
+    ref.upstream &&
+    ref.remote === progress.remote.name &&
+    ref.merges === `refs/heads/${ref.name}`;
+  const retainedFailure = 'retained merged branches stayed:';
+  for (let index = failures.length - 1; index >= 0; index--)
+    if (failures[index]!.startsWith(retainedFailure)) failures.splice(index, 1);
+  let keptDefault: string | undefined;
+  let common: string | undefined;
+  if (refs.some(retained))
     try {
-      await git('branch', '-d', '--end-of-options', name);
+      const name = await defaultBranch();
+      if (name && refs.some((ref) => retained(ref) && ref.name !== name)) {
+        const remote = progress.remote!;
+        const checkRemote = async () => {
+          if ((await git('remote', 'get-url', remote.name)) !== remote.url)
+            throw new Error(`${remote.name}'s URL changed during cleanup`);
+        };
+        await checkRemote();
+        await fetchRemote(git, remote.name).catch((error: unknown) => {
+          if (error === signal?.reason) throw error;
+          throw new Error(
+            `couldn't refresh ${remote.name}: ${errorMessage(error).trim()}`,
+            { cause: error },
+          );
+        });
+        await checkRemote();
+        refs = await readBranches();
+        keptDefault = name;
+      }
+    } catch (error) {
+      if (error === signal?.reason) throw error;
+      failures.push(`${retainedFailure} ${errorMessage(error).trim()}`);
+    }
+  for (const ref of refs) {
+    const { name, track, head, upstream } = ref;
+    if (!name || !head) continue;
+    const retaining = track !== '[gone]';
+    if (retaining && (!keptDefault || name === keptDefault || !retained(ref)))
+      continue;
+    progress.pruning = { name, head, retained: retaining };
+    try {
+      if (retaining) {
+        const remoteHead = await git('rev-parse', '--verify', upstream!);
+        common ??= await git(
+          'rev-parse',
+          '--path-format=absolute',
+          '--git-common-dir',
+        );
+        const busy = await branchInOperation(common, name);
+        const fresh = (await readBranches(name)).find(
+          (candidate) => candidate.name === name,
+        );
+        if (
+          busy ||
+          !fresh ||
+          fresh.head !== head ||
+          fresh.upstream !== upstream ||
+          !retained(fresh) ||
+          remoteHead !== head
+        ) {
+          delete progress.pruning;
+          continue;
+        }
+        await git('update-ref', '-d', `refs/heads/${name}`, head);
+      } else await git('branch', '-d', '--end-of-options', name);
     } catch (error) {
       if (error === signal?.reason) throw error;
       failures.push(`branch ${name} stayed: ${errorMessage(error).trim()}`);
@@ -662,7 +745,10 @@ async function clean(
       continue;
     }
     deleted.push(name);
-    if (await succeeds(git('config', '--get', `branch.${name}.merge`), signal))
+    if (retaining) await removePrunedConfig(git, name, failures, signal);
+    else if (
+      await succeeds(git('config', '--get', `branch.${name}.merge`), signal)
+    )
       configured.push(`branch.${name}`);
     pruned.push(name);
     delete progress.pruning;
@@ -748,17 +834,73 @@ async function reconcilePruning(
   signal?: AbortSignal,
 ): Promise<void> {
   if (!progress.pruning) return;
-  const { name, head } = progress.pruning;
+  const { name, head, retained } = progress.pruning;
   const current = await refHead(git, name);
   if (current === head) return;
   if (!current) {
     if (!progress.deleted!.includes(name)) progress.deleted!.push(name);
-    if (await succeeds(git('config', '--get', `branch.${name}.merge`), signal))
+    if (retained)
+      await removePrunedConfig(git, name, progress.failures!, signal);
+    else if (
+      await succeeds(git('config', '--get', `branch.${name}.merge`), signal)
+    )
       progress.configured!.push(`branch.${name}`);
   } else
     progress.failures!.push(`branch ${name} stayed: its last commit changed`);
   progress.pruned!.push(name);
   delete progress.pruning;
+}
+
+async function removePrunedConfig(
+  git: Git,
+  name: string,
+  failures: string[],
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    if (await hasBranchConfig(git, name))
+      await git('config', '--remove-section', `branch.${name}`);
+  } catch (error) {
+    if (error === signal?.reason) throw error;
+    failures.push(
+      `config section branch.${name} stayed: ${errorMessage(error).trim()}`,
+    );
+  }
+}
+
+/** keep branches owned by rebase or bisect; their detached HEADs are absent from %(worktreepath). */
+async function branchInOperation(
+  common: string,
+  name: string,
+): Promise<boolean> {
+  const worktrees = join(common, 'worktrees');
+  const admins = [
+    common,
+    ...((await unlessGone(readdir(worktrees))) ?? []).map((entry) =>
+      join(worktrees, entry),
+    ),
+  ];
+  for (const admin of admins) {
+    const [merge, apply, bisect, updates] = await Promise.all(
+      [
+        'rebase-merge/head-name',
+        'rebase-apply/head-name',
+        'BISECT_START',
+        'rebase-merge/update-refs',
+      ].map((file) => unlessGone(readFile(join(admin, file), 'utf8'))),
+    );
+    if (
+      [merge, apply, bisect].some(
+        (branch) =>
+          branch?.replace(/\n+$/, '').replace(/^refs\/heads\//, '') === name,
+      ) ||
+      updates
+        ?.split('\n')
+        .some((ref, index) => index % 3 === 0 && ref === `refs/heads/${name}`)
+    )
+      return true;
+  }
+  return false;
 }
 
 /**
