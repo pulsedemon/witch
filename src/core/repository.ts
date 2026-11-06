@@ -538,8 +538,10 @@ export class RepositoryWatch {
         this.closed ||
         this.snapshot?.branch !== branch ||
         this.snapshot.commit !== commit
-      )
+      ) {
         value = undefined;
+        this.refreshPullRequest();
+      }
       if (value) this.conflict = conflict;
     } catch {
       // no pull request, no gh or no network

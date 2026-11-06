@@ -969,15 +969,17 @@ test('a status failure during the fresh GitHub read cannot restore cached confli
     );
     assert.equal(s.repairs().length, 0);
     assert.equal((await s.record()).conflictRepairs, undefined);
-    assert.equal(watch.snapshot?.pullRequest, undefined);
+    vi.advanceTimersByTime(5000);
+    await until(
+      'automatic confirmed resolution',
+      () => s.c.conflict === undefined,
+    );
+    assert.equal(watch.snapshot?.pullRequest?.mergeable, 'MERGEABLE');
     assert.equal(
       reads,
-      2,
-      'a discarded read does not trigger a repair retry loop',
+      3,
+      'one automatic recovery read, with no admission retry loop',
     );
-    await watch.readPullRequest();
-    await until('confirmed resolution', () => s.c.conflict === undefined);
-    assert.equal(reads, 3);
     assert.equal(s.repairs().length, 0);
   } finally {
     released.resolve();

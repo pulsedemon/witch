@@ -1050,3 +1050,42 @@ test('a head change during the base-tip lookup cannot publish the old conflictin
   assert.equal(watch.snapshot?.pullRequest?.commit, 'd4e5f6');
   assert.equal(watch.snapshot?.conflict, undefined);
 });
+
+for (const kind of ['status', 'pull request'] as const) {
+  test(`closing during a ${kind} read prevents later publication or refresh`, async (t) => {
+    const entered = Promise.withResolvers<void>();
+    const response = Promise.withResolvers<{ stdout: string }>();
+    const watch = new RepositoryWatch('/work', async (command, args) => {
+      if (
+        (kind === 'status' && args.includes('status')) ||
+        (kind === 'pull request' && command === 'gh')
+      ) {
+        entered.resolve();
+        return response.promise;
+      }
+      return {
+        stdout:
+          command === 'gh'
+            ? view({ state: 'OPEN' })
+            : '# branch.head feat/x\n# branch.oid a1b2c3\n',
+      };
+    });
+    t.onTestFinished(() => watch.close());
+    let publications = 0;
+    watch.subscribe(() => publications++);
+    await entered.promise;
+    const snapshot = watch.snapshot;
+    const before = publications;
+    const reading = watch.readPullRequest();
+    watch.close();
+    response.resolve({
+      stdout:
+        kind === 'status'
+          ? '# branch.head feat/x\n# branch.oid a1b2c3\n'
+          : view({ state: 'OPEN' }),
+    });
+    await reading;
+    assert.equal(watch.snapshot, snapshot);
+    assert.equal(publications, before);
+  });
+}
