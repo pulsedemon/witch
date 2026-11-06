@@ -15,6 +15,7 @@ export const pullRequestSchema = z.object({
   branch: z.string(),
   commit: z.string(),
   base: z.string(),
+  /** an empty rollup starts as none; the watch keeps it pending while checks are expected. */
   checks: z.enum(['passing', 'failing', 'pending', 'none']).optional(),
   /** the checks that make it failing, with their details pages. */
   failed: z
@@ -560,7 +561,6 @@ export class RepositoryWatch {
       });
   }
 
-  /** an empty rollup stays pending unless GitHub confirms there is no check-producing configuration. */
   private async checksExpected(pr: PullRequest): Promise<boolean> {
     const github = gitHubRepository(pr.url);
     if (!github) return true;
@@ -665,13 +665,27 @@ export class RepositoryWatch {
           ]),
         )
         .flat();
-      return rules.some(({ type }) =>
-        [
-          'required_status_checks',
-          'workflows',
-          'copilot_code_review',
-          'code_scanning',
-        ].includes(type),
+      if (
+        rules.some(({ type }) =>
+          [
+            'required_status_checks',
+            'workflows',
+            'copilot_code_review',
+            'code_scanning',
+          ].includes(type),
+        )
+      )
+        return true;
+      const { stdout } = await this.run(
+        'gh',
+        ['pr', 'view', pr.url, '--json', 'headRefOid,baseRefName'],
+        { cwd: this.cwd, timeout: 30_000 },
+      );
+      const current = gitHubPullRequestFields
+        .pick({ headRefOid: true, baseRefName: true })
+        .parse(JSON.parse(stdout));
+      return (
+        current.headRefOid !== pr.commit || current.baseRefName !== pr.base
       );
     } catch {
       return true;

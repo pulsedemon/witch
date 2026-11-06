@@ -499,8 +499,8 @@ test.each<{
   baseChecks?: boolean;
   protection?: boolean;
   rules?: { type: string }[][];
-  failure?: 'graphql' | 'branch' | 'rules';
-  moved?: 'head' | 'base';
+  failure?: 'graphql' | 'branch' | 'rules' | 'confirmation';
+  moved?: 'head' | 'base' | 'late-head' | 'late-base';
 }>([
   { name: 'no workflow files or required checks', expected: 'none' },
   {
@@ -557,6 +557,21 @@ test.each<{
   },
   { name: 'a changed head', expected: 'pending', moved: 'head' },
   { name: 'a changed base', expected: 'pending', moved: 'base' },
+  {
+    name: 'a head changed during the REST reads',
+    expected: 'pending',
+    moved: 'late-head',
+  },
+  {
+    name: 'a base changed during the REST reads',
+    expected: 'pending',
+    moved: 'late-base',
+  },
+  {
+    name: 'an unavailable final confirmation',
+    expected: 'pending',
+    failure: 'confirmation',
+  },
 ])(
   'an empty rollup with $name shows $expected',
   async ({
@@ -570,12 +585,28 @@ test.each<{
     moved,
   }) => {
     const calls: string[][] = [];
+    let rulesRead = false;
+    let confirmation: string[] | undefined;
     const workflow = {
       __typename: 'Tree',
       entries: [{ name: 'ci.yml', type: 'blob' }],
     };
     const watch = new RepositoryWatch('/work', async (command, args) => {
       if (command === 'git') return { stdout: '# branch.head feat/x\n' };
+      if (args[0] === 'pr' && args[2] !== '--json') {
+        confirmation = args;
+        if (failure === 'confirmation') throw new Error('unavailable');
+        return {
+          stdout: JSON.stringify({
+            headRefOid:
+              rulesRead && moved === 'late-head' ? 'new-head' : 'a1b2c3',
+            baseRefName:
+              rulesRead && moved === 'late-base'
+                ? 'different-base'
+                : 'release/next',
+          }),
+        };
+      }
       if (args[0] === 'pr')
         return {
           stdout: view({
@@ -600,6 +631,7 @@ test.each<{
             },
           }),
         };
+      if (!graphql) rulesRead = true;
       return {
         stdout: JSON.stringify(
           graphql
@@ -661,6 +693,18 @@ test.each<{
           'repos/owner/repo/rules/branches/release%2Fnext?per_page=100',
           '--paginate',
           '--slurp',
+        ]);
+      if (
+        expected === 'none' ||
+        moved?.startsWith('late-') ||
+        failure === 'confirmation'
+      )
+        assert.deepEqual(confirmation, [
+          'pr',
+          'view',
+          'https://github.example/owner/repo/pull/4',
+          '--json',
+          'headRefOid,baseRefName',
         ]);
     } finally {
       watch.close();
@@ -771,6 +815,7 @@ test('the watch reads the pull request once per branch, again when the branch ch
   try {
     await delay(20);
     assert.equal(watch.snapshot?.pullRequest?.number, 4);
+    assert.equal(watch.snapshot?.pullRequest?.checks, 'pending');
     assert.match(
       fields ?? '',
       /,headRefName,headRefOid,baseRefName,mergeable,mergedAt$/,
