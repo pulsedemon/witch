@@ -1,4 +1,7 @@
-import { errorMessage } from '../agents/stderr.js';
+import { randomUUID } from 'node:crypto';
+import { taskActivity } from './coordination-state.js';
+import type { NativeRuntime } from '../agents/runtime-updates.js';
+import { errorMessage, failureOf } from '../agents/stderr.js';
 import type {
   AgentEvent,
   AgentSession,
@@ -22,6 +25,7 @@ import { castRow } from './spells.js';
 import {
   agentDisplay,
   clearDelivery,
+  clearConversationContext,
   recordSession,
   type ConversationRecord,
   type DisplayUpdate,
@@ -68,6 +72,101 @@ export class SessionLink {
       'track' | 'environment' | 'script' | 'setActive'
     >,
   ) {}
+
+  retryInitialization?: () => Promise<void>;
+
+  get maintenanceReady(): boolean {
+    const state = this.host.snapshot();
+    return (
+      ['idle', 'error'].includes(state.phase) &&
+      !state.queue.length &&
+      !state.requests.length &&
+      !state.pendingCompaction &&
+      !state.nativeRunning &&
+      !taskActivity(state).running
+    );
+  }
+
+  /** an update disconnects its runtime and refreshes discovery before reopening the saved session. */
+  async maintain(
+    runtime: NativeRuntime,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const reconnect = this.host.record()?.agent === runtime;
+    const failures: unknown[] = [];
+    const report = (error: string | undefined) => {
+      if (error) {
+        failures.push(new Error(error));
+        this.host.publish({ error });
+      }
+    };
+    try {
+      await this.usage.suspend();
+      this.catalog.cancel();
+      if (reconnect) await this.disconnect(true);
+      await run();
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      this.catalog.invalidate(runtime);
+      if (this.host.snapshot().phase !== 'closing') {
+        if (reconnect) report(await failureOf(this.connect()));
+        if (!this.host.record() && this.retryInitialization) {
+          const error = await failureOf(this.retryInitialization());
+          report(error);
+          if (!error) this.retryInitialization = undefined;
+        }
+      }
+      this.usage.resume(runtime);
+      if (this.host.snapshot().phase !== 'closing')
+        this.host.publish({
+          phase: this.host.record() ? 'idle' : 'error',
+          agents: this.catalog.availability,
+        });
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length)
+      throw new AggregateError(failures, failures.map(errorMessage).join('\n'));
+  }
+
+  async clear(scope: MemoryScope, forget: () => void): Promise<void> {
+    const conversation = this.host.conversation();
+    const info = this.live(conversation.agent)?.info;
+    const failures: unknown[] = [];
+    await this.disconnect().catch((error: unknown) => failures.push(error));
+    // a fresh activation keeps the conversation coordinated while it reconnects, without the closed session's authority
+    if (this.host.snapshot().phase !== 'closing')
+      await this.coordination
+        ?.activate(conversation, scope.project)
+        .catch((error: unknown) => failures.push(error));
+    if (failures.length > 1)
+      throw new Error(failures.map(errorMessage).join('\n\n'));
+    if (failures.length) throw failures[0];
+    if (this.host.cancelled()) return;
+    clearConversationContext(conversation, info);
+    forget();
+    this.host.publish({ completedTurn: undefined });
+    await this.host.save();
+    this.host.display({
+      id: randomUUID(),
+      kind: 'notice',
+      text: 'Context cleared. The agent cannot see anything above this line.',
+      cwd: conversation.cwd,
+      contextCleared: true,
+    });
+    await this.host.files().flush();
+    if (this.host.cancelled()) return;
+    const stored = conversation.sessions[conversation.agent]!;
+    const session = await this.connect(undefined, scope);
+    if (this.host.cancelled() || session.closed) return;
+    if (stored.model) {
+      // restore the resolved model without changing the saved alias
+      await session.selectModel(stored.model, stored.effort);
+      recordSession(conversation, conversation.agent, session.info);
+    }
+    await this.host.save();
+    this.host.publish({ conversation, native: session.info });
+  }
 
   get session(): AgentSession | undefined {
     return this.connected;

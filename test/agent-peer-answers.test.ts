@@ -140,7 +140,12 @@ for (const history of [false, true]) {
     events.length = 0;
     await writeFile(
       join(cwd, 'config.json'),
-      JSON.stringify({ mcp_servers: { connected: { command: 'fake' } } }),
+      JSON.stringify({
+        mcp_servers: {
+          connected: { command: 'fake', tool_timeout_sec: null },
+          remote: { url: 'https://probe.invalid/mcp', tool_timeout_sec: null },
+        },
+      }),
     );
     await answer(session, cwd);
     assert.deepEqual(session.info, before);
@@ -172,7 +177,10 @@ for (const history of [false, true]) {
       'skill_mcp_dependency_install',
     ])
       assert.equal(config[`features.${feature}`], false);
-    assert.deepEqual(config.mcp_servers, { connected: { enabled: false } });
+    assert.deepEqual(config.mcp_servers, {
+      connected: { command: 'fake', enabled: false },
+      remote: { url: 'https://probe.invalid/mcp', enabled: false },
+    });
     assert.deepEqual(config.notify, []);
     const turn = JSON.parse(
       await readFile(join(cwd, 'prompt.json'), 'utf8'),
@@ -254,17 +262,29 @@ for (const builtin of [undefined, ':workspace']) {
       JSON.stringify({
         permissions: {
           owner: {
+            description: null,
             extends: 'base',
+            workspace_roots: null,
             filesystem: {
+              glob_scan_max_depth: null,
               '/project': 'write',
               '/secret': 'deny',
               ':workspace_roots': { cache: 'write', denied: 'deny' },
             },
-            network: { enabled: true, allowed_domains: ['example.com'] },
+            network: {
+              enabled: true,
+              proxy_url: null,
+              domains: { 'example.com': 'allow' },
+            },
           },
           base: {
-            extends: builtin,
-            filesystem: { '/readable': 'read', '/inherited-secret': 'deny' },
+            extends: builtin ?? null,
+            filesystem: {
+              glob_scan_max_depth: 3,
+              '/readable': 'read',
+              '/inherited-secret': 'deny',
+            },
+            network: null,
           },
         },
       }),
@@ -284,11 +304,15 @@ for (const builtin of [undefined, ':workspace']) {
           '/secret': 'deny',
           ':workspace_roots': { cache: 'read', denied: 'deny' },
         },
-        network: { enabled: false, allowed_domains: ['example.com'] },
+        network: { enabled: false, domains: { 'example.com': 'allow' } },
       },
       base: {
         ...(builtin ? { extends: ':read-only' } : {}),
-        filesystem: { '/readable': 'read', '/inherited-secret': 'deny' },
+        filesystem: {
+          glob_scan_max_depth: 3,
+          '/readable': 'read',
+          '/inherited-secret': 'deny',
+        },
         network: { enabled: false },
       },
     });

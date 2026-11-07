@@ -15,6 +15,8 @@ import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
+import { NativeUpdatePending } from '../persistence/runtime-updates.js';
+import type { NativeRuntime } from '../agents/runtime-updates.js';
 import { aborted, errorMessage, failureOf } from '../agents/stderr.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
@@ -44,7 +46,15 @@ import {
   ranCommand,
   questionReply,
 } from './prompts.js';
-import { joining, nextTurn, steerInOrder, waitsBehind } from './queue.js';
+import {
+  joining,
+  nextTurn,
+  steerInOrder,
+  waitsBehind,
+  recordQueue,
+  without,
+  type Pending,
+} from './queue.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
 import { taskActivity } from './coordination-state.js';
@@ -63,9 +73,7 @@ import { entry, holding } from './pauses.js';
 import {
   agentWorking,
   applyDisplayUpdate,
-  clearConversationContext,
   createConversation,
-  recordSession,
   type Conversation,
   type ConversationRecord,
   type DisplayUpdate,
@@ -213,6 +221,7 @@ export class Coordinator {
   private editorCancellation?: AbortController;
   private cleanupCancellation?: AbortController;
   private reviewCancellation?: AbortController;
+  private nativeUpdateCancellation?: AbortController;
   constructor(
     private readonly store: StateStore,
     readonly memory: Memory,
@@ -306,9 +315,11 @@ export class Coordinator {
     return () => this.listeners.delete(listener);
   }
   async initialize(directory: string, options: Launch = {}): Promise<void> {
+    this.link.retryInitialization = () => this.load(directory, options);
     this.task = this.load(directory, options);
     try {
       await this.task;
+      this.link.retryInitialization = undefined;
     } catch (error) {
       throw this.enterError(error);
     } finally {
@@ -916,44 +927,10 @@ export class Coordinator {
       if (this.snapshot.queue.length)
         throw new Error('Prompts are still queued for this conversation');
       const conversation = this.current();
-      const info = this.link.live(conversation.agent)?.info;
-      const scope = await this.memory.scopePaths(conversation.cwd);
-      const failures: unknown[] = [];
-      await this.link
-        .disconnect()
-        .catch((error: unknown) => failures.push(error));
-      // a fresh activation keeps the conversation coordinated while it reconnects, without the closed session's authority
-      if (!this.closed)
-        await this.coordination
-          ?.activate(conversation, scope.project)
-          .catch((error: unknown) => failures.push(error));
-      if (failures.length > 1)
-        throw new Error(failures.map(errorMessage).join('\n\n'));
-      if (failures.length) throw failures[0];
-      if (this.cancelled) return;
-      clearConversationContext(conversation, info);
-      this.turns.forget(conversation.id);
-      this.publish({ completedTurn: undefined });
-      await this.save();
-      this.display({
-        id: randomUUID(),
-        kind: 'notice',
-        text: 'Context cleared. The agent cannot see anything above this line.',
-        cwd: conversation.cwd,
-        contextCleared: true,
-      });
-      await this.files!.flush();
-      if (this.cancelled) return;
-      const stored = conversation.sessions[conversation.agent]!;
-      const session = await this.link.connect(undefined, scope);
-      if (this.cancelled || session.closed) return;
-      if (stored.model) {
-        // restore the resolved model without changing the saved alias
-        await session.selectModel(stored.model, stored.effort);
-        recordSession(conversation, conversation.agent, session.info);
-      }
-      await this.save();
-      this.publish({ conversation, native: session.info });
+      await this.link.clear(
+        await this.memory.scopePaths(conversation.cwd),
+        () => this.turns.forget(conversation.id),
+      );
     });
   }
 
@@ -1086,8 +1063,12 @@ export class Coordinator {
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
     this.reviewCancellation?.abort(new NativeStop(stop));
+    this.nativeUpdateCancellation?.abort(new NativeStop(stop));
     const results = await Promise.allSettled([
-      (this.cleanupCancellation ?? this.reviewCancellation) && this.task,
+      (this.cleanupCancellation ??
+        this.reviewCancellation ??
+        this.nativeUpdateCancellation) &&
+        this.task,
       this.coordination?.endTurn(),
       (async () => {
         if (refresh && !this.closed) return;
@@ -1122,6 +1103,37 @@ export class Coordinator {
       else this.userRow(text);
     }
     if (response.decision === 'cancel') await this.interrupt();
+  }
+
+  /** maintenance can recover an installation even when no conversation or native connection opened. */
+  async maintainNative(
+    runtime: NativeRuntime,
+    run: (signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
+    if (
+      this.task ||
+      this.changingModel ||
+      this.modelRefresh ||
+      !this.link.maintenanceReady
+    )
+      throw new Refusal(
+        'Finish current work and queued prompts before updating a native runtime.',
+      );
+    const release = this.holdPromptDelivery();
+    const abort = new AbortController();
+    this.nativeUpdateCancellation = abort;
+    this.operations++;
+    this.cancelled = false;
+    this.publish({ phase: 'updating', error: undefined });
+    const operation = this.link.maintain(runtime, () => run(abort.signal));
+    this.task = operation;
+    try {
+      await operation;
+    } finally {
+      this.task = undefined;
+      this.nativeUpdateCancellation = undefined;
+      release();
+    }
   }
 
   async recoverMemory(decision: 'accept' | 'discard' | 'keep'): Promise<void> {
@@ -1348,7 +1360,11 @@ export class Coordinator {
   }
 
   /** transient notices must not make an unused conversation resumable. */
-  notice(text: string, cwd = this.current().cwd, save = true): void {
+  notice(
+    text: string,
+    cwd = this.record?.cwd ?? process.cwd(),
+    save = true,
+  ): void {
     this.display({ id: randomUUID(), kind: 'notice', text, cwd }, save);
   }
 
@@ -1356,24 +1372,13 @@ export class Coordinator {
     return this.files!.save(this.current());
   }
 
-  /** copies the prompts sent but not yet shown into the record, in the order they were sent; true when they changed. */
   private recordQueue(): boolean {
-    const record = this.record;
-    if (!record) return false;
-    const queue = [
-      ...this.taken.map(({ prompt }) => prompt),
-      ...this.snapshot.queue,
-      ...this.arriving.map(({ prompt }) => prompt),
-    ];
-    const saved = record.queue ?? [];
-    if (
-      queue.length === saved.length &&
-      queue.every((prompt, i) => prompt === saved[i])
-    )
-      return false;
-    if (queue.length) record.queue = queue;
-    else delete record.queue;
-    return true;
+    return recordQueue(
+      this.record,
+      this.taken,
+      this.snapshot.queue,
+      this.arriving,
+    );
   }
 
   private saveQueue(): void {
@@ -1386,7 +1391,10 @@ export class Coordinator {
   }
 
   private enterError(error: unknown): Error {
-    const text = `Restart Witch: ${errorMessage(error)}`;
+    const text =
+      error instanceof NativeUpdatePending
+        ? error.message
+        : `Restart Witch: ${errorMessage(error)}`;
     this.publish({ phase: 'error', error: text });
     return new Error(text, { cause: error });
   }
@@ -1482,13 +1490,4 @@ export class Coordinator {
       this.confirmPauses();
     for (const listener of this.listeners) listener();
   }
-}
-
-/** a sent prompt, kept by identity so equal texts stay distinct. */
-interface Pending {
-  prompt: string;
-}
-
-function without(list: readonly Pending[], removed: readonly Pending[]) {
-  return list.filter((entry) => !removed.includes(entry));
 }

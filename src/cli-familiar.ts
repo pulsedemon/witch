@@ -5,6 +5,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ClaudeTask } from './agents/claude-task.js';
+import { nativeLaunch } from './agents/native-launch.js';
 import { familiarMarker } from './agents/familiar-report.js';
 import type {
   FamiliarAction,
@@ -244,10 +245,12 @@ export async function runClaudeFamiliar(
     const task = new ClaudeTask(process.cwd(), (progress) =>
       reports.push(progress),
     );
-    child = spawn('claude', argv, {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      detached: false,
-    });
+    child = nativeLaunch('claude', undefined, (executable) =>
+      spawn(executable, argv, {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        detached: false,
+      }),
+    );
     child.stderr!.pipe(process.stderr, { end: false });
     readLines(child.stdout!, (text) => {
       if (!text.trim()) return;

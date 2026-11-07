@@ -10,7 +10,7 @@ import type { DOMElement } from 'ink';
 import { dirname, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
 import { errorMessage } from '../agents/stderr.js';
-import type { Skill } from '../agents/types.js';
+import type { CompletionList } from './completion.js';
 import type { Coordinator } from '../core/coordinator.js';
 import type { Snapshot } from '../core/snapshot.js';
 import { modelKey, modelTarget } from '../core/models.js';
@@ -18,7 +18,12 @@ import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
 import { agentWorking, contextStart } from '../core/state.js';
 import type { StateStore } from '../persistence/store.js';
-import { commands, parseCommands, safeQueueMerge } from './commands.js';
+import {
+  commands,
+  claimedCommands,
+  parseCommands,
+  safeQueueMerge,
+} from './commands.js';
 import type { WitchCommand, CommandName } from './commands.js';
 import { CommandBatches } from './command-batches.js';
 import { Input, inputRows } from './input.js';
@@ -42,7 +47,7 @@ import { useLiveState } from './live-state.js';
 import { useDrafts } from './drafts.js';
 import { useClick, usePointer, useWheel } from './mouse.js';
 import { highlight, selectedText } from './selection.js';
-import type { Point } from './selection.js';
+import type { Point, RangeEnd } from './selection.js';
 import { Activity, elapsed } from './activity.js';
 import { castTitle, useCasting } from './cast.js';
 import { Sidebar, sidebarWidth, usagePlacement } from './sidebar.js';
@@ -57,56 +62,11 @@ import { ToolHint, useToolFocus } from './tool-focus.js';
 import { useExitConfirm } from './exit-confirm.js';
 import { accent, colors, piped, potion } from './theme.js';
 import { wrapLines } from './wrap.js';
-
-const claimed = new Set(
-  commands.flatMap(({ id, aliases = [] }) => [id, ...aliases]),
-);
-
-/** what the composer's open list offers: commands and skills, or files for the `@` token at `[start, end)`. */
-type List =
-  | { kind: 'command'; items: Skill[] }
-  | { kind: 'file'; start: number; end: number; items: string[] };
-
-interface Choice {
-  id: string;
-  label: string;
-  search?: string;
-  exact?: string;
-  cwd?: string;
-}
-type View =
-  | { kind: 'chat' }
-  | { kind: 'coordination'; mode: 'peers' | 'task' }
-  | {
-      kind: 'picker';
-      title: string;
-      choices: Choice[];
-      choose(id: string): void;
-      custom?: boolean;
-    }
-  | {
-      kind: 'page';
-      title: string;
-      text: string;
-      /** the absolute file the title links to, when there is one. */
-      link?: string;
-      /** a memory note's relative path, for edit and history. */
-      note?: string;
-      /** Witch's own text, already styled, shown as written rather than as Markdown, which drops styling. */
-      styled?: true;
-    };
+import type { RuntimeUpdates } from '../core/runtime-updates.js';
+import type { Choice, View } from './choices.js';
+import { showUpdates, updatesText, useRuntimeUpdates } from './updates.js';
 
 const unwatched = () => () => {};
-
-/** one end of a drag in the transcript: the row it is on, by its text, and the column. */
-interface RangeEnd {
-  anchor: ScrollAnchor;
-  column: number;
-  /** the width it was measured at; a width change drops the range, since a column from a wider one can lie past the edge. */
-  width: number;
-  /** its row as measured; output growing into the row, or its tool expanding or collapsing, changes it. */
-  text: string;
-}
 
 /** where ↑/↓ stand among earlier prompts, -1 being the draft, with the composer's text at each place they left. */
 const unbrowsed = () => ({ index: -1, texts: new Map<number, string>() });
@@ -122,8 +82,10 @@ export function App({
   store,
   policy,
   copy,
+  updates,
 }: {
   coordinator: Coordinator;
+  updates?: RuntimeUpdates;
   /** the project's Git status for the status line, which leaves Git out without it. */
   repository?: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>;
   /** draws images in the transcript, which leaves them out without it. */
@@ -142,6 +104,7 @@ export function App({
   /** sent once loading and cleanup end idle with nothing reported and tools unfocused, or ahead of a prompt submitted while waiting; otherwise left as the draft. */
   initialPrompt?: string;
 }) {
+  const updateSnapshot = useRuntimeUpdates(updates);
   const subscription = useMemo(
     () => (notify: () => void) => {
       let scheduled: ReturnType<typeof setTimeout> | undefined;
@@ -353,7 +316,7 @@ export function App({
       aliases: aliases?.slice(),
     })),
     ...state.skills.filter(
-      ({ name, builtin }) => !builtin && !claimed.has(name),
+      ({ name, builtin }) => !builtin && !claimedCommands.has(name),
     ),
   ];
   /** whether the composer holds the prompt ↑/↓ last showed, as shown. */
@@ -367,7 +330,7 @@ export function App({
     focus: boolean,
     dismissedToken: string | undefined,
     isRecalled: boolean,
-  ): List | undefined => {
+  ): CompletionList | undefined => {
     if (
       view.kind !== 'chat' ||
       !composerPhase ||
@@ -390,7 +353,7 @@ export function App({
     }
   };
   /** the selection, clamped to a list that may have shrunk since it moved. */
-  const selectedIn = (open: List, index: number) =>
+  const selectedIn = (open: CompletionList, index: number) =>
     Math.min(index, open.items.length - 1);
   const list = listFor(
     buffer,
@@ -539,6 +502,7 @@ export function App({
     entries: readonly Choice[],
     choose: (id: string) => void | boolean | Promise<void | boolean>,
     custom = false,
+    caption?: string,
   ): Promise<boolean> => {
     if (disposed.current) return Promise.resolve(false);
     pickerWait.current?.resolve(true);
@@ -550,6 +514,7 @@ export function App({
     setView({
       kind: 'picker',
       title,
+      caption,
       choices: [...entries],
       custom,
       choose: (id) => {
@@ -751,6 +716,18 @@ export function App({
         return showMemory(active);
       case 'jobs':
         return showJobs(active);
+      case 'updates':
+        return showUpdates(
+          argument,
+          updates,
+          active,
+          picker,
+          () => {
+            openPage({ kind: 'updates' });
+            return true;
+          },
+          (text) => coordinator.notice(text, cwd, false),
+        );
       case 'help':
         openPage({
           kind: 'page',
@@ -856,7 +833,7 @@ export function App({
   };
 
   /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces its token and a space already after it. */
-  const complete = (open: List) => {
+  const complete = (open: CompletionList) => {
     const index = selectedIn(open, listIndexRef.current);
     const { value } = bufferRef.current;
     if (open.kind === 'command') {
@@ -1001,7 +978,9 @@ export function App({
             )
           : pageView?.kind === 'coordination'
             ? coordinationText(pageCoordination, pageView.mode)
-            : '';
+            : pageView?.kind === 'updates'
+              ? updatesText(updateSnapshot)
+              : '';
     return wrapLines(pageText, bodyWidth);
   }, [
     recovering,
@@ -1010,6 +989,7 @@ export function App({
     cwd,
     pageView,
     pageCoordination,
+    updateSnapshot,
     bodyWidth,
   ]);
   const pageRows = Math.max(1, bodyHeight - (recovering ? 5 : 3));
@@ -1169,7 +1149,11 @@ export function App({
         setSelection(Math.max(0, Math.min(choices.length - 1, current + 1)));
       return;
     }
-    if (view.kind === 'page' || view.kind === 'coordination') {
+    if (
+      view.kind === 'page' ||
+      view.kind === 'coordination' ||
+      view.kind === 'updates'
+    ) {
       if (view.kind === 'page' && view.note && !modified) {
         if (input === 'e') {
           setView({ kind: 'chat' });
@@ -1239,11 +1223,14 @@ export function App({
       </Box>
     );
   } else if (view.kind === 'picker') {
-    const count = Math.max(1, bodyHeight - 4);
+    const count = Math.max(1, bodyHeight - 4 - (view.caption ? 1 : 0));
     const first = Math.max(0, selected - count + 1);
     body = (
       <Box flexDirection="column" height={bodyHeight}>
         <Text bold>{plain(view.title)}</Text>
+        {view.caption && (
+          <Text wrap="truncate-middle">{plain(view.caption)}</Text>
+        )}
         <Box height={count} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => {
             // a note name can hold a line break
@@ -1289,14 +1276,20 @@ export function App({
         </Text>
       </Box>
     );
-  } else if (view.kind === 'page' || view.kind === 'coordination') {
+  } else if (
+    view.kind === 'page' ||
+    view.kind === 'coordination' ||
+    view.kind === 'updates'
+  ) {
     // a note's file name is agent-written and can hold a line break, and Ink keeps OSC 8 links
     const title =
       view.kind === 'page'
         ? oneLine(view.title)
-        : view.mode === 'peers'
-          ? 'Repository sessions'
-          : 'Current task';
+        : view.kind === 'updates'
+          ? 'Native runtime updates'
+          : view.mode === 'peers'
+            ? 'Repository sessions'
+            : 'Current task';
     body = (
       <Box flexDirection="column" height={bodyHeight}>
         <Text bold>

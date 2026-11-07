@@ -4,6 +4,7 @@ import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from './agents/codex.js';
+import { nativeLaunch } from './agents/native-launch.js';
 import type {
   FamiliarAction,
   FamiliarProgress,
@@ -184,12 +185,14 @@ export async function runCodexFamiliar(
     process.stdin.setEncoding('utf8');
     for await (const chunk of process.stdin) prompt += chunk as string;
     const adapter = new CodexAdapter((executable, cwd, signal) => {
-      const child = spawn(executable, argv, {
-        cwd,
-        signal,
-        stdio: 'pipe',
-        detached: false,
-      });
+      const child = nativeLaunch(executable, undefined, (command) =>
+        spawn(command, argv, {
+          cwd,
+          signal,
+          stdio: 'pipe',
+          detached: false,
+        }),
+      );
       // the app-server's log lines stay out of the calling agent's output; failures carry their tail
       const output = watchChild(child);
       child.once('close', (code, signal) => {

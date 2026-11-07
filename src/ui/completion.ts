@@ -53,3 +53,9 @@ export function rankFiles(query: string, paths: readonly string[]): string[] {
     (path) => path.toLowerCase().includes(typed),
   ]);
 }
+
+/** what the composer's open list offers: commands and skills, or files for the `@` token at `[start, end)`. */
+export type CompletionList =
+  | { kind: 'command'; items: Skill[] }
+  | { kind: 'file'; start: number; end: number; items: string[] };
+import type { Skill } from '../agents/types.js';
