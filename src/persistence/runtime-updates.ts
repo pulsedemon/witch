@@ -11,7 +11,7 @@ import {
   runtimeCheckSchema,
   versionSchema,
 } from '../agents/runtime-updates.js';
-import { gone, readJson, writeJson } from './json.js';
+import { gone, readJson, unlessGone, writeJson } from './json.js';
 import { openLocked, tryOpenLocked, tryOpenLockedSync } from './lock.js';
 
 const cachedCheckSchema = runtimeCheckSchema.extend({
@@ -41,6 +41,20 @@ export type UpdateJournal = z.infer<typeof updateJournalSchema>;
 
 export const nativeUpdateDirectory = () =>
   join(homedir(), '.witch', 'native-updates');
+/** where each Witch taking part in native updates keeps a locked `<pid>.json`. */
+export const participantsDirectory = (directory: string) =>
+  join(directory, 'participants');
+export const participantFile = (directory: string, pid: number) =>
+  join(participantsDirectory(directory), `${pid}.json`);
+
+/** the participant records under `directory`; a participant is one whose record is still locked. */
+export async function listParticipants(directory: string): Promise<string[]> {
+  const folder = participantsDirectory(directory);
+  const files = (await unlessGone(readdir(folder))) ?? [];
+  return files
+    .filter((file) => /^\d+\.json$/.test(file))
+    .map((file) => join(folder, file));
+}
 export const pendingUpdate = (journal: UpdateJournal) =>
   !['verified', 'recovered', 'aborted'].includes(journal.phase);
 const key = (root: string) => createHash('sha256').update(root).digest('hex');

@@ -47,7 +47,7 @@ function historyPath(directory: string): string {
  * `history` with each row under `from` moved to the same place under `to`, and how many rows that changed. every other
  * byte stays, including torn, foreign and CRLF lines.
  */
-export function moveRows(
+function moveRows(
   history: Buffer,
   from: string,
   to: string,
@@ -85,6 +85,26 @@ export function moveRows(
     start = next;
   }
   return { content: changed ? Buffer.concat(parts) : history, changed };
+}
+
+/**
+ * rewrites `directory`'s history, keeping its times, so rows under the path `from` gives for its inode sit under `to`;
+ * undefined leaves it. `checkpoint` records the move before the write, so a claim after a crash can finish it.
+ */
+export async function moveHistory(
+  directory: string,
+  to: string,
+  from: (inode: number) => string | undefined,
+  checkpoint?: (move: { from: string; inode: number }) => Promise<void>,
+): Promise<void> {
+  const file = historyPath(directory);
+  const times = await unlessGone(stat(file));
+  const source = times && from(times.ino);
+  if (!times || source === undefined) return;
+  const moved = moveRows(await readFile(file), source, to);
+  if (!moved.changed) return;
+  await checkpoint?.({ from: source, inode: times.ino });
+  await replaceFile(file, moved.content, times);
 }
 
 export class LockedElsewhere extends Error {}
@@ -318,17 +338,11 @@ export class StateStore {
       const record = await readRecord(directory);
       const files = new ConversationStore(directory, unlock, record);
       // rows the conversation adds go to `cwd`, so a move repair a crash stopped finishes before any are added
-      if (record.historyMove) {
-        const file = historyPath(directory);
-        const times = await unlessGone(stat(file));
-        if (times?.ino === record.historyMove.inode) {
-          const moved = moveRows(
-            await readFile(file),
-            record.historyMove.from,
-            record.cwd,
-          );
-          if (moved.changed) await replaceFile(file, moved.content, times);
-        }
+      const { historyMove } = record;
+      if (historyMove) {
+        await moveHistory(directory, record.cwd, (inode) =>
+          inode === historyMove.inode ? historyMove.from : undefined,
+        );
         delete record.historyMove;
         await files.save(record);
       }
@@ -370,6 +384,11 @@ export class StateStore {
 
   private promptsPath(): string {
     return join(this.root, 'prompts.jsonl');
+  }
+
+  /** the size of `prompts.jsonl`, 0 while it doesn't exist. */
+  async promptsSize(): Promise<number> {
+    return (await unlessGone(stat(this.promptsPath())))?.size ?? 0;
   }
 }
 

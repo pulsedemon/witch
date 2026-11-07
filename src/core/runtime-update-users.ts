@@ -1,30 +1,19 @@
-import { execFile } from 'node:child_process';
-import { readFile, readdir, readlink, realpath } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import { parseCommand } from '../cli-control.js';
 import { lockedFiles } from '../persistence/lock.js';
-import { processArguments, ps } from '../persistence/process.js';
+import {
+  processArguments,
+  processDirectory,
+  processExecutable,
+  ps,
+} from '../persistence/process.js';
 import { unlessGone } from '../persistence/json.js';
+import { listParticipants } from '../persistence/runtime-updates.js';
 
 export interface RuntimeUser {
   pid: number;
   reason: string;
-}
-
-async function processDirectory(pid: number): Promise<string | undefined> {
-  if (process.platform === 'linux')
-    return unlessGone(readlink(`/proc/${pid}/cwd`));
-  const { stdout } = await promisify(execFile)(
-    '/usr/sbin/lsof',
-    ['-a', '-p', String(pid), '-d', 'cwd', '-Fpn0'],
-    { timeout: 5000 },
-  );
-  return stdout
-    .split('\0')
-    .map((field) => field.replace(/^\n/, ''))
-    .find((field) => field.startsWith('n'))
-    ?.slice(1);
 }
 
 /** old Witch instances can start another runtime even while their current native child is absent. */
@@ -32,13 +21,7 @@ export async function runtimeUpdateUsers(
   root: string,
   directory: string,
 ): Promise<RuntimeUser[]> {
-  const participants = join(directory, 'participants');
-  const files = (await unlessGone(readdir(participants))) ?? [];
-  const held = await lockedFiles(
-    files
-      .filter((file) => /^\d+\.json$/.test(file))
-      .map((file) => join(participants, file)),
-  );
+  const held = await lockedFiles(await listParticipants(directory));
   const participating = new Set(
     [...held.keys()].map((file) => Number(basename(file, '.json'))),
   );
@@ -73,9 +56,7 @@ export async function runtimeUpdateUsers(
       candidates.map(async ({ pid, command }) => {
         // Linux comm is a thread name; require executable access only for runtime candidates.
         const executable =
-          process.platform === 'linux'
-            ? await unlessGone(readlink(`/proc/${pid}/exe`))
-            : command;
+          process.platform === 'linux' ? await processExecutable(pid) : command;
         return executable ? [{ pid, command: executable }] : [];
       }),
     )
