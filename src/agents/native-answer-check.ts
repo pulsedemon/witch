@@ -25,7 +25,6 @@ for await (const line of createInterface({ input: process.stdin })) {
 }
 `;
 
-/** native tool inventory or an attempted native denial must establish the boundary, not the model's refusal. */
 export async function checkNativeAnswer(
   candidate: RuntimeInstallation,
   model: string,
@@ -53,8 +52,16 @@ export async function checkNativeAnswer(
   const adapter = await verificationAdapter(
     candidate.runtime,
     directory,
-    (command, args, cwd, env, signal) => {
-      const child = spawn(command, args, { cwd, env, signal, stdio: 'pipe' });
+    (command, args, cwd, env, childSignal) => {
+      const child = spawn(command, args, {
+        cwd,
+        env,
+        signal: AbortSignal.any([
+          signal,
+          ...(childSignal ? [childSignal] : []),
+        ]),
+        stdio: 'pipe',
+      });
       launches.push({ command, args });
       if (
         candidate.runtime === 'claude' &&

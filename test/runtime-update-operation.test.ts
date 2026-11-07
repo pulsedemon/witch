@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import { appendFile } from 'node:fs/promises';
+import { artifactDigest } from '../src/agents/runtime-updates.js';
 import {
   holdRuntime,
   NativeUpdatePending,
@@ -347,6 +349,67 @@ test('confirmation rechecks native policy in the initiating conversation directo
     assert.ok(observed.includes('/project/first'));
     assert.ok(observed.includes('/project/second'));
     assert.deepEqual(f.installs, []);
+  } finally {
+    f.updates.close();
+  }
+});
+
+test('a cached release keeps freshly inspected installation policy through apply', async () => {
+  const f = await runtimeUpdateFixture();
+  f.policy.blocked = 'Old native update policy';
+  f.policy.automatic = true;
+  await f.updates.check(true);
+  const checks = f.checks();
+  delete f.policy.blocked;
+  f.policy.automatic = false;
+  await f.updates.check();
+  const fresh = f.updates.snapshot.entries[0]!.check!;
+  assert.equal(f.checks(), checks);
+  assert.equal(fresh.installation.blocked, undefined);
+  assert.equal(fresh.installation.automatic, false);
+  const install = f.native.install;
+  f.native.install = async (...args) => {
+    assert.equal(args[0].blocked, undefined);
+    assert.equal(args[0].automatic, false);
+    await install(...args);
+  };
+  try {
+    await f.updates.apply(fresh, { accountUsage: true });
+    assert.equal((await f.store.journal(f.root))?.phase, 'verified');
+    assert.deepEqual(f.installs, ['2.0.0']);
+  } finally {
+    f.updates.close();
+  }
+});
+
+test('recovery refuses the previous version when its artifact bytes differ', async () => {
+  const f = await runtimeUpdateFixture();
+  f.native.verify = async () => {
+    throw new Error('Candidate failed');
+  };
+  f.native.startup = async () => {};
+  const install = f.native.install;
+  f.native.install = async (...args) => {
+    await install(...args);
+    if (args[1] === '1.0.0') {
+      const artifact = f.artifacts.get('1.0.0')!;
+      await appendFile(artifact.executable, '\n# different artifact bytes\n');
+      artifact.digest = await artifactDigest('codex', artifact.executable);
+    }
+  };
+  try {
+    await assert.rejects(
+      f.updates.apply(f.check, { accountUsage: true }),
+      /Recovery did not restore the previous native artifact/,
+    );
+    const restored = await f.inspect();
+    assert.equal(restored.version, '1.0.0');
+    assert.notEqual(restored.digest, f.check.installation.digest);
+    assert.equal((await f.store.journal(f.root))?.phase, 'failed');
+    assert.throws(
+      () => holdRuntime(f.root, f.store.directory),
+      NativeUpdatePending,
+    );
   } finally {
     f.updates.close();
   }

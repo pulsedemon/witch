@@ -80,7 +80,7 @@ export function updatesText(snapshot: RuntimeUpdateSnapshot): string {
   lines.push(
     '/updates check refreshes releases. /updates claude or /updates codex opens confirmation.',
   );
-  return plain(lines.filter((line) => line !== undefined).join('\n'));
+  return plain(lines.join('\n'));
 }
 
 const unwatched = () => () => {};

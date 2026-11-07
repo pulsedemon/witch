@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { chmod, copyFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import {
@@ -11,7 +11,9 @@ import { verificationAdapter } from '../src/agents/native-verification-profile.j
 import { nativeScenario } from '../src/agents/native-scenario.js';
 import { runtimeUpdateFixture } from './fixtures/runtime-updates.js';
 import { FixtureAgent } from './fixtures/agent.js';
-import { until } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
+import { checkNativeAnswer } from '../src/agents/native-answer-check.js';
+import { checkCodexAnswerSandbox } from '../src/agents/native-sandbox-check.js';
 import { unlessGone } from '../src/persistence/json.js';
 
 for (const [mode, expected] of [
@@ -142,3 +144,75 @@ test('a failed control turn reports its native diagnostic without waiting for a 
     f.updates.close();
   }
 });
+
+for (const kind of ['answer', 'sandbox'] as const) {
+  test(`${kind} qualification cancellation stops the restricted child and retains evidence`, async () => {
+    const f = await runtimeUpdateFixture();
+    const executable = join(f.directory, 'fake-codex.mjs');
+    await copyFile(
+      new URL('./fixtures/native-qualification.mjs', import.meta.url),
+      executable,
+    );
+    await chmod(executable, 0o700);
+    const abort = new AbortController();
+    const directory =
+      kind === 'answer' ? f.directory : join(f.directory, 'builtin');
+    const running =
+      kind === 'answer'
+        ? checkNativeAnswer(
+            { ...(await f.inspect()), executable },
+            'fixture',
+            f.directory,
+            abort.signal,
+          )
+        : checkCodexAnswerSandbox(executable, f.directory, abort.signal);
+    const refused = assert.rejects(running, /aborted/i);
+    try {
+      await until(
+        'restricted native answer starts',
+        async () =>
+          (await unlessGone(readFile(join(directory, 'answer-started')))) !==
+          undefined,
+      );
+      const children = (
+        await readFile(join(directory, 'children.jsonl'), 'utf8')
+      )
+        .trim()
+        .split('\n')
+        .map(Number);
+      assert.equal(children.length, 2);
+      abort.abort(new Error('Qualification cancelled'));
+      await within(refused, 3000, 'qualification cancellation');
+      const evidence = JSON.parse(
+        await readFile(
+          join(
+            directory,
+            kind === 'answer'
+              ? 'boundary-evidence.json'
+              : 'sandbox-evidence.json',
+          ),
+          'utf8',
+        ),
+      );
+      if (kind === 'sandbox') assert.match(evidence.error, /aborted/i);
+      else assert.ok(Array.isArray(evidence.answerEvents));
+      for (const pid of children)
+        assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    } finally {
+      abort.abort();
+      const recorded = await unlessGone(
+        readFile(join(directory, 'children.jsonl'), 'utf8'),
+      );
+      for (const pid of recorded?.trim().split('\n').map(Number) ?? []) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch (error) {
+          assert.equal((error as NodeJS.ErrnoException).code, 'ESRCH');
+        }
+      }
+      await running.catch(() => {});
+      await refused.catch(() => {});
+      f.updates.close();
+    }
+  });
+}

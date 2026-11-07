@@ -208,10 +208,13 @@ supports_websockets=false
 request_max_retries=0
 `,
     );
-    const adapter = new CodexAdapter((command, directory, signal) =>
+    const adapter = new CodexAdapter((command, directory, childSignal) =>
       spawn(command, ['app-server', '--stdio'], {
         cwd: directory,
-        signal,
+        signal: AbortSignal.any([
+          signal,
+          ...(childSignal ? [childSignal] : []),
+        ]),
         stdio: 'pipe',
         env: {
           ...process.env,

@@ -1,3 +1,5 @@
+import type { Skill } from '../agents/types.js';
+
 export type Token =
   | { kind: 'command'; query: string }
   /** `[start, end)` spans the whole token, `@` included. */
@@ -58,4 +60,3 @@ export function rankFiles(query: string, paths: readonly string[]): string[] {
 export type CompletionList =
   | { kind: 'command'; items: Skill[] }
   | { kind: 'file'; start: number; end: number; items: string[] };
-import type { Skill } from '../agents/types.js';

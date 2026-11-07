@@ -60,11 +60,11 @@ export async function installNative(
       selected = nativeInstallationRoot(installation.launcher);
     } catch (error) {
       if (!gone(error) || !launcher.isSymbolicLink()) throw error;
-      const target = resolve(
+      const selectedPath = resolve(
         dirname(installation.launcher),
         await readlink(installation.launcher),
       );
-      if (target.startsWith(`${installation.root}/`))
+      if (selectedPath.startsWith(`${installation.root}/`))
         selected = installation.root;
     }
     if (selected !== installation.root)
@@ -123,7 +123,7 @@ export async function installNative(
   signal.throwIfAborted();
   const log = join(directory, `${installation.runtime}-${target}-install.log`);
   const stopping = AbortSignal.any([signal, AbortSignal.timeout(6 * 60_000)]);
-  const output = await open(log, 'w', 0o600);
+  const output = await open(log, 'a', 0o600);
   let interrupted = false;
   let code: number | null;
   try {

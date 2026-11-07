@@ -102,6 +102,26 @@ test('Claude installation preserves native argument ordering and retains install
   );
   await writeFile(
     executable,
+    `#!/bin/sh\nprintf 'early recovery diagnostic\n${'x'.repeat(6500)}\nlast failure line\n'\nexit 17\n`,
+  );
+  await assert.rejects(run('1.0.0'), (error: unknown) => {
+    assert.match(String(error), /exited 17/);
+    assert.doesNotMatch(String(error), /early recovery diagnostic/);
+    return true;
+  });
+  await writeFile(
+    executable,
+    "#!/bin/sh\nprintf 'recovery retry completed\n'\n",
+  );
+  await run('1.0.0');
+  const retained = await readFile(
+    join(operation, 'claude-1.0.0-install.log'),
+    'utf8',
+  );
+  assert.match(retained, /early recovery diagnostic/);
+  assert.match(retained, /recovery retry completed/);
+  await writeFile(
+    executable,
     '#!/bin/sh\nsleep 10 &\nprintf "%s" "$!" > child-pid\nprintf "installer waiting\\n"\nwait\n',
   );
   await assert.rejects(

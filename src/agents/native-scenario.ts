@@ -439,11 +439,11 @@ export async function nativeScenario(
   return events;
 }
 
-async function within<T>(
-  promise: Promise<T>,
+async function within(
+  promise: Promise<TurnResult>,
   milliseconds: number,
   what: string,
-): Promise<T> {
+): Promise<TurnResult> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

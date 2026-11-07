@@ -1,10 +1,21 @@
+#!/usr/bin/env node
 import process from 'node:process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const mode = process.argv[2];
-const threadId = 'qualification-thread';
+const boundary = mode === 'app-server';
+const directory = boundary ? dirname(process.env.CODEX_HOME) : undefined;
+if (boundary)
+  appendFileSync(join(directory, 'children.jsonl'), `${process.pid}\n`);
+let threadId = 'qualification-thread';
+let restricted = false;
 let sequence = 0;
 let turnId;
 let pending;
@@ -38,6 +49,67 @@ const commandEvent = (method, id, name) =>
 for await (const line of createInterface({ input: process.stdin })) {
   const request = JSON.parse(line);
   const reply = (result) => send({ id: request.id, result });
+  if (boundary) {
+    if (
+      ['thread/start', 'thread/resume', 'thread/fork'].includes(request.method)
+    ) {
+      restricted = request.params.ephemeral === true;
+      threadId = restricted ? 'answer' : 'owner';
+      reply({
+        thread: { id: threadId },
+        model: 'fixture',
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        reasoningEffort: 'low',
+      });
+    } else if (request.method === 'config/read')
+      reply({ config: { mcp_servers: {} } });
+    else if (request.method === 'mcpServerStatus/list')
+      reply({ data: [], nextCursor: null });
+    else if (request.method === 'turn/start') {
+      turnId = `turn-${++sequence}`;
+      reply({ turn: { id: turnId, status: 'inProgress' } });
+      event('turn/started', { turn: { id: turnId, status: 'inProgress' } });
+      if (restricted)
+        writeFileSync(join(directory, 'answer-started'), String(process.pid));
+      else {
+        const settings = join(process.env.CODEX_HOME, 'config.toml');
+        if (existsSync(settings)) {
+          const url = /base_url="([^"]+)"/.exec(
+            readFileSync(settings, 'utf8'),
+          )[1];
+          const post = async (input) =>
+            (
+              await globalThis.fetch(`${url}/responses`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  tools: [{ name: 'exec_command', type: 'function' }],
+                  input,
+                }),
+              })
+            ).text();
+          const frames = (await post([]))
+            .split('\n')
+            .filter((line) => line.startsWith('data: '))
+            .map((line) => JSON.parse(line.slice(6)));
+          const call = frames.find(
+            (frame) => frame.type === 'response.output_item.done',
+          ).item;
+          writeFileSync('ordinary', 'ordinary');
+          await post([
+            {
+              type: 'function_call_output',
+              call_id: call.call_id,
+              output: 'local fixture completed',
+            },
+          ]);
+        } else appendFileSync(join(directory, 'mcp-writes'), 'MCP_WRITE\n');
+        finish();
+      }
+    } else if (request.id !== undefined) reply({});
+    continue;
+  }
   if (!request.method) {
     if (pending && request.id === 'permission') {
       if (request.result.decision === 'accept' || mode === 'declined-write')

@@ -235,7 +235,7 @@ export function assessRuntimeUpdate(
   installation: RuntimeInstallation,
   release: Pick<RuntimeUpdateCheck, 'target' | 'source' | 'checkedAt'>,
 ): RuntimeUpdateCheck {
-  const { target } = release;
+  const { target, source, checkedAt } = release;
   const blocked =
     installation.blocked ??
     (installation.minimum && compareVersions(target, installation.minimum) < 0
@@ -246,7 +246,9 @@ export function assessRuntimeUpdate(
         : undefined);
   return {
     installation,
-    ...release,
+    target,
+    source,
+    checkedAt,
     available: compareVersions(target, installation.version) > 0,
     blocked,
   };
