@@ -574,15 +574,19 @@ test('cleanup failure is surfaced while shutdown still closes native work and ac
 test('legacy peers block selection until closed while other projects select independently', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await unitCoordinationFixture(cleanup);
+  const publish = CoordinationStore.prototype.publish;
+  vi.spyOn(CoordinationStore.prototype, 'publish').mockImplementation(function (
+    this: CoordinationStore,
+    presence,
+  ) {
+    const published = { ...presence };
+    if (presence.cwd === join(f.root, 'B')) delete published.selectionQueue;
+    return publish.call(this, published);
+  });
   const a = await f.start(),
     b = await f.start('B'),
     other = await f.start('C');
   const turn = await selectionTurn(cleanup, a);
-  const legacy = (await f.registry.presences()).find(
-    (presence) => presence.id === b.coordinator.snapshot.conversation!.id,
-  )!;
-  delete legacy.selectionQueue;
-  await f.registry.publish(legacy);
   const rejected = await callControl(turn.binding, {
     kind: 'select-next',
     turn: turn.turn,

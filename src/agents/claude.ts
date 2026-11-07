@@ -2,6 +2,7 @@ import { AnswerTurn } from './answer-turn.js';
 import { toolRequest } from './claude-permissions.js';
 import { content, readImages } from './claude-content.js';
 import { spawn } from 'node:child_process';
+import { nativeLaunch } from './native-launch.js';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { AbortError, query } from '@anthropic-ai/claude-agent-sdk';
@@ -63,12 +64,14 @@ import type {
 } from './types.js';
 
 const launch: ClaudeLaunch = (options) =>
-  spawn(options.command, options.args, {
-    cwd: options.cwd,
-    env: options.env,
-    signal: options.signal,
-    stdio: 'pipe',
-  });
+  nativeLaunch(options.command, options.env, (command) =>
+    spawn(command, options.args, {
+      cwd: options.cwd,
+      env: options.env,
+      signal: options.signal,
+      stdio: 'pipe',
+    }),
+  );
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 /** the experimental usage report may change shape, so only what parses is shown. */
 const sessionUsage = z.object({

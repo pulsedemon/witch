@@ -11,11 +11,23 @@ const servers = z.object({
   nextCursor: z.string().nullish(),
 });
 
+/** config/read emits unset options as null; native TOML overrides require them to be absent. */
+function tomlSettings(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(tomlSettings);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, value]) => value !== null)
+        .map(([name, value]) => [name, tomlSettings(value)]),
+    );
+  return value;
+}
+
 function readProfile(
   value: unknown,
   requestFile?: string,
 ): Record<string, unknown> {
-  const profile = object.parse(value);
+  const profile = object.parse(tomlSettings(value));
   const filesystem = object.parse(profile.filesystem ?? {});
   return {
     ...profile,
@@ -60,10 +72,21 @@ export function withoutMcp(
     'features.plugins': false,
     'features.skill_mcp_dependency_install': false,
     mcp_servers: Object.fromEntries(
-      Object.keys(object.parse(source.mcp_servers ?? {})).map((name) => [
-        name,
-        { enabled: false },
-      ]),
+      Object.entries(object.parse(source.mcp_servers ?? {})).map(
+        ([name, value]) => {
+          const server = object.parse(value);
+          // disabled servers still need a valid transport; config/read's null options are not TOML overrides.
+          return [
+            name,
+            {
+              ...(typeof server.command === 'string'
+                ? { command: server.command }
+                : { url: server.url }),
+              enabled: false,
+            },
+          ];
+        },
+      ),
     ),
   };
 }

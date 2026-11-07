@@ -30,6 +30,8 @@ Other Witch sessions and exclusive task claims are described under [session coor
 
 Agents delegate work through the [familiar reporting path](docs/rules.md#native-adapters-and-execution) on either runtime, with native identity, activity and a saved report. `/delegation` sets where each kind of work goes, each runtime's model family and the usage level that shifts new work to a runtime with room.
 
+`/updates` shows native CLI versions and available releases; `/updates check` refreshes them. `/updates claude` or `/updates codex` opens confirmation for an update or recovery. [Native runtime updates](docs/rules.md#native-runtime-updates) defines supported installations, live-check consent and recovery.
+
 Witch repairs a directory moved on the same volume on its own the next time it starts there or anywhere else: its conversations, prompt history, spawned worktrees' Git links and shared-memory paths. For a move it can't prove, such as a copy to another volume, its startup notice gives the `--recover-directory` command to run from the new location.
 
 Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns eligibility and title selection. [Desktop scheduling](src/persistence/notifications.ts) spaces alerts across sessions sharing a state directory; bursts can wait, and stale alerts cancel. Titles and bells keep their timing.
@@ -94,6 +96,8 @@ python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 
 The [native protocol manifest](test/fixtures/native/manifest.json) records the tested CLI versions, capture models and launch arguments. Dependency versions are owned by [package.json](package.json) and its lockfile.
+
+[check-native-update.ts](scripts/check-native-update.ts) runs the installed updater's qualification against explicit `--runtime`, `--executable` and `--out` paths. Without `--allow-account-usage` it checks startup and discovery only. Full qualification also requires `--previous-executable`, creates an isolated old-version conversation, and spends native account usage. `--model` selects an available model; failed and incomplete checks retain diagnostics in the output directory. This command verifies artifacts without changing the native installation.
 
 Witch uses these experimental or undeclared native interfaces:
 

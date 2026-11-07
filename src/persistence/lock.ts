@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { constants } from 'node:fs';
+import { closeSync, constants, openSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { getSystemErrorName, promisify } from 'node:util';
@@ -70,6 +70,36 @@ print join(' ', @results);
 // macOS flock flags, which Node doesn't export
 const sharedLock = 0x10;
 const exclusiveLock = 0x20;
+
+/** native launches must hold admission before spawn returns a child. */
+export function tryOpenLockedSync(
+  file: string,
+  flags: number,
+  shared = false,
+): number | undefined {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(
+      file,
+      flags |
+        constants.O_NONBLOCK |
+        (nativeLocks ? 0 : shared ? sharedLock : exclusiveLock),
+      0o600,
+    );
+    if (nativeLocks)
+      nativeLocks.flockSync(descriptor, shared ? 'shnb' : 'exnb');
+    return descriptor;
+  } catch (error) {
+    if (descriptor !== undefined) closeSync(descriptor);
+    if (
+      ['EAGAIN', 'EWOULDBLOCK'].includes(
+        (error as NodeJS.ErrnoException).code ?? '',
+      )
+    )
+      return;
+    throw error;
+  }
+}
 
 /** the descriptor owns the lock until close; Darwin acquires it atomically with open. */
 export async function openLocked(

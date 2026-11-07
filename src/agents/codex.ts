@@ -14,6 +14,7 @@ import {
 import type { CodexSelection } from './codex-compaction-policy.js';
 import { permissionProfile, sessionInfo } from './codex-session-info.js';
 import { spawn } from 'node:child_process';
+import { nativeLaunch } from './native-launch.js';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import { JsonRpc } from './json-rpc.js';
@@ -246,7 +247,9 @@ type Launch = (
   signal?: AbortSignal,
 ) => ChildProcessWithoutNullStreams;
 const launch: Launch = (executable, cwd, signal) =>
-  spawn(executable, ['app-server', '--stdio'], { cwd, stdio: 'pipe', signal });
+  nativeLaunch(executable, undefined, (command) =>
+    spawn(command, ['app-server', '--stdio'], { cwd, stdio: 'pipe', signal }),
+  );
 
 async function initializeRpc(rpc: JsonRpc): Promise<void> {
   await rpc.request('initialize', {

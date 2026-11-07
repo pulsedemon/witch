@@ -74,6 +74,14 @@ export class ModelCatalog {
     private readonly report: (error: unknown) => void,
   ) {}
 
+  get availability() {
+    return this.registrations.map(({ adapter, executable }) => ({
+      id: adapter.id,
+      label: adapter.label,
+      installed: !!executable,
+    }));
+  }
+
   installed(id: string): AgentRegistration {
     const registration = this.registrations.find(
       ({ adapter }) => adapter.id === id,
@@ -83,6 +91,12 @@ export class ModelCatalog {
         `${registration?.adapter.label ?? id} is not installed. Install its native CLI and sign in before using it.`,
       );
     return registration;
+  }
+
+  invalidate(runtime: string): void {
+    for (const key of this.lists.keys())
+      if (key.startsWith(`${runtime}:`)) this.lists.delete(key);
+    this.latestModels.delete(runtime);
   }
 
   async read(

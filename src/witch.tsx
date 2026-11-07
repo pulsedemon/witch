@@ -4,6 +4,8 @@ import { dirname, isAbsolute, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
+import { registerNativeParticipant } from './agents/native-launch.js';
+import { RuntimeUpdates } from './core/runtime-updates.js';
 import { errorMessage } from './agents/stderr.js';
 import { controlPrefix } from './cli-control.js';
 import type { parseCommand } from './cli-control.js';
@@ -94,6 +96,7 @@ export async function runWitch(
     }
     return;
   }
+  registerNativeParticipant();
   const prompt = positionals.join(' ');
   let stopTerminal: (() => void) | undefined;
   const restore = () => {
@@ -142,14 +145,33 @@ export async function runWitch(
   const notifications = await NotificationSchedule.open(
     join(store.root, 'notifications'),
   );
+  const registrations = await installedAgents();
   const coordinator = new Coordinator(
     store,
     memory,
-    await installedAgents(),
+    registrations,
     jobs,
     undefined,
     coordination,
   );
+  const updates = new RuntimeUpdates({
+    cwd: () => coordinator.snapshot.conversation?.cwd ?? process.cwd(),
+    maintain: (runtime, run) =>
+      coordinator.maintainNative(runtime, async (signal) => {
+        try {
+          await run(signal);
+        } finally {
+          const registration = registrations.find(
+            (value) => value.adapter.id === runtime,
+          );
+          if (registration)
+            registration.executable = (await installedAgents()).find(
+              (value) => value.adapter.id === runtime,
+            )?.executable;
+        }
+      }),
+    notice: (message) => coordinator.notice(message, undefined, false),
+  });
   /** a desktop action that failed; nothing in the conversation depends on it. */
   const warn = (error: unknown) =>
     coordinator.notice(errorMessage(error), undefined, false);
@@ -165,6 +187,7 @@ export async function runWitch(
   };
   let shuttingDown = false;
   const shutdown = () => {
+    updates.close();
     stopTerminal?.();
     // a second request quits without waiting for a stuck agent
     if (shuttingDown) {
@@ -233,6 +256,7 @@ export async function runWitch(
   const application = render(
     <App
       coordinator={coordinator}
+      updates={updates}
       repository={repository}
       jobs={jobs}
       store={store}
@@ -278,7 +302,13 @@ export async function runWitch(
     })
     // initialize shows its own failure
     .catch(() => {});
+  void updates
+    .check()
+    .catch((error) =>
+      coordinator.notice(errorMessage(error), undefined, false),
+    );
   await application.waitUntilExit();
+  updates.close();
   stopMerges();
   stopConflicts();
   stopCopilot();

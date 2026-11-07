@@ -4,14 +4,14 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
-import { CodexAdapter } from '../src/agents/codex.js';
-import { ClaudeAdapter } from '../src/agents/claude.js';
+import { verificationAdapter } from '../src/agents/native-verification-profile.js';
 import { observeWire, normalizeWire } from '../test/fixtures/native-wire.js';
-import { nativeScenario } from '../test/fixtures/native-scenario.js';
+import { nativeScenario } from '../src/agents/native-scenario.js';
 
 const { values } = parseArgs({
   options: {
     runtime: { type: 'string' },
+    executable: { type: 'string' },
     out: { type: 'string' },
     model: { type: 'string' },
     scenario: { type: 'string', default: 'basic' },
@@ -72,42 +72,8 @@ const start = (
   child.stderr.on('data', (chunk) => process.stderr.write(chunk));
   return child;
 };
-const adapter =
-  values.runtime === 'codex'
-    ? new CodexAdapter((command, directory, signal) =>
-        start(
-          command,
-          [
-            'app-server',
-            '--stdio',
-            '-c',
-            'approval_policy="on-request"',
-            '-c',
-            'approvals_reviewer="user"',
-            '-c',
-            'sandbox_mode="read-only"',
-          ],
-          directory,
-          process.env,
-          signal,
-        ),
-      )
-    : new ClaudeAdapter((options) =>
-        start(
-          options.command,
-          [
-            ...options.args.filter(
-              (arg) => !arg.startsWith('--setting-sources='),
-            ),
-            '--setting-sources=project',
-            '--strict-mcp-config',
-            '--permission-mode=default',
-          ],
-          options.cwd!,
-          options.env,
-          options.signal,
-        ),
-      );
+const executable = values.executable ?? values.runtime;
+const adapter = await verificationAdapter(values.runtime, root, start);
 let passed = false;
 const abort = new AbortController();
 const timeout = setTimeout(
@@ -119,7 +85,7 @@ try {
     adapter,
     {
       cwd,
-      executable: values.runtime,
+      executable,
       model: values.model,
       effort: 'low',
       memoryDirectories: [],
@@ -181,7 +147,7 @@ try {
     JSON.stringify(
       {
         runtime: values.runtime,
-        version: execFileSync(values.runtime, ['--version'], {
+        version: execFileSync(executable, ['--version'], {
           encoding: 'utf8',
         }).trim(),
         model: values.model,

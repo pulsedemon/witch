@@ -123,6 +123,7 @@ export class PresencePublisher {
       process: this.host.process,
       phase:
         state?.phase === 'compacting' ||
+        state?.phase === 'updating' ||
         (state?.phase === 'idle' && state.nativeRunning)
           ? 'running'
           : (state?.phase ?? 'starting'),

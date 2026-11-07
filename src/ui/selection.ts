@@ -1,3 +1,4 @@
+import type { ScrollAnchor } from './transcript-layout.js';
 import {
   styledCharsFromTokens,
   styledCharsToString,
@@ -12,6 +13,16 @@ import { colors } from './theme.js';
 export interface Point {
   row: number;
   column: number;
+}
+
+/** one end of a drag in the transcript: the row it is on, by its text, and the column. */
+export interface RangeEnd {
+  anchor: ScrollAnchor;
+  column: number;
+  /** the width it was measured at; a width change drops the range, since a column from a wider one can lie past the edge. */
+  width: number;
+  /** its row as measured; output growing into the row, or its tool expanding or collapsing, changes it. */
+  text: string;
 }
 
 // Ink draws neither invisible characters nor controls, so they take no cell and are never copied
