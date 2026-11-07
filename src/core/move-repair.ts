@@ -1,5 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import { projectKey } from '../memory/memory.js';
@@ -26,9 +25,8 @@ import type {
   Move,
   Owner,
 } from '../persistence/directories.js';
-import { replaceFile, unlessGone } from '../persistence/json.js';
 import { stopLeftProcesses } from '../persistence/process.js';
-import { LockedElsewhere, moveRows } from '../persistence/store.js';
+import { LockedElsewhere, moveHistory } from '../persistence/store.js';
 import type { StateStore } from '../persistence/store.js';
 import { quote } from '../shell.js';
 import { runCommand } from './command.js';
@@ -134,11 +132,11 @@ async function declaredProblem(
 
 /**
  * finds where the ledger's known directories went, adds a declared move, and records them in `ledger` with the size of
- * `prompts.jsonl` under `root`.
+ * the store's `prompts.jsonl`.
  */
 async function recordMoves(
   ledger: Ledger,
-  root: string,
+  store: StateStore,
   seeds: readonly string[],
   records: readonly ConversationRecord[],
   declared: Move | undefined,
@@ -184,9 +182,7 @@ async function recordMoves(
       ...copyIdentity,
     });
   // read under the ledger lock, so prompts added while repair waited for it count as before the move
-  const promptsSize =
-    (await unlessGone(stat(join(root, 'prompts.jsonl'))))?.size ?? 0;
-  await resolve(ledger, moves, promptsSize);
+  await resolve(ledger, moves, await store.promptsSize());
   // a declared move is a copy, so the directories under it have new identities the user vouches for
   if (declared && vouched) {
     const copied: Array<[DirectoryEntry, string]> = [];
@@ -258,7 +254,7 @@ export async function repairMoves(
       : updateLedger(store.root, apply);
 
   const found = await change((ledger) =>
-    recordMoves(ledger, store.root, seeds, records, declared, report),
+    recordMoves(ledger, store, seeds, records, declared, report),
   );
 
   const { ledger, resolved } = await change(async (ledger) => {
@@ -506,20 +502,16 @@ async function rewrite(
             ? rekeyed(raw.sessions as ConversationRecord['sessions'], project)
             : raw.sessions,
         };
-        const history = join(directory, 'history.jsonl');
-        const times = await unlessGone(stat(history));
-        if (times) {
+        await moveHistory(
+          directory,
+          target,
           // the rows name a stopped repair's `from` until its history write replaces the file
-          const from =
-            current.historyMove?.inode === times.ino
+          (inode) =>
+            current.historyMove?.inode === inode
               ? current.historyMove.from
-              : saved.cwd;
-          const rewritten = moveRows(await readFile(history), from, target);
-          if (rewritten.changed) {
-            await save({ ...moved, historyMove: { from, inode: times.ino } });
-            await replaceFile(history, rewritten.content, times);
-          }
-        }
+              : saved.cwd,
+          (historyMove) => save({ ...moved, historyMove }),
+        );
         return { ...moved, historyMove: undefined };
       })) === 'repaired'
     );
