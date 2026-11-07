@@ -42,13 +42,11 @@ async function input(cwd: string) {
 
 async function answer(session: AgentSession, cwd: string) {
   const batch = await input(cwd);
-  const result = await session.send(
-    answerInstruction,
-    undefined,
-    batch.context,
-    'peer-answer',
-    { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
-  );
+  const result = await session.send(answerInstruction, {
+    context: batch.context,
+    purpose: 'peer-answer',
+    answer: { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
+  });
   assert.equal(result.status, 'completed');
   assert.deepEqual(
     parsePeerAnswers(result.text, batch.requests),
@@ -87,12 +85,10 @@ for (const runtime of ['codex', 'claude']) {
     requests.length = 0;
     assert.equal(
       (
-        await session.send(
-          'normal review',
-          undefined,
-          'task context',
-          'pr-review',
-        )
+        await session.send('normal review', {
+          context: 'task context',
+          purpose: 'pr-review',
+        })
       ).status,
       'completed',
     );
@@ -440,13 +436,11 @@ test('Claude allows its exact request file when the native read needs approval',
   t.onTestFinished(() => session.close());
   const batch = await input(f.cwd);
   await writeFile(join(f.cwd, 'answer-approval'), batch.file);
-  const result = await session.send(
-    answerInstruction,
-    undefined,
-    batch.context,
-    'peer-answer',
-    { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
-  );
+  const result = await session.send(answerInstruction, {
+    context: batch.context,
+    purpose: 'peer-answer',
+    answer: { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
+  });
   assert.equal(result.status, 'completed');
   const response = JSON.parse(
     await readFile(join(f.cwd, 'answer-response.json'), 'utf8'),
@@ -601,9 +595,13 @@ for (const runtime of ['codex', 'claude'] as const) {
       const closing = session.close();
       if (phase === 'closed') await closing;
       const rejected = assert.rejects(
-        session.send(answerInstruction, undefined, '', 'peer-answer', {
-          outputSchema: peerAnswerOutputSchema,
-          requestFile: batch.file,
+        session.send(answerInstruction, {
+          context: '',
+          purpose: 'peer-answer',
+          answer: {
+            outputSchema: peerAnswerOutputSchema,
+            requestFile: batch.file,
+          },
         }),
         /session is closed/,
       );
@@ -635,16 +633,14 @@ for (const runtime of ['codex', 'claude'] as const) {
       await session.close();
     });
     const batch = await input(f.cwd);
-    const sending = session.send(
-      answerInstruction,
-      undefined,
-      '',
-      'peer-answer',
-      {
+    const sending = session.send(answerInstruction, {
+      context: '',
+      purpose: 'peer-answer',
+      answer: {
         outputSchema: peerAnswerOutputSchema,
         requestFile: batch.file,
       },
-    );
+    });
     await entered.promise;
     const stopping = session.interrupt();
     registered.resolve();

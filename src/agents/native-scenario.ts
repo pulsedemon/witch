@@ -183,8 +183,7 @@ export async function nativeScenario(
       assert.equal(session.info.effort, 'medium');
       const answer = await session.send(
         'Reply with only the marker in the supplied context. Do not use tools, spells or delegation.',
-        undefined,
-        'The protocol check marker is WITCH_CONTEXT_309.',
+        { context: 'The protocol check marker is WITCH_CONTEXT_309.' },
       );
       assert.equal(answer.status, 'completed', answer.error);
       assert.equal(answer.text.trim(), 'WITCH_CONTEXT_309');
@@ -299,7 +298,7 @@ export async function nativeScenario(
       const prompt = '/probe-spell hello';
       const call = skillCall(prompt, skills);
       assert.ok(call, 'the probe spell is listed');
-      const user = await session.send(prompt, call);
+      const user = await session.send(prompt, { skill: call });
       assert.equal(user.status, 'completed', user.error);
       assert.match(user.text, /PROBE CAST hello/);
       assert.ok(cast(from), 'the user casts the probe spell');

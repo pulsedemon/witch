@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
-import { boundMarker, findFamiliar } from './familiar-report.js';
+import {
+  admitFamiliar,
+  boundMarker,
+  findFamiliar,
+  respondFamiliar,
+} from './familiar-report.js';
 import { FamiliarRun } from './familiar-requests.js';
 import type {
   FamiliarAction,
@@ -30,6 +35,12 @@ interface Command {
   familiar?: FamiliarRun;
   cleanup?: Promise<void>;
 }
+
+export type Notification = {
+  method: RpcMessage['method'];
+  params: Record<string, unknown>;
+  item?: Record<string, unknown>;
+};
 
 const commandStatus = z.enum(['completed', 'failed', 'declined']);
 const backgroundList = z.object({
@@ -61,11 +72,7 @@ export class CodexCommands {
     private readonly emit: (event: AgentEvent) => void,
   ) {}
 
-  receive(message: {
-    method: RpcMessage['method'];
-    params: Record<string, unknown>;
-    item?: Record<string, unknown>;
-  }): void {
+  receive(message: Notification): void {
     if (this.stopped) return;
     const { params, item } = message;
     if (!item && message.method !== 'turn/completed') return;
@@ -175,46 +182,43 @@ export class CodexCommands {
       throw new Error('Familiar reporting is unavailable.');
     const entry = findFamiliar(this.entries.values(), action);
     if (!entry) return { kind: 'familiar-pending' };
-    if (action.kind === 'familiar-register') {
-      if (entry.done)
-        throw new Error('The familiar command has already ended.');
-      if (entry.familiar) {
-        if (entry.familiar.subagent.name !== action.name)
-          throw new Error('The familiar name changed.');
-        return { kind: 'familiar-registered' };
-      }
-      if (!entry.processId) {
-        if (entry.lookupError) throw new Error(entry.lookupError);
-        entry.lookup ??= this.readHandle(entry)
-          .catch((error: unknown) => {
-            entry.lookupError = errorMessage(error);
-          })
-          .finally(() => {
-            entry.lookup = undefined;
+    return admitFamiliar(
+      entry,
+      entry.done === true,
+      action,
+      (action) => {
+        if (!entry.processId) {
+          if (entry.lookupError) throw new Error(entry.lookupError);
+          entry.lookup ??= this.readHandle(entry)
+            .catch((error: unknown) => {
+              entry.lookupError = errorMessage(error);
+            })
+            .finally(() => {
+              entry.lookup = undefined;
+            });
+          return { kind: 'familiar-pending' };
+        }
+        return new FamiliarRun(
+          action,
+          this.emit,
+          entry.threadId === this.mainThread() ? undefined : entry.threadId,
+        );
+      },
+      (run) => {
+        if (entry.command)
+          this.emit({
+            type: 'command',
+            command: {
+              ...entry.command,
+              familiar: run.subagent.id,
+            },
           });
-        return { kind: 'familiar-pending' };
-      }
-      entry.familiar = new FamiliarRun(
-        action,
-        this.emit,
-        entry.threadId === this.mainThread() ? undefined : entry.threadId,
-      );
-      if (entry.command)
-        this.emit({
-          type: 'command',
-          command: { ...entry.command, familiar: entry.familiar.subagent.id },
-        });
-      return { kind: 'familiar-registered' };
-    }
-    if (!entry.familiar)
-      throw new Error('The familiar run has not registered.');
-    return entry.familiar.report(action);
+      },
+    );
   }
 
   respond(id: string, response: UserResponse): boolean {
-    return [...this.entries.values()].some(
-      (entry) => entry.familiar?.requests.respond(id, response) ?? false,
-    );
+    return respondFamiliar(this.entries.values(), id, response);
   }
 
   async close(): Promise<void> {

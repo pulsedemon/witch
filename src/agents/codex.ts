@@ -21,6 +21,7 @@ import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
 import { CodexCommands } from './codex-commands.js';
+import type { Notification } from './codex-commands.js';
 import { CodexAccount, probeAccountUsage, rateLimits } from './codex-limits.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { mergeCasts } from './familiar-report.js';
@@ -28,7 +29,7 @@ import { diffLines, hunks, wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import {
   beforeDeadline,
-  NativeStop,
+  closeFailedStart,
   NativeStopTimeout,
   stopDeadline,
   stopOptions,
@@ -42,20 +43,18 @@ import type {
   AccountReading,
   AgentSession,
   AgentStopOptions,
-  AnswerInput,
   FileDiff,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
   SessionOptions,
   Skill,
-  SkillCall,
   Subagent,
   TurnResult,
-  TurnPurpose,
   Usage,
   UserRequest,
   UserResponse,
+  SendOptions,
 } from './types.js';
 
 const stringValue = z.string();
@@ -64,11 +63,6 @@ const completedTurn = z.object({
   turn: z.object({ id: stringValue, status: stringValue }),
 });
 const turnDiff = z.object({ turnId: stringValue, diff: stringValue });
-type Notification = {
-  method: RpcMessage['method'];
-  params: Record<string, unknown>;
-  item?: Record<string, unknown>;
-};
 
 const skillList = z.object({
   data: z.array(
@@ -308,10 +302,11 @@ export class CodexAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
-      // read before close, so a stop that lands while it waits doesn't replace the startup error
-      const reason: unknown = options.signal?.reason;
-      await session.close(stopOptions(options.signal));
-      throw reason instanceof NativeStop ? reason : error;
+      return closeFailedStart(
+        () => session.close(stopOptions(options.signal)),
+        options.signal,
+        error,
+      );
     }
   }
 }
@@ -558,17 +553,20 @@ class CodexSession implements AgentSession {
 
   async send(
     prompt: string,
-    skill?: SkillCall,
-    context?: string,
-    purpose: TurnPurpose = 'user',
-    answer?: AnswerInput,
-    images: readonly string[] = [],
+    { skill, context, purpose = 'user', answer, images = [] }: SendOptions = {},
   ): Promise<TurnResult> {
     if (purpose === 'peer-answer' && !this.options.answer) {
-      if (this.closed || this.closing)
-        throw new Error('The Codex session is closed');
-      if (this.turn) throw new Error('This agent is already running');
-      return this.answers.run(this.info, prompt, context, answer);
+      return this.answers.run(
+        {
+          closed: this.closed || this.closing,
+          running: !!this.turn,
+          label: 'Codex',
+        },
+        this.info,
+        prompt,
+        context,
+        answer,
+      );
     }
     const path =
       skill && this.spellIndex.find(({ name }) => name === skill.name)?.path;

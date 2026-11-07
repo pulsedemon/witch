@@ -17,7 +17,12 @@ import { TurnText } from './turn-text.js';
 import { accountReading, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCompaction } from './claude-compaction.js';
 import { ClaudeContext } from './claude-context.js';
-import { promptless, sideQuery, startupFailure } from './claude-side.js';
+import {
+  promptless,
+  sideQuery,
+  startupFailure,
+  withoutModelPins,
+} from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
@@ -27,7 +32,7 @@ import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
 import {
   beforeDeadline,
-  NativeStop,
+  closeFailedStart,
   NativeStopTimeout,
   running,
   stopDeadline,
@@ -45,7 +50,6 @@ import type {
   AgentAdapter,
   AgentSession,
   AgentStopOptions,
-  AnswerInput,
   AccountReading,
   Model,
   ModelDiscoveryOptions,
@@ -53,13 +57,12 @@ import type {
   SessionOptions,
   Skill,
   Cast,
-  SkillCall,
   Subagent,
   TurnResult,
-  TurnPurpose,
   Usage,
   UserRequest,
   UserResponse,
+  SendOptions,
 } from './types.js';
 
 const launch: ClaudeLaunch = (options) =>
@@ -123,13 +126,6 @@ export class ClaudeAdapter implements AgentAdapter {
 
   /** settings files, `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_*_MODEL` can pin an alias to an older model, so none applies. */
   latest(options: ModelDiscoveryOptions): Promise<Record<string, string>> {
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([name]) =>
-          name !== 'ANTHROPIC_MODEL' &&
-          !/^ANTHROPIC_DEFAULT_\w+_MODEL$/.test(name),
-      ),
-    );
     return sideQuery(
       this.start,
       options,
@@ -141,7 +137,7 @@ export class ClaudeAdapter implements AgentAdapter {
               : [],
           ),
         ),
-      { settingSources: [], env },
+      { settingSources: [], env: withoutModelPins(process.env) },
     );
   }
 
@@ -153,10 +149,11 @@ export class ClaudeAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
-      // read before close, so a stop that lands while it waits doesn't replace the startup error
-      const reason: unknown = options.signal?.reason;
-      await session.close(stopOptions(options.signal));
-      throw reason instanceof NativeStop ? reason : error;
+      return closeFailedStart(
+        () => session.close(stopOptions(options.signal)),
+        options.signal,
+        error,
+      );
     }
   }
 }
@@ -514,16 +511,16 @@ class ClaudeSession implements AgentSession {
 
   async send(
     prompt: string,
-    skill?: SkillCall,
-    context?: string,
-    purpose: TurnPurpose = 'user',
-    answer?: AnswerInput,
-    images: readonly string[] = [],
+    { skill, context, purpose = 'user', answer, images = [] }: SendOptions = {},
   ): Promise<TurnResult> {
     if (purpose === 'peer-answer' && !this.options.answer) {
-      if (this.closed) throw new Error('The Claude session is closed');
-      if (this.turn) throw new Error('This agent is already running');
-      return this.answers.run(this.info, prompt, context, answer);
+      return this.answers.run(
+        { closed: this.closed, running: !!this.turn, label: 'Claude' },
+        this.info,
+        prompt,
+        context,
+        answer,
+      );
     }
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return blocks;

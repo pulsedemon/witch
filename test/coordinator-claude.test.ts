@@ -185,9 +185,9 @@ for (const dispatch of [true, false])
       adapter.connect = async (options) => {
         session = await connect(options);
         const send = session.send.bind(session);
-        session.send = async (prompt, skill) => {
+        session.send = async (prompt, options) => {
           if (dispatch) assert.equal(children.at(-1)!.kill('SIGTERM'), true);
-          result = await send(prompt, skill);
+          result = await send(prompt, { skill: options?.skill });
           return result;
         };
         return session;

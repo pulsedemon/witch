@@ -146,15 +146,14 @@ export function autoReply(
       : client.a;
   const session = agent.sessions.at(-1)!.session;
   const send = session.send;
-  vi.spyOn(session, 'send').mockImplementation(
-    async (prompt, skill, context, purpose, answer) => {
-      if (
-        purpose === 'pr-review' &&
-        prompt.startsWith('Witch started this turn to handle Copilot') &&
-        enabled()
-      )
-        await reply(f, client, source);
-      return send(prompt, skill, context, purpose, answer);
-    },
-  );
+  vi.spyOn(session, 'send').mockImplementation(async (prompt, options) => {
+    if (
+      options?.purpose === 'pr-review' &&
+      prompt.startsWith('Witch started this turn to handle Copilot') &&
+      enabled()
+    )
+      await reply(f, client, source);
+    // the fixture never sent images, so it keeps dropping them
+    return send(prompt, { ...options, images: undefined });
+  });
 }

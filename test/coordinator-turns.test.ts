@@ -1295,7 +1295,7 @@ for (const rejected of [false, true])
           order.push('selection completed');
         };
         const send = session.send.bind(session);
-        session.send = async (prompt, skill, context) => {
+        session.send = async (prompt, options) => {
           if (prompt === '/queued') {
             atNextSend.push({
               model: session.info.model,
@@ -1303,7 +1303,7 @@ for (const rejected of [false, true])
             });
             order.push('queued send');
           }
-          return send(prompt, skill, context);
+          return send(prompt, options);
         };
         a.gate = gate;
         sending = coordinator.send('Start');

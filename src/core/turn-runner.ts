@@ -309,23 +309,22 @@ export class TurnRunner {
               session,
               async () => (await context(true)).context,
             );
-            const sending = session.send(
-              input.prompt,
-              skillCall(prompt, this.host.snapshot().skills),
-              input.context,
-              !automatic
+            const sending = session.send(input.prompt, {
+              skill: skillCall(prompt, this.host.snapshot().skills),
+              context: input.context,
+              purpose: !automatic
                 ? 'user'
                 : answer
                   ? 'peer-answer'
                   : repair
                     ? 'pr-repair'
                     : 'pr-review',
-              batch && {
+              answer: batch && {
                 outputSchema: peerAnswerOutputSchema,
                 requestFile: batch.file,
               },
               images,
-            );
+            });
             const stopPolicy = watchClaimPolicy(
               this.coordination,
               kind === 'turn' ? coordination?.snapshot : undefined,

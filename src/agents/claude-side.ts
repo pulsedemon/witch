@@ -25,6 +25,43 @@ export const promptless = {
   mcpServers: {},
 } satisfies Options;
 
+/** `env` without `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_*_MODEL`, which can pin an alias to an older model. */
+export function withoutModelPins(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      ([name]) =>
+        name !== 'ANTHROPIC_MODEL' &&
+        !/^ANTHROPIC_DEFAULT_\w+_MODEL$/.test(name),
+    ),
+  );
+}
+
+/** a query that sends no prompt; the caller owns `input` and `abort`, and `overrides` replace the promptless defaults. */
+export function promptlessQuery(
+  start: ClaudeLaunch,
+  { cwd, executable }: Pick<ModelDiscoveryOptions, 'cwd' | 'executable'>,
+  input: InputQueue<SDKUserMessage>,
+  abort: AbortController,
+  onSpawn: (child: ChildProcessWithoutNullStreams) => void,
+  overrides: Options = {},
+): Query {
+  return query({
+    prompt: input,
+    options: {
+      cwd,
+      pathToClaudeCodeExecutable: executable,
+      abortController: abort,
+      ...promptless,
+      ...overrides,
+      spawnClaudeCodeProcess: (settings) => {
+        const child = start(settings);
+        onSpawn(child);
+        return child;
+      },
+    },
+  });
+}
+
 /** bounds stderr collection when startup fails while the CLI is still alive. */
 export async function startupFailure(
   error: unknown,
@@ -55,21 +92,16 @@ export async function sideQuery<T>(
   let side: Query | undefined;
   let reading: Promise<void> | undefined;
   try {
-    side = query({
-      prompt: input,
-      options: {
-        cwd: options.cwd,
-        pathToClaudeCodeExecutable: options.executable,
-        abortController: abort,
-        ...promptless,
-        ...overrides,
-        spawnClaudeCodeProcess: (settings) => {
-          const process = start(settings);
-          child = watchChild(process);
-          return process;
-        },
+    side = promptlessQuery(
+      start,
+      options,
+      input,
+      abort,
+      (process) => {
+        child = watchChild(process);
       },
-    });
+      overrides,
+    );
     const stream = side;
     reading = (async () => {
       for await (const message of stream) void message;

@@ -96,8 +96,11 @@ test('initial slash prompts go as text unless a native command was selected', as
     for (const prompt of ['/config autoCompact=false', '  /rename audit'])
       assert.equal((await session.send(prompt)).status, 'completed');
     assert.equal(
-      (await session.send('context', { name: 'autocompact', args: '200k' }))
-        .status,
+      (
+        await session.send('context', {
+          skill: { name: 'autocompact', args: '200k' },
+        })
+      ).status,
       'completed',
     );
     assert.deepEqual(
@@ -124,7 +127,7 @@ test('initial slash prompts go as text unless a native command was selected', as
 test('a skill goes last after its context, and a plain prompt stays a string', async () => {
   const { session, cwd } = await fixture();
   try {
-    await session.send('context', { name: 'review', args: 'main' });
+    await session.send('context', { skill: { name: 'review', args: 'main' } });
     assert.deepEqual(await content(cwd), [
       { type: 'text', text: 'context' },
       { type: 'text', text: '/review main' },

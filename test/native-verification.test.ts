@@ -95,14 +95,12 @@ for (const [mode, expected] of [
 test('controlled Claude launches keep hooks and user MCP out while preserving isolated sessions', async () => {
   const f = await runtimeUpdateFixture();
   let observed: { args: string[]; env: NodeJS.ProcessEnv } | undefined;
-  const adapter = await verificationAdapter(
-    'claude',
-    f.directory,
-    (_command, args, _cwd, env) => {
+  const adapter = await verificationAdapter('claude', f.directory, {
+    start: (_command, args, _cwd, env) => {
       observed = { args, env };
       throw new Error('Launch observed');
     },
-  );
+  });
   try {
     await assert.rejects(
       adapter.connect({

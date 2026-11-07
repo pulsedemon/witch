@@ -24,10 +24,7 @@ test("a prompt whose image can't be read starts no turn and keeps the command re
     await writeFile(photo, 'jpeg bytes');
     await session.shell('printf alpha');
     assert.deepEqual(
-      await session.send('look', skill, undefined, 'user', undefined, [
-        shot,
-        missing,
-      ]),
+      await session.send('look', { skill, images: [shot, missing] }),
       {
         status: 'failed',
         text: '',
@@ -37,7 +34,7 @@ test("a prompt whose image can't be read starts no turn and keeps the command re
     );
     await assert.rejects(access(join(cwd, 'content.json')));
     await within(
-      session.send('look', skill, undefined, 'user', undefined, [shot, photo]),
+      session.send('look', { skill, images: [shot, photo] }),
       3000,
       'the turn',
     );
