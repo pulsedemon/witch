@@ -628,3 +628,28 @@ test('Claude ignores a foreign completion while preparing the initial input', as
     await session.close();
   }
 });
+
+test('failed live Claude preparation returns unread shell context without closing the session', async () => {
+  const configure = vi
+    .spyOn(ClaudeContext.prototype, 'configure')
+    .mockRejectedValue(new Error('policy application refused'));
+  const f = await launcher();
+  const session = await f.connect({ automaticCompaction: true });
+  try {
+    assert.equal(
+      (await session.shell('printf preparation-context-marker')).status,
+      'completed',
+    );
+    const result = await session.send('retain original input');
+    assert.equal(result.status, 'failed');
+    assert.equal(result.inputUnsent, true);
+    assert.equal(result.unreadContext?.length, 1);
+    assert.match(result.unreadContext![0]!, /preparation-context-marker/);
+    assert.ok(session.takeUnreadContext);
+    assert.deepEqual(session.takeUnreadContext(), []);
+    assert.equal(session.closed, false);
+  } finally {
+    configure.mockRestore();
+    await session.close();
+  }
+});

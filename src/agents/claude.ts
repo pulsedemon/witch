@@ -10,7 +10,6 @@ import type {
   Query,
   SDKMessage,
   SDKUserMessage,
-  ModelInfo,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
@@ -176,7 +175,7 @@ interface Turn {
   inputError?: string;
   commandRecords: Map<string, { records: string[]; writeAttempted: boolean }>;
   initialInput?: string;
-  /** keep the turn open across native idle until a steered command and its reply finish. */
+  /** keep native idle from settling the turn before the steered command's reply is queued. */
   held: boolean;
   /** native idle can precede delivery of input this turn already accepted. */
   idle: boolean;
@@ -213,7 +212,6 @@ class ClaudeSession implements AgentSession {
   private compaction?: ClaudeCompaction;
   private readonly context: ClaudeContext;
   readonly restoreCompactionContext?: AgentSession['restoreCompactionContext'];
-  /** the user's `!` command until its record and process reports settle. */
   private command?: { controller: AbortController; finished: Promise<void> };
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
   private records: string[] = [];
@@ -480,7 +478,7 @@ class ClaudeSession implements AgentSession {
   async models(refresh = false): Promise<Model[]> {
     if (this.turn)
       throw new Error('Stop the current turn before refreshing models');
-    const models: ModelInfo[] = refresh
+    const models = refresh
       ? (await this.query.reinitialize()).models
       : await this.query.supportedModels();
     return modelsOf(models);
@@ -530,7 +528,8 @@ class ClaudeSession implements AgentSession {
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return blocks;
     const turn = this.beginTurn();
-    if (this.options.automaticCompaction) {
+    const stopped = this.process?.killed || this.child?.exited;
+    if (this.options.automaticCompaction && !stopped) {
       try {
         await this.context.configure();
       } catch (error) {
@@ -691,7 +690,8 @@ class ClaudeSession implements AgentSession {
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return false;
     const turn = this.turn;
-    if (turn && !turn.compaction && !(await turn.started.promise)) return false;
+    if (turn && !turn.compaction && !turn.initialInput)
+      if (!(await turn.started.promise)) return false;
     if (
       this.closed ||
       !turn ||
@@ -745,7 +745,6 @@ class ClaudeSession implements AgentSession {
     );
   }
 
-  /** a familiar or workflow runs in the background, which holds off Claude Code's idle. */
   private get holding(): boolean {
     return (
       this.workflows.size > 0 ||
@@ -1381,7 +1380,6 @@ class ClaudeSession implements AgentSession {
   /** ends the turn a stopped CLI leaves, once its stderr is complete. */
   private async end(error: string): Promise<void> {
     const closed = this.closed;
-    // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
     this.stopMcpPolling();
     this.stopUntil ??= stopDeadline();
@@ -1483,6 +1481,8 @@ class ClaudeSession implements AgentSession {
   private finish(turn: Turn, result: TurnResult): void {
     turn.started.resolve(false);
     if (this.turn === turn) {
+      if (!turn.initialInput && !turn.compaction && this.records.length)
+        result = { ...result, unreadContext: this.takeUnreadContext() };
       this.turn = undefined;
       this.compaction?.finish({
         status: turn.interrupted ? 'interrupted' : 'failed',
