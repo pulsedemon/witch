@@ -8,11 +8,12 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { findExecutable, nativeInstallationRoot } from './executable.js';
 import {
   holdRuntime,
   nativeUpdateDirectory,
+  participantFile,
+  participantsDirectory,
 } from '../persistence/runtime-updates.js';
 import { tryOpenLockedSync } from '../persistence/lock.js';
 
@@ -23,9 +24,8 @@ export function registerNativeParticipant(
 ): () => void {
   const existing = participants.get(directory);
   if (existing) return existing;
-  const folder = join(directory, 'participants');
-  mkdirSync(folder, { recursive: true, mode: 0o700 });
-  const file = join(folder, `${process.pid}.json`);
+  mkdirSync(participantsDirectory(directory), { recursive: true, mode: 0o700 });
+  const file = participantFile(directory, process.pid);
   const descriptor = tryOpenLockedSync(
     file,
     constants.O_CREAT | constants.O_RDWR,
