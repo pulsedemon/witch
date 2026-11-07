@@ -133,6 +133,7 @@ export class SessionLink {
             ) ?? undefined)
           : stored?.effort,
         memoryDirectories: workspace.directories(scope),
+        automaticCompaction: true,
         signal: this.aborter.signal,
         onEvent: (event) => {
           if (!files.closed) this.receive(conversation, agent, event, tools);

@@ -14,6 +14,11 @@ import {
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+if (process.argv.includes('debug') && process.argv.includes('models')) {
+  process.stdout.write('{"models":[]}\n');
+  process.exit(0);
+}
+
 const familiar = process.env.WITCH_CODEX_FAMILIAR_FIXTURE;
 if (familiar) {
   writeFileSync(
@@ -410,6 +415,7 @@ for await (const line of lines) {
           model: second ? 'model-b' : 'model-a',
           displayName: second ? 'B' : 'A',
           description: 'fixture',
+          isDefault: !second,
           supportedReasoningEfforts: [
             { reasoningEffort: second ? 'high' : 'low' },
           ],
@@ -422,6 +428,7 @@ for await (const line of lines) {
                 model: id,
                 displayName: id,
                 description: 'fixture',
+                isDefault: false,
                 supportedReasoningEfforts: [],
               }),
             )
@@ -532,6 +539,17 @@ for await (const line of lines) {
           mode === 'sparse-limits' ? null : window(40, 10080, 2000500000),
       },
     });
+  if (request.method === 'thread/unsubscribe') {
+    reply({ status: 'unsubscribed' });
+    continue;
+  }
+  if (request.method === 'thread/resume' && existsSync(file('resume-fail'))) {
+    send({
+      id: request.id,
+      error: { code: -32603, message: 'resume refused' },
+    });
+    continue;
+  }
   if (
     request.method === 'thread/resume' &&
     request.params.threadId !== 'native-thread'
@@ -577,6 +595,12 @@ for await (const line of lines) {
   if (request.method === 'thread/read') {
     if (mode === 'identity') {
       deferReply('read', ++threadReads, request);
+      continue;
+    }
+    if (request.params.threadId === 'native-thread') {
+      reply({
+        thread: { ...session().thread, model, reasoningEffort: effort },
+      });
       continue;
     }
     const threads = {

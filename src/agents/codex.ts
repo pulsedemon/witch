@@ -7,6 +7,12 @@ import {
   withoutMcp,
 } from './codex-answer.js';
 import { readModels } from './codex-models.js';
+import {
+  CodexCompactionPolicy,
+  readContextCatalog,
+} from './codex-compaction-policy.js';
+import type { CodexSelection } from './codex-compaction-policy.js';
+import { permissionProfile, sessionInfo } from './codex-session-info.js';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
@@ -63,14 +69,6 @@ type Notification = {
   item?: Record<string, unknown>;
 };
 
-const nativeSession = z.object({
-  thread: z.object({ id: z.string() }),
-  model: z.string(),
-  approvalPolicy: z.unknown(),
-  approvalsReviewer: z.string().optional(),
-  reasoningEffort: z.string().nullish(),
-  activePermissionProfile: z.object({ id: z.string() }).nullish(),
-});
 const skillList = z.object({
   data: z.array(
     z.object({
@@ -262,7 +260,10 @@ export class CodexAdapter implements AgentAdapter {
   readonly id = 'codex';
   readonly label = 'Codex';
 
-  constructor(private readonly start: Launch = launch) {}
+  constructor(
+    private readonly start: Launch = launch,
+    private readonly contextCatalog = readContextCatalog,
+  ) {}
 
   models(options: ModelDiscoveryOptions): Promise<Model[]> {
     return this.probe(options, readModels);
@@ -293,8 +294,11 @@ export class CodexAdapter implements AgentAdapter {
   async connect(options: SessionOptions): Promise<AgentSession> {
     const child = this.start(options.executable, options.cwd, options.signal);
     const rpc = new JsonRpc(child);
-    const session = new CodexSession(rpc, options, (answer) =>
-      this.connect(answer),
+    const session = new CodexSession(
+      rpc,
+      options,
+      (answer) => this.connect(answer),
+      this.contextCatalog,
     );
     try {
       await options.onProcess(child.pid);
@@ -340,9 +344,8 @@ class CodexSession implements AgentSession {
   private connected = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
   /** the thread's settings as Codex last reported them, which `model/rerouted` leaves alone. */
-  private native: { model: string; effort?: string } = { model: '' };
+  private native: CodexSelection = { model: '' };
   private readonly malformed = new Set<string>();
-  /** spawned threads by id. */
   private readonly subagents = new Map<string, Subagent>();
   private readonly subagentModels = new Map<
     string,
@@ -361,11 +364,13 @@ class CodexSession implements AgentSession {
   >();
   private readonly account = new CodexAccount();
   private limitsRead?: Promise<void>;
+  private automaticCompaction?: CodexCompactionPolicy;
 
   constructor(
     private readonly rpc: JsonRpc,
     private readonly options: SessionOptions,
     connect: (options: SessionOptions) => Promise<AgentSession>,
+    private readonly contextCatalog: typeof readContextCatalog,
   ) {
     this.answers = new AnswerTurn(options, connect);
     this.info = {
@@ -438,6 +443,16 @@ class CodexSession implements AgentSession {
       },
       ...(this.options.resume ? { threadId: this.options.resume } : {}),
     };
+    this.automaticCompaction = await CodexCompactionPolicy.read(
+      this.rpc,
+      this.options,
+      parameters.config,
+      this.contextCatalog,
+    );
+    parameters.config = {
+      ...parameters.config,
+      ...this.automaticCompaction?.configuration(parameters.model),
+    };
     this.updateInfo(
       await this.rpc.request(
         this.options.resume
@@ -488,7 +503,6 @@ class CodexSession implements AgentSession {
     return skills;
   }
 
-  /** Codex can't clear its thread's effort, so `null` only stops requesting one. */
   /** Codex accepts any id at selection, and only its backend refuses one at the next turn. */
   async checkModel(model: string): Promise<void> {
     const offered = (models: Model[]) => models.some(({ id }) => id === model);
@@ -496,9 +510,11 @@ class CodexSession implements AgentSession {
       throw new Error(`Codex has no model ${model}.`);
   }
 
+  /** Codex can't clear its thread's effort, so `null` only stops requesting one. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.turn || this.answers.busy)
       throw new Error('Stop the current turn before changing models');
+    this.automaticCompaction?.assertIdle(model, this.backgroundActive);
     // Codex notifies only when the settings change
     if (
       model !== this.native.model ||
@@ -518,6 +534,7 @@ class CodexSession implements AgentSession {
         this.settings = undefined;
       }
     }
+    await this.configureCompaction();
     this.info = {
       ...this.info,
       model: this.native.model,
@@ -560,6 +577,11 @@ class CodexSession implements AgentSession {
     const turn = this.beginTurn();
     let submitted = false;
     try {
+      if (this.automaticCompaction) await this.configureCompaction();
+      if (turn.interrupted || this.turn !== turn) {
+        if (this.turn === turn) this.finish('interrupted');
+        return { ...(await turn.finished.promise), inputUnsent: true };
+      }
       if (context !== undefined)
         await this.rpc.request('thread/inject_items', {
           threadId: this.info.id,
@@ -606,6 +628,22 @@ class CodexSession implements AgentSession {
 
   async contextUsage(): Promise<number | undefined> {
     return this.usage.context;
+  }
+
+  private get backgroundActive(): boolean {
+    return (
+      this.commands.active ||
+      [...this.subagents.values()].some((agent) => agent.status === 'running')
+    );
+  }
+
+  private async configureCompaction(): Promise<void> {
+    const response = await this.automaticCompaction?.apply(
+      this.info,
+      this.native,
+      this.backgroundActive,
+    );
+    if (response) this.updateInfo(response);
   }
 
   async compact(): Promise<TurnResult> {
@@ -813,22 +851,10 @@ class CodexSession implements AgentSession {
   }
 
   private updateInfo(response: unknown): void {
-    const data = nativeSession.parse(response);
-    const policy =
-      typeof data.approvalPolicy === 'string'
-        ? data.approvalPolicy
-        : JSON.stringify(data.approvalPolicy);
+    this.info = sessionInfo(response, this.info);
     this.native = {
-      model: data.model,
-      effort: data.reasoningEffort ?? undefined,
-    };
-    this.info = {
-      ...this.info,
-      id: data.thread.id,
-      model: data.model,
-      nativeEffort: this.native.effort,
-      permissionMode: `${policy}${data.approvalsReviewer ? ` / ${data.approvalsReviewer}` : ''}`,
-      permissionProfile: data.activePermissionProfile?.id,
+      model: this.info.model,
+      effort: this.info.nativeEffort,
     };
     this.options.onEvent({ type: 'info', info: this.info });
   }
@@ -1097,9 +1123,9 @@ class CodexSession implements AgentSession {
           ...this.info,
           model: this.native.model,
           nativeEffort: this.native.effort,
-          permissionProfile: nativeSession.shape.activePermissionProfile.parse(
+          permissionProfile: permissionProfile(
             settings.activePermissionProfile,
-          )?.id,
+          ),
         };
         this.options.onEvent({ type: 'info', info: this.info });
         this.settings?.resolve();

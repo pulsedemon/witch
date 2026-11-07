@@ -54,6 +54,7 @@ export class AnswerTurn {
         model: source.model,
         effort: source.effort ?? source.nativeEffort,
         answer: { ...input, permissionProfile: source.permissionProfile },
+        automaticCompaction: undefined,
         signal: active.abort.signal,
         familiarBinding: undefined,
         onUsageProcess: undefined,

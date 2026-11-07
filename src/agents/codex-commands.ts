@@ -45,6 +45,9 @@ const backgroundList = z.object({
 
 /** one native command owns its brew or reported familiar, including after its turn ends. */
 export class CodexCommands {
+  get active(): boolean {
+    return [...this.entries.values()].some((entry) => !entry.done);
+  }
   private readonly entries = new Map<string, Command>();
   private stopped = false;
   private closing = false;

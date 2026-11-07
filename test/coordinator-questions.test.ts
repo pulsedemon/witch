@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
+import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
 import type { UserRequest } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { StateStore } from '../src/persistence/store.js';
@@ -49,15 +50,17 @@ async function codexFixture() {
   const project = join(root, 'project');
   await mkdir(project);
   const store = await StateStore.open(join(root, 'state'));
-  const adapter = new CodexAdapter((_, cwd, signal) =>
-    spawn(
-      process.execPath,
-      [
-        fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url)),
-        'file-approvals',
-      ],
-      { cwd, stdio: 'pipe', signal },
-    ),
+  const adapter = new CodexAdapter(
+    (_, cwd, signal) =>
+      spawn(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url)),
+          'file-approvals',
+        ],
+        { cwd, stdio: 'pipe', signal },
+      ),
+    unreportedContextCatalog,
   );
   const memory = await seededMemory(join(root, 'state', 'memory.git'));
   const coordinator = new Coordinator(store, memory, [

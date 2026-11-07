@@ -4,6 +4,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../../src/agents/codex.js';
+import type { readContextCatalog } from '../../src/agents/codex-compaction-policy.js';
 import type {
   AgentEvent,
   AgentSession,
@@ -19,6 +20,10 @@ import type { CommandPrefixes } from '../../src/agents/tool-title.js';
 
 const codex = fileURLToPath(new URL('codex.mjs', import.meta.url));
 
+/** protocol-only fixtures omit the separate native model-window catalog. */
+export const unreportedContextCatalog: typeof readContextCatalog =
+  async () => ({ models: [] });
+
 export async function fixture(
   onEvent: (event: AgentEvent) => void = () => {},
   {
@@ -31,6 +36,10 @@ export async function fixture(
     commandPrefixes,
     onClient,
     onAnswerProcess,
+    model,
+    automaticCompaction,
+    configuration,
+    contextCatalog,
   }: {
     effort?: string;
     resume?: string;
@@ -41,9 +50,14 @@ export async function fixture(
     commandPrefixes?: CommandPrefixes;
     onClient?: (message: RpcMessage) => void;
     onAnswerProcess?: SessionOptions['onAnswerProcess'];
+    model?: string;
+    automaticCompaction?: true;
+    configuration?: Record<string, unknown>;
+    contextCatalog?: typeof readContextCatalog;
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
+  if (configuration) await writeJson(join(cwd, 'config.json'), configuration);
   let child: ChildProcessWithoutNullStreams;
   const adapter = new CodexAdapter((_, directory, signal) => {
     child = spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
@@ -59,10 +73,12 @@ export async function fixture(
       };
     }
     return child;
-  });
+  }, contextCatalog);
   const session = await adapter.connect({
     cwd,
     executable: 'codex',
+    model,
+    automaticCompaction,
     effort,
     resume,
     signal,

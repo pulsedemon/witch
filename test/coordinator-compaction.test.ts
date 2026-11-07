@@ -93,6 +93,39 @@ test('automatic native replacement cannot be undone by successful ordinary-turn 
   }
 });
 
+test('a native compaction hook receives full context before replacement notification and is released after the turn', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('remember-port');
+    await f.coordinator.send('latest revision');
+    const native = f.a.sessions.at(-1)!;
+    let reader: (() => Promise<string | undefined>) | undefined;
+    let retained: typeof reader;
+    native.session.restoreCompactionContext = (read) => {
+      reader = retained = read;
+      return () => {
+        reader = undefined;
+      };
+    };
+    const send = native.session.send.bind(native.session);
+    native.session.send = async (...args) => {
+      assert.ok(reader);
+      const restored = await reader();
+      assert.match(restored!, /You are running inside Witch/);
+      assert.match(restored!, /Accepted shared memory/);
+      assert.match(restored!, /Use port 4567/);
+      native.options.onEvent({ type: 'compacted' });
+      return send(...args);
+    };
+    await f.coordinator.send('continue after native compaction');
+    assert.equal(reader, undefined);
+    assert.equal(await retained!(), undefined);
+    assert.deepEqual(f.a.contextSteers, []);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('a compaction inside a turn steers memory and the fixed instructions back into it', async () => {
   const f = await fixture(),
     c = f.coordinator,
@@ -402,12 +435,24 @@ test('compaction preserves active background records and pending handoff context
   }
 });
 
-for (const usage of [79, 80, undefined]) {
-  test(`queued work at ${usage ?? 'unknown'} percent makes one scheduling decision before delivery`, async () => {
+for (const [window, usage, compacted] of [
+  [undefined, 79, false],
+  [undefined, 80, true],
+  [undefined, undefined, false],
+  [200_000, 79, false],
+  [200_000, 80, true],
+  [200_000, 81, true],
+  [1_000_000, 59.9, false],
+  [1_000_000, 60, true],
+  [1_000_000, 61, true],
+  [1_000_000, undefined, false],
+] as const) {
+  test(`queued work at ${usage ?? 'unknown'} percent of ${window ?? 'unknown'} tokens makes one scheduling decision before delivery`, async () => {
     const f = await unitFixture();
     try {
       await f.coordinator.send('seed');
       const session = f.a.sessions[0]!.session;
+      session.usage.contextWindow = window;
       session.contextUsage = async () => usage;
       const order: string[] = [];
       const compact = session.compact.bind(session),
@@ -423,7 +468,7 @@ for (const usage of [79, 80, undefined]) {
       await f.coordinator.refreshModels();
       assert.deepEqual(order, []);
       await f.coordinator.send('next');
-      assert.deepEqual(order, usage === 80 ? ['compact', 'send'] : ['send']);
+      assert.deepEqual(order, compacted ? ['compact', 'send'] : ['send']);
       assert.equal(f.a.inputs.length, 2);
       assert.equal(f.a.inputs[1]!.prompt, 'next');
     } finally {

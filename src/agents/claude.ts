@@ -16,6 +16,7 @@ import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
 import { accountReading, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCompaction } from './claude-compaction.js';
+import { ClaudeContext } from './claude-context.js';
 import { promptless, sideQuery, startupFailure } from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
@@ -172,10 +173,7 @@ interface Turn {
   inputError?: string;
   commandRecords: Map<string, { records: string[]; writeAttempted: boolean }>;
   initialInput?: string;
-  /**
-   * a command steered after the reply hasn't ended, or its reply hasn't gone, and Claude Code's idle doesn't end the
-   * turn meanwhile.
-   */
+  /** keep the turn open across native idle until a steered command and its reply finish. */
   held: boolean;
   /** native idle can precede delivery of input this turn already accepted. */
   idle: boolean;
@@ -211,6 +209,8 @@ class ClaudeSession implements AgentSession {
   private turn?: Turn;
   private readonly rateLimit = new RateLimit<Turn>();
   private compaction?: ClaudeCompaction;
+  private readonly context: ClaudeContext;
+  readonly restoreCompactionContext?: AgentSession['restoreCompactionContext'];
   /** the user's `!` command until its record and process reports settle. */
   private command?: { controller: AbortController; finished: Promise<void> };
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
@@ -219,7 +219,6 @@ class ClaudeSession implements AgentSession {
   /** the spells the user sent, by input uuid, until Claude starts the input. */
   private readonly pendingCasts = new Map<string, string>();
   private readonly commands: ClaudeCommands;
-  /** the background workflows still running. */
   private readonly workflows = new Set<string>();
   /** the task ids the last live set listed. a foreground familiar is never listed, so only a task listed before can end by leaving it. */
   private listed = new Set<string>();
@@ -256,6 +255,10 @@ class ClaudeSession implements AgentSession {
       hasHistory: !!options.resume,
       effort: options.effort,
     };
+    this.context = new ClaudeContext(() => this.query);
+    this.restoreCompactionContext = options.automaticCompaction
+      ? this.context.bind
+      : undefined;
     this.query = query({
       prompt: this.input,
       options: {
@@ -284,6 +287,7 @@ class ClaudeSession implements AgentSession {
           : {}),
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
+        hooks: options.automaticCompaction ? this.context.hooks : undefined,
         // a familiar's last message is its report, which the sidebar and transcript show
         forwardSubagentText: true,
         env: {
@@ -494,8 +498,10 @@ class ClaudeSession implements AgentSession {
       throw new Error('Stop the current turn before changing models');
     const level = effort == null ? effort : effortLevel.parse(effort);
     await this.query.setModel(model);
-    if (model !== this.info.model)
+    if (model !== this.info.model) {
       this.report({ context: undefined, contextWindow: undefined });
+      this.context.invalidate();
+    }
     if (level !== undefined)
       await this.query.applyFlagSettings({ effortLevel: level });
     this.info = {
@@ -524,6 +530,22 @@ class ClaudeSession implements AgentSession {
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return blocks;
     const turn = this.beginTurn();
+    if (this.options.automaticCompaction) {
+      try {
+        await this.context.configure();
+      } catch (error) {
+        this.finish(turn, {
+          status: 'failed',
+          text: '',
+          error: errorMessage(error),
+        });
+        return { ...(await turn.finished.promise), inputUnsent: true };
+      }
+      if (turn.interrupted || this.turn !== turn || this.closed) {
+        this.finish(turn, { status: 'interrupted', text: '' });
+        return { ...(await turn.finished.promise), inputUnsent: true };
+      }
+    }
     const records = this.takeUnreadContext();
     const input =
       context === undefined
@@ -729,9 +751,7 @@ class ClaudeSession implements AgentSession {
     );
   }
 
-  /**
-   * with native idle tracking, a reply after the last holder may land after idle, so idle or a new holder releases it.
-   */
+  /** native idle or a new holder releases a reply that arrives after the last holder. */
   private async reply(
     turn: Turn,
     command: string,
@@ -1328,21 +1348,11 @@ class ClaudeSession implements AgentSession {
     this.options.onEvent({ type: 'usage', usage: this.usage });
   }
 
-  async contextUsage(): Promise<number | undefined> {
-    const model = this.info.model;
-    try {
-      const context = await this.query.getContextUsage({ detail: 'summary' });
-      if (this.closed || this.info.model !== model) return;
-      const percentage = z.number().safeParse(context.percentage);
-      const capacity = z.number().safeParse(context.maxTokens);
-      const update: Usage = {};
-      if (percentage.success) update.context = percentage.data;
-      if (capacity.success) update.contextWindow = capacity.data;
-      if (Object.keys(update).length) this.report(update);
-      return percentage.success ? percentage.data : undefined;
-    } catch {
-      return undefined;
-    }
+  contextUsage(): Promise<number | undefined> {
+    return this.context.read(
+      () => (this.closed ? undefined : this.info.model),
+      (usage) => this.report(usage),
+    );
   }
 
   private readUsage(): void {

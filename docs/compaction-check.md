@@ -1,6 +1,6 @@
 # Compaction check
 
-This check grades whether a conversation kept its task, open decisions and constraints after compaction. It uses real conversations from the state directory and compares the compactions Witch ran with each runtime's own. The threshold it informs is `compactAt` in [turn-runner.ts](../src/core/turn-runner.ts).
+This check grades whether a conversation kept its task, open decisions and constraints after compaction. It uses real conversations from the state directory and compares the compactions Witch ran with each runtime's own. The threshold it informs belongs to [the compaction policy](../src/core/compaction-policy.ts).
 
 ## Extract
 
@@ -15,7 +15,7 @@ The script reads every conversation's `history.jsonl` under `~/.witch`. It match
 
 It writes `cases.json` and one packet per case in `packets/`. Each case records runtime, trigger, whether it matched in the latest session, tokens at compaction, the number of prompts after it (up to four, stopping at the next compaction or `/clear`) and, on Codex, the percent of the context window and whether the turn had output before the compaction. Claude tokens are the transcript's `preTokens`. A packet starts at the last `/clear` and contains the first two prompts after it, the last eight prompts before compaction and up to four prompts after it, each followed by the agent's last message before the next prompt or compaction. When a compaction falls inside a turn before the agent's first reply, the prompt just before it counts as after it, since the agent answers it after compaction, unless it's a `!` command. Witch writes the prompt after its own compaction before a turn, so nothing moves there. Prompts the queue sent again are shown once. Messages are cut at 3,000 characters in the opening, 2,000 before compaction and 4,000 after it. It prints counts per runtime and trigger.
 
-A `command` compaction is Witch's threshold or the user's `/compact`, which neither the native logs nor Witch's history tell apart, except that one inside a turn is always `/compact`, since the threshold runs only before a turn. The threshold only fires at `compactAt` percent, so a `command` case below it was `/compact`, and one at or above it may be either. Codex's percent uses Witch's measure, the last request's total tokens over the context window. Witch reads Claude's percent from `getContextUsage`, which the transcript doesn't record, so a Claude case near the threshold is undetermined.
+A `command` compaction is Witch's pre-turn threshold or the user's `/compact`, which neither the native logs nor Witch's history tell apart, except that one inside a turn is always `/compact`. Use the policy at the conversation's revision and its reported usable window to interpret a case. Older revisions used a fixed percentage; applying today's policy to them changes their meaning. A case below its verified pre-turn threshold was manual, while one at or above it may be either. Missing policy or window evidence leaves attribution undetermined. Codex's percent uses Witch's measure, the last request's total tokens over the context window. Witch reads Claude's percent from `getContextUsage`, which the transcript doesn't record. Native compaction can use a different token metric or an earlier safety limit, so its preceding display sample is not proof of its trigger.
 
 ## Grade
 

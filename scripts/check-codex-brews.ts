@@ -12,6 +12,7 @@ import { promisify } from 'node:util';
 import { Ajv } from 'ajv';
 import { z } from 'zod';
 import { CodexAdapter } from '../src/agents/codex.js';
+import { readContextCatalog } from '../src/agents/codex-compaction-policy.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { installedAgents } from '../src/agents/registry.js';
 import type { AgentEvent, SessionOptions } from '../src/agents/types.js';
@@ -567,66 +568,70 @@ requires_openai_auth = false
 supports_websockets = false
 `,
     );
-    const adapter = new CodexAdapter((executable, project, signal) => {
-      child = spawn(executable, ['app-server'], {
-        cwd: project,
-        signal,
-        stdio: 'pipe',
-        env: {
-          ...process.env,
-          CODEX_HOME: home,
-          TMPDIR: temporary,
-          OPENAI_API_KEY: undefined,
-          CODEX_API_KEY: undefined,
-        },
-      });
-      childClosed = new Promise((resolve) => child!.once('close', resolve));
-      child.on('error', fail);
-      child.once('close', () => {
-        if (!closing)
-          fail(new Error('Native app-server closed during the check'));
-      });
-      child.stderr.setEncoding('utf8').on('data', (text: string) => {
-        stderr += text;
-      });
-      const write = child.stdin.write.bind(child.stdin);
-      child.stdin.write = (
-        chunk: unknown,
-        encoding?: BufferEncoding | ((error?: Error | null) => void),
-        callback?: (error?: Error | null) => void,
-      ) => {
-        try {
-          trace.push(
-            observe({
-              direction: 'sent',
-              message: JSON.parse(String(chunk)) as RpcMessage,
-            }),
-          );
-        } catch (cause) {
-          fail(cause);
-        }
-        return typeof encoding === 'string'
-          ? write(chunk, encoding, callback)
-          : write(chunk, encoding ?? callback);
-      };
-      createInterface({ input: child.stdout }).on('line', (line) => {
-        try {
-          const message = JSON.parse(line) as RpcMessage;
-          trace.push(observe({ direction: 'received', message }));
-          if (!closing && message.method === 'error')
-            fail(new Error(JSON.stringify(message.params)));
-          if (typeof message.id === 'string') {
-            const waiting = pending.get(message.id);
-            if (message.error)
-              waiting?.reject(new Error(message.error.message));
-            else waiting?.resolve(message.result);
+    const environment = {
+      ...process.env,
+      CODEX_HOME: home,
+      TMPDIR: temporary,
+      OPENAI_API_KEY: undefined,
+      CODEX_API_KEY: undefined,
+    };
+    const adapter = new CodexAdapter(
+      (executable, project, signal) => {
+        child = spawn(executable, ['app-server'], {
+          cwd: project,
+          signal,
+          stdio: 'pipe',
+          env: environment,
+        });
+        childClosed = new Promise((resolve) => child!.once('close', resolve));
+        child.on('error', fail);
+        child.once('close', () => {
+          if (!closing)
+            fail(new Error('Native app-server closed during the check'));
+        });
+        child.stderr.setEncoding('utf8').on('data', (text: string) => {
+          stderr += text;
+        });
+        const write = child.stdin.write.bind(child.stdin);
+        child.stdin.write = (
+          chunk: unknown,
+          encoding?: BufferEncoding | ((error?: Error | null) => void),
+          callback?: (error?: Error | null) => void,
+        ) => {
+          try {
+            trace.push(
+              observe({
+                direction: 'sent',
+                message: JSON.parse(String(chunk)) as RpcMessage,
+              }),
+            );
+          } catch (cause) {
+            fail(cause);
           }
-        } catch (cause) {
-          fail(cause);
-        }
-      });
-      return child;
-    });
+          return typeof encoding === 'string'
+            ? write(chunk, encoding, callback)
+            : write(chunk, encoding ?? callback);
+        };
+        createInterface({ input: child.stdout }).on('line', (line) => {
+          try {
+            const message = JSON.parse(line) as RpcMessage;
+            trace.push(observe({ direction: 'received', message }));
+            if (!closing && message.method === 'error')
+              fail(new Error(JSON.stringify(message.params)));
+            if (typeof message.id === 'string') {
+              const waiting = pending.get(message.id);
+              if (message.error)
+                waiting?.reject(new Error(message.error.message));
+              else waiting?.resolve(message.result);
+            }
+          } catch (cause) {
+            fail(cause);
+          }
+        });
+        return child;
+      },
+      (options) => readContextCatalog(options, environment),
+    );
     const connect = adapter.connect.bind(adapter);
     adapter.connect = (options: SessionOptions) =>
       connect({
