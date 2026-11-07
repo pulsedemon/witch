@@ -54,26 +54,32 @@ export async function runtimeUpdateUsers(
       return [];
     return [{ pid: Number(match[1]), command: match[3]! }];
   });
+  const argumentsByPid = await processArguments(
+    processes.map((row) => row.pid),
+  );
+  const candidates = processes.filter(({ pid, command }) =>
+    [command, argumentsByPid.get(pid)?.[0]].some(
+      (executable) =>
+        executable &&
+        (executable.startsWith(`${root}/`) ||
+          /^(?:node|bun|bash|zsh|sh|curl|codex|claude|MainThread)(?:$|-)/.test(
+            basename(executable),
+          ) ||
+          executable.includes('/claude/versions/')),
+    ),
+  );
   const rows = (
     await Promise.all(
-      processes.map(async ({ pid, command }) => {
-        // Linux comm is a thread name; Node names its main thread MainThread.
+      candidates.map(async ({ pid, command }) => {
+        // Linux comm is a thread name; require executable access only for runtime candidates.
         const executable =
           process.platform === 'linux'
             ? await unlessGone(readlink(`/proc/${pid}/exe`))
             : command;
-        return executable &&
-          (executable.startsWith(`${root}/`) ||
-            /^(?:node|bun|bash|zsh|sh|curl|codex|claude)(?:$|-)/.test(
-              basename(executable),
-            ) ||
-            executable.includes('/claude/versions/'))
-          ? [{ pid, command: executable }]
-          : [];
+        return executable ? [{ pid, command: executable }] : [];
       }),
     )
   ).flat();
-  const argumentsByPid = await processArguments(rows.map((row) => row.pid));
   const users: RuntimeUser[] = [];
   for (const { pid, command } of rows) {
     const args = argumentsByPid.get(pid);
