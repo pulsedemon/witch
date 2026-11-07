@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
 import { CodexAdapter } from '../src/agents/codex.js';
+import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import type { Coordinator } from '../src/core/coordinator.js';
 import type { SessionCoordination } from '../src/core/coordination.js';
@@ -343,7 +344,10 @@ for (const name of ['codex', 'claude'] as const) {
       spawn(process.execPath, [executable], { cwd, stdio: 'pipe', signal });
     const adapter =
       name === 'codex'
-        ? new CodexAdapter((_, __, signal) => launch(signal))
+        ? new CodexAdapter(
+            (_, __, signal) => launch(signal),
+            unreportedContextCatalog,
+          )
         : new ClaudeAdapter((options) => {
             if (!options.args.includes('--no-session-persistence'))
               return launch(options.signal);

@@ -1,18 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import {
-  access,
-  chmod,
-  mkdir,
-  readFile,
-  rename,
-  writeFile,
-} from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
+import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import type {
   AgentSession,
@@ -22,6 +16,7 @@ import type {
 } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { identifyProcess } from '../src/persistence/process.js';
+import { writeJson } from '../src/persistence/json.js';
 import { StateStore } from '../src/persistence/store.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import { TurnGate } from './fixtures/agent.js';
@@ -302,20 +297,20 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
       const executable = fileURLToPath(
         new URL('fixtures/codex.mjs', import.meta.url),
       );
-      const adapter = new CodexAdapter(() =>
-        spawn(process.execPath, [executable, 'brews'], {
-          cwd,
-          stdio: 'pipe',
-        }),
+      const adapter = new CodexAdapter(
+        () =>
+          spawn(process.execPath, [executable, 'brews'], {
+            cwd,
+            stdio: 'pipe',
+          }),
+        unreportedContextCatalog,
       );
       const coordinator = new Coordinator(store, memory, [
         { adapter, executable },
       ]);
       let sequence = 0;
-      const write = async (name: string, value: unknown) => {
-        await writeFile(join(cwd, `${name}.next`), JSON.stringify(value));
-        await rename(join(cwd, `${name}.next`), join(cwd, name));
-      };
+      const write = (name: string, value: unknown) =>
+        writeJson(join(cwd, name), value);
       const emit = (...frames: RpcMessage[]) =>
         write(`events-${++sequence}.json`, frames);
       const appears = (name: string) =>

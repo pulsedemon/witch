@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
+import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
 import type { UserRequest } from '../src/agents/types.js';
 import type { TaskClaim } from '../src/core/coordination-state.js';
 import {
@@ -1111,7 +1112,10 @@ async function nativeOwner(
     spawn(process.execPath, [executable], { cwd, stdio: 'pipe', signal });
   const adapter =
     name === 'codex'
-      ? new CodexAdapter((_, __, signal) => launch(signal))
+      ? new CodexAdapter(
+          (_, __, signal) => launch(signal),
+          unreportedContextCatalog,
+        )
       : new ClaudeAdapter((options) => {
           if (options.args.includes('--tools=Read,Grep,Glob'))
             return spawn(process.execPath, [executable, 'peer-answer'], {

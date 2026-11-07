@@ -31,8 +31,10 @@ import {
   type DisplayUpdate,
 } from './state.js';
 import type { AccountUsage } from './usage.js';
-
-const compactAt = 80;
+import {
+  compactionThreshold,
+  defaultCompactionPercent,
+} from './compaction-policy.js';
 
 type TurnKind = 'turn' | 'handoff' | 'answer' | 'review' | 'repair';
 
@@ -117,6 +119,11 @@ export class TurnRunner {
       )
         return;
       if (options.queued && this.host.deliveryHeld()) return;
+      const window = session.usage.contextWindow;
+      const compactAt =
+        window !== undefined && window > 0
+          ? compactionThreshold(window).percent
+          : defaultCompactionPercent;
       if (usage !== undefined && usage >= compactAt) {
         this.host.publish({ phase: 'compacting' });
         const compacted = await this.compact(scope);
@@ -186,6 +193,7 @@ export class TurnRunner {
           scope,
           revision: activity.baseRevision,
           reference: conversation.sessions[conversation.agent]!,
+          forceContext: resent,
           pendingHandoff,
           coordination: resent
             ? await this.coordination?.context(scope.project)
@@ -297,6 +305,10 @@ export class TurnRunner {
           else {
             if (!automatic) this.pendingContext.delete(conversation.id);
             generation = this.link.generation;
+            const stopResend = this.resendAfterCompaction(
+              session,
+              async () => (await context(true)).context,
+            );
             const sending = session.send(
               input.prompt,
               skillCall(prompt, this.host.snapshot().skills),
@@ -321,10 +333,6 @@ export class TurnRunner {
                 !this.host.cancelled() && this.link.session === session
                   ? session.steer(text, { contextOnly: true })
                   : Promise.resolve(false),
-            );
-            const stopResend = this.resendAfterCompaction(
-              session,
-              async () => (await context(true)).context,
             );
             // before any await, so these steers go ahead of a prompt sent once the turn runs, whose steer can wait for this turn to end
             if (queued && command === undefined)
@@ -398,17 +406,21 @@ export class TurnRunner {
     }
   }
 
-  /**
-   * a compaction inside a turn drops memory and the fixed instructions, so they go back in before its next model
-   * request. a refused steer or failed read leaves them to the next turn, which compaction left undelivered.
-   */
+  /** native hooks restore context before continuation; a context-only steer covers missing hook restoration. */
   private resendAfterCompaction(
     session: AgentSession,
     context: () => Promise<string | undefined>,
   ): () => void {
     let stopped = false;
+    let restored = false;
     const live = () =>
       !stopped && !this.host.cancelled() && this.link.session === session;
+    const stopHook = session.restoreCompactionContext?.(async () => {
+      const text = await context();
+      if (!live()) return;
+      restored = text !== undefined;
+      return text;
+    });
     const resend = async () => {
       const text = await context();
       if (!text || !live()) return;
@@ -422,14 +434,18 @@ export class TurnRunner {
       await this.compaction.busy;
       if (live()) await steer();
     };
-    const unsubscribe = this.link.onCompacted(
-      () =>
-        void resend().catch((error: unknown) =>
-          this.host.notice(errorMessage(error)),
-        ),
-    );
+    const unsubscribe = this.link.onCompacted(() => {
+      if (restored) {
+        restored = false;
+        return;
+      }
+      void resend().catch((error: unknown) =>
+        this.host.notice(errorMessage(error)),
+      );
+    });
     return () => {
       stopped = true;
+      stopHook?.();
       unsubscribe();
     };
   }

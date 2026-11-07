@@ -14,6 +14,11 @@ import {
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+if (process.argv.includes('debug') && process.argv.includes('models')) {
+  process.stdout.write('{"models":[]}\n');
+  process.exit(0);
+}
+
 const familiar = process.env.WITCH_CODEX_FAMILIAR_FIXTURE;
 if (familiar) {
   writeFileSync(
@@ -36,6 +41,8 @@ if (process.argv.includes('--ignore-term')) {
   process.on('SIGTERM', () => {});
   setInterval(() => {}, 1000);
 }
+let mainThreadId = 'native-thread';
+let threadStarts = 0;
 let model = 'model-a';
 let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
@@ -45,18 +52,24 @@ const notify = (method, params) =>
   send({
     method,
     params:
-      answering && params.threadId
-        ? { ...params, threadId: 'answer-thread' }
-        : params,
+      params.threadId === 'native-thread'
+        ? { ...params, threadId: answering ? 'answer-thread' : mainThreadId }
+        : answering && params.threadId
+          ? { ...params, threadId: 'answer-thread' }
+          : params,
   });
 const file = (name) => join(process.cwd(), name);
+const configuration = () =>
+  existsSync(file('config.json'))
+    ? JSON.parse(readFileSync(file('config.json'), 'utf8'))
+    : {};
 // whole, through a rename, since a test polling for a record would read one half written
 const record = (name, value) => {
   writeFileSync(file(`${name}.next`), JSON.stringify(value));
   renameSync(file(`${name}.next`), file(name));
 };
 const session = () => ({
-  thread: { id: answering ? 'answer-thread' : 'native-thread' },
+  thread: { id: answering ? 'answer-thread' : mainThreadId },
   model,
   cwd: process.cwd(),
   approvalPolicy: 'on-request',
@@ -348,9 +361,7 @@ for await (const line of lines) {
   }
   if (request.method === 'config/read') {
     reply({
-      config: existsSync(file('config.json'))
-        ? JSON.parse(readFileSync(file('config.json'), 'utf8'))
-        : {},
+      config: configuration(),
       origins: {},
     });
     continue;
@@ -410,6 +421,7 @@ for await (const line of lines) {
           model: second ? 'model-b' : 'model-a',
           displayName: second ? 'B' : 'A',
           description: 'fixture',
+          isDefault: !second,
           supportedReasoningEfforts: [
             { reasoningEffort: second ? 'high' : 'low' },
           ],
@@ -422,6 +434,7 @@ for await (const line of lines) {
                 model: id,
                 displayName: id,
                 description: 'fixture',
+                isDefault: false,
                 supportedReasoningEfforts: [],
               }),
             )
@@ -532,9 +545,20 @@ for await (const line of lines) {
           mode === 'sparse-limits' ? null : window(40, 10080, 2000500000),
       },
     });
+  if (request.method === 'thread/unsubscribe') {
+    reply({ status: 'unsubscribed' });
+    continue;
+  }
+  if (request.method === 'thread/resume' && existsSync(file('resume-fail'))) {
+    send({
+      id: request.id,
+      error: { code: -32603, message: 'resume refused' },
+    });
+    continue;
+  }
   if (
     request.method === 'thread/resume' &&
-    request.params.threadId !== 'native-thread'
+    request.params.threadId !== mainThreadId
   )
     send({
       id: request.id,
@@ -546,11 +570,17 @@ for await (const line of lines) {
     request.method === 'thread/start' ||
     request.method === 'thread/fork' ||
     (request.method === 'thread/resume' &&
-      request.params.threadId === 'native-thread')
+      request.params.threadId === mainThreadId)
   ) {
+    if (request.method === 'thread/start' && ++threadStarts > 1)
+      mainThreadId = `native-thread-${threadStarts}`;
     answering = request.params.ephemeral === true;
+    effort = request.params.config?.model_reasoning_effort ?? effort;
     record(answering ? 'answer-connect.json' : 'connect.json', request);
-    model = request.params.model ?? model;
+    model =
+      request.params.model ??
+      (request.method === 'thread/start' ? configuration().model : undefined) ??
+      model;
     reply(session());
   }
   if (request.method === 'thread/settings/update') {
@@ -577,6 +607,12 @@ for await (const line of lines) {
   if (request.method === 'thread/read') {
     if (mode === 'identity') {
       deferReply('read', ++threadReads, request);
+      continue;
+    }
+    if (request.params.threadId === mainThreadId) {
+      reply({
+        thread: { ...session().thread, model, reasoningEffort: effort },
+      });
       continue;
     }
     const threads = {

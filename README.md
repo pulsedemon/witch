@@ -101,15 +101,17 @@ The [native protocol manifest](test/fixtures/native/manifest.json) records the t
 
 Witch uses these experimental or undeclared native interfaces:
 
-| Runtime | Interface                                                                    | Use                                                                |
-| ------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Codex   | `thread/settings/update`                                                     | Model and effort changes.                                          |
-| Codex   | `thread/backgroundTerminals/list`, `thread/backgroundTerminals/terminate`    | Background command identity and cleanup.                           |
-| Codex   | `runtimeWorkspaceRoots` on `thread/start`, `thread/resume` and `thread/fork` | Conversation and memory directory access.                          |
-| Claude  | `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`                                      | Native idle and turn completion.                                   |
-| Claude  | `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`                  | Session and account usage.                                         |
-| Claude  | `command_lifecycle`                                                          | Input consumption acknowledgements, outside the SDK message union. |
-| Claude  | `getTaskOutput`                                                              | Background output, implemented but undeclared by the SDK.          |
+| Runtime | Interface                                                                    | Use                                                                          |
+| ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Codex   | `thread/settings/update`                                                     | Model and effort changes.                                                    |
+| Codex   | `debug models`, `thread/unsubscribe`                                         | Resolve compaction capacity and reload idle sessions when its limit changes. |
+| Codex   | `thread/backgroundTerminals/list`, `thread/backgroundTerminals/terminate`    | Background command identity and cleanup.                                     |
+| Codex   | `runtimeWorkspaceRoots` on `thread/start`, `thread/resume` and `thread/fork` | Conversation and memory directory access.                                    |
+| Claude  | `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`                                      | Native idle and turn completion.                                             |
+| Claude  | `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`                  | Session and account usage.                                                   |
+| Claude  | `command_lifecycle`                                                          | Input consumption acknowledgements, outside the SDK message union.           |
+| Claude  | `getTaskOutput`                                                              | Background output, implemented but undeclared by the SDK.                    |
+| Claude  | `getSettings`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`                             | Preserve session flags while applying the automatic compaction limit.        |
 
 ### Native protocol fixtures
 

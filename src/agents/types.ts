@@ -277,6 +277,10 @@ export interface AgentSession {
   skills(): Promise<Skill[]>;
   /** current native context percentage, or undefined when no usable sample is available. */
   contextUsage(): Promise<number | undefined>;
+  /** supplies context through a native hook that runs before post-compaction inference. */
+  restoreCompactionContext?(
+    read: () => Promise<string | undefined>,
+  ): () => void;
   /** replaces native history in place; resolves after native completion, independently of replacement events. */
   compact(): Promise<TurnResult>;
   /** queues native compaction within an ordinary turn without interrupting it; undefined refuses delivery. */
@@ -359,6 +363,8 @@ export interface SessionOptions {
   /** the effort to start with; omitted keeps the native default. */
   effort?: string;
   memoryDirectories: string[];
+  /** owned conversations use Witch's policy; isolated probes and answers retain native defaults. */
+  automaticCompaction?: true;
   /** Codex only: starts the thread with no MCP server and fails if Codex still exposes one. */
   withoutMcp?: boolean;
   signal?: AbortSignal;

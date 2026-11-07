@@ -78,6 +78,7 @@ export async function nativePrompt({
   conflict,
   usage,
   reviewWatch,
+  forceContext,
 }: {
   prompt: string;
   memory: Memory;
@@ -102,6 +103,7 @@ export async function nativePrompt({
   /** the account usage line, sent with every turn outside the fixed instructions. */
   usage?: string;
   reviewWatch?: ReviewWatch;
+  forceContext?: boolean;
 }): Promise<{
   prompt: string;
   context: string | undefined;
@@ -116,13 +118,13 @@ export async function nativePrompt({
     reference.deliveredProject = scope.project;
   }
   const snapshot =
-    reference.deliveredRevision === revision
+    !forceContext && reference.deliveredRevision === revision
       ? undefined
       : await memory.snapshot(
           revision,
           root,
           scope,
-          reference.deliveredRevision,
+          forceContext ? undefined : reference.deliveredRevision,
         );
   const deliveredMerges = new Set(reference.deliveredMerges);
   const deliveredAnswers = new Set(reference.deliveredAnswers);
@@ -159,7 +161,8 @@ export async function nativePrompt({
   const context = [
     ...(requests
       ? [witch, directories]
-      : reference.deliveredInstructionsRevision === instructionsRevision
+      : !forceContext &&
+          reference.deliveredInstructionsRevision === instructionsRevision
         ? []
         : [instructions]),
     ...(snapshot ? [snapshot] : []),

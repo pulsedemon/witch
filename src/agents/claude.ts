@@ -10,13 +10,13 @@ import type {
   Query,
   SDKMessage,
   SDKUserMessage,
-  ModelInfo,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
 import { accountReading, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCompaction } from './claude-compaction.js';
+import { ClaudeContext } from './claude-context.js';
 import { promptless, sideQuery, startupFailure } from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
@@ -72,7 +72,6 @@ const launch: ClaudeLaunch = (options) =>
     }),
   );
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
-/** the experimental usage report may change shape, so only what parses is shown. */
 const sessionUsage = z.object({
   session: z.object({
     total_lines_added: z.number(),
@@ -163,6 +162,7 @@ export class ClaudeAdapter implements AgentAdapter {
 }
 
 interface Turn {
+  started: ReturnType<typeof Promise.withResolvers<boolean>>;
   finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
   result?: TurnResult;
   interrupted: boolean;
@@ -175,14 +175,10 @@ interface Turn {
   inputError?: string;
   commandRecords: Map<string, { records: string[]; writeAttempted: boolean }>;
   initialInput?: string;
-  /**
-   * a command steered after the reply hasn't ended, or its reply hasn't gone, and Claude Code's idle doesn't end the
-   * turn meanwhile.
-   */
+  /** keep native idle from settling the turn before the steered command's reply is queued. */
   held: boolean;
   /** native idle can precede delivery of input this turn already accepted. */
   idle: boolean;
-  /** the completed command's reply, waiting to go. */
   answer?: string;
   compaction?: true;
 }
@@ -214,23 +210,20 @@ class ClaudeSession implements AgentSession {
   private turn?: Turn;
   private readonly rateLimit = new RateLimit<Turn>();
   private compaction?: ClaudeCompaction;
-  /** the user's `!` command until its record and process reports settle. */
+  private readonly context: ClaudeContext;
+  readonly restoreCompactionContext?: AgentSession['restoreCompactionContext'];
   private command?: { controller: AbortController; finished: Promise<void> };
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
   private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
-  /** the spells the user sent, by input uuid, until Claude starts the input. */
   private readonly pendingCasts = new Map<string, string>();
   private readonly commands: ClaudeCommands;
-  /** the background workflows still running. */
   private readonly workflows = new Set<string>();
   /** the task ids the last live set listed. a foreground familiar is never listed, so only a task listed before can end by leaving it. */
   private listed = new Set<string>();
-  /** each subagent task's latest run, since a resumed task keeps its id. */
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
   private readonly reportMessages = new Map<string, string>();
-  /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private messageLifecycle = false;
   private sessionLifecycle = false;
@@ -259,6 +252,10 @@ class ClaudeSession implements AgentSession {
       hasHistory: !!options.resume,
       effort: options.effort,
     };
+    this.context = new ClaudeContext(() => this.query);
+    this.restoreCompactionContext = options.automaticCompaction
+      ? this.context.bind
+      : undefined;
     this.query = query({
       prompt: this.input,
       options: {
@@ -287,6 +284,7 @@ class ClaudeSession implements AgentSession {
           : {}),
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
+        hooks: options.automaticCompaction ? this.context.hooks : undefined,
         // a familiar's last message is its report, which the sidebar and transcript show
         forwardSubagentText: true,
         env: {
@@ -480,7 +478,7 @@ class ClaudeSession implements AgentSession {
   async models(refresh = false): Promise<Model[]> {
     if (this.turn)
       throw new Error('Stop the current turn before refreshing models');
-    const models: ModelInfo[] = refresh
+    const models = refresh
       ? (await this.query.reinitialize()).models
       : await this.query.supportedModels();
     return modelsOf(models);
@@ -497,8 +495,10 @@ class ClaudeSession implements AgentSession {
       throw new Error('Stop the current turn before changing models');
     const level = effort == null ? effort : effortLevel.parse(effort);
     await this.query.setModel(model);
-    if (model !== this.info.model)
+    if (model !== this.info.model) {
       this.report({ context: undefined, contextWindow: undefined });
+      this.context.invalidate();
+    }
     if (level !== undefined)
       await this.query.applyFlagSettings({ effortLevel: level });
     this.info = {
@@ -509,6 +509,7 @@ class ClaudeSession implements AgentSession {
         : {}),
     };
     this.options.onEvent({ type: 'info', info: this.info });
+    if (this.options.automaticCompaction) await this.context.configure();
   }
 
   async send(
@@ -527,6 +528,23 @@ class ClaudeSession implements AgentSession {
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return blocks;
     const turn = this.beginTurn();
+    const stopped = this.process?.killed || this.child?.exited;
+    if (this.options.automaticCompaction && !stopped) {
+      try {
+        await this.context.configure();
+      } catch (error) {
+        this.finish(turn, {
+          status: 'failed',
+          text: '',
+          error: errorMessage(error),
+        });
+        return { ...(await turn.finished.promise), inputUnsent: true };
+      }
+      if (turn.interrupted || this.turn !== turn || this.closed) {
+        this.finish(turn, { status: 'interrupted', text: '' });
+        return { ...(await turn.finished.promise), inputUnsent: true };
+      }
+    }
     const records = this.takeUnreadContext();
     const input =
       context === undefined
@@ -537,6 +555,8 @@ class ClaudeSession implements AgentSession {
       !skill && prompt.trim().startsWith('/'),
     );
     turn.initialInput = uuid;
+    turn.idle = false;
+    turn.started.resolve(true);
     turn.inputs.set(uuid, { pending: true });
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
     if (skill && !skill.builtin) this.pendingCasts.set(uuid, skill.name);
@@ -556,6 +576,7 @@ class ClaudeSession implements AgentSession {
     if (
       this.closed ||
       !turn ||
+      !turn.initialInput ||
       turn.interrupted ||
       turn.held ||
       turn.compaction ||
@@ -581,6 +602,7 @@ class ClaudeSession implements AgentSession {
     if (this.closed) throw new Error('The Claude session is closed');
     if (this.turn) throw new Error('This agent is already running');
     const turn: Turn = {
+      started: Promise.withResolvers<boolean>(),
       finished: Promise.withResolvers<TurnResult>(),
       interrupted: false,
       messages: new TurnText(),
@@ -660,10 +682,6 @@ class ClaudeSession implements AgentSession {
     }
   }
 
-  /**
-   * consumption acknowledgements keep ordinary input inside this turn across native idle.
-   * a shell command runs first, and its reply follows once it completes.
-   */
   async steer(
     prompt: string,
     options: Parameters<AgentSession['steer']>[1] = {},
@@ -672,9 +690,12 @@ class ClaudeSession implements AgentSession {
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return false;
     const turn = this.turn;
+    if (turn && !turn.compaction && !turn.initialInput)
+      if (!(await turn.started.promise)) return false;
     if (
       this.closed ||
       !turn ||
+      this.turn !== turn ||
       turn.interrupted ||
       turn.held ||
       turn.compaction ||
@@ -724,7 +745,6 @@ class ClaudeSession implements AgentSession {
     );
   }
 
-  /** a familiar or workflow runs in the background, which holds off Claude Code's idle. */
   private get holding(): boolean {
     return (
       this.workflows.size > 0 ||
@@ -732,9 +752,7 @@ class ClaudeSession implements AgentSession {
     );
   }
 
-  /**
-   * with native idle tracking, a reply after the last holder may land after idle, so idle or a new holder releases it.
-   */
+  /** native idle or a new holder releases a reply that arrives after the last holder. */
   private async reply(
     turn: Turn,
     command: string,
@@ -1107,8 +1125,7 @@ class ClaudeSession implements AgentSession {
           this.release(this.turn);
       } else if (message.subtype === 'background_tasks_changed') {
         const listed = new Set(message.tasks.map(({ task_id }) => task_id));
-        // a task can leave the live set with no notification, when Claude Code drops it from its registry or a full
-        // output queue evicts the notification
+        // registry removal or a full output queue can omit the task notification.
         for (const id of this.listed) {
           if (listed.has(id)) continue;
           this.workflows.delete(id);
@@ -1221,8 +1238,7 @@ class ClaudeSession implements AgentSession {
       message.parent_tool_use_id === null &&
       Array.isArray(message.message.content)
     ) {
-      // each result comes in a message of its own, so the report is its block's,
-      // and its diff replaces the result text, as in Claude Code
+      // use each result's own report block, replacing result text with its diff.
       const diff = reportedDiff(message.tool_use_result, this.options.cwd);
       for (const block of message.message.content) {
         if (block.type !== 'tool_result') continue;
@@ -1256,8 +1272,7 @@ class ClaudeSession implements AgentSession {
     } else if (message.type === 'rate_limit_event') {
       this.rateLimit.report(message.rate_limit_info, this.turn);
     } else if (message.type === 'result') {
-      if (!this.turn) return;
-      if (this.turn.compaction) return;
+      if (!this.turn?.initialInput || this.turn.compaction) return;
       const success = message.subtype === 'success' && !message.is_error;
       if (this.messageLifecycle) {
         const uuids = message.user_message_uuids ?? [message.user_message_uuid];
@@ -1331,21 +1346,11 @@ class ClaudeSession implements AgentSession {
     this.options.onEvent({ type: 'usage', usage: this.usage });
   }
 
-  async contextUsage(): Promise<number | undefined> {
-    const model = this.info.model;
-    try {
-      const context = await this.query.getContextUsage({ detail: 'summary' });
-      if (this.closed || this.info.model !== model) return;
-      const percentage = z.number().safeParse(context.percentage);
-      const capacity = z.number().safeParse(context.maxTokens);
-      const update: Usage = {};
-      if (percentage.success) update.context = percentage.data;
-      if (capacity.success) update.contextWindow = capacity.data;
-      if (Object.keys(update).length) this.report(update);
-      return percentage.success ? percentage.data : undefined;
-    } catch {
-      return undefined;
-    }
+  contextUsage(): Promise<number | undefined> {
+    return this.context.read(
+      () => (this.closed ? undefined : this.info.model),
+      (usage) => this.report(usage),
+    );
   }
 
   private readUsage(): void {
@@ -1375,7 +1380,6 @@ class ClaudeSession implements AgentSession {
   /** ends the turn a stopped CLI leaves, once its stderr is complete. */
   private async end(error: string): Promise<void> {
     const closed = this.closed;
-    // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
     this.stopMcpPolling();
     this.stopUntil ??= stopDeadline();
@@ -1475,7 +1479,10 @@ class ClaudeSession implements AgentSession {
 
   /** an interrupt decides how the turn ends, whatever result came before or after it. */
   private finish(turn: Turn, result: TurnResult): void {
+    turn.started.resolve(false);
     if (this.turn === turn) {
+      if (!turn.initialInput && !turn.compaction && this.records.length)
+        result = { ...result, unreadContext: this.takeUnreadContext() };
       this.turn = undefined;
       this.compaction?.finish({
         status: turn.interrupted ? 'interrupted' : 'failed',

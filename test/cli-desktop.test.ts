@@ -47,7 +47,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
   await symlink(git, join(bin, 'git'));
   await writeFile(
     join(bin, 'codex'),
-    `#!/bin/sh\nexec '${process.execPath}' '${repository}/test/fixtures/codex.mjs' brews\n`,
+    `#!/bin/sh\nexec '${process.execPath}' '${repository}/test/fixtures/codex.mjs' brews "$@"\n`,
     { mode: 0o755 },
   );
   const store = await StateStore.open(join(root, 'state'));

@@ -11,6 +11,7 @@ import { writeJson } from '../src/persistence/json.js';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
+import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
 import { boundCommandTitle } from '../src/agents/tool-title.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { Workspace } from '../src/memory/workspace.js';
@@ -455,7 +456,10 @@ for (const name of ['claude', 'codex'] as const) {
       const adapter =
         name === 'claude'
           ? new ClaudeAdapter((options) => launch(options.signal))
-          : new CodexAdapter((_, __, signal) => launch(signal));
+          : new CodexAdapter(
+              (_, __, signal) => launch(signal),
+              unreportedContextCatalog,
+            );
       const { coordinator, claim } = await start('A', {}, [
         { adapter, executable },
       ]);
@@ -671,12 +675,14 @@ for (const name of ['claude', 'codex'] as const) {
                 signal: options.signal,
               }),
             )
-          : new CodexAdapter((_, cwd, signal) =>
-              spawn(process.execPath, [script], {
-                cwd,
-                stdio: 'pipe',
-                signal,
-              }),
+          : new CodexAdapter(
+              (_, cwd, signal) =>
+                spawn(process.execPath, [script], {
+                  cwd,
+                  stdio: 'pipe',
+                  signal,
+                }),
+              unreportedContextCatalog,
             );
       const agents = [{ adapter, executable: name }];
       const a = coordinated ? await start('A', {}, agents) : undefined;
