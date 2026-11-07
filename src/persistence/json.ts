@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { open, readFile, rename } from 'node:fs/promises';
+import { open, readFile, rename, rm } from 'node:fs/promises';
 import type { ZodType } from 'zod';
 
 /** readers see the complete old or new value, and private files never inherit permissive defaults. */
@@ -19,10 +19,14 @@ export async function replaceFile(
     await handle.writeFile(content);
     await handle.sync();
     if (times) await handle.utimes(times.atime, times.mtime);
-  } finally {
     await handle.close();
+    await rename(temporary, file);
+  } catch (error) {
+    // the original failure is the one worth reporting, so cleanup failures stay quiet
+    await handle.close().catch(() => {});
+    await rm(temporary, { force: true }).catch(() => {});
+    throw error;
   }
-  await rename(temporary, file);
 }
 
 /** undefined when the file is missing; unreadable, malformed or schema-invalid content throws. */
