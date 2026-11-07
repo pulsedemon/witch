@@ -49,10 +49,8 @@ export async function checkNativeAnswer(
   const inventories: string[][] = [];
   const observationErrors: string[] = [];
   const launches: { command: string; args: string[] }[] = [];
-  const adapter = await verificationAdapter(
-    candidate.runtime,
-    directory,
-    (command, args, cwd, env, childSignal) => {
+  const adapter = await verificationAdapter(candidate.runtime, directory, {
+    start: (command, args, cwd, env, childSignal) => {
       const child = spawn(command, args, {
         cwd,
         env,
@@ -90,8 +88,8 @@ export async function checkNativeAnswer(
         });
       return child;
     },
-    { command: process.execPath, args: [server, marker] },
-  );
+    mcp: { command: process.execPath, args: [server, marker] },
+  });
   let session: AgentSession | undefined;
   let answering = false;
   let unexpectedRequest: string | undefined;

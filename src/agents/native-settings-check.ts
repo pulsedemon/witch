@@ -65,13 +65,9 @@ export async function checkNativeSettings(
     join(cwd, 'probe.mjs'),
     `import {writeFileSync} from 'node:fs'; writeFileSync('settings-result.json', JSON.stringify(Object.fromEntries(${JSON.stringify(Object.keys(expected))}.map(key => [key, process.env[key]])))); console.log('SETTINGS_RECORDED');\n`,
   );
-  const adapter = await verificationAdapter(
-    candidate.runtime,
-    directory,
-    undefined,
-    undefined,
-    true,
-  );
+  const adapter = await verificationAdapter(candidate.runtime, directory, {
+    ordinarySettings: true,
+  });
   const events: AgentEvent[] = [];
   const failure = new AbortController();
   const session: AgentSession = await adapter.connect({

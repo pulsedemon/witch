@@ -17,7 +17,12 @@ import { TurnText } from './turn-text.js';
 import { accountReading, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCompaction } from './claude-compaction.js';
 import { ClaudeContext } from './claude-context.js';
-import { promptless, sideQuery, startupFailure } from './claude-side.js';
+import {
+  promptless,
+  sideQuery,
+  startupFailure,
+  withoutModelPins,
+} from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
@@ -121,13 +126,6 @@ export class ClaudeAdapter implements AgentAdapter {
 
   /** settings files, `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_*_MODEL` can pin an alias to an older model, so none applies. */
   latest(options: ModelDiscoveryOptions): Promise<Record<string, string>> {
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([name]) =>
-          name !== 'ANTHROPIC_MODEL' &&
-          !/^ANTHROPIC_DEFAULT_\w+_MODEL$/.test(name),
-      ),
-    );
     return sideQuery(
       this.start,
       options,
@@ -139,7 +137,7 @@ export class ClaudeAdapter implements AgentAdapter {
               : [],
           ),
         ),
-      { settingSources: [], env },
+      { settingSources: [], env: withoutModelPins(process.env) },
     );
   }
 

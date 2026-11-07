@@ -9,6 +9,7 @@ import { CodexAdapter } from './codex.js';
 import type { NativeRuntime } from './runtime-updates.js';
 import type { AgentAdapter } from './types.js';
 import { unlessGone } from '../persistence/json.js';
+import { withoutModelPins } from './claude-side.js';
 export type VerificationLaunch = (
   command: string,
   args: string[],
@@ -23,9 +24,15 @@ const launch: VerificationLaunch = (command, args, cwd, env, signal) =>
 export async function verificationAdapter(
   runtime: NativeRuntime,
   directory: string,
-  start: VerificationLaunch = launch,
-  mcp?: { command: string; args: string[] },
-  ordinarySettings = false,
+  {
+    start = launch,
+    mcp,
+    ordinarySettings = false,
+  }: {
+    start?: VerificationLaunch;
+    mcp?: { command: string; args: string[] };
+    ordinarySettings?: boolean;
+  } = {},
 ): Promise<AgentAdapter> {
   const config = join(directory, 'config');
   const temporary = join(directory, 'tmp');
@@ -62,14 +69,7 @@ export async function verificationAdapter(
       `${JSON.stringify({ command, args, cwd, controls })}\n`,
       { mode: 0o600 },
     );
-    const isolated = Object.fromEntries(
-      Object.entries(environment).filter(
-        ([name]) =>
-          name !== 'ANTHROPIC_MODEL' &&
-          !/^ANTHROPIC_DEFAULT_\w+_MODEL$/.test(name),
-      ),
-    );
-    return start(command, args, cwd, isolated, signal);
+    return start(command, args, cwd, withoutModelPins(environment), signal);
   };
   return runtime === 'codex'
     ? new CodexAdapter((executable, cwd, signal) =>

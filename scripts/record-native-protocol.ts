@@ -73,7 +73,7 @@ const start = (
   return child;
 };
 const executable = values.executable ?? values.runtime;
-const adapter = await verificationAdapter(values.runtime, root, start);
+const adapter = await verificationAdapter(values.runtime, root, { start });
 let passed = false;
 const abort = new AbortController();
 const timeout = setTimeout(

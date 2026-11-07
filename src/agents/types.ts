@@ -237,7 +237,7 @@ export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';
   text: string;
   error?: string;
-  /** prompts steered into the turn that the agent reports, when interrupted, it will never read. */
+  /** steered prompts the agent will never read, reported on interruption or a failed turn. */
   unread?: string[];
   /** already executed command records to include as context with the next prompt, never to enqueue. */
   unreadContext?: string[];

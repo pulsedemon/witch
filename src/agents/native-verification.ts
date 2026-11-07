@@ -135,11 +135,9 @@ export async function prepareNativeUpdate(
     throw new Error('Native qualification requires account-usage consent.');
   const directory = join(options.directory, 'resume');
   const cwd = await project(directory);
-  const adapter = await verificationAdapter(
-    previous.runtime,
-    directory,
-    options.launch,
-  );
+  const adapter = await verificationAdapter(previous.runtime, directory, {
+    start: options.launch,
+  });
   const models = await adapter.models({
     executable: previous.executable,
     cwd,
@@ -198,7 +196,7 @@ async function recall(
   const adapter = await verificationAdapter(
     prepared.runtime,
     prepared.directory,
-    options.launch,
+    { start: options.launch },
   );
   const events: AgentEvent[] = [];
   const session = await adapter.connect({
@@ -245,11 +243,9 @@ export async function checkNativeApprovals(
     throw new Error('Native qualification requires account-usage consent.');
   const directory = join(options.directory, 'approvals');
   const cwd = await project(directory);
-  const adapter = await verificationAdapter(
-    candidate.runtime,
-    directory,
-    options.launch,
-  );
+  const adapter = await verificationAdapter(candidate.runtime, directory, {
+    start: options.launch,
+  });
   let expected = '';
   let accept = false;
   let requests = 0;
@@ -430,11 +426,9 @@ export async function verifyNativeUpdate(
     for (const scenario of nativeScenarios(candidate.runtime)) {
       const directory = join(options.directory, scenario);
       const cwd = await project(directory, scenario === 'spell');
-      const adapter = await verificationAdapter(
-        candidate.runtime,
-        directory,
-        options.launch,
-      );
+      const adapter = await verificationAdapter(candidate.runtime, directory, {
+        start: options.launch,
+      });
       const events: AgentEvent[] = [];
       await check(scenario, async () => {
         try {

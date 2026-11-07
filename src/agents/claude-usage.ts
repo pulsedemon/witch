@@ -1,8 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { promptless } from './claude-side.js';
+import { promptlessQuery } from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
 import { InputQueue } from './input-queue.js';
 import { watchChild } from './stderr.js';
@@ -205,26 +204,21 @@ export class ClaudeUsage {
       };
       this.helper = helper;
       try {
-        helper.query = query({
-          prompt: helper.input,
-          options: {
-            cwd: this.options.cwd,
-            pathToClaudeCodeExecutable: this.options.executable,
-            abortController: helper.abort,
-            ...promptless,
-            spawnClaudeCodeProcess: (options) => {
-              const child = this.start(options);
-              helper.process = child;
-              helper.child = watchChild(child);
-              if (child.pid !== undefined) {
-                helper.registered = (async () =>
-                  this.options.onUsageProcess?.(child.pid))();
-                void helper.registered.catch(() => {});
-              }
-              return child;
-            },
+        helper.query = promptlessQuery(
+          this.start,
+          this.options,
+          helper.input,
+          helper.abort,
+          (child) => {
+            helper.process = child;
+            helper.child = watchChild(child);
+            if (child.pid !== undefined) {
+              helper.registered = (async () =>
+                this.options.onUsageProcess?.(child.pid))();
+              void helper.registered.catch(() => {});
+            }
           },
-        });
+        );
         const stream = helper.query;
         helper.reading = (async () => {
           try {

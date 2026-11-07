@@ -21,6 +21,7 @@ import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
 import { CodexCommands } from './codex-commands.js';
+import type { Notification } from './codex-commands.js';
 import { CodexAccount, probeAccountUsage, rateLimits } from './codex-limits.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { mergeCasts } from './familiar-report.js';
@@ -62,11 +63,6 @@ const completedTurn = z.object({
   turn: z.object({ id: stringValue, status: stringValue }),
 });
 const turnDiff = z.object({ turnId: stringValue, diff: stringValue });
-type Notification = {
-  method: RpcMessage['method'];
-  params: Record<string, unknown>;
-  item?: Record<string, unknown>;
-};
 
 const skillList = z.object({
   data: z.array(

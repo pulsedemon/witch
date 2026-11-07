@@ -36,6 +36,12 @@ interface Command {
   cleanup?: Promise<void>;
 }
 
+export type Notification = {
+  method: RpcMessage['method'];
+  params: Record<string, unknown>;
+  item?: Record<string, unknown>;
+};
+
 const commandStatus = z.enum(['completed', 'failed', 'declined']);
 const backgroundList = z.object({
   data: z.array(
@@ -66,11 +72,7 @@ export class CodexCommands {
     private readonly emit: (event: AgentEvent) => void,
   ) {}
 
-  receive(message: {
-    method: RpcMessage['method'];
-    params: Record<string, unknown>;
-    item?: Record<string, unknown>;
-  }): void {
+  receive(message: Notification): void {
     if (this.stopped) return;
     const { params, item } = message;
     if (!item && message.method !== 'turn/completed') return;
