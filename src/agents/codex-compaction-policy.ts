@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { z } from 'zod';
 import { compactionThreshold } from '../core/compaction-policy.js';
 import { readConfig } from './codex-answer.js';
+import { nativeLaunch } from './native-launch.js';
 import type { JsonRpc } from './json-rpc.js';
 import type {
   ModelDiscoveryOptions,
@@ -15,7 +15,6 @@ export interface CodexSelection {
   effort?: string;
 }
 
-const execute = promisify(execFile);
 const catalog = z.object({
   models: z.array(
     z.object({
@@ -31,11 +30,20 @@ export async function readContextCatalog(
   options: ModelDiscoveryOptions,
   env = process.env,
 ) {
-  const { stdout } = await execute(options.executable, ['debug', 'models'], {
-    cwd: options.cwd,
-    signal: options.signal,
-    env,
-    maxBuffer: 8 * 1024 * 1024,
+  const stdout = await new Promise<string>((resolve, reject) => {
+    nativeLaunch(options.executable, env, (command) =>
+      execFile(
+        command,
+        ['debug', 'models'],
+        {
+          cwd: options.cwd,
+          signal: options.signal,
+          env,
+          maxBuffer: 8 * 1024 * 1024,
+        },
+        (error, output) => (error ? reject(error) : resolve(output)),
+      ),
+    );
   });
   return catalog.parse(JSON.parse(stdout));
 }
@@ -124,7 +132,7 @@ export class CodexCompactionPolicy {
 
   assertIdle(model: string, busy: boolean): void {
     const target = this.target(model);
-    if (target !== undefined && target !== this.applied && busy)
+    if (target !== this.applied && busy)
       throw new Error(
         'Wait for Codex background work to finish before changing its compaction window.',
       );
@@ -137,7 +145,7 @@ export class CodexCompactionPolicy {
   ): Promise<unknown> {
     const { model, effort } = selection;
     const target = this.target(model);
-    if (target === undefined || target === this.applied) return;
+    if (target === this.applied) return;
     this.assertIdle(model, busy);
     await this.rpc.request('thread/unsubscribe', { threadId: info.id });
     const response = await this.rpc.request(

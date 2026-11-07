@@ -343,7 +343,6 @@ class CodexSession implements AgentSession {
   private interrupting?: Promise<void>;
   private stopUntil?: number;
   private reportedStopTimeout = false;
-  /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
   /** the thread's settings as Codex last reported them, which `model/rerouted` leaves alone. */
@@ -355,12 +354,9 @@ class CodexSession implements AgentSession {
     { configured?: string; rerouted?: string }
   >();
   private readonly commands: CodexCommands;
-  /** every enabled skill, whose SKILL.md a skill input names. */
   private spellIndex: { name: string; path: string }[] = [];
   private castIndex = new Map<string, string>();
-  /** the picker's last list, checked before a selection reads the hidden models too. */
   private listed: Model[] = [];
-  /** each turn's latest diff count, since a turn's diff grows as it edits. */
   private readonly turnLines = new Map<
     string,
     { added: number; removed: number }
@@ -473,13 +469,11 @@ class CodexSession implements AgentSession {
   }
 
   async models(): Promise<Model[]> {
-    // a failed read leaves nothing to vouch for a selection
     this.listed = [];
     this.listed = await readModels(this.rpc);
     return this.listed;
   }
 
-  /** enabled skills, first per name, as the TUI offers them. */
   async skills(): Promise<Skill[]> {
     const { data } = skillList.parse(
       await this.rpc.request('skills/list', {
@@ -580,11 +574,8 @@ class CodexSession implements AgentSession {
     const turn = this.beginTurn();
     let submitted = false;
     try {
-      if (this.automaticCompaction) await this.configureCompaction();
-      if (turn.interrupted || this.turn !== turn) {
-        if (this.turn === turn) this.finish('interrupted');
+      if (!(await this.configureCompaction(turn)))
         return { ...(await turn.finished.promise), inputUnsent: true };
-      }
       if (context !== undefined)
         await this.rpc.request('thread/inject_items', {
           threadId: this.info.id,
@@ -640,19 +631,25 @@ class CodexSession implements AgentSession {
     );
   }
 
-  private async configureCompaction(): Promise<void> {
+  private async configureCompaction(
+    turn?: NonNullable<CodexSession['turn']>,
+  ): Promise<boolean> {
     const response = await this.automaticCompaction?.apply(
       this.info,
       this.native,
       this.backgroundActive,
     );
     if (response) this.updateInfo(response);
+    if (!turn || (!turn.interrupted && this.turn === turn)) return true;
+    if (this.turn === turn) this.finish('interrupted');
+    return false;
   }
 
   async compact(): Promise<TurnResult> {
     const turn = this.beginTurn();
     turn.compaction = { completed: false };
     try {
+      if (!(await this.configureCompaction(turn))) return turn.finished.promise;
       await this.rpc.request('thread/compact/start', {
         threadId: this.info.id,
       });
@@ -667,6 +664,7 @@ class CodexSession implements AgentSession {
     const turn = this.beginTurn();
     turn.command = command;
     try {
+      if (!(await this.configureCompaction(turn))) return turn.finished.promise;
       await this.rpc.request('thread/shellCommand', {
         threadId: this.info.id,
         command,

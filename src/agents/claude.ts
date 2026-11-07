@@ -73,7 +73,6 @@ const launch: ClaudeLaunch = (options) =>
     }),
   );
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
-/** the experimental usage report may change shape, so only what parses is shown. */
 const sessionUsage = z.object({
   session: z.object({
     total_lines_added: z.number(),
@@ -164,6 +163,7 @@ export class ClaudeAdapter implements AgentAdapter {
 }
 
 interface Turn {
+  started: ReturnType<typeof Promise.withResolvers<boolean>>;
   finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
   result?: TurnResult;
   interrupted: boolean;
@@ -180,7 +180,6 @@ interface Turn {
   held: boolean;
   /** native idle can precede delivery of input this turn already accepted. */
   idle: boolean;
-  /** the completed command's reply, waiting to go. */
   answer?: string;
   compaction?: true;
 }
@@ -219,17 +218,14 @@ class ClaudeSession implements AgentSession {
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
   private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
-  /** the spells the user sent, by input uuid, until Claude starts the input. */
   private readonly pendingCasts = new Map<string, string>();
   private readonly commands: ClaudeCommands;
   private readonly workflows = new Set<string>();
   /** the task ids the last live set listed. a foreground familiar is never listed, so only a task listed before can end by leaving it. */
   private listed = new Set<string>();
-  /** each subagent task's latest run, since a resumed task keeps its id. */
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
   private readonly reportMessages = new Map<string, string>();
-  /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private messageLifecycle = false;
   private sessionLifecycle = false;
@@ -515,6 +511,7 @@ class ClaudeSession implements AgentSession {
         : {}),
     };
     this.options.onEvent({ type: 'info', info: this.info });
+    if (this.options.automaticCompaction) await this.context.configure();
   }
 
   async send(
@@ -559,6 +556,7 @@ class ClaudeSession implements AgentSession {
       !skill && prompt.trim().startsWith('/'),
     );
     turn.initialInput = uuid;
+    turn.started.resolve(true);
     turn.inputs.set(uuid, { pending: true });
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
     if (skill && !skill.builtin) this.pendingCasts.set(uuid, skill.name);
@@ -578,6 +576,7 @@ class ClaudeSession implements AgentSession {
     if (
       this.closed ||
       !turn ||
+      !turn.initialInput ||
       turn.interrupted ||
       turn.held ||
       turn.compaction ||
@@ -603,6 +602,7 @@ class ClaudeSession implements AgentSession {
     if (this.closed) throw new Error('The Claude session is closed');
     if (this.turn) throw new Error('This agent is already running');
     const turn: Turn = {
+      started: Promise.withResolvers<boolean>(),
       finished: Promise.withResolvers<TurnResult>(),
       interrupted: false,
       messages: new TurnText(),
@@ -682,10 +682,6 @@ class ClaudeSession implements AgentSession {
     }
   }
 
-  /**
-   * consumption acknowledgements keep ordinary input inside this turn across native idle.
-   * a shell command runs first, and its reply follows once it completes.
-   */
   async steer(
     prompt: string,
     options: Parameters<AgentSession['steer']>[1] = {},
@@ -694,9 +690,11 @@ class ClaudeSession implements AgentSession {
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return false;
     const turn = this.turn;
+    if (turn && !turn.compaction && !(await turn.started.promise)) return false;
     if (
       this.closed ||
       !turn ||
+      this.turn !== turn ||
       turn.interrupted ||
       turn.held ||
       turn.compaction ||
@@ -1127,8 +1125,7 @@ class ClaudeSession implements AgentSession {
           this.release(this.turn);
       } else if (message.subtype === 'background_tasks_changed') {
         const listed = new Set(message.tasks.map(({ task_id }) => task_id));
-        // a task can leave the live set with no notification, when Claude Code drops it from its registry or a full
-        // output queue evicts the notification
+        // registry removal or a full output queue can omit the task notification.
         for (const id of this.listed) {
           if (listed.has(id)) continue;
           this.workflows.delete(id);
@@ -1241,8 +1238,7 @@ class ClaudeSession implements AgentSession {
       message.parent_tool_use_id === null &&
       Array.isArray(message.message.content)
     ) {
-      // each result comes in a message of its own, so the report is its block's,
-      // and its diff replaces the result text, as in Claude Code
+      // use each result's own report block, replacing result text with its diff.
       const diff = reportedDiff(message.tool_use_result, this.options.cwd);
       for (const block of message.message.content) {
         if (block.type !== 'tool_result') continue;
@@ -1485,6 +1481,7 @@ class ClaudeSession implements AgentSession {
 
   /** an interrupt decides how the turn ends, whatever result came before or after it. */
   private finish(turn: Turn, result: TurnResult): void {
+    turn.started.resolve(false);
     if (this.turn === turn) {
       this.turn = undefined;
       this.compaction?.finish({

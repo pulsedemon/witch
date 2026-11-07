@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SDKControlGetContextUsageResponse } from '@anthropic-ai/claude-agent-sdk';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { ClaudeContext } from '../src/agents/claude-context.js';
 import type { ClaudeCompactionControl } from '../src/agents/claude-context.js';
 import type { AgentEvent } from '../src/agents/types.js';
@@ -13,7 +13,8 @@ import {
   frameWriter,
   commandFrame,
 } from './fixtures/codex-adapter.js';
-import { until, within } from './fixtures/within.js';
+import { settled, until, within } from './fixtures/within.js';
+import { launcher, jsonLines } from './fixtures/claude-adapter.js';
 
 function context(
   maxTokens: number,
@@ -261,6 +262,10 @@ test('Codex refuses a window change while a command is active without changing t
     await emit(commandFrame('still-running'));
     f.calls.length = 0;
     await assert.rejects(f.session.selectModel('model-b'), /background work/);
+    await assert.rejects(
+      f.session.selectModel('unknown-model'),
+      /background work/,
+    );
     assert.equal(f.session.info.model, 'model-a');
     assert.deepEqual(f.calls, []);
   } finally {
@@ -302,3 +307,181 @@ test('a failed Codex reload leaves the prompt unsent and retries the policy befo
     await close(f.session, f.cwd);
   }
 });
+
+for (const rejected of [false, true]) {
+  test(`Claude preserves prompt order while configuration is pending${rejected ? ' and retains input on rejection' : ''}`, async () => {
+    const ready = Promise.withResolvers<void>();
+    const configure = vi
+      .spyOn(ClaudeContext.prototype, 'configure')
+      .mockImplementation(() => ready.promise);
+    const f = await launcher();
+    const session = await f.connect({ automaticCompaction: true });
+    try {
+      const sending = session.send('steerable');
+      const steering = session.steer('follower');
+      assert.deepEqual(await jsonLines(join(f.cwd, 'inputs.jsonl')), []);
+      if (rejected) {
+        ready.reject(new Error('configuration refused'));
+        assert.equal(await steering, false);
+        const result = await sending;
+        assert.equal(result.status, 'failed');
+        assert.equal(result.inputUnsent, true);
+        assert.deepEqual(await jsonLines(join(f.cwd, 'inputs.jsonl')), []);
+      } else {
+        ready.resolve();
+        assert.equal(await steering, true);
+        let inputs: { message: { content: string } }[] = [];
+        await until('initial input followed by steered input', async () => {
+          inputs = (await jsonLines(
+            join(f.cwd, 'inputs.jsonl'),
+          )) as typeof inputs;
+          return inputs.length === 2;
+        });
+        assert.deepEqual(
+          inputs.map((input) => input.message.content),
+          ['steerable', 'follower'],
+        );
+        await session.interrupt();
+        await sending;
+      }
+    } finally {
+      configure.mockRestore();
+      await session.close();
+    }
+  });
+}
+
+test('Codex reloads without the previous override when the selected capacity is unknown', async () => {
+  const calls: RpcMessage[] = [];
+  const f = await fixture(undefined, {
+    model: 'model-a',
+    resume: 'native-thread',
+    automaticCompaction: true,
+    configuration: { model_context_window: 1_000_000 },
+    contextCatalog: async () => ({
+      models: (await catalog()).models.slice(0, 1),
+    }),
+    onClient: (message) => calls.push(message),
+  });
+  try {
+    calls.length = 0;
+    await f.session.selectModel('model-b');
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ['thread/settings/update', 'thread/unsubscribe', 'thread/resume'],
+    );
+    const resumed = calls.at(-1)!.params as { config: Record<string, unknown> };
+    assert.equal(resumed.config.model_auto_compact_token_limit, undefined);
+    assert.equal(
+      resumed.config.model_auto_compact_token_limit_scope,
+      undefined,
+    );
+    calls.length = 0;
+    await f.session.selectModel('model-b', 'high');
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ['thread/settings/update'],
+    );
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Claude model selection waits for the new compaction policy before completing', async () => {
+  const ready = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  const configure = vi
+    .spyOn(ClaudeContext.prototype, 'configure')
+    .mockImplementation(() => {
+      entered.resolve();
+      return ready.promise;
+    });
+  const f = await launcher();
+  const session = await f.connect({ automaticCompaction: true });
+  try {
+    const selecting = session.selectModel('claude-b');
+    const done = settled(selecting);
+    await entered.promise;
+    assert.equal(session.info.model, 'claude-b');
+    assert.equal(done(), false);
+    ready.resolve();
+    await selecting;
+  } finally {
+    configure.mockRestore();
+    await session.close();
+  }
+});
+
+for (const action of ['compact', 'shell'] as const) {
+  test(`Codex ${action} recovers a failed model reload before dispatch`, async () => {
+    const f = await codex('compaction');
+    try {
+      await writeFile(join(f.cwd, 'resume-fail'), '');
+      await assert.rejects(f.session.selectModel('model-b'), /resume refused/);
+      await rm(join(f.cwd, 'resume-fail'));
+      f.calls.length = 0;
+      const result =
+        action === 'compact'
+          ? f.session.compact()
+          : f.session.shell('recovered');
+      const method =
+        action === 'compact' ? 'thread/compact/start' : 'thread/shellCommand';
+      await until('native operation after reload', () =>
+        f.calls.some((call) => call.method === method),
+      );
+      assert.deepEqual(f.calls.map((call) => call.method).slice(0, 3), [
+        'thread/unsubscribe',
+        'thread/resume',
+        method,
+      ]);
+      if (action === 'compact') {
+        const emit = frameWriter(f.cwd, (text) =>
+          f.events.some((e) => e.type === 'notice' && e.text === text),
+        );
+        await emit(
+          {
+            method: 'turn/started',
+            params: {
+              threadId: 'native-thread',
+              turn: { id: 'compact-recovered', status: 'inProgress' },
+            },
+          },
+          {
+            method: 'item/started',
+            params: {
+              threadId: 'native-thread',
+              turnId: 'compact-recovered',
+              item: { id: 'summary', type: 'contextCompaction' },
+            },
+          },
+          {
+            method: 'item/completed',
+            params: {
+              threadId: 'native-thread',
+              turnId: 'compact-recovered',
+              item: { id: 'summary', type: 'contextCompaction' },
+            },
+          },
+          {
+            method: 'turn/completed',
+            params: {
+              threadId: 'native-thread',
+              turn: {
+                id: 'compact-recovered',
+                status: 'completed',
+                error: null,
+              },
+            },
+          },
+        );
+      }
+      assert.equal(
+        (await within(result, 2000, 'recovered operation')).status,
+        'completed',
+      );
+    } finally {
+      await writeFile(join(f.cwd, 'exit'), '');
+      await close(f.session, f.cwd);
+    }
+  });
+}
