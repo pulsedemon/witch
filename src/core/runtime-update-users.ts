@@ -42,7 +42,7 @@ export async function runtimeUpdateUsers(
   const participating = new Set(
     [...held.keys()].map((file) => Number(basename(file, '.json'))),
   );
-  const rows = (
+  const processes = (
     await ps('pid=,uid=,comm=', undefined, { timeout: 5000 })
   ).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line);
@@ -52,13 +52,27 @@ export async function runtimeUpdateUsers(
       Number(match[1]) === process.pid
     )
       return [];
-    const command = match[3]!;
-    return /^(?:node|bun|bash|zsh|sh|curl|codex|claude)(?:$|-)/.test(
-      basename(command),
-    ) || command.includes('/claude/versions/')
-      ? [{ pid: Number(match[1]), command }]
-      : [];
+    return [{ pid: Number(match[1]), command: match[3]! }];
   });
+  const rows = (
+    await Promise.all(
+      processes.map(async ({ pid, command }) => {
+        // Linux comm is a thread name; Node names its main thread MainThread.
+        const executable =
+          process.platform === 'linux'
+            ? await unlessGone(readlink(`/proc/${pid}/exe`))
+            : command;
+        return executable &&
+          (executable.startsWith(`${root}/`) ||
+            /^(?:node|bun|bash|zsh|sh|curl|codex|claude)(?:$|-)/.test(
+              basename(executable),
+            ) ||
+            executable.includes('/claude/versions/'))
+          ? [{ pid, command: executable }]
+          : [];
+      }),
+    )
+  ).flat();
   const argumentsByPid = await processArguments(rows.map((row) => row.pid));
   const users: RuntimeUser[] = [];
   for (const { pid, command } of rows) {
