@@ -207,7 +207,7 @@ for (const mode of ['edited', 'interrupted']) {
     const session = x.a.a.sessions.at(-1)!.session;
     const send = session.send;
     vi.spyOn(session, 'send').mockImplementation(async (...args) => {
-      if (args[3] === 'pr-review') {
+      if (args[1]?.purpose === 'pr-review') {
         const state = (await record(x.f, x.a)).copilotReviews![0]!;
         if (mode === 'edited') {
           x.source.reviews[0]!.body = 'Updated summary.';
@@ -256,7 +256,7 @@ test('an uncertain content version stays blocked after a newer version is handle
   const send = session.send;
   let respond = false;
   vi.spyOn(session, 'send').mockImplementation(async (...args) => {
-    if (args[3] === 'pr-review' && respond) {
+    if (args[1]?.purpose === 'pr-review' && respond) {
       const batch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
       const url = `${x.source.pullRequest.url}#discussion_r2`;
       x.source.threads[0]!.comments.push({
@@ -461,7 +461,7 @@ for (const kind of ['thread', 'reply']) {
     const session = x.a.a.sessions.at(-1)!.session;
     const send = session.send;
     session.send = async (...args) => {
-      if (args[3] === 'pr-review') {
+      if (args[1]?.purpose === 'pr-review') {
         await reply(x.f, x.a, x.source);
         complete = structuredClone(x.source);
         if (kind === 'thread') x.source.threads = [];
@@ -750,7 +750,7 @@ test('an unrelated user prompt does not retry dispositions explicitly blocked fo
   const session = x.a.a.sessions.at(-1)!.session;
   const send = session.send;
   vi.spyOn(session, 'send').mockImplementation(async (...args) => {
-    if (args[3] === 'pr-review') {
+    if (args[1]?.purpose === 'pr-review') {
       const batch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
       await writeFile(
         batch.result,
@@ -1289,7 +1289,7 @@ test('an ordinary turn can reconcile a missing reply receipt before later feedba
   const session = x.a.a.sessions.at(-1)!.session;
   const send = session.send;
   session.send = async (...args) => {
-    if (args[3] === 'pr-review') {
+    if (args[1]?.purpose === 'pr-review') {
       await reply(x.f, x.a, x.source);
       x.source.threads[0]!.comments.pop();
     }
@@ -1308,7 +1308,7 @@ test('an ordinary turn can reconcile a missing reply receipt before later feedba
   );
   session.send = async (...args) => {
     if (args[0] === 'reconcile the previous review result') {
-      assert.ok(args[2]?.includes(batch.result));
+      assert.ok(args[1]?.context?.includes(batch.result));
       await writeFile(
         batch.result,
         JSON.stringify({
@@ -1320,7 +1320,8 @@ test('an ordinary turn can reconcile a missing reply receipt before later feedba
           })),
         } satisfies ReviewResult),
       );
-    } else if (args[3] === 'pr-review') await reply(x.f, x.a, x.source);
+    } else if (args[1]?.purpose === 'pr-review')
+      await reply(x.f, x.a, x.source);
     return send(...args);
   };
   await x.c.send('reconcile the previous review result');

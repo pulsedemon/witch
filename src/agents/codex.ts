@@ -42,20 +42,18 @@ import type {
   AccountReading,
   AgentSession,
   AgentStopOptions,
-  AnswerInput,
   FileDiff,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
   SessionOptions,
   Skill,
-  SkillCall,
   Subagent,
   TurnResult,
-  TurnPurpose,
   Usage,
   UserRequest,
   UserResponse,
+  SendOptions,
 } from './types.js';
 
 const stringValue = z.string();
@@ -558,11 +556,7 @@ class CodexSession implements AgentSession {
 
   async send(
     prompt: string,
-    skill?: SkillCall,
-    context?: string,
-    purpose: TurnPurpose = 'user',
-    answer?: AnswerInput,
-    images: readonly string[] = [],
+    { skill, context, purpose = 'user', answer, images = [] }: SendOptions = {},
   ): Promise<TurnResult> {
     if (purpose === 'peer-answer' && !this.options.answer) {
       if (this.closed || this.closing)

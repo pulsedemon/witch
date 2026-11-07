@@ -261,6 +261,14 @@ export interface AnswerInput {
 
 export type TurnPurpose = 'user' | 'peer-answer' | 'pr-review' | 'pr-repair';
 
+export interface SendOptions {
+  skill?: SkillCall;
+  context?: string;
+  purpose?: TurnPurpose;
+  answer?: AnswerInput;
+  images?: readonly string[];
+}
+
 export interface AgentSession {
   familiar?: {
     report(action: FamiliarAction, deadline: number): Promise<FamiliarOutcome>;
@@ -289,14 +297,7 @@ export interface AgentSession {
    * generated context never replaces the user's request in native authorization evidence; an automatic prompt is
    * Witch's instruction for a turn with no new user request. `images` are absolute paths of prepared PNG or JPEG files.
    */
-  send(
-    prompt: string,
-    skill?: SkillCall,
-    context?: string,
-    purpose?: TurnPurpose,
-    answer?: AnswerInput,
-    images?: readonly string[],
-  ): Promise<TurnResult>;
+  send(prompt: string, options?: SendOptions): Promise<TurnResult>;
   /**
    * runs a command the user typed after `!`, unsandboxed in the session's directory, and gives it and its output to
    * the agent without a reply. its output streams as tool events, the first marked `shell`.

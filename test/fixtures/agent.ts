@@ -360,11 +360,7 @@ export class FixtureAgent implements AgentAdapter {
       },
       send: async (
         prompt,
-        skill,
-        context,
-        purpose = 'user',
-        answer,
-        images = [],
+        { skill, context, purpose = 'user', answer, images = [] } = {},
       ): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
         this.inputs.push({

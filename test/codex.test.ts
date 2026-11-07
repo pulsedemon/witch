@@ -206,7 +206,7 @@ test('a skill send names the first listed path, and a plain send names none', as
       .input as unknown;
   try {
     await session.skills();
-    await session.send('add skill', { name: 'review', args: 'x' });
+    await session.send('add skill', { skill: { name: 'review', args: 'x' } });
     assert.deepEqual(await input(), [
       { type: 'text', text: 'add skill', text_elements: [] },
       { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' },

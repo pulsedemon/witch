@@ -70,12 +70,10 @@ export class AnswerTurn {
         },
       });
       if (!active.cancelled)
-        result = await active.session.send(
-          prompt,
-          undefined,
+        result = await active.session.send(prompt, {
           context,
-          'peer-answer',
-        );
+          purpose: 'peer-answer',
+        });
     } catch (error) {
       if (!active.cancelled || !(error instanceof NativeStop)) throw error;
     } finally {

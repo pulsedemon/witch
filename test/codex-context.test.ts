@@ -21,7 +21,7 @@ test('Codex inserts complete context before the exact user request', async () =>
     const prompt = '  review target 17\nonly the selected files  ';
     const context = `context 29\n${'é'.repeat(5000)}\ncontext 41`;
     await writeFile(join(cwd, 'release'), 'yes');
-    const sending = session.send(prompt, undefined, context);
+    const sending = session.send(prompt, { context });
     await inserted(cwd);
     await assert.rejects(access(join(cwd, 'prompt.json')));
     await writeFile(join(cwd, 'release-context'), 'yes');
@@ -58,7 +58,7 @@ for (const mode of ['context-error', 'context-exit']) {
     const { session, cwd } = await fixture(undefined, { mode });
     try {
       const result = await within(
-        session.send('request 17', undefined, 'context 29'),
+        session.send('request 17', { context: 'context 29' }),
         5000,
         'failed context insertion',
       );
@@ -75,7 +75,7 @@ for (const action of ['interrupt', 'close'] as const) {
   test(`Codex ${action} during insertion never submits a turn`, async () => {
     const { session, cwd } = await fixture(undefined, { mode: 'context-held' });
     try {
-      const sending = session.send('request 17', undefined, 'context 29');
+      const sending = session.send('request 17', { context: 'context 29' });
       await inserted(cwd);
       const stopping = session[action]();
       await writeFile(join(cwd, 'release-context'), 'yes');
@@ -98,7 +98,7 @@ test('a failed turn-start response does not prove the input was unwritten', asyn
     mode: 'context-start-error',
   });
   try {
-    const result = await session.send('request 17', undefined, 'context 29');
+    const result = await session.send('request 17', { context: 'context 29' });
     assert.equal(result.status, 'failed');
     assert.equal(result.inputUnsent, undefined);
     const start = JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8'));

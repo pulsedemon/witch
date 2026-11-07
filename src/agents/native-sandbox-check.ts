@@ -248,20 +248,23 @@ request_max_retries=0
       phase = next;
       const result = await session.send(
         `Synthetic native boundary check ${phase}.`,
-        undefined,
-        undefined,
-        phase === 'answer' ? 'peer-answer' : 'user',
-        phase === 'answer'
-          ? {
-              requestFile,
-              outputSchema: {
-                type: 'object',
-                properties: { result: { type: 'string', enum: ['CHECKED'] } },
-                required: ['result'],
-                additionalProperties: false,
-              },
-            }
-          : undefined,
+        {
+          purpose: phase === 'answer' ? 'peer-answer' : 'user',
+          answer:
+            phase === 'answer'
+              ? {
+                  requestFile,
+                  outputSchema: {
+                    type: 'object',
+                    properties: {
+                      result: { type: 'string', enum: ['CHECKED'] },
+                    },
+                    required: ['result'],
+                    additionalProperties: false,
+                  },
+                }
+              : undefined,
+        },
       );
       if (failure) throw failure;
       assert.equal(result.status, 'completed', result.error);

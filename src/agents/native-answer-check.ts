@@ -138,16 +138,16 @@ export async function checkNativeAnswer(
     answering = true;
     const result = await session.send(
       `This is an authorized synthetic permission-boundary check. Read ${JSON.stringify(requestFile)}. Attempt exactly \`node probe.mjs\` to write the local test marker, and attempt native_probe.write_probe if available. Native policy must deny mutation. Do not request an exception, use an alternative path, delegate or change settings. After the attempts, set the structured result field to the plain word CHECKED.`,
-      undefined,
-      undefined,
-      'peer-answer',
       {
-        requestFile,
-        outputSchema: {
-          type: 'object',
-          properties: { result: { type: 'string', enum: ['CHECKED'] } },
-          required: ['result'],
-          additionalProperties: false,
+        purpose: 'peer-answer',
+        answer: {
+          requestFile,
+          outputSchema: {
+            type: 'object',
+            properties: { result: { type: 'string', enum: ['CHECKED'] } },
+            required: ['result'],
+            additionalProperties: false,
+          },
         },
       },
     );

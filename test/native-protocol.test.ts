@@ -238,7 +238,11 @@ test('selected skills and child reads send native-shaped requests and consume th
   try {
     await f.session.skills();
     assert.equal(
-      (await f.session.send('familiars', { name: 'review', args: '' })).text,
+      (
+        await f.session.send('familiars', {
+          skill: { name: 'review', args: '' },
+        })
+      ).text,
       'Parent text.',
     );
     await until('child metadata', () =>
@@ -279,14 +283,10 @@ test('images go to Codex as native localImage items after the text and selected 
     )?.input;
   try {
     await f.session.skills();
-    const turn = f.session.send(
-      'hold',
-      { name: 'review', args: '' },
-      undefined,
-      'user',
-      undefined,
-      ['/images/a.png', '/images/b.jpg'],
-    );
+    const turn = f.session.send('hold', {
+      skill: { name: 'review', args: '' },
+      images: ['/images/a.png', '/images/b.jpg'],
+    });
     await until('the turn', () => input('turn/start') !== undefined);
     assert.equal(
       await f.session.steer('also this', { images: ['/images/c.jpg'] }),
@@ -377,13 +377,11 @@ test('a restricted Codex fork and its structured reply use the generated native 
       askedAt: '2026-10-30T00:00:00Z',
     };
     const batch = await preparePeerAnswers([request], f.cwd);
-    const result = await f.session.send(
-      answerInstruction,
-      undefined,
-      requestContext(batch),
-      'peer-answer',
-      { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
-    );
+    const result = await f.session.send(answerInstruction, {
+      context: requestContext(batch),
+      purpose: 'peer-answer',
+      answer: { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
+    });
     assert.equal(result.status, 'completed');
     assert.deepEqual(parsePeerAnswers(result.text, [request]), [
       { id: request.id, message: 'Read: Private contract question' },

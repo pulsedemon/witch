@@ -54,7 +54,7 @@ async function background(initial = 'initial', initialSkill?: SkillCall) {
   const received = (name: string) =>
     events.some((e) => e.type === 'skills' && e.skills[0]?.name === name);
   const emit = frameWriter(f.cwd, received, f.children[0]!);
-  const turn = session.send(initial, initialSkill);
+  const turn = session.send(initial, { skill: initialSkill });
   await until('initial reply', () => received('result-1'));
   const inputs = async () =>
     (await jsonLines(join(f.cwd, 'inputs.jsonl'))) as SDKUserMessage[];
@@ -74,7 +74,11 @@ test('a sent spell is announced once with its input uuid when Claude Code starts
   );
   try {
     assert.equal(
-      (await session.send('/probe now', { name: 'probe', args: 'now' })).status,
+      (
+        await session.send('/probe now', {
+          skill: { name: 'probe', args: 'now' },
+        })
+      ).status,
       'completed',
     );
     const [input] = (await jsonLines(
@@ -84,9 +88,7 @@ test('a sent spell is announced once with its input uuid when Claude Code starts
     assert.equal(
       (
         await session.send('/probe now', {
-          name: 'probe',
-          args: 'now',
-          builtin: true,
+          skill: { name: 'probe', args: 'now', builtin: true },
         })
       ).status,
       'completed',
@@ -141,7 +143,7 @@ test('a steered spell Claude Code cancels is not announced, and sending it again
       'failed',
     );
     assert.deepEqual(spells(f.events), []);
-    void f.session.send('/probe later', probe);
+    void f.session.send('/probe later', { skill: probe });
     const resent = await f.pushed(3);
     await f.emit(lifecycle(resent, 'started'));
     assert.deepEqual(spells(f.events), [{ id: resent, name: 'probe' }]);
@@ -166,7 +168,7 @@ test('a steered spell an interrupt reports still queued comes back unread unanno
   const rerun: AgentEvent[] = [];
   const session = await f.connect({ onEvent: (event) => rerun.push(event) });
   try {
-    void session.send('/probe later', probe);
+    void session.send('/probe later', { skill: probe });
     await until('rerun reply', () =>
       rerun.some(
         (e) => e.type === 'skills' && e.skills[0]?.name === 'result-1',

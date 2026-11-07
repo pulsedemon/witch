@@ -119,7 +119,9 @@ test("a selected spell the agent also reads is one cast per turn, under the turn
   try {
     const path = await realpath(join(cwd, '.agents/skills/a/SKILL.md'));
     assert.deepEqual(await session.skills(), [{ name: 'a', description: 'A' }]);
-    const first = await session.send('cast', { name: 'a', args: '' });
+    const first = await session.send('cast', {
+      skill: { name: 'a', args: '' },
+    });
     assert.equal(first.status, 'completed');
     assert.deepEqual(
       [...new Set(spellIds(events))],
@@ -178,11 +180,10 @@ test('a selected spell Codex is never sent is not announced', async () => {
   });
   try {
     await session.skills();
-    const result = await session.send(
-      'review this',
-      { name: 'review', args: '' },
-      'context',
-    );
+    const result = await session.send('review this', {
+      skill: { name: 'review', args: '' },
+      context: 'context',
+    });
     assert.equal(result.inputUnsent, true);
     assert.deepEqual(spellIds(events), []);
   } finally {

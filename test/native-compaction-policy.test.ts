@@ -588,11 +588,9 @@ test('Claude ignores a foreign completion while preparing the initial input', as
     f.children[0]!,
   );
   try {
-    const sending = session.send(
-      'owned request',
-      undefined,
-      'accepted context marker',
-    );
+    const sending = session.send('owned request', {
+      context: 'accepted context marker',
+    });
     await emit(
       {
         type: 'result',
