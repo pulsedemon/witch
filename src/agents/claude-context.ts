@@ -102,7 +102,7 @@ export class ClaudeContext {
     const sample = this.context;
     if (!sample?.isAutoCompactEnabled) return;
     const { tokens } = compactionThreshold(sample.maxTokens);
-    // the native percentage uses capacity before its 13k summary reserve, not maxTokens.
+    // the native percentage uses capacity before its 13k compaction buffer, not maxTokens.
     const capacity = sample.autoCompactThreshold + 13_000;
     // native rounding must keep the target token rather than lose one to floating point.
     const percentage = String(Math.min(100, ((tokens + 0.5) * 100) / capacity));

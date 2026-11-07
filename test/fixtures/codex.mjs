@@ -59,6 +59,10 @@ const notify = (method, params) =>
           : params,
   });
 const file = (name) => join(process.cwd(), name);
+const configuration = () =>
+  existsSync(file('config.json'))
+    ? JSON.parse(readFileSync(file('config.json'), 'utf8'))
+    : {};
 // whole, through a rename, since a test polling for a record would read one half written
 const record = (name, value) => {
   writeFileSync(file(`${name}.next`), JSON.stringify(value));
@@ -357,9 +361,7 @@ for await (const line of lines) {
   }
   if (request.method === 'config/read') {
     reply({
-      config: existsSync(file('config.json'))
-        ? JSON.parse(readFileSync(file('config.json'), 'utf8'))
-        : {},
+      config: configuration(),
       origins: {},
     });
     continue;
@@ -575,7 +577,10 @@ for await (const line of lines) {
     answering = request.params.ephemeral === true;
     effort = request.params.config?.model_reasoning_effort ?? effort;
     record(answering ? 'answer-connect.json' : 'connect.json', request);
-    model = request.params.model ?? model;
+    model =
+      request.params.model ??
+      (request.method === 'thread/start' ? configuration().model : undefined) ??
+      model;
     reply(session());
   }
   if (request.method === 'thread/settings/update') {

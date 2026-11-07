@@ -6,6 +6,7 @@ import { test, vi } from 'vitest';
 import { ClaudeContext } from '../src/agents/claude-context.js';
 import type { ClaudeCompactionControl } from '../src/agents/claude-context.js';
 import type { AgentEvent } from '../src/agents/types.js';
+import { JsonRpc } from '../src/agents/json-rpc.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import {
   close,
@@ -651,5 +652,209 @@ test('failed live Claude preparation returns unread shell context without closin
   } finally {
     configure.mockRestore();
     await session.close();
+  }
+});
+
+for (const configured of [false, true]) {
+  test(`Codex resolves a fresh implicit model from ${configured ? 'native configuration' : 'the default model listing'}`, async () => {
+    const calls: RpcMessage[] = [];
+    const f = await fixture(undefined, {
+      automaticCompaction: true,
+      configuration: configured ? { model: 'model-b' } : undefined,
+      contextCatalog: catalog,
+      onClient: (message) => calls.push(message),
+    });
+    try {
+      const start = calls.find((call) => call.method === 'thread/start')!
+        .params as { model?: string; config: Record<string, unknown> };
+      assert.equal(start.model, undefined);
+      assert.equal(
+        start.config.model_auto_compact_token_limit,
+        configured ? 204800 : 400000,
+      );
+      assert.equal(f.session.info.model, configured ? 'model-b' : 'model-a');
+      assert.equal(
+        calls.some((call) => call.method === 'model/list'),
+        !configured,
+      );
+    } finally {
+      await close(f.session, f.cwd);
+    }
+  });
+}
+
+for (const stop of ['interrupt', 'close'] as const) {
+  test(`Claude ${stop} during pending policy configuration leaves initial and following input unsent`, async () => {
+    const ready = Promise.withResolvers<void>();
+    const configure = vi
+      .spyOn(ClaudeContext.prototype, 'configure')
+      .mockImplementation(() => ready.promise);
+    const f = await launcher('background');
+    const session = await f.connect({ automaticCompaction: true });
+    try {
+      const sending = session.send('initial input');
+      const steering = session.steer('following input');
+      const stopping = session[stop]();
+      ready.resolve();
+      const result = await within(sending, 2000, 'unsent interrupted input');
+      await within(stopping, 2000, 'stop during configuration');
+      assert.equal(result.status, 'interrupted');
+      assert.equal(result.inputUnsent, true);
+      assert.equal(await steering, false);
+      assert.deepEqual(await jsonLines(join(f.cwd, 'inputs.jsonl')), []);
+    } finally {
+      ready.resolve();
+      configure.mockRestore();
+      await session.close();
+    }
+  });
+}
+
+for (const action of ['send', 'compact', 'shell'] as const) {
+  test(`Codex interrupt during reload prevents ${action} dispatch`, async () => {
+    const f = await codex('compaction');
+    const ready = Promise.withResolvers<void>(),
+      entered = Promise.withResolvers<void>();
+    const request = JsonRpc.prototype.request;
+    let interception: { mockRestore(): void } | undefined;
+    try {
+      await writeFile(join(f.cwd, 'resume-fail'), '');
+      await assert.rejects(f.session.selectModel('model-b'), /resume refused/);
+      await rm(join(f.cwd, 'resume-fail'));
+      interception = vi
+        .spyOn(JsonRpc.prototype, 'request')
+        .mockImplementation(async function (this: JsonRpc, method, params) {
+          if (method === 'thread/resume') {
+            entered.resolve();
+            await ready.promise;
+          }
+          return request.call(this, method, params);
+        });
+      f.calls.length = 0;
+      const operation =
+        action === 'send'
+          ? f.session.send('unsent input')
+          : action === 'compact'
+            ? f.session.compact()
+            : f.session.shell('must not execute');
+      await entered.promise;
+      const stopping = f.session.interrupt();
+      ready.resolve();
+      const result = await within(operation, 2000, 'interrupted operation');
+      await within(stopping, 2000, 'reload interruption');
+      assert.equal(result.status, 'interrupted');
+      if (action === 'send') assert.equal(result.inputUnsent, true);
+      assert.equal(
+        f.calls.some((call) =>
+          [
+            'turn/start',
+            'thread/compact/start',
+            'thread/shellCommand',
+          ].includes(call.method ?? ''),
+        ),
+        false,
+      );
+    } finally {
+      ready.resolve();
+      interception?.mockRestore();
+      await writeFile(join(f.cwd, 'exit'), '');
+      await close(f.session, f.cwd);
+    }
+  });
+}
+
+test('Codex repairs a failed reload before selecting a model with the previous limit', async () => {
+  const f = await codex();
+  try {
+    await writeFile(join(f.cwd, 'resume-fail'), '');
+    await assert.rejects(
+      f.session.selectModel('model-b', 'high'),
+      /resume refused/,
+    );
+    await rm(join(f.cwd, 'resume-fail'));
+    f.calls.length = 0;
+    await f.session.selectModel('model-a');
+    assert.deepEqual(
+      f.calls.map((call) => call.method),
+      [
+        'thread/unsubscribe',
+        'thread/resume',
+        'thread/settings/update',
+        'thread/unsubscribe',
+        'thread/resume',
+      ],
+    );
+    assert.equal(f.session.info.model, 'model-a');
+    assert.equal(f.session.info.nativeEffort, 'high');
+    const last = f.calls.at(-1)!.params as { config: Record<string, unknown> };
+    assert.equal(last.config.model_auto_compact_token_limit, 600000);
+    const sending = f.session.send('continue on the original model');
+    await until('recovered model prompt approval', () =>
+      f.events.some((event) => event.type === 'request'),
+    );
+    const event = f.events.find((event) => event.type === 'request');
+    assert.ok(event?.type === 'request');
+    await f.session.respond(event.request.id, { decision: 'accept' });
+    assert.equal(
+      (await within(sending, 2000, 'recovered model turn')).status,
+      'completed',
+    );
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Claude respects disabled native auto-compaction without applying an override', async () => {
+  const policy = new ClaudeContext(() => ({
+    getContextUsage: async () => ({
+      ...context(1000000, 967000),
+      isAutoCompactEnabled: false,
+    }),
+    getSettings: async () =>
+      assert.fail('disabled compaction must not read flag settings'),
+    applyFlagSettings: async () =>
+      assert.fail('disabled compaction must not apply an override'),
+  }));
+  await policy.configure();
+});
+
+test('Codex refuses a window-changing selection until a running familiar completes', async () => {
+  const f = await codex('compaction');
+  const emit = frameWriter(f.cwd, (text) =>
+    f.events.some((event) => event.type === 'notice' && event.text === text),
+  );
+  try {
+    await emit({
+      method: 'turn/started',
+      params: {
+        threadId: 'child-thread',
+        turn: { id: 'child-run', status: 'inProgress' },
+      },
+    });
+    f.calls.length = 0;
+    await assert.rejects(f.session.selectModel('model-b'), /background work/);
+    assert.equal(f.session.info.model, 'model-a');
+    assert.equal(
+      f.calls.some((call) =>
+        [
+          'thread/settings/update',
+          'thread/unsubscribe',
+          'thread/resume',
+        ].includes(call.method ?? ''),
+      ),
+      false,
+    );
+    await emit({
+      method: 'turn/completed',
+      params: {
+        threadId: 'child-thread',
+        turn: { id: 'child-run', status: 'completed', error: null },
+      },
+    });
+    await f.session.selectModel('model-b');
+    assert.equal(f.session.info.model, 'model-b');
+  } finally {
+    await writeFile(join(f.cwd, 'exit'), '');
+    await close(f.session, f.cwd);
   }
 });

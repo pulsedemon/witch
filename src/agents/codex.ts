@@ -512,6 +512,7 @@ class CodexSession implements AgentSession {
     if (this.turn || this.answers.busy)
       throw new Error('Stop the current turn before changing models');
     this.automaticCompaction?.assertIdle(model, this.backgroundActive);
+    await this.configureCompaction();
     // Codex notifies only when the settings change
     if (
       model !== this.native.model ||
@@ -1444,7 +1445,6 @@ class CodexSession implements AgentSession {
     }));
   }
 
-  /** the status line leaves out what Codex can't report, such as limits on an API key. */
   private async readLimitsOnce(): Promise<void> {
     try {
       const account = await this.account.read(this.rpc);

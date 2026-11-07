@@ -65,7 +65,7 @@ export class CodexCompactionPolicy {
     rpc: JsonRpc,
     options: SessionOptions,
     baseConfiguration: Record<string, unknown>,
-    read = readContextCatalog,
+    read: typeof readContextCatalog,
   ): Promise<CodexCompactionPolicy | undefined> {
     if (!options.automaticCompaction) return;
     const models = await read(options);
