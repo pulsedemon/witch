@@ -32,6 +32,18 @@ export function stopOptions(
   return reason instanceof NativeStop ? reason.options : undefined;
 }
 
+/** closes what a failed startup opened, throwing the stop that cancelled it in place of the startup error. */
+export async function closeFailedStart(
+  close: () => Promise<void>,
+  signal: AbortSignal | undefined,
+  error: unknown,
+): Promise<never> {
+  // read before close, so a stop that lands while it waits doesn't replace the startup error
+  const reason: unknown = signal?.reason;
+  await close();
+  throw reason instanceof NativeStop ? reason : error;
+}
+
 export function stopDeadline(
   deadline = performance.now() + nativeStopTimeoutMs,
 ): number {

@@ -48,6 +48,7 @@ function child(): AgentSession {
   };
 }
 
+const open = { closed: false, running: false, label: 'Fixture' };
 test('cancellation during connection aborts startup and waits for its cleanup', async () => {
   const entered = Promise.withResolvers<SessionOptions>();
   const cleanup = Promise.withResolvers<void>();
@@ -61,7 +62,7 @@ test('cancellation during connection aborts startup and waits for its cleanup', 
     await cleanup.promise;
     throw connected.signal!.reason;
   });
-  const running = turn.run(source, 'answer', undefined, input);
+  const running = turn.run(open, source, 'answer', undefined, input);
   const connected = await entered.promise;
   let stopped = false;
   const stopping = turn.interrupt({ deadline: 123, restart: true }).then(() => {
@@ -94,7 +95,7 @@ test('startup cleanup failures remain visible after cancellation', async () => {
     throw failure;
   });
   const rejected = assert.rejects(
-    turn.run(source, 'answer', undefined, input),
+    turn.run(open, source, 'answer', undefined, input),
     (error) => error === failure,
   );
   await entered.promise;
@@ -121,7 +122,7 @@ test('connected cancellation interrupts before close without aborting the native
     connected = value;
     return session;
   });
-  const running = turn.run(source, 'answer', undefined, input);
+  const running = turn.run(open, source, 'answer', undefined, input);
   await sending.promise;
   const stop = { deadline: 456, restart: true };
   await turn.interrupt(stop);
@@ -139,7 +140,7 @@ test('cancellation during child close discards an otherwise completed answer', a
     await closed.promise;
   };
   const turn = new AnswerTurn(options, async () => session);
-  const running = turn.run(source, 'answer', undefined, input);
+  const running = turn.run(open, source, 'answer', undefined, input);
   await closing.promise;
   const stopping = turn.interrupt();
   assert.equal(turn.busy, true);
@@ -156,7 +157,7 @@ test('failed send and failed close both release the answer slot', async () => {
     };
     const turn = new AnswerTurn(options, async () => session);
     await assert.rejects(
-      turn.run(source, 'answer', undefined, input),
+      turn.run(open, source, 'answer', undefined, input),
       new RegExp(failure),
     );
     assert.equal(turn.busy, false);
@@ -178,7 +179,7 @@ test('a refused interrupt closes the child and joins the pending answer before r
     finished.resolve({ status: 'interrupted', text: '' });
   });
   const turn = new AnswerTurn(options, async () => session);
-  const running = turn.run(source, 'answer', undefined, input);
+  const running = turn.run(open, source, 'answer', undefined, input);
   await sending.promise;
   const stop = { deadline: 789 };
   await assert.rejects(turn.interrupt(stop), /Native interrupt refused/);

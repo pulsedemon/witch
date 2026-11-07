@@ -29,12 +29,16 @@ export class AnswerTurn {
     return this.active !== undefined;
   }
 
+  /** `guard` is the owning session's state, checked before the answer's own. */
   async run(
+    guard: { closed: boolean; running: boolean; label: string },
     source: SessionInfo,
     prompt: string,
     context?: string,
     input?: AnswerInput,
   ): Promise<TurnResult> {
+    if (guard.closed) throw new Error(`The ${guard.label} session is closed`);
+    if (guard.running) throw new Error('This agent is already running');
     if (!input) throw new Error('A peer answer requires its request file.');
     if (this.active) throw new Error('A peer answer is already running.');
     const active = {

@@ -32,7 +32,7 @@ import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
 import {
   beforeDeadline,
-  NativeStop,
+  closeFailedStart,
   NativeStopTimeout,
   running,
   stopDeadline,
@@ -149,10 +149,11 @@ export class ClaudeAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
-      // read before close, so a stop that lands while it waits doesn't replace the startup error
-      const reason: unknown = options.signal?.reason;
-      await session.close(stopOptions(options.signal));
-      throw reason instanceof NativeStop ? reason : error;
+      return closeFailedStart(
+        () => session.close(stopOptions(options.signal)),
+        options.signal,
+        error,
+      );
     }
   }
 }
@@ -513,9 +514,13 @@ class ClaudeSession implements AgentSession {
     { skill, context, purpose = 'user', answer, images = [] }: SendOptions = {},
   ): Promise<TurnResult> {
     if (purpose === 'peer-answer' && !this.options.answer) {
-      if (this.closed) throw new Error('The Claude session is closed');
-      if (this.turn) throw new Error('This agent is already running');
-      return this.answers.run(this.info, prompt, context, answer);
+      return this.answers.run(
+        { closed: this.closed, running: !!this.turn, label: 'Claude' },
+        this.info,
+        prompt,
+        context,
+        answer,
+      );
     }
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return blocks;
