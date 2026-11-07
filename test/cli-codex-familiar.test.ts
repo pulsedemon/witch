@@ -686,8 +686,8 @@ test('a Codex familiar started --without-mcp disables every MCP source and refus
     assert.equal(config['features.plugins'], false);
     assert.equal(config['features.skill_mcp_dependency_install'], false);
     assert.deepEqual(config.mcp_servers, {
-      unreal: { enabled: false },
-      node_repl: { enabled: false },
+      unreal: { url: 'http://x', enabled: false },
+      node_repl: { command: 'n', enabled: false },
     });
     assert.equal(config['features.hooks'], undefined);
   } finally {

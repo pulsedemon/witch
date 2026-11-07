@@ -166,6 +166,7 @@ export class AccountUsage {
   private readonly reads = new Map<string, Promise<void>>();
   private readonly probes = new Map<AbortController, Promise<void>>();
   private closed = false;
+  private suspended = false;
   private session?: AgentSession;
 
   constructor(
@@ -232,6 +233,7 @@ export class AccountUsage {
     cwd: string,
     { force = false, after = -Infinity } = {},
   ): Promise<void> {
+    if (this.suspended) return Promise.resolve();
     const running = this.reads.get(agent);
     if (running) return running;
     const now = Date.now();
@@ -265,6 +267,17 @@ export class AccountUsage {
     this.closed = true;
     for (const abort of this.probes.keys()) abort.abort(new NativeStop(stop));
     await Promise.allSettled(this.probes.values());
+  }
+
+  async suspend(): Promise<void> {
+    this.suspended = true;
+    for (const abort of this.probes.keys()) abort.abort(new NativeStop({}));
+    await Promise.allSettled(this.probes.values());
+  }
+
+  resume(runtime: string): void {
+    this.attempts.delete(runtime);
+    this.suspended = false;
   }
 
   private probe(agent: string, cwd: string): Promise<void> | undefined {

@@ -1,3 +1,4 @@
+import type { ConversationRecord } from './state.js';
 import type { Skill } from '../agents/types.js';
 import { shellCommand, skillCall } from './prompts.js';
 
@@ -66,4 +67,37 @@ export async function steerInOrder(
     const owed = [...refused, ...prompts.slice(next)];
     if (owed.length) back(owed);
   }
+}
+
+/** a sent prompt, kept by identity so equal texts stay distinct. */
+export interface Pending {
+  prompt: string;
+}
+
+export function without(list: readonly Pending[], removed: readonly Pending[]) {
+  return list.filter((entry) => !removed.includes(entry));
+}
+
+/** copies the prompts sent but not yet shown into the record, in the order they were sent; true when they changed. */
+export function recordQueue(
+  record: ConversationRecord | undefined,
+  taken: readonly Pending[],
+  queued: readonly string[],
+  arriving: readonly Pending[],
+): boolean {
+  if (!record) return false;
+  const queue = [
+    ...taken.map(({ prompt }) => prompt),
+    ...queued,
+    ...arriving.map(({ prompt }) => prompt),
+  ];
+  const saved = record.queue ?? [];
+  if (
+    queue.length === saved.length &&
+    queue.every((prompt, i) => prompt === saved[i])
+  )
+    return false;
+  if (queue.length) record.queue = queue;
+  else delete record.queue;
+  return true;
 }

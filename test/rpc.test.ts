@@ -206,7 +206,7 @@ test('a garbage line from the agent kills it', async () => {
 });
 
 for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
-  test(`${adapter.label} with a missing executable fails to connect and cleans up`, async () => {
+  test(`${adapter.label} refuses a missing executable before starting or reporting a process`, async () => {
     const cwd = await scratch('witch-missing-');
     const reports: (number | undefined)[] = [];
     await within(
@@ -220,11 +220,12 @@ for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
             reports.push(pid);
           },
         }),
+        /Native executable not found/,
       ),
       2000,
       'connect',
     );
-    assert.deepEqual(reports, [undefined, undefined]);
+    assert.deepEqual(reports, []);
   });
 }
 
