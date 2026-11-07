@@ -2,7 +2,12 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
-import { boundMarker, findFamiliar } from './familiar-report.js';
+import {
+  admitFamiliar,
+  boundMarker,
+  findFamiliar,
+  respondFamiliar,
+} from './familiar-report.js';
 import { FamiliarRun } from './familiar-requests.js';
 import type {
   FamiliarAction,
@@ -180,33 +185,24 @@ export class ClaudeCommands {
     }
     const entry = findFamiliar(this.entries.values(), action);
     if (!entry) return { kind: 'familiar-pending' };
-    if (action.kind === 'familiar-register') {
-      if (entry.status !== 'running')
-        throw new Error('The familiar command has already ended.');
-      if (entry.familiar) {
-        if (entry.familiar.subagent.name !== action.name)
-          throw new Error('The familiar name changed.');
-        return { kind: 'familiar-registered' };
-      }
-      entry.familiar = new FamiliarRun(
-        action,
-        this.emit,
-        entry.parent && this.knownParent(entry.parent)
-          ? entry.parent
-          : undefined,
-      );
-      this.publish(entry);
-      return { kind: 'familiar-registered' };
-    }
-    if (!entry.familiar)
-      throw new Error('The familiar run has not registered.');
-    return entry.familiar.report(action);
+    return admitFamiliar(
+      entry,
+      entry.status !== 'running',
+      action,
+      (action) =>
+        new FamiliarRun(
+          action,
+          this.emit,
+          entry.parent && this.knownParent(entry.parent)
+            ? entry.parent
+            : undefined,
+        ),
+      () => this.publish(entry),
+    );
   }
 
   respond(id: string, response: UserResponse): boolean {
-    return [...this.entries.values()].some(
-      (entry) => entry.familiar?.requests.respond(id, response) ?? false,
-    );
+    return respondFamiliar(this.entries.values(), id, response);
   }
 
   private admit(deadline: number): void {

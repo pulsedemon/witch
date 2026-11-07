@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
-import type { Cast } from './types.js';
+import { FamiliarRun } from './familiar-requests.js';
+import type { Cast, UserResponse } from './types.js';
 import {
   taskStatuses,
   userRequestSchema,
@@ -134,4 +135,44 @@ export function findFamiliar<T extends { marker?: FamiliarMarker }>(
       'The familiar run is not registered in this native session.',
     );
   return matches[0];
+}
+
+/**
+ * registers or reports to a command's familiar. `create` returns the run, or an outcome while the command can't take one
+ * yet; `registered` follows a new run.
+ */
+export function admitFamiliar(
+  entry: { familiar?: FamiliarRun },
+  done: boolean,
+  action: FamiliarAction,
+  create: (
+    action: Extract<FamiliarAction, { kind: 'familiar-register' }>,
+  ) => FamiliarRun | FamiliarOutcome,
+  registered: (run: FamiliarRun) => void,
+): FamiliarOutcome {
+  if (action.kind === 'familiar-register') {
+    if (done) throw new Error('The familiar command has already ended.');
+    if (entry.familiar) {
+      if (entry.familiar.subagent.name !== action.name)
+        throw new Error('The familiar name changed.');
+      return { kind: 'familiar-registered' };
+    }
+    const created = create(action);
+    if (!(created instanceof FamiliarRun)) return created;
+    entry.familiar = created;
+    registered(created);
+    return { kind: 'familiar-registered' };
+  }
+  if (!entry.familiar) throw new Error('The familiar run has not registered.');
+  return entry.familiar.report(action);
+}
+
+export function respondFamiliar(
+  entries: Iterable<{ familiar?: FamiliarRun }>,
+  id: string,
+  response: UserResponse,
+): boolean {
+  return [...entries].some(
+    (entry) => entry.familiar?.requests.respond(id, response) ?? false,
+  );
 }
