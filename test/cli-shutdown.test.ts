@@ -36,7 +36,7 @@ async function check(
   const mode = runtime === 'codex' ? 'brews' : 'background';
   await writeFile(
     join(bin, runtime),
-    `#!/bin/sh\nexec '${process.execPath}' '${fixture}' '${mode}' ${runtime === 'codex' && action === 'exit' ? '--ignore-term' : ''}\n`,
+    `#!/bin/sh\nexec '${process.execPath}' '${fixture}' '${mode}' ${runtime === 'codex' && action === 'exit' ? '--ignore-term' : ''} "$@"\n`,
     { mode: 0o755 },
   );
   const store = await StateStore.open(join(root, 'state'));
