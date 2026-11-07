@@ -14,7 +14,11 @@ import {
   commandFrame,
 } from './fixtures/codex-adapter.js';
 import { settled, until, within } from './fixtures/within.js';
-import { launcher, jsonLines } from './fixtures/claude-adapter.js';
+import {
+  launcher,
+  jsonLines,
+  frameWriter as claudeFrames,
+} from './fixtures/claude-adapter.js';
 
 function context(
   maxTokens: number,
@@ -485,3 +489,142 @@ for (const action of ['compact', 'shell'] as const) {
     }
   });
 }
+
+test('a fresh Codex model change starts a replacement thread and sends the first prompt to it', async () => {
+  const calls: RpcMessage[] = [],
+    events: AgentEvent[] = [];
+  const f = await fixture((event) => events.push(event), {
+    model: 'model-a',
+    automaticCompaction: true,
+    contextCatalog: catalog,
+    onClient: (message) => calls.push(message),
+  });
+  try {
+    const originalId = f.session.info.id;
+    calls.length = 0;
+    await f.session.selectModel('model-b', 'high');
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ['thread/settings/update', 'thread/unsubscribe', 'thread/start'],
+    );
+    const started = calls.at(-1)!.params as {
+      model: string;
+      config: Record<string, unknown>;
+    };
+    assert.equal(started.model, 'model-b');
+    assert.equal(started.config.model_reasoning_effort, 'high');
+    assert.equal(started.config.model_auto_compact_token_limit, 204800);
+    const replacementId = f.session.info.id;
+    assert.notEqual(replacementId, originalId);
+    assert.equal(f.session.info.model, 'model-b');
+    assert.equal(f.session.info.nativeEffort, 'high');
+    const sending = f.session.send('first prompt on replacement');
+    await until('replacement prompt approval', () =>
+      events.some((event) => event.type === 'request'),
+    );
+    const request = events.find((event) => event.type === 'request');
+    assert.ok(request?.type === 'request');
+    await f.session.respond(request.request.id, { decision: 'accept' });
+    const result = await within(sending, 2000, 'replacement prompt');
+    assert.equal(result.status, 'completed');
+    const turns = calls.filter((call) => call.method === 'turn/start');
+    assert.equal(turns.length, 1);
+    assert.equal(
+      (turns[0]!.params as { threadId: string }).threadId,
+      replacementId,
+    );
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Codex reduces the resolved window before deriving a limit below the token cap', async () => {
+  const calls: RpcMessage[] = [];
+  const f = await fixture(undefined, {
+    model: 'model-a',
+    automaticCompaction: true,
+    configuration: { model_context_window: 1000000 },
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'model-a',
+          context_window: 100000,
+          max_context_window: 200000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+    onClient: (message) => calls.push(message),
+  });
+  try {
+    const start = calls.find((call) => call.method === 'thread/start')!
+      .params as { config: Record<string, unknown> };
+    assert.equal(start.config.model_auto_compact_token_limit, 152000);
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Claude ignores a foreign completion while preparing the initial input', async () => {
+  const ready = Promise.withResolvers<void>();
+  const configure = vi
+    .spyOn(ClaudeContext.prototype, 'configure')
+    .mockImplementation(() => ready.promise);
+  const f = await launcher('background');
+  const events: AgentEvent[] = [];
+  const session = await f.connect({
+    automaticCompaction: true,
+    onEvent: (event) => events.push(event),
+  });
+  const emit = claudeFrames(
+    f.cwd,
+    (name) =>
+      events.some(
+        (event) =>
+          event.type === 'skills' &&
+          event.skills.some((skill) => skill.name === name),
+      ),
+    f.children[0]!,
+  );
+  try {
+    const sending = session.send(
+      'owned request',
+      undefined,
+      'accepted context marker',
+    );
+    await emit(
+      {
+        type: 'result',
+        subtype: 'success',
+        result: 'foreign result',
+        user_message_uuids: ['foreign-input'],
+      },
+      { type: 'system', subtype: 'session_state_changed', state: 'idle' },
+    );
+    ready.resolve();
+    let inputs: { uuid: string; message: { content: string } }[] = [];
+    await until('initial input after foreign completion', async () => {
+      inputs = (await jsonLines(join(f.cwd, 'inputs.jsonl'))) as typeof inputs;
+      return inputs.length === 1;
+    });
+    assert.match(inputs[0]!.message.content, /owned request/);
+    assert.match(inputs[0]!.message.content, /accepted context marker/);
+    await emit(
+      {
+        type: 'result',
+        subtype: 'success',
+        result: 'owned result',
+        user_message_uuids: [inputs[0]!.uuid],
+      },
+      { type: 'system', subtype: 'session_state_changed', state: 'idle' },
+    );
+    const result = await within(sending, 2000, 'owned input completion');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.text, 'owned result');
+    assert.notEqual(result.inputUnsent, true);
+  } finally {
+    ready.resolve();
+    configure.mockRestore();
+    await session.close();
+  }
+});

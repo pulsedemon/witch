@@ -406,7 +406,7 @@ export class TurnRunner {
     }
   }
 
-  /** native hooks block continuation for restoration; other runtimes receive a context-only steer. */
+  /** native hooks restore context before continuation; a context-only steer covers missing hook restoration. */
   private resendAfterCompaction(
     session: AgentSession,
     context: () => Promise<string | undefined>,

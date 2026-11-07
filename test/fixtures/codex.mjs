@@ -41,6 +41,8 @@ if (process.argv.includes('--ignore-term')) {
   process.on('SIGTERM', () => {});
   setInterval(() => {}, 1000);
 }
+let mainThreadId = 'native-thread';
+let threadStarts = 0;
 let model = 'model-a';
 let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
@@ -50,9 +52,11 @@ const notify = (method, params) =>
   send({
     method,
     params:
-      answering && params.threadId
-        ? { ...params, threadId: 'answer-thread' }
-        : params,
+      params.threadId === 'native-thread'
+        ? { ...params, threadId: answering ? 'answer-thread' : mainThreadId }
+        : answering && params.threadId
+          ? { ...params, threadId: 'answer-thread' }
+          : params,
   });
 const file = (name) => join(process.cwd(), name);
 // whole, through a rename, since a test polling for a record would read one half written
@@ -61,7 +65,7 @@ const record = (name, value) => {
   renameSync(file(`${name}.next`), file(name));
 };
 const session = () => ({
-  thread: { id: answering ? 'answer-thread' : 'native-thread' },
+  thread: { id: answering ? 'answer-thread' : mainThreadId },
   model,
   cwd: process.cwd(),
   approvalPolicy: 'on-request',
@@ -552,7 +556,7 @@ for await (const line of lines) {
   }
   if (
     request.method === 'thread/resume' &&
-    request.params.threadId !== 'native-thread'
+    request.params.threadId !== mainThreadId
   )
     send({
       id: request.id,
@@ -564,9 +568,12 @@ for await (const line of lines) {
     request.method === 'thread/start' ||
     request.method === 'thread/fork' ||
     (request.method === 'thread/resume' &&
-      request.params.threadId === 'native-thread')
+      request.params.threadId === mainThreadId)
   ) {
+    if (request.method === 'thread/start' && ++threadStarts > 1)
+      mainThreadId = `native-thread-${threadStarts}`;
     answering = request.params.ephemeral === true;
+    effort = request.params.config?.model_reasoning_effort ?? effort;
     record(answering ? 'answer-connect.json' : 'connect.json', request);
     model = request.params.model ?? model;
     reply(session());
@@ -597,7 +604,7 @@ for await (const line of lines) {
       deferReply('read', ++threadReads, request);
       continue;
     }
-    if (request.params.threadId === 'native-thread') {
+    if (request.params.threadId === mainThreadId) {
       reply({
         thread: { ...session().thread, model, reasoningEffort: effort },
       });

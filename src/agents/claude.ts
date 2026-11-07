@@ -556,6 +556,7 @@ class ClaudeSession implements AgentSession {
       !skill && prompt.trim().startsWith('/'),
     );
     turn.initialInput = uuid;
+    turn.idle = false;
     turn.started.resolve(true);
     turn.inputs.set(uuid, { pending: true });
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
@@ -1272,8 +1273,7 @@ class ClaudeSession implements AgentSession {
     } else if (message.type === 'rate_limit_event') {
       this.rateLimit.report(message.rate_limit_info, this.turn);
     } else if (message.type === 'result') {
-      if (!this.turn) return;
-      if (this.turn.compaction) return;
+      if (!this.turn?.initialInput || this.turn.compaction) return;
       const success = message.subtype === 'success' && !message.is_error;
       if (this.messageLifecycle) {
         const uuids = message.user_message_uuids ?? [message.user_message_uuid];
