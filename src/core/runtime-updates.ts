@@ -297,6 +297,7 @@ export class RuntimeUpdates {
     if (check.blocked) throw new Error(check.blocked);
     if (!check.available) throw new Error('No newer release is available.');
     let qualified: UpdateJournal | undefined;
+    let transaction: FileHandle | undefined;
     await this.maintain(check.installation.runtime, async (stop) => {
       const signal = AbortSignal.any([stop, AbortSignal.timeout(15 * 60_000)]);
       const previous = check.installation;
@@ -305,7 +306,7 @@ export class RuntimeUpdates {
         throw new Error(
           'Witch changed since startup. Restart before updating a native runtime.',
         );
-      const transaction = await this.store.transaction(previous.root);
+      transaction = await this.store.transaction(previous.root);
       let exclusive: FileHandle | undefined;
       const journal: UpdateJournal = {
         id: randomUUID(),
@@ -421,17 +422,20 @@ export class RuntimeUpdates {
         throw new Error(journal.error ?? errorMessage(error), { cause: error });
       } finally {
         await exclusive?.close();
-        await transaction.close();
         this.publish({ progress: undefined });
       }
-    }).catch(async (error: unknown) => {
-      if (qualified) {
-        qualified.phase = 'failed';
-        qualified.error = `Qualification passed, but reconnect failed: ${errorMessage(error)}`;
-        await this.record(qualified);
-      }
-      throw error;
-    });
+    })
+      .catch(async (error: unknown) => {
+        if (qualified) {
+          qualified.phase = 'failed';
+          qualified.error = `Qualification passed, but reconnect failed: ${errorMessage(error)}`;
+          await this.record(qualified);
+        }
+        throw error;
+      })
+      .finally(async () => {
+        await transaction?.close();
+      });
     if (qualified)
       this.host.notice(
         `${qualified.previous.runtime} ${qualified.selected!.version} installed and verified. Evidence: ${this.store.operation(qualified)}`,

@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import { App } from '../src/ui/app.js';
 import { updatesText } from '../src/ui/updates.js';
+import { holdRuntime } from '../src/persistence/runtime-updates.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { StateStore } from '../src/persistence/store.js';
 import { runtimeUpdateFixture } from './fixtures/runtime-updates.js';
@@ -302,4 +303,32 @@ test('unknown check state and recovered failures are not labeled verified', asyn
   assert.match(text, /Not yet verified/);
   assert.doesNotMatch(text, /Installed: 2.0.0/);
   f.updates.close();
+});
+
+test('an unrelated startup failure leaves a qualified update usable', async () => {
+  const root = await scratch('witch-update-startup-unrelated-');
+  const project = join(root, 'missing-project');
+  const c = new Coordinator(
+    await StateStore.open(join(root, 'state')),
+    new EmptyMemory(join(root, 'memory.git')),
+    [{ adapter: new FixtureAgent('codex'), executable: 'codex' }],
+  );
+  await assert.rejects(c.initialize(project), /ENOENT/);
+  assert.equal(c.snapshot.conversation, undefined);
+  const update = await runtimeUpdateFixture({
+    maintain: (runtime, run) => c.maintainNative(runtime, run),
+    notice: () => {},
+  });
+  try {
+    await update.updates.apply(update.check, { accountUsage: true });
+    assert.equal((await update.store.journal(update.root))?.phase, 'verified');
+    assert.equal((await update.inspect()).version, '2.0.0');
+    assert.deepEqual(update.installs, ['2.0.0']);
+    holdRuntime(update.root, update.store.directory)();
+    assert.equal(c.snapshot.phase, 'error');
+    assert.match(c.snapshot.error!, /ENOENT.*missing-project/);
+  } finally {
+    update.updates.close();
+    await c.close();
+  }
 });

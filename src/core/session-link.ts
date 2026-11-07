@@ -94,12 +94,6 @@ export class SessionLink {
   ): Promise<void> {
     const reconnect = this.host.record()?.agent === runtime;
     const failures: unknown[] = [];
-    const report = (error: string | undefined) => {
-      if (error) {
-        failures.push(new Error(error));
-        this.host.publish({ error });
-      }
-    };
     try {
       await this.usage.suspend();
       this.catalog.cancel();
@@ -110,11 +104,18 @@ export class SessionLink {
     } finally {
       this.catalog.invalidate(runtime);
       if (this.host.snapshot().phase !== 'closing') {
-        if (reconnect) report(await failureOf(this.connect()));
+        if (reconnect) {
+          const error = await failureOf(this.connect());
+          if (error) {
+            failures.push(new Error(error));
+            this.host.publish({ error });
+          }
+        }
         if (!this.host.record() && this.retryInitialization) {
           const error = await failureOf(this.retryInitialization());
-          report(error);
-          if (!error) this.retryInitialization = undefined;
+          // project startup errors do not invalidate a qualified native installation.
+          if (error) this.host.publish({ error });
+          else this.retryInitialization = undefined;
         }
       }
       this.usage.resume(runtime);

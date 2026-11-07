@@ -414,3 +414,48 @@ test('recovery refuses the previous version when its artifact bytes differ', asy
     f.updates.close();
   }
 });
+
+for (const fails of [false, true]) {
+  test(
+    'the update transaction stays owned through ' +
+      (fails ? 'failed' : 'successful') +
+      ' reconnect',
+    async () => {
+      const reconnect = Promise.withResolvers<void>();
+      const finish = Promise.withResolvers<void>();
+      const f = await runtimeUpdateFixture({
+        maintain: async (_runtime, run) => {
+          await run(new AbortController().signal);
+          reconnect.resolve();
+          await finish.promise;
+          if (fails) throw new Error('Reconnect failed');
+        },
+        notice: () => {},
+      });
+      const applying = f.updates.apply(f.check, { accountUsage: true });
+      const completed = fails
+        ? assert.rejects(applying, /Reconnect failed/)
+        : applying;
+      try {
+        await reconnect.promise;
+        const journal = (await f.store.journal(f.root))!;
+        assert.equal(journal.phase, 'verified');
+        await assert.rejects(async () => {
+          const successor = await f.store.transaction(f.root);
+          await successor.close();
+        }, NativeUpdatePending);
+        finish.resolve();
+        await completed;
+        const final = (await f.store.journal(f.root))!;
+        assert.equal(final.id, journal.id);
+        assert.equal(final.phase, fails ? 'failed' : 'verified');
+        const next = await f.store.transaction(f.root);
+        await next.close();
+      } finally {
+        finish.resolve();
+        await completed.catch(() => {});
+        f.updates.close();
+      }
+    },
+  );
+}
