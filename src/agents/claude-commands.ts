@@ -3,7 +3,9 @@ import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
 import {
+  addFamiliar,
   admitFamiliar,
+  admitted,
   boundMarker,
   findFamiliar,
   respondFamiliar,
@@ -11,8 +13,8 @@ import {
 import { FamiliarRun } from './familiar-requests.js';
 import type {
   FamiliarAction,
-  FamiliarMarker,
   FamiliarOutcome,
+  FamiliarSlot,
 } from './familiar-report.js';
 import type { AgentEvent, TaskStatus, UserResponse } from './types.js';
 
@@ -29,8 +31,7 @@ interface Command {
   background: boolean;
   listed: boolean;
   status: TaskStatus;
-  marker?: FamiliarMarker;
-  familiar?: FamiliarRun;
+  familiars: FamiliarSlot[];
 }
 
 const taskOutput = z.object({ output: z.string() });
@@ -115,7 +116,7 @@ export class ClaudeCommands {
   }
 
   private start(
-    input: Omit<Command, 'listed' | 'status'>,
+    input: Omit<Command, 'listed' | 'status' | 'familiars'>,
   ): Command | undefined {
     const previous = this.entries.get(input.id);
     if (previous?.run && input.run && input.run < previous.run) return;
@@ -132,7 +133,12 @@ export class ClaudeCommands {
       return previous;
     }
     if (previous) this.end(previous, 'stopped');
-    const entry: Command = { ...input, listed: false, status: 'running' };
+    const entry: Command = {
+      ...input,
+      listed: false,
+      status: 'running',
+      familiars: [],
+    };
     this.entries.set(entry.id, entry);
     this.publish(entry);
     return entry;
@@ -140,13 +146,14 @@ export class ClaudeCommands {
 
   private publish(entry: Command): void {
     if (!entry.background) return;
+    const [familiar] = admitted(entry.familiars);
     this.emit({
       type: 'command',
       command: {
         id: entry.id,
         description: entry.description,
         status: entry.status,
-        ...(entry.familiar ? { familiar: entry.familiar.subagent.id } : {}),
+        ...(familiar ? { familiar: familiar.subagent.id } : {}),
       },
     });
   }
@@ -154,7 +161,8 @@ export class ClaudeCommands {
   private end(entry: Command, status: TaskStatus): void {
     if (entry.status !== 'running') return;
     entry.status = status;
-    entry.familiar?.end(status === 'stopped' ? 'stopped' : 'failed');
+    for (const familiar of admitted(entry.familiars))
+      familiar.end(status === 'stopped' ? 'stopped' : 'failed');
     this.publish(entry);
     if (!entry.background) this.entries.delete(entry.id);
   }
@@ -164,10 +172,12 @@ export class ClaudeCommands {
     deadline: number,
   ): Promise<FamiliarOutcome> {
     this.admit(deadline);
-    if (action.kind === 'familiar-register') {
+    if (
+      action.kind === 'familiar-register' &&
+      !findFamiliar(this.entries.values(), action)
+    ) {
       for (const entry of this.entries.values()) {
-        if (!entry.background || entry.status !== 'running' || entry.marker)
-          continue;
+        if (!entry.background || entry.status !== 'running') continue;
         const { output } = taskOutput.parse(
           await this.query.getTaskOutput(entry.id),
         );
@@ -176,17 +186,15 @@ export class ClaudeCommands {
           continue;
         for (const line of output.split('\n').slice(0, -1)) {
           const marker = boundMarker(line, this.binding!);
-          if (marker) {
-            entry.marker = marker;
-            break;
-          }
+          if (marker) addFamiliar(entry.familiars, marker);
         }
       }
     }
-    const entry = findFamiliar(this.entries.values(), action);
-    if (!entry) return { kind: 'familiar-pending' };
+    const found = findFamiliar(this.entries.values(), action);
+    if (!found) return { kind: 'familiar-pending' };
+    const { entry, slot } = found;
     return admitFamiliar(
-      entry,
+      slot,
       entry.status !== 'running',
       action,
       (action) =>
@@ -215,7 +223,10 @@ export class ClaudeCommands {
     this.closing = true;
     const results = await Promise.allSettled(
       [...this.entries.values()]
-        .filter((entry) => entry.familiar && entry.status === 'running')
+        .filter(
+          (entry) =>
+            admitted(entry.familiars).length && entry.status === 'running',
+        )
         .map((entry) => this.query.stopTask(entry.id)),
     );
     this.stop();
