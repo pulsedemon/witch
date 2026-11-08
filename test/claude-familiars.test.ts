@@ -390,6 +390,49 @@ test('completed foreground tasks release their state while active tasks can stil
   assert.equal(f.owner['entries'].size, 0);
 });
 
+test('one background command registers each familiar whose marker appears in its output', async () => {
+  const f = commands();
+  const second = randomUUID();
+  f.start();
+  assert.equal((await f.register()).kind, 'familiar-registered');
+  f.outputs.set(
+    'review',
+    f.marker +
+      familiarMarker({
+        version: 1,
+        conversation: f.binding.conversation,
+        activation: f.binding.activation,
+        run: second,
+      }) +
+      f.marker,
+  );
+  assert.equal(
+    (
+      await f.owner.report(
+        {
+          kind: 'familiar-register',
+          run: second,
+          name: 'second review',
+          runtime: 'claude',
+        },
+        Date.now() + 5000,
+      )
+    ).kind,
+    'familiar-registered',
+  );
+  await f.owner.close();
+  assert.deepEqual(f.stopped, ['review']);
+  assert.deepEqual(
+    f.familiars().map(({ name, status }) => [name, status]),
+    [
+      ['review', 'running'],
+      ['second review', 'running'],
+      ['review', 'stopped'],
+      ['second review', 'stopped'],
+    ],
+  );
+});
+
 test('two native commands cannot claim the same reported run', async () => {
   const f = commands();
   f.start();

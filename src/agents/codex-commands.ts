@@ -2,7 +2,9 @@ import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
 import {
+  addFamiliar,
   admitFamiliar,
+  admitted,
   boundMarker,
   findFamiliar,
   respondFamiliar,
@@ -11,7 +13,7 @@ import { FamiliarRun } from './familiar-requests.js';
 import type {
   FamiliarAction,
   FamiliarOutcome,
-  FamiliarMarker,
+  FamiliarSlot,
 } from './familiar-report.js';
 import { pages } from './json-rpc.js';
 import type { JsonRpc, RpcMessage } from './json-rpc.js';
@@ -31,8 +33,7 @@ interface Command {
   command?: BackgroundCommand;
   partial: string;
   discarding?: boolean;
-  marker?: FamiliarMarker;
-  familiar?: FamiliarRun;
+  familiars: FamiliarSlot[];
   cleanup?: Promise<void>;
 }
 
@@ -106,24 +107,25 @@ export class CodexCommands {
           typeof item.processId === 'string' ? item.processId : undefined,
         ended: false,
         partial: '',
+        familiars: [],
       });
       return;
     }
     const entry = this.entries.get(key);
     if (!entry || entry.done) return;
+    const familiars = admitted(entry.familiars);
     const status =
-      entry.command && !entry.familiar
+      entry.command && !familiars.length
         ? commandStatus.parse(item.status)
         : undefined;
     entry.done = true;
-    if (entry.familiar) {
-      entry.familiar.end(
+    if (familiars.length) {
+      const stopped =
         this.closing ||
-          entry.interrupted ||
-          this.interrupted(entry.threadId, entry.turnId)
-          ? 'stopped'
-          : 'failed',
-      );
+        entry.interrupted ||
+        this.interrupted(entry.threadId, entry.turnId);
+      for (const familiar of familiars)
+        familiar.end(stopped ? 'stopped' : 'failed');
       void this.collect(entry);
     } else {
       if (entry.command)
@@ -134,7 +136,7 @@ export class CodexCommands {
             status: status === 'completed' ? 'completed' : 'failed',
           },
         });
-      if (!entry.marker) this.entries.delete(key);
+      if (!entry.familiars.length) this.entries.delete(key);
     }
   }
 
@@ -166,7 +168,8 @@ export class CodexCommands {
           entry.partial = '';
           entry.discarding = true;
         } else if (ends) {
-          entry.marker ??= boundMarker(entry.partial.trimEnd(), this.binding);
+          const marker = boundMarker(entry.partial.trimEnd(), this.binding);
+          if (marker) addFamiliar(entry.familiars, marker);
         }
       }
       if (ends) {
@@ -180,10 +183,11 @@ export class CodexCommands {
     checkDeadline(deadline);
     if (this.stopped || this.closing || !this.binding)
       throw new Error('Familiar reporting is unavailable.');
-    const entry = findFamiliar(this.entries.values(), action);
-    if (!entry) return { kind: 'familiar-pending' };
+    const found = findFamiliar(this.entries.values(), action);
+    if (!found) return { kind: 'familiar-pending' };
+    const { entry, slot } = found;
     return admitFamiliar(
-      entry,
+      slot,
       entry.done === true,
       action,
       (action) => {
@@ -225,7 +229,7 @@ export class CodexCommands {
     this.closing = true;
     await Promise.all(
       [...this.entries.values()]
-        .filter((entry) => entry.familiar)
+        .filter((entry) => admitted(entry.familiars).length)
         .map((entry) => this.collect(entry)),
     );
     this.stop();
@@ -234,8 +238,9 @@ export class CodexCommands {
   stop(): void {
     this.stopped = true;
     for (const entry of this.entries.values()) {
-      if (entry.familiar) entry.familiar.end('stopped');
-      else if (entry.command)
+      const familiars = admitted(entry.familiars);
+      for (const familiar of familiars) familiar.end('stopped');
+      if (!familiars.length && entry.command)
         this.emit({
           type: 'command',
           command: { ...entry.command, status: 'stopped' },
@@ -257,11 +262,14 @@ export class CodexCommands {
           );
       })
       .catch((error: unknown) => {
-        if (!this.stopped)
-          this.emit({
-            type: 'notice',
-            text: `Witch could not confirm cleanup of ${entry.familiar!.subagent.name}: ${errorMessage(error)}`,
-          });
+        if (this.stopped) return;
+        const names = admitted(entry.familiars)
+          .map(({ subagent }) => subagent.name)
+          .join(', ');
+        this.emit({
+          type: 'notice',
+          text: `Witch could not confirm cleanup of ${names}: ${errorMessage(error)}`,
+        });
       });
     return entry.cleanup;
   }
@@ -302,7 +310,7 @@ export class CodexCommands {
         entry.ended &&
         !entry.done &&
         !entry.command &&
-        !entry.familiar,
+        !admitted(entry.familiars).length,
     );
     if (!candidates.length) return;
     try {
@@ -318,7 +326,7 @@ export class CodexCommands {
           description === undefined ||
           this.entries.get(id) !== entry ||
           entry.command ||
-          entry.familiar ||
+          admitted(entry.familiars).length ||
           entry.done
         )
           continue;

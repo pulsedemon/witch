@@ -581,6 +581,64 @@ test('registration transfers an existing brew and leaves an unrelated background
   }
 });
 
+test('one native command registers each familiar whose marker appears in its output', async () => {
+  const f = await reportedFixture();
+  const second = randomUUID();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    await f.emit(
+      f.output(
+        `WITCH_FAMILIAR ${JSON.stringify({ version: 1, conversation: f.binding.conversation, activation: f.binding.activation, run: second })}\n${f.marker}`,
+      ),
+    );
+    assert.equal(
+      (
+        await f.session.familiar!.report(
+          {
+            kind: 'familiar-register',
+            run: second,
+            name: 'second review',
+            runtime: 'codex',
+          },
+          Date.now() + 5000,
+        )
+      ).kind,
+      'familiar-registered',
+    );
+    await f.emit({
+      method: 'item/completed',
+      params: { ...f.params, item: { ...f.item, status: 'failed' } },
+    });
+    await until('targeted cleanup', async () =>
+      (
+        await readFile(join(f.cwd, 'terminated.jsonl'), 'utf8').catch(() => '')
+      ).endsWith('\n'),
+    );
+    assert.deepEqual(
+      (await readFile(join(f.cwd, 'terminated.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as unknown),
+      [{ threadId: 'native-thread', processId: '42' }],
+    );
+    assert.deepEqual(
+      f.familiarEvents().map(({ name, status }) => [name, status]),
+      [
+        ['plan review', 'running'],
+        ['second review', 'running'],
+        ['plan review', 'failed'],
+        ['second review', 'failed'],
+      ],
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
 test('known child-thread command deltas can register a nested reviewer without projecting its output into the main transcript', async () => {
   const f = await reportedFixture();
   const threadId = 'child-thread';

@@ -120,13 +120,33 @@ export function boundMarker(
     : undefined;
 }
 
-/** the command whose marker names the action's run; undefined only for a registration whose marker hasn't appeared yet. */
-export function findFamiliar<T extends { marker?: FamiliarMarker }>(
+/** a familiar run a command's output named; one command can start several. */
+export interface FamiliarSlot {
+  run: string;
+  familiar?: FamiliarRun;
+}
+
+export function addFamiliar(
+  slots: FamiliarSlot[],
+  marker: FamiliarMarker,
+): void {
+  if (!slots.some(({ run }) => run === marker.run))
+    slots.push({ run: marker.run });
+}
+
+export function admitted(slots: readonly FamiliarSlot[]): FamiliarRun[] {
+  return slots.flatMap(({ familiar }) => (familiar ? [familiar] : []));
+}
+
+/** the command and slot whose marker names the action's run; undefined only for a registration whose marker hasn't appeared yet. */
+export function findFamiliar<T extends { familiars: FamiliarSlot[] }>(
   entries: Iterable<T>,
   action: FamiliarAction,
-): T | undefined {
-  const matches = [...entries].filter(
-    (entry) => entry.marker?.run === action.run,
+): { entry: T; slot: FamiliarSlot } | undefined {
+  const matches = [...entries].flatMap((entry) =>
+    entry.familiars
+      .filter(({ run }) => run === action.run)
+      .map((slot) => ({ entry, slot })),
   );
   if (matches.length > 1)
     throw new Error('This familiar run belongs to more than one command.');
@@ -138,11 +158,11 @@ export function findFamiliar<T extends { marker?: FamiliarMarker }>(
 }
 
 /**
- * registers or reports to a command's familiar. `create` returns the run, or an outcome while the command can't take one
+ * registers or reports to a command's familiar run. `create` returns the run, or an outcome while the command can't take one
  * yet; `registered` follows a new run.
  */
 export function admitFamiliar(
-  entry: { familiar?: FamiliarRun },
+  slot: FamiliarSlot,
   done: boolean,
   action: FamiliarAction,
   create: (
@@ -152,27 +172,27 @@ export function admitFamiliar(
 ): FamiliarOutcome {
   if (action.kind === 'familiar-register') {
     if (done) throw new Error('The familiar command has already ended.');
-    if (entry.familiar) {
-      if (entry.familiar.subagent.name !== action.name)
+    if (slot.familiar) {
+      if (slot.familiar.subagent.name !== action.name)
         throw new Error('The familiar name changed.');
       return { kind: 'familiar-registered' };
     }
     const created = create(action);
     if (!(created instanceof FamiliarRun)) return created;
-    entry.familiar = created;
+    slot.familiar = created;
     registered(created);
     return { kind: 'familiar-registered' };
   }
-  if (!entry.familiar) throw new Error('The familiar run has not registered.');
-  return entry.familiar.report(action);
+  if (!slot.familiar) throw new Error('The familiar run has not registered.');
+  return slot.familiar.report(action);
 }
 
 export function respondFamiliar(
-  entries: Iterable<{ familiar?: FamiliarRun }>,
+  entries: Iterable<{ familiars: FamiliarSlot[] }>,
   id: string,
   response: UserResponse,
 ): boolean {
-  return [...entries].some(
-    (entry) => entry.familiar?.requests.respond(id, response) ?? false,
+  return [...entries].some((entry) =>
+    admitted(entry.familiars).some((run) => run.requests.respond(id, response)),
   );
 }
