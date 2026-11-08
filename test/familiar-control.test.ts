@@ -172,6 +172,10 @@ test('only a supporting session receives familiar instructions and the exact use
   const prompt = 'Review this\n  exact user input.';
   await client.coordinator.send(prompt);
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
+  assert.doesNotMatch(
+    client.a.inputs.at(-1)!.context!,
+    /When you write a plan, in a file or in your reply/,
+  );
   client.a.sessions[0]!.session.familiar = {
     report: async () => ({
       kind: 'familiar-registered',
@@ -208,6 +212,34 @@ test('only a supporting session receives familiar instructions and the exact use
   );
   assert.match(input.context!, /keep its stdout connected/);
   assert.doesNotMatch(input.context!, /run_in_background/);
+  const rule = input
+    .context!.split('\n\n')
+    .find((paragraph) =>
+      paragraph.startsWith('When you write a plan, in a file or in your reply'),
+    );
+  assert.ok(rule, input.context);
+  assert.match(
+    rule,
+    /before you present it or carry it out, without waiting for the user to ask; this rule is the user's request for that review/,
+  );
+  assert.match(
+    rule,
+    /Your native progress list, carrying out an already approved plan and a plan Witch's \/review has reviewed don't need this review/,
+  );
+  assert.match(rule, /A spell's self-review doesn't replace it/);
+  assert.match(rule, /--route review --of <your runtime>:<your model> --json/);
+  assert.match(
+    rule,
+    /launch only on a newly returned route that has no reviewer in this round, and in this round don't relaunch one that failed, stopped or was interrupted/,
+  );
+  assert.match(
+    rule,
+    /every route of your latest routing has a reviewer that finished with its report and no other reviewer failed, stopped or was interrupted/,
+  );
+  assert.match(
+    rule,
+    /if routing is refused or the review isn't complete, say the plan's review is incomplete and never call it reviewed/,
+  );
   await client.coordinator.send(prompt);
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
   const before = client.coordination.commandPrefixes().familiar;
@@ -230,6 +262,10 @@ test('only a supporting session receives familiar instructions and the exact use
   assert.match(
     client.a.inputs.at(-1)!.context!,
     /Use native Bash with run_in_background: true and keep its stdout connected/,
+  );
+  assert.match(
+    client.a.inputs.at(-1)!.context!,
+    /When you write a plan, in a file or in your reply/,
   );
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /require_escalated/);
   assert.notEqual(client.coordination.commandPrefixes().familiar, before);
