@@ -100,8 +100,9 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
   assert.deepEqual(ask({ accounts }), {
     runtime: 'codex',
     model: 'gpt-6.1-sol',
+    from: 'claude',
     reason:
-      'claude 7D 100% is at or over 90%, and codex 7D 100%, 12345.678900 credits has usable credits',
+      'claude (7D 100%) is at or over the 90% shift threshold, and codex (7D 100%, 12345.68 credits) has usable credits',
   });
   assert.deepEqual(
     ask({
@@ -112,7 +113,7 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
       runtime: 'codex',
       model: 'gpt-6.1-sol',
       reason:
-        'implementation stays on codex; codex 7D 100%, 12345.678900 credits has usable credits',
+        "implementation stays on codex; codex (7D 100%, 12345.68 credits) has usable credits, which keep the work here ahead of another runtime's headroom",
     },
   );
   assert.equal(
@@ -196,13 +197,13 @@ test('credits count only for a runtime at 100%, and a spent runtime without them
         runtime: 'claude',
         model: 'claude-opus-5-5',
         reason:
-          'review of claude work goes to every runtime; claude 7D 90% is at or over 90%, but codex is at 90% or more too',
+          'review of claude work goes to every runtime; claude (7D 90%) is at or over the 90% shift threshold, but codex (7D 94%, 25966.05 credits) is at or over it too',
       },
       {
         runtime: 'codex',
         model: 'gpt-6.1-sol',
         reason:
-          'review of claude work goes to every runtime; codex 7D 94% is at or over 90%, but claude is at 90% or more too',
+          'review of claude work goes to every runtime; codex (7D 94%, 25966.05 credits) is at or over the 90% shift threshold, but claude (7D 90%) is at or over it too',
       },
     ],
   );
@@ -213,8 +214,9 @@ test('credits count only for a runtime at 100%, and a spent runtime without them
     {
       runtime: 'codex',
       model: 'gpt-6.1-sol',
+      from: 'claude',
       reason:
-        'claude 7D 100% is at or over 90%, and codex 7D 96% has included usage left',
+        'claude (7D 100%) is at or over the 90% shift threshold, and codex (7D 96%) has included usage left',
     },
   );
 });
@@ -381,17 +383,23 @@ test('review routes relative to the runtime that produced the work', () => {
 });
 
 test('work shifts to the runtime with room once the chosen one is over the level, in either direction', () => {
+  const hours = (count: number) => now / 1000 + count * 3600;
   assert.deepEqual(
     ask({
       limits: {
-        claude: [window('5H', 20), window('7D', 92)],
-        codex: [window('7D', 49)],
+        claude: [
+          window('5H', 20),
+          { ...window('7D', 92), resetsAt: hours(26.5) },
+        ],
+        codex: [{ ...window('7D', 49), resetsAt: hours(100) }],
       },
     }),
     {
       runtime: 'codex',
       model: 'gpt-6.1-sol',
-      reason: 'claude 7D 92% is at or over 90%, and codex 7D 49% has room',
+      from: 'claude',
+      reason:
+        'claude (7D 92%, resets in 1d2h) is at or over the 90% shift threshold, and codex (7D 49%, resets in 4d4h) has room under it',
     },
   );
   // the reason names the current window that is over, not a stale one beside it
@@ -408,7 +416,9 @@ test('work shifts to the runtime with room once the chosen one is over the level
     {
       runtime: 'codex',
       model: 'gpt-6.1-sol',
-      reason: 'claude 5H 95% is at or over 90%, and codex 5H 10% has room',
+      from: 'claude',
+      reason:
+        'claude (5H 95%) is at or over the 90% shift threshold, and codex (5H 10%) has room under it',
     },
   );
   assert.deepEqual(
@@ -419,7 +429,9 @@ test('work shifts to the runtime with room once the chosen one is over the level
     {
       runtime: 'claude',
       model: 'claude-opus-5-5',
-      reason: 'codex 7D 92% is at or over 90%, and claude 7D 40% has room',
+      from: 'codex',
+      reason:
+        'codex (7D 92%) is at or over the 90% shift threshold, and claude (7D 40%) has room under it',
     },
   );
 });
@@ -433,7 +445,7 @@ test('a review the policy sent away from its producer stays off the producer whe
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'the policy sends review of codex work to other; claude 7D 92% is at or over 90%, but codex produced the work',
+        'the policy sends review of codex work to other; claude (7D 92%) is at or over the 90% shift threshold, but codex produced the work',
     },
   );
   // a review kept on its producer may shift away
@@ -472,7 +484,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       {
         runtime: 'claude',
         model: 'claude-opus-5-5',
-        reason: `implementation stays on claude; claude 7D 92% is at or over 90%, but ${missing}`,
+        reason: `implementation stays on claude; claude (7D 92%) is at or over the 90% shift threshold, but ${missing}`,
       },
     );
   assert.deepEqual(
@@ -487,7 +499,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'implementation stays on claude; claude 7D 92% is at or over 90%, but codex lists no sol model to run',
+        'implementation stays on claude; claude (7D 92%) is at or over the 90% shift threshold, but codex lists no sol model to run',
     },
   );
   // the reason names the current window that is over, not a stale one beside it
@@ -505,7 +517,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        "implementation stays on claude; claude 5H 95% is at or over 90%, but codex's 7D reading is not current",
+        "implementation stays on claude; claude (5H 95%) is at or over the 90% shift threshold, but codex's 7D reading is not current",
     },
   );
 });
@@ -531,7 +543,7 @@ test('no shift happens when the chosen runtime has no current window over the le
         limits: { claude: [window('7D', 92)], codex: [window('7D', 95)] },
       }) as { reason: string }
     ).reason,
-    /but codex is at 90% or more too$/,
+    /but codex \(7D 95%\) is at or over it too$/,
   );
   assert.equal(
     (
@@ -581,12 +593,12 @@ test('a runtime over the level stays when no other runtime is installed, and the
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'implementation stays on claude; claude 7D 95% is at or over 90%, but no other runtime is installed',
+        'implementation stays on claude; claude (7D 95%) is at or over the 90% shift threshold, but no other runtime is installed',
     },
   );
 });
 
-test('with no rule, review goes to every runtime, and a reviewer over the level merges into the route of the runtime it shifts onto', () => {
+test('with no rule, review goes to every runtime, and a reviewer over the level folds into the route of the runtime it shifts onto', () => {
   const of = { runtime: 'claude', model: 'claude-opus-5-5' };
   const reason = 'review of claude work goes to every runtime';
   assert.deepEqual(ask({ work: 'review', of }), [
@@ -594,15 +606,41 @@ test('with no rule, review goes to every runtime, and a reviewer over the level 
     { runtime: 'codex', model: 'gpt-6.1-sol', reason },
   ]);
   assert.deepEqual(
-    ask({
+    route({
       work: 'review',
+      caller: 'claude',
       of,
-      limits: { claude: [window('7D', 40)], codex: [window('7D', 92)] },
+      policy: defaultPolicy,
+      installed,
+      catalog,
+      accounts: {
+        claude: {
+          limits: [{ ...window('7D', 40), resetsAt: now / 1000 + 7200 }],
+        },
+        codex: {
+          limits: [{ ...window('7D', 92), resetsAt: now / 1000 + 90_000 }],
+          funding: {
+            kind: 'credits',
+            balance: '25966.0499470000',
+            unlimited: false,
+            available: true,
+            observedAt: now,
+          },
+        },
+      },
+      now,
     }),
     {
-      runtime: 'claude',
-      model: 'claude-opus-5-5',
-      reason: `${reason}; codex 7D 92% is at or over 90%, and claude 7D 40% has room`,
+      routes: [{ runtime: 'claude', model: 'claude-opus-5-5', reason }],
+      folded: [
+        {
+          runtime: 'claude',
+          model: 'claude-opus-5-5',
+          from: 'codex',
+          reason:
+            'codex (7D 92%, resets in 1d1h, 25966.05 credits) is at or over the 90% shift threshold, and claude (7D 40%, resets in 2h0m) has room under it',
+        },
+      ],
     },
   );
   assert.deepEqual(ask({ work: 'review', of, installed: ['claude'] }), {
@@ -612,18 +650,38 @@ test('with no rule, review goes to every runtime, and a reviewer over the level 
   });
 });
 
-test("a review whose first runtime is over the level merges its shift into the next runtime's route", () => {
+test("a review whose first runtime is over the level folds its shift into the next runtime's route", () => {
   assert.deepEqual(
-    ask({
+    route({
       work: 'review',
+      caller: 'claude',
       of: { runtime: 'claude', model: 'claude-opus-5-5' },
-      limits: { claude: [window('7D', 95)], codex: [window('7D', 40)] },
+      policy: defaultPolicy,
+      installed,
+      catalog,
+      accounts: {
+        claude: { limits: [window('7D', 95)] },
+        codex: { limits: [window('7D', 40)] },
+      },
+      now,
     }),
     {
-      runtime: 'codex',
-      model: 'gpt-6.1-sol',
-      reason:
-        'claude 7D 95% is at or over 90%, and codex 7D 40% has room; review of claude work goes to every runtime',
+      routes: [
+        {
+          runtime: 'codex',
+          model: 'gpt-6.1-sol',
+          reason: 'review of claude work goes to every runtime',
+        },
+      ],
+      folded: [
+        {
+          runtime: 'codex',
+          model: 'gpt-6.1-sol',
+          from: 'claude',
+          reason:
+            'claude (7D 95%) is at or over the 90% shift threshold, and codex (7D 40%) has room under it',
+        },
+      ],
     },
   );
 });
@@ -644,7 +702,8 @@ test('a rule that names a model or family shifts to the comparable model on a ru
       {
         runtime: limits === claudeHot ? 'codex' : 'claude',
         model,
-        reason: `${limits === claudeHot ? 'claude 7D 99% is at or over 90%, and codex 7D 1%' : 'codex 7D 99% is at or over 90%, and claude 7D 1%'} has room; ${model} is comparable to ${from}`,
+        from: limits === claudeHot ? 'claude' : 'codex',
+        reason: `${limits === claudeHot ? 'claude (7D 99%) is at or over the 90% shift threshold, and codex (7D 1%)' : 'codex (7D 99%) is at or over the 90% shift threshold, and claude (7D 1%)'} has room under it; ${model} is comparable to ${from}`,
       },
       rule,
     );
@@ -657,7 +716,7 @@ test('a rule that names a model or family shifts to the comparable model on a ru
       runtime: 'codex',
       model: 'gpt-6-nova',
       reason:
-        'the policy sends implementation to codex:gpt-6-nova; codex 7D 99% is at or over 90%, but claude has no model comparable to gpt-6-nova',
+        'the policy sends implementation to codex:gpt-6-nova; codex (7D 99%) is at or over the 90% shift threshold, but claude has no model comparable to gpt-6-nova',
     },
   );
   assert.deepEqual(

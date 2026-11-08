@@ -347,12 +347,16 @@ function describe(outcome: ControlOutcome): string {
         ),
       ].join('\n');
     case 'route':
-      return outcome.routes
-        .map(
+      return [
+        ...outcome.routes.map(
           ({ runtime, model, reason }) =>
             `Route: ${runtime} ${model}\nReason: ${reason}`,
-        )
-        .join('\n');
+        ),
+        ...(outcome.folded ?? []).map(
+          ({ runtime, model, reason, from }) =>
+            `Passed over: ${from} for ${runtime} ${model}\nReason: ${reason}`,
+        ),
+      ].join('\n');
     case 'peers': {
       const snapshot = outcome.snapshot;
       return (

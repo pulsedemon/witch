@@ -11,7 +11,10 @@ const refreshWait = 3000;
 
 /** answers `--route` from the policy, the catalog and each runtime's usage, and shows the choice in the transcript. once `signal` aborts it posts nothing, since a later notice would land in whatever conversation is open by then. */
 export function router(
-  coordinator: Pick<Coordinator, 'snapshot' | 'accountUsage' | 'notice'>,
+  coordinator: Pick<
+    Coordinator,
+    'snapshot' | 'accountUsage' | 'notice' | 'warning'
+  >,
   policy: Pick<DelegationStore, 'read'>,
 ) {
   return async (
@@ -58,13 +61,20 @@ export function router(
       now: Date.now(),
     });
     if ('refused' in decision) return refuse(decision.refused);
-    for (const { runtime, model, reason } of decision.routes) {
-      const label =
-        snapshot.agents.find(({ id }) => id === runtime)?.label ?? runtime;
-      coordinator.notice(
-        `Routed ${action.work} to ${label} · ${model}: ${reason}`,
-      );
+    const label = (runtime: string) =>
+      snapshot.agents.find(({ id }) => id === runtime)?.label ?? runtime;
+    for (const { runtime, model, reason, from } of decision.routes) {
+      const text = `Routed ${action.work} to ${label(runtime)} · ${model}`;
+      if (from)
+        coordinator.warning(
+          `${text}, passing over ${label(from)} for usage: ${reason}`,
+        );
+      else coordinator.notice(`${text}: ${reason}`);
     }
+    for (const { runtime, model, reason, from } of decision.folded ?? [])
+      coordinator.warning(
+        `Passed over ${label(from!)} for ${action.work} for usage; ${label(runtime)} · ${model} already has it: ${reason}`,
+      );
     return { kind: 'route', ...decision };
   };
 }

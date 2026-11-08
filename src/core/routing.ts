@@ -1,13 +1,14 @@
 import { z } from 'zod';
-import type { AccountReading } from '../agents/types.js';
+import type { AccountReading, Limit } from '../agents/types.js';
 import type { ModelChoice } from './models.js';
 import {
   creditCapacity,
   current,
   currentLimits,
-  describeReading,
+  fundingText,
   headroom,
   over,
+  untilReset,
 } from './usage.js';
 
 export const work = z.enum([
@@ -42,9 +43,19 @@ export interface Choice {
   model: string;
 }
 
-export type Routed = Choice & { reason: string };
+export type Routed = Choice & {
+  reason: string;
+  /** the runtime its rule named, when usage moved the work off it. */
+  from?: string;
+};
 
-export type Route = { routes: Routed[] } | { refused: string };
+export type Route =
+  | {
+      routes: Routed[];
+      /** shifted placements that landed on a runtime already routed the same model, so they run once. */
+      folded?: Routed[];
+    }
+  | { refused: string };
 
 /** with no rule, review goes to every installed runtime and other work stays on the runtime asking. */
 export function ruleFor(policy: Policy, kind: Work): string {
@@ -144,19 +155,39 @@ export function family(
     : resolve(runtime, name, catalog);
 }
 
+/** each window with when it resets, and the funding, since a usage choice weighs all of them. */
+function standing(
+  runtime: string,
+  account: AccountReading,
+  now: number,
+  limits: readonly Limit[] = account.limits,
+): string {
+  const parts = limits.map(({ window, percent, resetsAt }) => {
+    const left = untilReset(resetsAt, now);
+    return `${window} ${Math.round(percent)}%${left && `, resets in ${left}`}`;
+  });
+  const { funding } = account;
+  if (funding) {
+    const text =
+      funding.kind === 'credits' && funding.balance !== null
+        ? `${Number(funding.balance).toFixed(2)} credits`
+        : fundingText(funding);
+    parts.push(current(funding, now) ? text : `${text}, not current`);
+  }
+  return `${runtime} (${parts.join(', ')})`;
+}
+
 function reading(
   runtime: string,
   account: AccountReading | undefined,
   now: number,
 ): string {
-  const limits = account?.limits;
-  if (!limits?.length && !account?.funding)
+  if (!account || (!account.limits.length && !account.funding))
     return `${runtime} has no usage reading`;
-  if (account?.funding) return describeReading(runtime, account, now)!;
-  const stale = (limits ?? []).filter((limit) => !current(limit, now));
+  const stale = account.limits.filter((limit) => !current(limit, now));
   return stale.length
     ? `${runtime}'s ${stale.map(({ window }) => window).join(' and ')} reading is not current`
-    : describeReading(runtime, account, now)!;
+    : standing(runtime, account, now);
 }
 
 export function route({
@@ -258,17 +289,16 @@ export function route({
       return {
         runtime,
         model: chosen.model,
-        reason: `${why}; ${reading(runtime, accounts[runtime], now)} has usable credits`,
+        reason: `${why}; ${reading(runtime, accounts[runtime], now)} has usable credits, which keep the work here ahead of another runtime's headroom`,
       };
-    const hot = describeReading(
+    const hot = `${standing(
       runtime,
-      {
-        limits: accounts[runtime]!.limits.filter(
-          (limit) => current(limit, now) && limit.percent >= shiftAt,
-        ),
-      },
+      accounts[runtime]!,
       now,
-    )!;
+      accounts[runtime]!.limits.filter(
+        (limit) => current(limit, now) && limit.percent >= shiftAt,
+      ),
+    )} is at or over the ${shiftAt}% shift threshold`;
     const blocked: string[] = [];
     // a review the policy sent away from its producer never shifts back onto it, unless the producer reviews too
     const producer =
@@ -292,7 +322,7 @@ export function route({
           if (fallback) continue;
           blocked.push(
             currentLimits(accounts[id]?.limits ?? [], now)
-              ? `${id} is at ${shiftAt}% or more too`
+              ? `${standing(id, accounts[id]!, now)} is at or over it too`
               : reading(id, accounts[id], now),
           );
           continue;
@@ -305,31 +335,36 @@ export function route({
         return {
           runtime: id,
           model: shifted.model,
-          reason: `${hot} is at or over ${shiftAt}%, and ${reading(id, accounts[id], now)} has ${!fallback ? 'room' : spent(id) ? 'usable credits' : 'included usage left'}${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
+          from: runtime,
+          reason: `${hot}, and ${reading(id, accounts[id], now)} has ${!fallback ? 'room under it' : spent(id) ? 'usable credits' : 'included usage left'}${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
         };
       }
     }
     return {
       runtime,
       model: chosen.model,
-      reason: `${why}; ${hot} is at or over ${shiftAt}%, but ${blocked.join(', ') || 'no other runtime is installed'}`,
+      reason: `${why}; ${hot}, but ${blocked.join(', ') || 'no other runtime is installed'}`,
     };
   };
   const rule = ruleFor(policy, work);
   if (rule === 'both') {
-    const routes: Routed[] = [];
+    const placements: Routed[] = [];
     for (const runtime of installed) {
       const placed = place(runtime, `${subject} goes to every runtime`, true);
       if ('refused' in placed) return placed;
-      // a shift can land on a runtime that has its own route; one familiar per model is enough
-      const same = routes.find(
-        (routed) =>
-          routed.runtime === placed.runtime && routed.model === placed.model,
-      );
-      if (same) same.reason += `; ${placed.reason}`;
-      else routes.push(placed);
+      placements.push(placed);
     }
-    return { routes };
+    const routes = placements.filter(({ from }) => !from);
+    const folded: Routed[] = [];
+    // a shift can land on a runtime that has its own route; one familiar per model is enough
+    for (const placed of placements.filter(({ from }) => from)) {
+      const taken = routes.some(
+        ({ runtime, model }) =>
+          runtime === placed.runtime && model === placed.model,
+      );
+      (taken ? folded : routes).push(placed);
+    }
+    return folded.length ? { routes, folded } : { routes };
   }
   const why =
     rule === 'same'

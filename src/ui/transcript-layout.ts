@@ -177,7 +177,9 @@ function prepare(
     ? ''
     : (assistant?.tail ??
       (headless
-        ? colors.dim(markdown(item.text, item.cwd))
+        ? (item.warning ? colors.yellow : colors.dim)(
+            markdown(item.text, item.cwd),
+          )
         : markdown(item.text, item.cwd)));
   const sources =
     item.kind === 'user' || (tool && expanded) ? (item.images ?? []) : [];

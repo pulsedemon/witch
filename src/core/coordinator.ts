@@ -1368,6 +1368,12 @@ export class Coordinator {
     this.display({ id: randomUUID(), kind: 'notice', text, cwd }, save);
   }
 
+  warning(text: string): void {
+    const cwd = this.record?.cwd ?? process.cwd();
+    const id = randomUUID();
+    this.display({ id, kind: 'notice', text, cwd, warning: true });
+  }
+
   private save(): Promise<void> {
     return this.files!.save(this.current());
   }
