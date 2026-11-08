@@ -249,7 +249,12 @@ export function route({
         model: chosen.model,
         reason: `${why}${evidence(runtime)}`,
       };
-    if (creditCapacity(accounts[runtime], now) === 'available')
+    // credits count only once a window is spent; below 100% a runtime still has included usage
+    const spent = (id: string) => over(accounts[id]?.limits ?? [], 100, now);
+    if (
+      spent(runtime) &&
+      creditCapacity(accounts[runtime], now) === 'available'
+    )
       return {
         runtime,
         model: chosen.model,
@@ -270,19 +275,21 @@ export function route({
       !mixed && work === 'review' && of?.runtime !== runtime
         ? of?.runtime
         : undefined;
-    for (const credits of [false, true]) {
+    for (const fallback of spent(runtime) ? [false, true] : [false]) {
       for (const id of installed) {
         if (id === runtime) continue;
         if (id === producer) {
-          if (!credits) blocked.push(`${id} produced the work`);
+          if (!fallback) blocked.push(`${id} produced the work`);
           continue;
         }
         if (
-          credits
-            ? creditCapacity(accounts[id], now) !== 'available'
+          fallback
+            ? spent(id)
+              ? creditCapacity(accounts[id], now) !== 'available'
+              : !currentLimits(accounts[id]?.limits ?? [], now)
             : !headroom(accounts[id]?.limits ?? [], shiftAt, now)
         ) {
-          if (credits) continue;
+          if (fallback) continue;
           blocked.push(
             currentLimits(accounts[id]?.limits ?? [], now)
               ? `${id} is at ${shiftAt}% or more too`
@@ -292,13 +299,13 @@ export function route({
         }
         const shifted = choose(id);
         if ('refused' in shifted) {
-          if (!credits) blocked.push(shifted.refused);
+          if (!fallback) blocked.push(shifted.refused);
           continue;
         }
         return {
           runtime: id,
           model: shifted.model,
-          reason: `${hot} is at or over ${shiftAt}%, and ${reading(id, accounts[id], now)} has ${credits ? 'usable credits' : 'room'}${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
+          reason: `${hot} is at or over ${shiftAt}%, and ${reading(id, accounts[id], now)} has ${!fallback ? 'room' : spent(id) ? 'usable credits' : 'included usage left'}${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
         };
       }
     }

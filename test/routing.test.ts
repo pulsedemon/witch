@@ -173,6 +173,52 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
   );
 });
 
+test('credits count only for a runtime at 100%, and a spent runtime without them hands work to one still under 100%', () => {
+  const funded = (percent: number): AccountReading => ({
+    limits: [window('7D', percent)],
+    funding: {
+      kind: 'credits',
+      balance: '25966.049947',
+      unlimited: false,
+      available: true,
+      observedAt: now,
+    },
+    creditAccess: { state: 'available', observedAt: now },
+  });
+  assert.deepEqual(
+    ask({
+      work: 'review',
+      of: { runtime: 'claude', model: 'claude-opus-5-5' },
+      accounts: { claude: { limits: [window('7D', 90)] }, codex: funded(94) },
+    }),
+    [
+      {
+        runtime: 'claude',
+        model: 'claude-opus-5-5',
+        reason:
+          'review of claude work goes to every runtime; claude 7D 90% is at or over 90%, but codex is at 90% or more too',
+      },
+      {
+        runtime: 'codex',
+        model: 'gpt-6.1-sol',
+        reason:
+          'review of claude work goes to every runtime; codex 7D 94% is at or over 90%, but claude is at 90% or more too',
+      },
+    ],
+  );
+  assert.deepEqual(
+    ask({
+      limits: { claude: [window('7D', 100)], codex: [window('7D', 96)] },
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      reason:
+        'claude 7D 100% is at or over 90%, and codex 7D 96% has included usage left',
+    },
+  );
+});
+
 test('a versioned model runs as named, even absent from the catalog, and the reason says when usage is not current', () => {
   assert.deepEqual(
     ask({
