@@ -66,6 +66,12 @@ export const controlRequestSchema = controlBindingSchema
     action: z.union([coordinationActionSchema, familiarActionSchema]),
   });
 
+const routedSchema = z.object({
+  runtime: z.string(),
+  model: z.string(),
+  reason: z.string(),
+  from: z.string().optional(),
+});
 const controlOutcomeSchema = z.discriminatedUnion('kind', [
   familiarOutcomeSchema,
   z.object({ kind: z.literal('peers'), snapshot: coordinationSnapshotSchema }),
@@ -100,9 +106,8 @@ const controlOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('error'), message: z.string() }),
   z.object({
     kind: z.literal('route'),
-    routes: z.array(
-      z.object({ runtime: z.string(), model: z.string(), reason: z.string() }),
-    ),
+    routes: z.array(routedSchema),
+    folded: z.array(routedSchema).optional(),
   }),
 ]);
 const controlResultSchema = controlOutcomeSchema.and(

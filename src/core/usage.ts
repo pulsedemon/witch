@@ -25,6 +25,17 @@ export function current(
   );
 }
 
+/** what a percentage alone can't say: how soon the window resets, or `''` once it has. */
+export function untilReset(resetsAt: number | undefined, now: number): string {
+  const left = Math.floor((resetsAt ?? 0) - now / 1000);
+  if (left <= 0) return '';
+  if (left >= 86_400)
+    return `${Math.floor(left / 86_400)}d${Math.floor((left % 86_400) / 3600)}h`;
+  if (left >= 3600)
+    return `${Math.floor(left / 3600)}h${Math.floor((left % 3600) / 60)}m`;
+  return `${Math.floor(left / 60)}m`;
+}
+
 /** whether there are limits and every window is current. */
 export function currentLimits(limits: readonly Limit[], now: number): boolean {
   return limits.length > 0 && limits.every((limit) => current(limit, now));

@@ -3,7 +3,12 @@ import { Box, Text } from 'ink';
 import { basename } from 'node:path';
 import stringWidth from 'string-width';
 import type { AccountReading, Funding, Limit, Usage } from '../agents/types.js';
-import { creditCapacity, current, fundingText } from '../core/usage.js';
+import {
+  creditCapacity,
+  current,
+  fundingText,
+  untilReset,
+} from '../core/usage.js';
 import type { Repository } from '../core/repository.js';
 import { hyperlink, linkify, oneLine, plain } from './links.js';
 import { colors, piped } from './theme.js';
@@ -63,17 +68,6 @@ function duration(milliseconds: number): string {
     : `${minutes}M`;
 }
 
-/** what a percentage alone can't say: how soon the window resets. */
-function untilReset(resetsAt: number | undefined, now: number): string {
-  const left = Math.floor((resetsAt ?? 0) - now / 1000);
-  if (left <= 0) return '';
-  if (left >= 86_400)
-    return ` ${Math.floor(left / 86_400)}d${Math.floor((left % 86_400) / 3600)}h`;
-  if (left >= 3600)
-    return ` ${Math.floor(left / 3600)}h${Math.floor((left % 3600) / 60)}m`;
-  return ` ${Math.floor(left / 60)}m`;
-}
-
 /** a window that isn't current shows dim, with its age in place of the reset when `reset` is set. */
 export function windowText(limit: Limit, now: number, reset: boolean): string {
   const percent = Math.round(limit.percent);
@@ -81,7 +75,8 @@ export function windowText(limit: Limit, now: number, reset: boolean): string {
     return colors.dim(
       `${limit.window} ${percent}%${reset ? `  ${duration(now - limit.observedAt)} OLD` : ''}`,
     );
-  return `${limit.window} ${limitColor(percent)(`${percent}%`)}${reset ? untilReset(limit.resetsAt, now) : ''}`;
+  const left = reset ? untilReset(limit.resetsAt, now) : '';
+  return `${limit.window} ${limitColor(percent)(`${percent}%`)}${left && ` ${left}`}`;
 }
 
 function fundingRow(funding: Funding, now: number): string {

@@ -118,11 +118,55 @@ test('a runtime over the level shifts work to one with room, and a stale reading
   assert.equal(f.b.accountReads.length, 2);
   assert.equal(reply.kind, 'route');
   if (reply.kind !== 'route') return;
+  const reason =
+    'a (7D 92%) is at or over the 90% shift threshold, and b (7D 40%) has room under it';
+  assert.deepEqual(reply.routes, [
+    { runtime: 'b', model: 'b-3-model', from: 'a', reason },
+  ]);
+  assert.ok(
+    f.coordinator.snapshot.items.some(
+      (item) =>
+        item.kind === 'notice' &&
+        item.warning &&
+        item.text ===
+          `Routed implementation to b · b-3-model, passing over a for usage: ${reason}`,
+    ),
+  );
+});
+
+test('a review that loses a runtime to usage routes once and says on its own line which runtime it passed over', async (t) => {
+  const f = await start(t.onTestFinished);
+  f.coordinator.accountUsage.report('a', { limits: [window(95)] });
+  f.coordinator.accountUsage.report('b', { limits: [window(40)] });
+  const reply = await f.route({
+    work: 'review',
+    of: { runtime: 'a', model: 'a-2-model' },
+  });
+  assert.equal(reply.kind, 'route');
+  if (reply.kind !== 'route') return;
+  const reason =
+    'a (7D 95%) is at or over the 90% shift threshold, and b (7D 40%) has room under it';
   assert.deepEqual(reply.routes, [
     {
       runtime: 'b',
       model: 'b-3-model',
-      reason: 'a 7D 92% is at or over 90%, and b 7D 40% has room',
+      reason: 'review of a work goes to every runtime',
+    },
+  ]);
+  assert.deepEqual(reply.folded, [
+    { runtime: 'b', model: 'b-3-model', from: 'a', reason },
+  ]);
+  const notices = f.coordinator.snapshot.items
+    .filter(({ kind, text }) => kind === 'notice' && text.includes(' · '))
+    .map(({ text, warning }) => ({ text, warning }));
+  assert.deepEqual(notices, [
+    {
+      text: 'Routed review to b · b-3-model: review of a work goes to every runtime',
+      warning: undefined,
+    },
+    {
+      text: `Passed over a for review for usage; b · b-3-model already has it: ${reason}`,
+      warning: true,
     },
   ]);
 });
@@ -137,7 +181,7 @@ test('a route after an empty read starts no new one, and says the reading is mis
   if (reply.kind === 'route')
     assert.equal(
       reply.routes[0]!.reason,
-      'implementation stays on a; a 7D 95% is at or over 90%, but b has no usage reading',
+      'implementation stays on a; a (7D 95%) is at or over the 90% shift threshold, but b has no usage reading',
     );
 });
 
@@ -181,8 +225,9 @@ for (const missing of ['stale credits', 'missing credit access'] as const)
         {
           runtime: 'b',
           model: 'b-3-model',
+          from: 'a',
           reason:
-            'a 7D 100% is at or over 90%, and b 7D 100%, 27.123400 credits has usable credits',
+            'a (7D 100%) is at or over the 90% shift threshold, and b (7D 100%, 27.12 credits) has usable credits',
         },
       ]);
       assert.deepEqual(

@@ -150,6 +150,8 @@ export const displayUpdateSchema = z.object({
   shell: z.boolean().optional(),
   // a tool call that failed or was declined
   failed: z.literal(true).optional(),
+  // a notice in the warning color, such as a route usage moved
+  warning: z.literal(true).optional(),
   contextCleared: z.literal(true).optional(),
   // a spell cast, animated while new
   cast: z.literal(true).optional(),

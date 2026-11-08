@@ -171,6 +171,24 @@ test('a one-line notice renders without a heading, a multi-line one keeps it', (
   ]);
 });
 
+test('a one-line warning notice renders yellow instead of dim', () => {
+  const output = new TranscriptLayout().render(
+    [
+      {
+        id: 'moved',
+        kind: 'notice',
+        text: 'Routed review to Codex.',
+        cwd: '/work',
+        warning: true,
+      },
+    ],
+    80,
+    new Map(),
+  );
+  assert.ok(output.lines.at(0)!.startsWith('\u001b[33m'));
+  assert.deepEqual(rows(output), ['Routed review to Codex.', '']);
+});
+
 test("a failed tool's ✗ stays full red in its dim row", () => {
   const output = new TranscriptLayout().render(
     [tool('broken', { failed: true })],
