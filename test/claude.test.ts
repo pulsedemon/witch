@@ -49,7 +49,7 @@ test('refresh consumes a fresh native catalog without replacing the default syst
   }
 });
 
-test('skills list a built-in once with its own row in place of a row it shadows, and leave out the built-ins Witch sends as text, before and after a native change', async () => {
+test('skills list a built-in once with its own row and aliases in place of a row it shadows, and leave out the built-ins Witch sends as text, before and after a native change', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   const nativeCommands = [
@@ -64,6 +64,7 @@ test('skills list a built-in once with its own row in place of a row it shadows,
         name: 'compact',
         description: 'Compact the conversation',
         builtin: true,
+        aliases: ['squash'],
       },
       ...nativeCommands,
       {

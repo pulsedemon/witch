@@ -17,6 +17,8 @@ export interface Skill {
   argumentHint?: string;
   /** Claude Code's own command, which `/name args` runs natively but the composer doesn't offer. */
   builtin?: true;
+  /** other names Claude Code runs a built-in under, such as `cost` for `usage`. */
+  aliases?: string[];
 }
 
 /** a `/name args` prompt the coordinator matched to a listed skill or native command. */

@@ -21,7 +21,13 @@ export function skillCasts(content: readonly unknown[]): Cast[] {
 }
 
 // these native controls can diverge from Witch's history, settings, titles or compaction policy
-const textCommands = new Set(['clear', 'config', 'effort', 'fast', 'rename']);
+export const textCommands = new Set([
+  'clear',
+  'config',
+  'effort',
+  'fast',
+  'rename',
+]);
 
 /** one entry per name, a built-in's own row for a name it shadows, since `/name` runs the built-in. */
 export function skillsOf(commands: SlashCommand[]): Skill[] {
@@ -33,7 +39,7 @@ export function skillsOf(commands: SlashCommand[]): Skill[] {
   const listed = new Map<string, Skill>();
   for (const command of commands) {
     const builtin = builtins.has(command.name);
-    const { name, description, argumentHint } =
+    const { name, description, argumentHint, aliases } =
       builtins.get(command.name) ?? command;
     if (listed.has(name) || (builtin && textCommands.has(name))) continue;
     listed.set(name, {
@@ -41,6 +47,7 @@ export function skillsOf(commands: SlashCommand[]): Skill[] {
       description,
       ...(argumentHint ? { argumentHint } : {}),
       ...(builtin ? { builtin: true as const } : {}),
+      ...(builtin && aliases?.length ? { aliases } : {}),
     });
   }
   return [...listed.values()];
