@@ -87,6 +87,23 @@ async function reportedFixture() {
   };
 }
 
+const cleanupNotices = (events: AgentEvent[]) =>
+  events.flatMap((event) =>
+    event.type === 'notice' && /could not confirm cleanup/.test(event.text)
+      ? [event.text]
+      : [],
+  );
+
+async function terminateRequests(cwd: string): Promise<unknown[]> {
+  const text = await readFile(join(cwd, 'terminated.jsonl'), 'utf8').catch(
+    () => '',
+  );
+  return text
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as unknown);
+}
+
 test('a missing familiar cleanup acknowledgment cannot hold Codex close open', async () => {
   const f = await reportedFixture();
   try {
@@ -510,6 +527,111 @@ test('closing a native connection reports stopped even when command completion a
     assert.equal(f.familiarEvents().at(-1)!.status, 'stopped');
   } finally {
     await writeFile(join(f.cwd, 'release-termination'), 'yes');
+    await (closing ?? f.session.close());
+  }
+});
+
+test('a familiar command that exited 0 leaves no cleanup notice when Codex already reaped its terminal', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    await f.session.familiar!.report(
+      {
+        kind: 'familiar-update',
+        run: f.run,
+        sequence: 0,
+        progress: { status: 'completed' },
+      },
+      Date.now() + 5000,
+    );
+    await writeFile(join(f.cwd, 'terminal-gone'), '');
+    await f.emit({
+      method: 'item/completed',
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'completed', exitCode: 0 },
+      },
+    });
+    await until(
+      'cleanup request',
+      async () => (await terminateRequests(f.cwd)).length > 0,
+    );
+    await f.emit();
+    assert.deepEqual(cleanupNotices(f.events), []);
+    assert.deepEqual(await terminateRequests(f.cwd), [
+      { threadId: 'native-thread', processId: '42' },
+    ]);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a familiar command that ended without a clean exit keeps the cleanup notice', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    await writeFile(join(f.cwd, 'terminal-gone'), '');
+    // an evicted terminal whose exit Codex never saw ends this way
+    await f.emit({
+      method: 'item/completed',
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'failed', exitCode: -1 },
+      },
+    });
+    await until(
+      'cleanup request',
+      async () => (await terminateRequests(f.cwd)).length > 0,
+    );
+    await f.emit();
+    assert.equal(f.familiarEvents().at(-1)!.status, 'failed');
+    assert.deepEqual(cleanupNotices(f.events), [
+      'Witch could not confirm cleanup of plan review: The native terminal was not found; check remaining jobs.',
+    ]);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a familiar command that exits 0 while close is cleaning it up keeps the cleanup notice', async () => {
+  const f = await reportedFixture();
+  let closing: Promise<void> | undefined;
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    await writeFile(join(f.cwd, 'terminal-gone'), '');
+    await writeFile(join(f.cwd, 'hold-termination'), '');
+    closing = f.session.close();
+    await until(
+      'cleanup request',
+      async () => (await terminateRequests(f.cwd)).length > 0,
+    );
+    await f.emit({
+      method: 'item/completed',
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'completed', exitCode: 0 },
+      },
+    });
+    await writeFile(join(f.cwd, 'release-termination'), '');
+    await closing;
+    assert.equal((await terminateRequests(f.cwd)).length, 1);
+    assert.deepEqual(cleanupNotices(f.events), [
+      'Witch could not confirm cleanup of plan review: The native terminal was not found; check remaining jobs.',
+    ]);
+  } finally {
+    await writeFile(join(f.cwd, 'release-termination'), '');
     await (closing ?? f.session.close());
   }
 });
