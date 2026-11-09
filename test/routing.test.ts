@@ -38,6 +38,17 @@ const window = (
   percent: number,
   observedAt = now - 1000,
 ): Limit => ({ window: name, percent, observedAt });
+const credited = (percent: number): AccountReading => ({
+  limits: [window('7D', percent)],
+  funding: {
+    kind: 'credits',
+    balance: '25966.049947',
+    unlimited: false,
+    available: true,
+    observedAt: now,
+  },
+  creditAccess: { state: 'available', observedAt: now },
+});
 const fresh = {
   claude: [window('5H', 20), window('7D', 61)],
   codex: [window('7D', 49)],
@@ -113,7 +124,7 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
       runtime: 'codex',
       model: 'gpt-6.1-sol',
       reason:
-        "implementation stays on codex; codex (7D 100%, 12345.68 credits) has usable credits, which keep the work here ahead of another runtime's headroom",
+        'implementation stays on codex; codex (7D 100%, 12345.68 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
     },
   );
   assert.equal(
@@ -174,23 +185,12 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
   );
 });
 
-test('credits count only for a runtime at 100%, and a spent runtime without them hands work to one still under 100%', () => {
-  const funded = (percent: number): AccountReading => ({
-    limits: [window('7D', percent)],
-    funding: {
-      kind: 'credits',
-      balance: '25966.049947',
-      unlimited: false,
-      available: true,
-      observedAt: now,
-    },
-    creditAccess: { state: 'available', observedAt: now },
-  });
+test('credits draw work onto another runtime only at 100%, and a spent runtime without them hands work to one still under 100%', () => {
   assert.deepEqual(
     ask({
       work: 'review',
       of: { runtime: 'claude', model: 'claude-opus-5-5' },
-      accounts: { claude: { limits: [window('7D', 90)] }, codex: funded(94) },
+      accounts: { claude: { limits: [window('7D', 90)] }, codex: credited(94) },
     }),
     [
       {
@@ -203,7 +203,7 @@ test('credits count only for a runtime at 100%, and a spent runtime without them
         runtime: 'codex',
         model: 'gpt-6.1-sol',
         reason:
-          'review of claude work goes to every runtime; codex (7D 94%, 25966.05 credits) is at or over the 90% shift threshold, but claude (7D 90%) is at or over it too',
+          'review of claude work goes to every runtime; codex (7D 94%, 25966.05 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
       },
     ],
   );
@@ -218,6 +218,29 @@ test('credits count only for a runtime at 100%, and a spent runtime without them
       reason:
         'claude (7D 100%) is at or over the 90% shift threshold, and codex (7D 96%) has included usage left',
     },
+  );
+});
+
+test('usable credits keep a runtime past the shift threshold on its own placement', () => {
+  assert.deepEqual(
+    ask({
+      work: 'review',
+      of: { runtime: 'claude', model: 'claude-opus-5-5' },
+      accounts: { claude: { limits: [window('7D', 19)] }, codex: credited(99) },
+    }),
+    [
+      {
+        runtime: 'claude',
+        model: 'claude-opus-5-5',
+        reason: 'review of claude work goes to every runtime',
+      },
+      {
+        runtime: 'codex',
+        model: 'gpt-6.1-sol',
+        reason:
+          'review of claude work goes to every runtime; codex (7D 99%, 25966.05 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
+      },
+    ],
   );
 });
 

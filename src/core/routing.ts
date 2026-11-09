@@ -280,17 +280,6 @@ export function route({
         model: chosen.model,
         reason: `${why}${evidence(runtime)}`,
       };
-    // credits count only once a window is spent; below 100% a runtime still has included usage
-    const spent = (id: string) => over(accounts[id]?.limits ?? [], 100, now);
-    if (
-      spent(runtime) &&
-      creditCapacity(accounts[runtime], now) === 'available'
-    )
-      return {
-        runtime,
-        model: chosen.model,
-        reason: `${why}; ${reading(runtime, accounts[runtime], now)} has usable credits, which keep the work here ahead of another runtime's headroom`,
-      };
     const hot = `${standing(
       runtime,
       accounts[runtime]!,
@@ -299,6 +288,14 @@ export function route({
         (limit) => current(limit, now) && limit.percent >= shiftAt,
       ),
     )} is at or over the ${shiftAt}% shift threshold`;
+    if (creditCapacity(accounts[runtime], now) === 'available')
+      return {
+        runtime,
+        model: chosen.model,
+        reason: `${why}; ${hot}, but its usable credits keep the work here`,
+      };
+    // credits make a destination only once its window is spent; below 100% it still has included usage
+    const spent = (id: string) => over(accounts[id]?.limits ?? [], 100, now);
     const blocked: string[] = [];
     // a review the policy sent away from its producer never shifts back onto it, unless the producer reviews too
     const producer =
