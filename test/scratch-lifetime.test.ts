@@ -20,7 +20,6 @@ import { test, vi } from 'vitest';
 import type { TestContext } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import { z } from 'zod';
 import type { ProcessIdentity } from '../src/core/state.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { ScratchSpace } from '../src/persistence/scratch.js';
@@ -162,7 +161,7 @@ test('concurrent scratch opens retain distinct owned directories', async (t) => 
   assert.equal(new Set(holders.map(({ directory }) => directory)).size, 8);
   for (const { directory, pid } of holders) {
     assert.equal(dirname(directory), parent);
-    assert.equal(z.uuid().safeParse(basename(directory)).success, true);
+    assert.match(basename(directory), /^[0-9a-f]{12}$/);
     assert.equal((await stat(directory)).mode & 0o777, 0o700);
     const owner = await identifyProcess(pid);
     assert.ok(owner);
@@ -340,9 +339,10 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
   await once(child, 'exit');
   const abandoned = join(parent, String(child.pid));
   const incomplete = join(parent, randomUUID());
+  const digits = join(parent, '123456789012');
   const invalid = join(parent, randomUUID());
   const denied = join(parent, '100001');
-  for (const directory of [abandoned, incomplete, invalid, denied]) {
+  for (const directory of [abandoned, incomplete, digits, invalid, denied]) {
     await mkdir(directory);
     await writeFile(join(directory, 'marker'), directory);
   }
@@ -357,9 +357,9 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
   );
   const observed = await ScratchSpace.open(parent, firstBoot);
   await observed.close();
-  for (const directory of [abandoned, incomplete, invalid, denied])
+  for (const directory of [abandoned, incomplete, digits, invalid, denied])
     assert.equal(await readFile(join(directory, 'marker'), 'utf8'), directory);
-  for (const directory of [abandoned, incomplete])
+  for (const directory of [abandoned, incomplete, digits])
     assert.deepEqual(
       JSON.parse(
         await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
@@ -371,6 +371,7 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
   await later.close();
   assert.equal(existsSync(abandoned), false);
   assert.equal(existsSync(incomplete), false);
+  assert.equal(existsSync(digits), false);
   for (const directory of [invalid, denied])
     assert.equal(await readFile(join(directory, 'marker'), 'utf8'), directory);
 });
