@@ -278,14 +278,13 @@ export function App({
     // a diff row's offset counts rows, not characters, so it leaves no room for the row above
     return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
   };
+  const liveAgent = state.native?.agent ?? state.conversation?.agent;
   const { lines: status, errors: errorRows } = statusFooter(
     {
       ...usage.status,
       model:
         state.models.find(
-          ({ id, agent }) =>
-            id === model &&
-            agent === (state.native?.agent ?? state.conversation?.agent),
+          ({ id, agent }) => id === model && agent === liveAgent,
         )?.label ?? model,
       effort: state.native?.effort ?? state.native?.nativeEffort,
       usage: state.usage,
@@ -323,7 +322,7 @@ export function App({
     const name = query.toLowerCase();
     return (
       !claimedCommands.has(name) &&
-      (textCommands.has(name) ||
+      ((liveAgent === 'claude' && textCommands.has(name)) ||
         state.skills.some(
           ({ builtin, name: native, aliases = [] }) =>
             builtin && [native, ...aliases].includes(name),

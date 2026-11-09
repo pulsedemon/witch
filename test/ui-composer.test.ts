@@ -312,8 +312,18 @@ test("the composer's list leaves out built-in commands", async () => {
   }
 });
 
+const claudeConversation = {
+  id: 'c',
+  title: 't',
+  cwd: '/work',
+  agent: 'claude',
+  sessions: {},
+  createdAt: '',
+};
+
 test('a native name the list leaves out sends as typed rather than as a spell holding it, while Witch commands keep their rows', async () => {
   const { ui, calls } = await launched({
+    conversation: claudeConversation,
     skills: [
       { name: 'context', description: 'Context usage', builtin: true },
       {
@@ -348,6 +358,20 @@ test('a native name the list leaves out sends as typed rather than as a spell ho
     ui.stdin.write('/review');
     await until('the review row', () =>
       ui.text().includes('/review Review files in rounds Witch runs'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+test("a Claude text command's name lists matching spells in another runtime's conversation", async () => {
+  const { ui } = await launched({
+    skills: [{ name: 'config-tool', description: 'Configure tools' }],
+  });
+  try {
+    ui.stdin.write('/config');
+    await until('the list', () =>
+      ui.text().includes('/config-tool Configure tools'),
     );
   } finally {
     ui.unmount();

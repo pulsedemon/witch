@@ -326,6 +326,7 @@ for await (const line of lines) {
             name: 'review',
             description: 'Review changes',
             argumentHint: '<target>',
+            aliases: ['rv'],
           },
         ],
         agents: [],
