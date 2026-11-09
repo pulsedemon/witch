@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
@@ -26,6 +26,10 @@ import type { ScratchCandidate } from './scratch-usage.js';
 
 const execute = promisify(execFile);
 const metadata = '.witch-scratch.json';
+// twelve digits is a short name, never a legacy pid.
+const legacyName = /^\d{1,11}$/;
+// short so a unix socket under TMPDIR fits macOS's 104-byte path limit.
+const shortName = /^[0-9a-f]{12}$/;
 const legacyRecord = z.object({
   version: z.literal(1),
   boot: z.uuid(),
@@ -94,8 +98,12 @@ async function sweep(
       z.infer<typeof recordSchema> | undefined
     >();
     for (const name of await readdir(parent)) {
-      const numeric = /^\d+$/.test(name);
-      if (!numeric && !z.uuid().safeParse(name).success) continue;
+      if (
+        !legacyName.test(name) &&
+        !shortName.test(name) &&
+        !z.uuid().safeParse(name).success
+      )
+        continue;
       const directory = join(parent, name);
       try {
         if (!(await lstat(directory)).isDirectory()) continue;
@@ -118,7 +126,7 @@ async function sweep(
     );
     for (const [directory, previous] of observed) {
       const name = basename(directory);
-      const numeric = /^\d+$/.test(name);
+      const numeric = legacyName.test(name);
       // a restarting owner must never compete with a sweep for its directory lock.
       if (
         (previous?.boot === boot &&
@@ -228,7 +236,7 @@ export class ScratchSpace {
     const resumed = options.resume !== undefined;
     const directory = resumed
       ? resolve(options.resume!)
-      : join(parent, randomUUID());
+      : join(parent, randomBytes(6).toString('hex'));
     if (dirname(directory) !== parent)
       throw new Error('Scratch must be a direct child of its state directory.');
     const boot = z.uuid().parse(await (options.boot ?? bootSession)());
