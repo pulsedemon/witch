@@ -126,7 +126,7 @@ export class CodexCommands {
         this.interrupted(entry.threadId, entry.turnId);
       for (const familiar of familiars)
         familiar.end(stopped ? 'stopped' : 'failed');
-      void this.collect(entry);
+      void this.collect(entry, item.status === 'completed');
     } else {
       if (entry.command)
         this.emit({
@@ -249,14 +249,19 @@ export class CodexCommands {
     this.entries.clear();
   }
 
-  private collect(entry: Command): Promise<void> {
+  /** the first caller's `exitedCleanly` stands: a completion arriving while close's request is in flight doesn't show it succeeded. */
+  private collect(entry: Command, exitedCleanly = false): Promise<void> {
     entry.cleanup ??= this.rpc
       .request('thread/backgroundTerminals/terminate', {
         threadId: entry.threadId,
         processId: entry.processId,
       })
       .then((result) => {
-        if (!z.object({ terminated: z.boolean() }).parse(result).terminated)
+        // Codex reports `completed` only for an observed exit 0, so a missing terminal is one it already reaped
+        if (
+          !z.object({ terminated: z.boolean() }).parse(result).terminated &&
+          !exitedCleanly
+        )
           throw new Error(
             'The native terminal was not found; check remaining jobs.',
           );
