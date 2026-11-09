@@ -399,9 +399,11 @@ for await (const line of lines) {
     if (existsSync(file('hold-termination')))
       await waitFor('release-termination');
     reply({
-      terminated: reportedTerminals.delete(
-        `${request.params.threadId}/${request.params.processId}`,
-      ),
+      terminated:
+        !existsSync(file('terminal-gone')) &&
+        reportedTerminals.delete(
+          `${request.params.threadId}/${request.params.processId}`,
+        ),
     });
     continue;
   }
