@@ -34,17 +34,37 @@ function tiered<T>(items: readonly T[], tiers: ((item: T) => boolean)[]): T[] {
   return [...ranked];
 }
 
-/** an exact name or alias first, then names that start with the query. */
-export function rankCommands<T extends { name: string; aliases?: string[] }>(
+/** whether `query`'s letters start the name's alphanumeric words, in order: `tdd` fits `test-driven-development`. */
+function abbreviates(query: string, name: string): boolean {
+  let at = 0;
+  for (const [initial] of name.match(/[a-z0-9]+/g) ?? [])
+    if (initial === query[at]) at++;
+  return at === query.length;
+}
+
+type Ranked = { name: string; aliases?: string[] };
+
+/**
+ * an exact name or alias first, then names that start with the query, then spell names that contain
+ * it or that it abbreviates. Witch's commands skip the last two, so a stray word can't run `/restart`.
+ */
+export function rankCommands<C extends Ranked, S extends Ranked>(
   query: string,
-  items: readonly T[],
-): T[] {
+  commands: readonly C[],
+  spells: readonly S[],
+): (C | S)[] {
   const typed = query.toLowerCase();
-  return tiered(items, [
-    ({ name, aliases = [] }) =>
-      [name, ...aliases].some((each) => each.toLowerCase() === typed),
-    ({ name }) => name.toLowerCase().startsWith(typed),
-  ]);
+  const spell = new Set<C | S>(spells);
+  return tiered<C | S>(
+    [...commands, ...spells],
+    [
+      ({ name, aliases = [] }) =>
+        [name, ...aliases].some((each) => each.toLowerCase() === typed),
+      ({ name }) => name.toLowerCase().startsWith(typed),
+      (item) => spell.has(item) && item.name.toLowerCase().includes(typed),
+      (item) => spell.has(item) && abbreviates(typed, item.name.toLowerCase()),
+    ],
+  );
 }
 
 /** paths that start with the query, then paths that contain it. */

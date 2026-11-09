@@ -312,6 +312,48 @@ test("the composer's list leaves out built-in commands", async () => {
   }
 });
 
+test('a native name the list leaves out sends as typed rather than as a spell holding it, while Witch commands keep their rows', async () => {
+  const { ui, calls } = await launched({
+    skills: [
+      { name: 'context', description: 'Context usage', builtin: true },
+      {
+        name: 'usage',
+        description: 'Usage',
+        builtin: true,
+        aliases: ['cost'],
+      },
+      { name: 'review', description: 'Native review', builtin: true },
+      { name: 'x:context-tools', description: 'Context tools' },
+      { name: 'azure:azure-cost', description: 'Azure cost' },
+      { name: 'discord:configure', description: 'Configure' },
+    ],
+  });
+  try {
+    // a built-in's name, its alias and a command Witch sends as text
+    for (const [index, prompt] of ['/context', '/cost', '/config'].entries()) {
+      ui.stdin.write(`${prompt}${ENTER}`);
+      await until('the send', () => calls.length > index);
+    }
+    assert.deepEqual(calls, [
+      ['send', '/context', { composer: true }],
+      ['send', '/cost', { composer: true }],
+      ['send', '/config', { composer: true }],
+    ]);
+    // clear is sent as text and review is a built-in, but Witch runs both
+    ui.stdin.write('/clear');
+    await until('the clear row', () =>
+      ui.text().includes('/clear Clear agent context'),
+    );
+    for (let i = 0; i < '/clear'.length; i++) ui.stdin.write('\u007f');
+    ui.stdin.write('/review');
+    await until('the review row', () =>
+      ui.text().includes('/review Review files in rounds Witch runs'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('list rows drop a link forged in a skill description or a file name', async () => {
   const forged = (text: string) => forgedLink('https://evil.example', text);
   const skill = await launched({

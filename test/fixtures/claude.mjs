@@ -305,8 +305,14 @@ for await (const line of lines) {
             description: 'Compact the conversation',
             argumentHint: '',
             builtin: true,
+            aliases: ['squash'],
           },
-          { name: 'compact', description: 'Shadowed', argumentHint: '' },
+          {
+            name: 'compact',
+            description: 'Shadowed',
+            argumentHint: '',
+            aliases: ['shadowed'],
+          },
           {
             name: 'effort',
             description: 'Set the effort level',

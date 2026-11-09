@@ -9,6 +9,7 @@ import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
 import { dirname, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
+import { textCommands } from '../agents/claude-spells.js';
 import { errorMessage } from '../agents/stderr.js';
 import type { CompletionList } from './completion.js';
 import type { Coordinator } from '../core/coordinator.js';
@@ -309,16 +310,26 @@ export function App({
     !['closing', 'error'].includes(snapshot.phase);
   const composerPhase = composerOpen(state, leaving);
   const working = agentWorking(state.phase);
-  const entries = [
-    ...commands.map(({ id, label, aliases }) => ({
-      name: id,
-      description: label,
-      aliases: aliases?.slice(),
-    })),
-    ...state.skills.filter(
-      ({ name, builtin }) => !builtin && !claimedCommands.has(name),
-    ),
-  ];
+  const commandEntries = commands.map(({ id, label, aliases }) => ({
+    name: id,
+    description: label,
+    aliases: aliases?.slice(),
+  }));
+  const spellEntries = state.skills.filter(
+    ({ name, builtin }) => !builtin && !claimedCommands.has(name),
+  );
+  /** a native command the list doesn't offer, which must send as typed rather than as a spell it matches. */
+  const unlistedNative = (query: string) => {
+    const name = query.toLowerCase();
+    return (
+      !claimedCommands.has(name) &&
+      (textCommands.has(name) ||
+        state.skills.some(
+          ({ builtin, name: native, aliases = [] }) =>
+            builtin && [native, ...aliases].includes(name),
+        ))
+    );
+  };
   /** whether the composer holds the prompt ↑/↓ last showed, as shown. */
   const recalled = (
     value: string,
@@ -344,7 +355,8 @@ export function App({
       return;
     const token = activeToken(value, cursor);
     if (token?.kind === 'command') {
-      const items = rankCommands(token.query, entries);
+      if (unlistedNative(token.query)) return;
+      const items = rankCommands(token.query, commandEntries, spellEntries);
       return items.length ? { kind: 'command', items } : undefined;
     }
     if (token?.kind === 'file') {

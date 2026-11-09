@@ -44,22 +44,58 @@ test('a token key changes with the token text and position but not with the curs
   assert.equal(tokenKey('plain', 5), undefined);
 });
 
+const items = [
+  { name: 'models' },
+  { name: 'quit', aliases: ['exit'] },
+  { name: 'model' },
+  { name: 'exit-plan' },
+];
+
+const names = (ranked: { name: string }[]) => ranked.map(({ name }) => name);
+
 test('commands rank an exact name or alias first, then name prefixes, in input order', () => {
-  const items = [
-    { name: 'models' },
-    { name: 'quit', aliases: ['exit'] },
-    { name: 'model' },
-    { name: 'exit-plan' },
-  ];
+  assert.deepEqual(names(rankCommands('model', items, [])), [
+    'model',
+    'models',
+  ]);
+  assert.deepEqual(names(rankCommands('EXIT', items, [])), [
+    'quit',
+    'exit-plan',
+  ]);
+  // a Witch command never matches inside its name or by its initials
+  assert.deepEqual(rankCommands('odel', items, []), []);
+  assert.deepEqual(rankCommands('ep', items, []), []);
+});
+
+test('spells also rank names holding the query, then names it abbreviates', () => {
+  assert.deepEqual(names(rankCommands('odel', [], items)), ['models', 'model']);
   assert.deepEqual(
-    rankCommands('model', items).map(({ name }) => name),
-    ['model', 'models'],
+    names(rankCommands('mem', [{ name: 'memory' }], [{ name: 'mem' }])),
+    ['mem', 'memory'],
   );
   assert.deepEqual(
-    rankCommands('EXIT', items).map(({ name }) => name),
-    ['quit', 'exit-plan'],
+    names(
+      rankCommands('REV', [], [{ name: 'Code-Review' }, { name: 'review' }]),
+    ),
+    ['review', 'Code-Review'],
   );
-  assert.deepEqual(rankCommands('odel', items), []);
+  assert.deepEqual(
+    names(
+      rankCommands(
+        'TDD',
+        [],
+        [{ name: 'a-tidied' }, { name: 'superpowers:Test-Driven-Development' }],
+      ),
+    ),
+    ['superpowers:Test-Driven-Development'],
+  );
+  assert.deepEqual(
+    names(
+      rankCommands('prl', [], [{ name: 'pr-review-loop' }, { name: 'x-prl' }]),
+    ),
+    ['x-prl', 'pr-review-loop'],
+  );
+  assert.deepEqual(rankCommands('lrp', [], [{ name: 'pr-review-loop' }]), []);
 });
 
 test('files rank path prefixes first, then any path holding the query', () => {
