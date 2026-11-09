@@ -221,27 +221,55 @@ test('credits draw work onto another runtime only at 100%, and a spent runtime w
   );
 });
 
-test('usable credits keep a runtime past the shift threshold on its own placement', () => {
-  assert.deepEqual(
+test('usable credits keep a runtime past the shift threshold on its own placement, and stale, unknown or unusable ones do not', () => {
+  const review = (codex: AccountReading) =>
     ask({
       work: 'review',
       of: { runtime: 'claude', model: 'claude-opus-5-5' },
-      accounts: { claude: { limits: [window('7D', 19)] }, codex: credited(99) },
-    }),
-    [
-      {
-        runtime: 'claude',
-        model: 'claude-opus-5-5',
-        reason: 'review of claude work goes to every runtime',
+      accounts: { claude: { limits: [window('7D', 19)] }, codex },
+    });
+  for (const codex of [
+    {
+      ...credited(99),
+      creditAccess: { state: 'unavailable' as const, observedAt: now },
+    },
+    {
+      ...credited(99),
+      creditAccess: { state: 'unknown' as const, observedAt: now },
+    },
+    {
+      ...credited(99),
+      creditAccess: {
+        state: 'available' as const,
+        observedAt: now - USAGE_CURRENT_MS - 1,
       },
-      {
-        runtime: 'codex',
-        model: 'gpt-6.1-sol',
-        reason:
-          'review of claude work goes to every runtime; codex (7D 99%, 25966.05 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
+    },
+    {
+      ...credited(99),
+      funding: {
+        ...credited(99).funding!,
+        observedAt: now - USAGE_CURRENT_MS - 1,
       },
-    ],
-  );
+    },
+  ])
+    assert.deepEqual(review(codex), {
+      runtime: 'claude',
+      model: 'claude-opus-5-5',
+      reason: 'review of claude work goes to every runtime',
+    });
+  assert.deepEqual(review(credited(99)), [
+    {
+      runtime: 'claude',
+      model: 'claude-opus-5-5',
+      reason: 'review of claude work goes to every runtime',
+    },
+    {
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      reason:
+        'review of claude work goes to every runtime; codex (7D 99%, 25966.05 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
+    },
+  ]);
 });
 
 test('a versioned model runs as named, even absent from the catalog, and the reason says when usage is not current', () => {

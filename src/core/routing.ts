@@ -294,7 +294,7 @@ export function route({
         model: chosen.model,
         reason: `${why}; ${hot}, but its usable credits keep the work here`,
       };
-    // credits make a destination only once its window is spent; below 100% it still has included usage
+    // below 100% a runtime still has included usage, so only a spent runtime falls back past headroom and only a spent destination's credits count
     const spent = (id: string) => over(accounts[id]?.limits ?? [], 100, now);
     const blocked: string[] = [];
     // a review the policy sent away from its producer never shifts back onto it, unless the producer reviews too
