@@ -82,7 +82,7 @@ export function delegationPage(
     '',
     policy.shiftAt === null
       ? 'New work never shifts for usage.'
-      : `New work shifts to a runtime with room once its own reaches ${policy.shiftAt}%, onto a comparable model when its rule names one.`,
+      : `New work shifts to a runtime with room once its own reaches ${policy.shiftAt}% unless usable credits keep it there, onto a comparable model when its rule names one.`,
     '',
     'Usage',
     ...usage,
