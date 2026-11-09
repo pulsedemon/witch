@@ -23,7 +23,7 @@ export type Work = z.infer<typeof work>;
 const target = z.string().regex(/^[a-z][\w-]*(:.+)?$/);
 
 export const policySchema = z.object({
-  /** the usage percent at which new work shifts to another runtime; `null` turns shifting off. */
+  /** the usage percent at which new work shifts to another runtime unless usable credits keep it; `null` turns shifting off. */
   shiftAt: z.number().int().min(1).max(100).nullable(),
   /** each runtime's family for work that names no model. */
   families: z.record(z.string(), z.string()),
@@ -31,7 +31,7 @@ export const policySchema = z.object({
 });
 export type Policy = z.infer<typeof policySchema>;
 
-/** chosen defaults; `ruleFor` places work that has no rule, and usage at `shiftAt` still shifts new work. */
+/** chosen defaults; `ruleFor` places work that has no rule, and usage at `shiftAt` still shifts new work that usable credits don't keep. */
 export const defaultPolicy: Policy = {
   shiftAt: 90,
   families: { claude: 'opus', codex: 'sol' },
