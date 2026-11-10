@@ -75,6 +75,8 @@ export interface MergeCleanup {
   pruning?: { name: string; head: string; retained: boolean };
   result?: { text: string; cleaned: boolean };
   install?: InstallProgress;
+  /** the post-abort reconcile failed, so the checkpoints above may trail the checkout and resuming could repeat a step. */
+  unconfirmed?: boolean;
 }
 
 export type CleanupResult = boolean | 'changed' | 'interrupted';
@@ -132,8 +134,45 @@ export async function runMergeCleanup(
   } catch (error) {
     if (error !== signal.reason) throw error;
     notice('Merge cleanup interrupted.');
-    return 'interrupted';
+    if (!progress.unconfirmed && !progress.install?.unconfirmed)
+      return 'interrupted';
+    const left = unconfirmedSteps(pullRequest, progress, install);
+    notice(
+      `Witch couldn't confirm how far merge cleanup got, so it won't resume.${left.length ? ` Left to check: ${list(left)}.` : ''}`,
+    );
+    // settled, so the watch doesn't resume from checkpoints that may trail the checkout
+    return true;
   }
+}
+
+/** the steps an interrupted cleanup's progress doesn't record as done, in the order cleanup runs them. */
+function unconfirmedSteps(
+  { branch, base }: PullRequest,
+  progress: MergeCleanup,
+  install?: string,
+): string[] {
+  const steps: string[] = [];
+  if (!progress.moved)
+    steps.push(
+      progress.detached
+        ? `detaching at ${progress.detached}`
+        : `switching to ${base}`,
+    );
+  if (
+    !progress.deleted ||
+    progress.unset === undefined ||
+    !progress.plans?.done
+  )
+    steps.push(`deleting ${branch} with its config and plans`);
+  if (!progress.pull?.done) steps.push(`fast-forwarding ${base}`);
+  if (!progress.result) steps.push('pruning merged branches');
+  // without install progress, cleanup stopped before checking whether the rebuild applies
+  if (progress.install) {
+    if (!progress.install.built)
+      steps.push("updating and rebuilding Witch's checkout");
+  } else if (install)
+    steps.push("whether Witch's checkout needs updating and rebuilding");
+  return steps;
 }
 
 interface InstallProgress {
@@ -141,6 +180,8 @@ interface InstallProgress {
   checkout?: CheckoutProgress;
   installed?: boolean;
   built?: boolean;
+  /** the post-abort reconcile of `checkout` failed. */
+  unconfirmed?: boolean;
 }
 
 const topLevel = (git: Git) => git('rev-parse', '--show-toplevel');
@@ -322,12 +363,12 @@ const arrived = (
 
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base and brings it up to date, or detaches
- * at the base's remote branch in a linked worktree or while one holds the base, deletes the branch and its gitignored plans with their
- * gitignored ledgers, and prunes unused merged branches with gone upstreams. when the repository retains its own merged
- * heads, it also prunes branches at their own upstream tip on the head's remote, excluding the base and default branch.
- * returns a sentence saying what
- * it did, and whether it moved the checkout, `'changed'` when the checkout left the branch or changed, or nothing when
- * another Witch is updating it or `blocked` says one is working in it.
+ * at the base's remote branch in a linked worktree or while one holds the base, deletes the branch and its gitignored
+ * plans with their gitignored ledgers, and prunes unused merged branches with gone upstreams. when the repository
+ * retains its own merged heads, it also prunes branches at their own upstream tip on the head's remote, excluding the
+ * base and default branch. returns a sentence saying what it did, and whether it moved the checkout, `'changed'` when
+ * the checkout left the branch or changed, or nothing when another Witch is updating it or `blocked` says one is working
+ * in it.
  */
 export async function cleanUpMerge(
   cwd: string,
@@ -356,12 +397,13 @@ export async function cleanUpMerge(
   } catch (error) {
     if (error === signal?.reason && progress.switchHead) {
       const reconcile = AbortSignal.timeout(1000);
+      // a failed reconcile must not replace the interruption
       await reconcileCleanup(
         gitIn(cwd, reconcile),
         pullRequest,
         progress,
         reconcile,
-      );
+      ).catch(() => (progress.unconfirmed = true));
     }
     throw error;
   } finally {
@@ -1128,7 +1170,7 @@ export async function refreshInstall(
       await reconcilePull(
         gitIn(root, AbortSignal.timeout(1000)),
         progress.checkout,
-      );
+      ).catch(() => (progress.unconfirmed = true));
     return failed(error);
   } finally {
     await lock.close();
@@ -1138,8 +1180,8 @@ export async function refreshInstall(
 /**
  * cleans up a merged branch while its checkout is clean and the conversation is idle without errors or queued prompts.
  * a cleanup that found the checkout changed waits for a repository change, other deferred cleanups retry after five
- * seconds or a repository change. interrupted work survives checkout changes; completed work and ordinary failures
- * aren't retried.
+ * seconds or a repository change. interrupted work survives checkout changes; completed work, ordinary failures and
+ * interrupted work whose progress couldn't be confirmed aren't retried.
  */
 export function watchMerges(
   repository: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>,
