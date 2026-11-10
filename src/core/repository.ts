@@ -292,6 +292,8 @@ export class RepositoryWatch {
   private pullRequest?: {
     branch: string;
     at: number;
+    /** when the read began, so a merge recorded while it ran counts as after it */
+    started: number;
     value?: PullRequest;
     project?: string;
   };
@@ -361,6 +363,11 @@ export class RepositoryWatch {
     }
     const branch = this.snapshot?.branch;
     if (branch && this.due(branch)) void this.fetchPullRequest(branch);
+  }
+
+  /** when the read behind the pull request last read began. */
+  get pullRequestReadAt(): number | undefined {
+    return this.pullRequest?.started;
   }
 
   /** reads the branch's pull request on the next tick, or on the first after a read in progress. */
@@ -517,6 +524,7 @@ export class RepositoryWatch {
 
   private async fetch(branch: string): Promise<void> {
     this.requested = false;
+    const started = Date.now();
     const commit = this.snapshot?.commit;
     let value: PullRequest | undefined;
     let project: string | undefined;
@@ -552,7 +560,7 @@ export class RepositoryWatch {
     } finally {
       this.fetching = undefined;
     }
-    this.pullRequest = { branch, at: Date.now(), value, project };
+    this.pullRequest = { branch, at: Date.now(), started, value, project };
     if (this.snapshot?.branch === branch)
       this.publish({
         ...this.snapshot,

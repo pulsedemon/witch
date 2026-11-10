@@ -559,6 +559,7 @@ test('the wired conflict watch survives a conversation switch and a restart with
       return () => listeners.delete(listener);
     },
     refreshPullRequest: () => {},
+    pullRequestReadAt: 0,
     readPullRequest: async () => {},
   };
   s.x.coordination.updateRepository(repository.snapshot);
@@ -782,6 +783,7 @@ test('unbinding the conflict watch during its refresh prevents admission', async
     snapshot: s.read(),
     subscribe: () => () => {},
     refreshPullRequest: () => {},
+    pullRequestReadAt: 0,
     readPullRequest: async () => {
       entered.resolve();
       await released.promise;
