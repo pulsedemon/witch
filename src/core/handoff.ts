@@ -42,11 +42,14 @@ export async function handoff(
 ): Promise<void> {
   const { agent } = selection;
   const conversation = host.conversation();
-  const { agent: from, handoff: previousHandoff } = conversation;
+  const from = conversation.agent;
   const outcome = conversation.lastTurn?.status;
   const unfinished = outcome === 'interrupted' || outcome === 'failed';
   const previous = conversation.sessions[agent];
   let activated = false;
+  // the handoff this one replaced, which the source may already have consumed while summarizing
+  let replaced: ConversationRecord['handoff'];
+  let overwritten = false;
   try {
     let summary = '';
     const { items } = host.snapshot();
@@ -67,6 +70,8 @@ export async function handoff(
         summary = transcriptContext(context);
       else throw new Error(result.error ?? 'Handoff was interrupted');
     }
+    replaced = conversation.handoff;
+    overwritten = true;
     conversation.handoff = { from, to: agent, summary, activated: false };
     await host.save();
     if (host.cancelled()) throw new Error('Handoff was interrupted');
@@ -92,7 +97,10 @@ export async function handoff(
   } catch (error) {
     if (!activated) {
       conversation.agent = from;
-      if (conversation.handoff !== previousHandoff) delete conversation.handoff;
+      if (overwritten) {
+        if (replaced) conversation.handoff = replaced;
+        else delete conversation.handoff;
+      }
       await host.disconnect().catch(() => {});
       if (previous) conversation.sessions[agent] = previous;
       else delete conversation.sessions[agent];

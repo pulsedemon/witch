@@ -394,27 +394,28 @@ async function pauseOutcome(
     action.to,
   );
   if (existing) return result(existing);
-  const recipients = pauseRecipients(
-    action.to,
-    owner,
-    await host.observe(state),
-  );
+  // refuses early, before the lock; the recipients recorded are chosen again under it
+  const admitted = pauseRecipients(action.to, owner, await host.observe(state));
   return result(
     await registry.issuePause(
       owner,
       turn,
       action.to,
-      recipients.map(({ id, project }) => ({ conversation: id, project })),
       request.deadline,
       async () => {
         host.admit(request);
         state.discovery = undefined;
-        const { live } = await host.observe(state);
-        const closed = recipients.filter(({ id }) => !live.get(id)?.pauses);
+        const discovery = await host.observe(state);
+        const closed = admitted.filter(
+          ({ id }) => !discovery.live.get(id)?.pauses,
+        );
         if (closed.length)
           throw new Error(
             `These sessions closed before the pause was recorded: ${closed.map(({ id }) => id).join(', ')}`,
           );
+        return pauseRecipients(action.to, owner, discovery).map(
+          ({ id, project }) => ({ conversation: id, project }),
+        );
       },
     ),
   );
