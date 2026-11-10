@@ -805,6 +805,7 @@ for await (const line of lines) {
         'die on interrupt',
         'die after interrupt',
         'refuse interrupt',
+        'complete before interrupt',
       ].includes(prompt)
     )
       continue;
@@ -1420,6 +1421,15 @@ for await (const line of lines) {
       continue;
     }
     if (lastPrompt === 'die on interrupt') process.exit(1);
+    // the turn ends on its own just as the interrupt arrives
+    if (lastPrompt === 'complete before interrupt') {
+      finish('completed');
+      send({
+        id: request.id,
+        error: { code: -32600, message: 'no active turn to interrupt' },
+      });
+      continue;
+    }
     if (lastPrompt === 'refuse interrupt') {
       send({
         id: request.id,
