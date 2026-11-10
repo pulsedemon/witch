@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { appendFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { NativeVerificationReport } from '../src/agents/native-verification.js';
 import { artifactDigest } from '../src/agents/runtime-updates.js';
 import {
   holdRuntime,
@@ -775,21 +776,29 @@ test('qualifying refuses an installation that changed since it was offered', asy
 });
 
 for (const [name, tamper] of [
-  ['did not pass', { passed: false }],
-  ['names another candidate', { candidate: 'another-artifact' }],
+  [
+    'did not pass',
+    (report: NativeVerificationReport) => ({ ...report, passed: false }),
+  ],
+  [
+    'names another candidate',
+    (report: NativeVerificationReport) => ({
+      ...report,
+      candidate: { ...report.candidate, digest: 'another-artifact' },
+    }),
+  ],
+  [
+    'names another previous artifact',
+    (report: NativeVerificationReport) => ({
+      ...report,
+      previous: { ...report.previous, digest: 'another-artifact' },
+    }),
+  ],
 ] as const) {
   test(`a qualification report that ${name} records nothing`, async () => {
     const f = await runtimeUpdateFixture(undefined, '2.0.0');
     const verify = f.native.verify;
-    f.native.verify = async (...args) => {
-      const report = await verify(...args);
-      return 'passed' in tamper
-        ? { ...report, passed: tamper.passed }
-        : {
-            ...report,
-            candidate: { ...report.candidate, digest: tamper.candidate },
-          };
-    };
+    f.native.verify = async (...args) => tamper(await verify(...args));
     await assert.rejects(
       f.updates.apply(f.check, { accountUsage: true }),
       /did not verify this version/,
