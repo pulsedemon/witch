@@ -327,6 +327,27 @@ test('only the Copilot Bot identity qualifies', () => {
   assert.equal(isCopilot(null), false);
 });
 
+test('pushed commit verification treats a commit GitHub lacks as unpushed and rethrows other failures', async () => {
+  const failing =
+    (stderr: string): Run =>
+    async () => {
+      throw Object.assign(new Error('Command failed: gh api'), { stderr });
+    };
+  const verify = (run: Run) =>
+    reviewCommitPushed(
+      pr,
+      'fix-sha',
+      '/checkout',
+      new AbortController().signal,
+      run,
+    );
+  assert.equal(await verify(failing('gh: Not Found (HTTP 404)\n')), false);
+  await assert.rejects(
+    verify(failing('gh: Server Error (HTTP 502)\n')),
+    /Command failed/,
+  );
+});
+
 test.each([
   ['identical', 0, true],
   ['ahead', 0, true],
