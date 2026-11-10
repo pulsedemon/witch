@@ -526,11 +526,15 @@ exec '${realGit}' "$@"
   }
 });
 
-/** with `worktree`, the project is a linked worktree of `install`, a clone that holds `main`. */
+/**
+ * with `worktree`, the project is a linked worktree of `install`, a clone that holds `main`. with `slowReconcile`, the
+ * first Git command of the reconcile after the interrupt outlasts its deadline.
+ */
 async function interruptedCleanup(
   stage: string,
   register: RegisterCleanup,
   worktree = false,
+  slowReconcile = false,
 ) {
   const { coordinator, root, project } = await fixture();
   const { origin, install, base, tip } = await mergedOrigin(
@@ -573,6 +577,9 @@ const gate = () => {
   setInterval(() => {}, 1000);
 };
 const first = !existsSync(${JSON.stringify(ready)});
+const reconciling = ${JSON.stringify(slowReconcile)} && tool === 'git' && !first &&
+  (stage === 'install' ? args[0] === 'rev-parse' && args[1] === 'HEAD' :
+    args.includes('--no-optional-locks') && args.includes('status'));
 if (stage === 'advanced' && tool === 'git' && args.includes('fetch')) {
   const file = ${JSON.stringify(join(root, 'fetch-count'))};
   const n = existsSync(file) ? Number(readFileSync(file, 'utf8')) + 1 : 1;
@@ -581,6 +588,7 @@ if (stage === 'advanced' && tool === 'git' && args.includes('fetch')) {
     process.exit(1);
 }
 if (first && stage === 'fetch' && tool === 'git' && args.includes('fetch')) gate();
+else if (reconciling) setTimeout(() => process.exit(1), 10_000);
 else {
   const status = tool === 'git' ? spawnSync(${JSON.stringify(realGit)}, args, {stdio:'inherit'}).status ?? 1 : 0;
   const hold = tool === 'pnpm' ? args[0] === (stage === 'advanced' ? 'install' : stage) :
@@ -761,6 +769,68 @@ for (const [stage, worktree] of [
                 ['pnpm', 'install', '--frozen-lockfile'],
                 ['pnpm', 'build'],
               ],
+      );
+    } finally {
+      stop();
+    }
+  });
+
+for (const stage of ['delete', 'install'])
+  test(`an interrupted ${stage} whose reconcile times out names what's left and doesn't resume`, async (t) => {
+    const { coordinator, install, tip, entered, stopped, commands } =
+      await interruptedCleanup(stage, t.onTestFinished, false, true);
+    const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
+    const cleanup = coordinator.cleanUpMerge.bind(coordinator);
+    coordinator.cleanUpMerge = async (...args) => {
+      const result = await cleanup(...args);
+      results.push(result);
+      return result;
+    };
+    const stop = watchMerges(
+      {
+        snapshot: repositoryRead({ pullRequest: pullRequest(tip) }),
+        subscribe: () => () => {},
+      },
+      coordinator,
+      install,
+    );
+    try {
+      await entered();
+      await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+      await until('cleanup settles', () => results.length > 0, 500);
+      await stopped();
+      assert.deepEqual(results, [true]);
+      assert.equal(coordinator.snapshot.error, undefined);
+      assert.equal(coordinator.snapshot.phase, 'idle');
+      assert.deepEqual(
+        notices(coordinator),
+        stage === 'delete'
+          ? [
+              'Merge cleanup interrupted.',
+              "Witch couldn't confirm how far merge cleanup got, so it won't resume. Left to check: deleting feat/x with its config and plans, fast-forwarding main, pruning merged branches and whether Witch's checkout needs updating and rebuilding.",
+            ]
+          : [
+              '#7 merged: switched to main and pulled, deleted branches feat/x and feat/y.',
+              'Merge cleanup interrupted.',
+              "Witch couldn't confirm how far merge cleanup got, so it won't resume. Left to check: updating and rebuilding Witch's checkout.",
+            ],
+      );
+      const calls = await commands();
+      assert.equal(
+        calls.filter(([tool, name]) => tool === 'git' && name === 'update-ref')
+          .length,
+        1,
+      );
+      assert.equal(
+        calls.filter(
+          ([tool, name, option]) =>
+            tool === 'git' && name === 'branch' && option === '-d',
+        ).length,
+        stage === 'delete' ? 0 : 1,
+      );
+      assert.deepEqual(
+        calls.filter(([tool]) => tool === 'pnpm'),
+        stage === 'delete' ? [] : [['pnpm', 'install', '--frozen-lockfile']],
       );
     } finally {
       stop();
