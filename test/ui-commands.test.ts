@@ -195,6 +195,12 @@ for (const key of ['\u001b', '\u0010'])
           !coordinator.snapshot.commandsPending,
       );
       assert.deepEqual(calls, [['refreshModels'], ['compact']]);
+      if (key === '\u0010') {
+        // the Commands picker that replaced Models stays open through the suffix
+        assert.ok(ui.text().includes('Commands'));
+        ui.stdin.write('\u001b');
+        await until('chat', () => !ui.text().includes('Commands'));
+      }
       await submit(ui, '/clear');
       await until('next explicit batch', () =>
         calls.some(([name]) => name === 'clear'),
@@ -449,6 +455,29 @@ test('/help draws its section headings in bold violet', async () => {
     await submit(ui, '/help');
     await until('the help page', () => ui.text().includes('COMPOSER'));
     assert.ok(ui.frame().includes('\u001b[38;2;168;85;247m\u001b[1mCOMMANDS'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a page an earlier command in a batch opened stays open while a later one runs, and a later picker replaces it', async () => {
+  const { app, coordinator, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await submit(ui, '/help /compact');
+    await until(
+      'compact',
+      () =>
+        calls.some(([name]) => name === 'compact') &&
+        !coordinator.snapshot.commandsPending,
+    );
+    await delay(60);
+    assert.ok(ui.text().includes('COMPOSER'), 'help after /compact ran');
+    ui.stdin.write('\u001b');
+    await until('chat', () => !ui.text().includes('COMPOSER'));
+    await submit(ui, '/help /model');
+    await until('the model picker', () => ui.text().includes('Models ·'));
   } finally {
     ui.unmount();
   }

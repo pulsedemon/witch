@@ -653,7 +653,6 @@ export function App({
     { name, argument }: WitchCommand,
     active: () => boolean,
   ): Promise<boolean> => {
-    dismissPicker();
     switch (name) {
       case 'new':
         await leave(() => coordinator.newConversation(argument || undefined));
