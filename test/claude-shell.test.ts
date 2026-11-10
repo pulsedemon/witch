@@ -719,6 +719,28 @@ test('an interrupt recovers a completed idle command from its initial reply', as
   }
 });
 
+for (const steers of [[], ['a steer']])
+  test(`an interrupt before Claude Code reads an ordinary prompt reports it unread (${steers.length} steered)`, async () => {
+    const { session, cwd } = await fixture(undefined, 'hold-initial');
+    try {
+      const turn = session.send('an ordinary prompt');
+      await until(
+        'the held prompt',
+        async () => (await jsonLines(join(cwd, 'held.json'))).length === 1,
+      );
+      for (const steer of steers)
+        assert.equal(await session.steer(steer), true);
+      await within(session.interrupt(), 3000, 'interrupt');
+      const result = await within(turn, 2000, 'turn');
+      assert.equal(result.status, 'interrupted');
+      assert.equal(result.inputUnread, true);
+      assert.equal(result.inputUnsent, undefined);
+      assert.deepEqual(result.unread, steers);
+    } finally {
+      await session.close();
+    }
+  });
+
 test("a turn stays open while a steered command's end report is still settling", async () => {
   const seen = observe();
   const settled = Promise.withResolvers<void>();

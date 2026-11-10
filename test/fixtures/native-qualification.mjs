@@ -192,7 +192,7 @@ for await (const line of createInterface({ input: process.stdin })) {
             threadId,
             turnId,
             itemId: id,
-            command: `node ${name}.mjs`,
+            command: `node ${mode === 'other-command' ? 'other' : name}.mjs`,
             cwd: process.cwd(),
           },
         });

@@ -737,8 +737,8 @@ class CodexSession implements AgentSession {
             turnId: id,
           });
         } catch (error) {
-          // an exit has ended the turn by the time its rejection lands here
-          if (!this.closed) throw error;
+          // an exit, or a completion Codex sent ahead of its reply, has ended the turn by the time its rejection lands
+          if (!this.closed && this.turn === turn) throw error;
         }
       await turn.finished.promise;
     })();

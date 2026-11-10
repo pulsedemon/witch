@@ -22,6 +22,7 @@ for (const [mode, expected] of [
   ['bypass', /did not request approval/],
   ['declined-write', /Declined write changed/],
   ['extra-tool', /unexpected tool/],
+  ['other-command', /Unexpected probe command: node other\.mjs/],
   ['timeout', /aborted|stop requested/i],
 ] as const) {
   test(`qualification refuses ${mode} and retains its incomplete report`, async () => {

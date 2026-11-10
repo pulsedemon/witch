@@ -409,7 +409,8 @@ export async function nativeScenario(
     }
     finished = true;
   } catch (error) {
-    failures.push(error);
+    // a failed approval aborts the session, so the turn's own failure only says it was aborted
+    failures.push(abort.signal.aborted ? abort.signal.reason : error);
   } finally {
     try {
       await session.close();

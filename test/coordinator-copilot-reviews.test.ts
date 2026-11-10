@@ -689,6 +689,29 @@ test('a final ownership check that proves input unsent leaves feedback pending f
   assert.equal(x.reviews().length, 1);
 });
 
+test('a review the agent never read leaves feedback pending and the user queue empty', async (t) => {
+  const x = await setup(t);
+  const send = vi
+    .spyOn(x.a.a.sessions.at(-1)!.session, 'send')
+    .mockImplementationOnce(async () => ({
+      status: 'interrupted',
+      text: '',
+      inputUnread: true,
+    }));
+  await x.observe();
+  await until('unread review settlement', async () => {
+    const state = (await record(x.f, x.a)).copilotReviews![0]!;
+    return (
+      send.mock.calls.length === 1 &&
+      x.c.snapshot.phase === 'idle' &&
+      !x.c.snapshot.reviewing &&
+      !state.batch &&
+      state.items.every(({ status }) => status === 'pending')
+    );
+  });
+  assert.deepEqual(x.c.snapshot.queue, []);
+});
+
 test('a peer arriving during the review read retains priority without losing the review batch', async (t) => {
   const x = await setup(t);
   const b = await x.f.start('B');

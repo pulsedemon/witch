@@ -325,6 +325,18 @@ test('an interrupt a running Codex refuses rejects, and the turn goes on', async
   }
 });
 
+test('an interrupt answered after the turn completed resolves with the completed turn', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    const turn = session.send('complete before interrupt');
+    await appears(join(cwd, 'prompt.json'));
+    await within(session.interrupt(), 2000, 'interrupt');
+    assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test('model selection waits for the settings notification', async () => {
   const { session, cwd } = await fixture();
   try {

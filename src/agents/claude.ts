@@ -862,6 +862,9 @@ class ClaudeSession implements AgentSession {
         unread: receipt.still_queued.flatMap(
           (uuid) => turn.inputs.get(uuid)?.prompt ?? [],
         ),
+        ...(receipt.still_queued.some((uuid) => uuid === turn.initialInput) && {
+          inputUnread: true,
+        }),
         ...(unreadContext.length ? { unreadContext } : {}),
       });
       this.query.close();

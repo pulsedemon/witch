@@ -336,6 +336,9 @@ export async function checkNativeApprovals(
           : 'Declined write changed its target',
       );
     }
+  } catch (error) {
+    // a failed approval aborts the session, so the turn's own failure only says it was aborted
+    throw requestFailure ?? error;
   } finally {
     try {
       await session.close();
