@@ -363,12 +363,12 @@ const arrived = (
 
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base and brings it up to date, or detaches
- * at the base's remote branch in a linked worktree or while one holds the base, deletes the branch and its gitignored plans with their
- * gitignored ledgers, and prunes unused merged branches with gone upstreams. when the repository retains its own merged
- * heads, it also prunes branches at their own upstream tip on the head's remote, excluding the base and default branch.
- * returns a sentence saying what
- * it did, and whether it moved the checkout, `'changed'` when the checkout left the branch or changed, or nothing when
- * another Witch is updating it or `blocked` says one is working in it.
+ * at the base's remote branch in a linked worktree or while one holds the base, deletes the branch and its gitignored
+ * plans with their gitignored ledgers, and prunes unused merged branches with gone upstreams. when the repository
+ * retains its own merged heads, it also prunes branches at their own upstream tip on the head's remote, excluding the
+ * base and default branch. returns a sentence saying what it did, and whether it moved the checkout, `'changed'` when
+ * the checkout left the branch or changed, or nothing when another Witch is updating it or `blocked` says one is working
+ * in it.
  */
 export async function cleanUpMerge(
   cwd: string,
