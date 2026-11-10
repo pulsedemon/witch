@@ -473,7 +473,7 @@ test('a refused qualification leaves the offer in place', async () => {
   f.updates.close();
 });
 
-test('inventory waits for the build identity before offering qualification', async () => {
+test('inventory waits for the build identity before reporting verification', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
   await f.updates.apply(f.check, { accountUsage: true });
   f.updates.close();
@@ -491,10 +491,8 @@ test('inventory waits for the build identity before offering qualification', asy
     },
   );
   await slow.check();
-  assert.doesNotMatch(
-    updateChoice(slow.snapshot.entries[0]!, slow.snapshot),
-    /not verified/,
-  );
+  assert.equal(slow.snapshot.build, 'fixture-build');
+  assert.match(updatesText(slow.snapshot), /Verified with this Witch build\./);
   slow.close();
 });
 
