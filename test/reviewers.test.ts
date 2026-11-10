@@ -368,6 +368,44 @@ test('a reviewer that outlives the stop deadline ends the run at the deadline', 
   }
 });
 
+test('an aborted reviewer behind a shell redirect gets its SIGTERM grace', async () => {
+  const root = await scratch('witch-reviewers-');
+  await writeFile(join(root, 'brief'), '');
+  await writeFile(
+    join(root, 'handler.mjs'),
+    `import { writeFileSync } from 'node:fs';
+process.on('SIGTERM', () => setTimeout(() => {
+  writeFileSync('stopped', 'yes');
+  process.exit(0);
+}, 200));
+writeFileSync('ready', 'yes');
+setInterval(() => {}, 1000);
+`,
+  );
+  const controller = new AbortController();
+  const running = new Reviewers(() => {}).run({
+    cwd: root,
+    reviewers: [
+      {
+        name: 'r',
+        // the trailing exit keeps the shell from exec'ing the redirected command
+        command: `${quote(process.execPath)} handler.mjs < brief; exit $?`,
+        reportFile: join(root, 'report.md'),
+      },
+    ],
+    signal: controller.signal,
+  });
+  await until('the handler', async () =>
+    readFile(join(root, 'ready'), 'utf8').then(
+      () => true,
+      () => false,
+    ),
+  );
+  controller.abort();
+  await within(running, 5000, 'the stop');
+  assert.equal(await readFile(join(root, 'stopped'), 'utf8'), 'yes');
+});
+
 test('an abort after the commands exit ends cleanup at its own deadline and stops probing', async () => {
   const root = await scratch('witch-reviewers-');
   const kill = process.kill.bind(process);
