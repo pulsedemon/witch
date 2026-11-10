@@ -88,6 +88,9 @@ export function updatesText(snapshot: RuntimeUpdateSnapshot): string {
           ...(qualifiable(entry, snapshot)
             ? [`Run /updates ${entry.runtime} to qualify it.`]
             : []),
+          ...(entry.earlierError
+            ? [`Earlier version lookup failed: ${entry.earlierError}`]
+            : []),
         );
       if (entry.journal?.phase === 'recovered')
         lines.push(

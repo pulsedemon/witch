@@ -46,6 +46,8 @@ export interface RuntimeUpdateEntry {
   journal?: UpdateJournal;
   /** the newest older version on disk, which qualifying the installed one resumes from. */
   earlier?: string;
+  /** why that lookup failed; it withholds the qualify offer and leaves the release check standing. */
+  earlierError?: string;
   error?: string;
 }
 export interface RuntimeUpdateSnapshot {
@@ -216,8 +218,6 @@ export class RuntimeUpdates {
   private async read(force: boolean): Promise<void> {
     this.publish({ checking: true });
     try {
-      // entries are compared against the build, so they wait for it; apply reports a failed one
-      await this.build.catch(() => undefined);
       const journals = await this.store.journals();
       const entries = await Promise.all(
         (await this.registrations()).map(async (registration) => {
@@ -269,7 +269,10 @@ export class RuntimeUpdates {
               installation,
               check,
               journal,
-              earlier: (await this.native.earlier(installation))?.version,
+              ...(await this.native.earlier(installation).then(
+                (artifact) => ({ earlier: artifact?.version }),
+                (error: unknown) => ({ earlierError: errorMessage(error) }),
+              )),
             };
           } catch (error) {
             return {
@@ -283,6 +286,8 @@ export class RuntimeUpdates {
           }
         }),
       );
+      // entries are compared against the build, so they wait for it; apply reports a failed one
+      await this.build.catch(() => undefined);
       if (!this.closed) this.publish({ entries });
     } finally {
       this.publish({ checking: false });
