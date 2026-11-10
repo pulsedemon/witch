@@ -88,6 +88,47 @@ export function compareVersions(left: string, right: string): number {
   return preA.localeCompare(preB, 'en', { numeric: true });
 }
 
+/** the newest artifact older than `installation`'s in its native root, read from directory names. */
+export async function earlierArtifact(
+  installation: RuntimeInstallation,
+): Promise<{ version: string; executable: string } | undefined> {
+  const claude = installation.runtime === 'claude';
+  const folder = join(installation.root, claude ? 'versions' : 'releases');
+  const release = dirname(dirname(installation.executable));
+  const selected = basename(release);
+  // only a native releases directory promises `<version>-<target>` names
+  if (
+    !claude &&
+    dirname(release) === folder &&
+    !selected.startsWith(installation.version)
+  )
+    throw new Error(
+      `Unrecognized Codex release directory ${selected} for version ${installation.version}.`,
+    );
+  // a Codex release directory is `<version>-<target>`, and only the same target can run here
+  const target = selected.slice(installation.version.length);
+  return ((await unlessGone(readdir(folder))) ?? [])
+    .flatMap((name) => {
+      const version = claude
+        ? name
+        : name.endsWith(target)
+          ? name.slice(0, name.length - target.length)
+          : '';
+      return versionSchema.safeParse(version).success &&
+        compareVersions(version, installation.version) < 0
+        ? [
+            {
+              version,
+              executable: claude
+                ? join(folder, name)
+                : join(folder, name, 'bin', 'codex'),
+            },
+          ]
+        : [];
+    })
+    .sort((a, b) => compareVersions(b.version, a.version))[0];
+}
+
 export async function inspectRuntime(
   registration: AgentRegistration,
   signal?: AbortSignal,

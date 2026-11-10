@@ -6,17 +6,38 @@ import type {
   RuntimeUpdateEntry,
   RuntimeUpdateSnapshot,
 } from '../core/runtime-updates.js';
-import { pendingUpdate } from '../persistence/runtime-updates.js';
+import { pendingUpdate, qualifiedBy } from '../persistence/runtime-updates.js';
 import { plain } from './links.js';
 
 export const runtimeLabel = (runtime: string) =>
   runtime === 'claude' ? 'Claude Code' : 'Codex';
 
-export function updateChoice(entry: RuntimeUpdateEntry): string {
+/** whether `/updates <runtime>` offers to qualify the installed version; a blocked check only restricts installing. */
+function qualifiable(
+  entry: RuntimeUpdateEntry,
+  snapshot: RuntimeUpdateSnapshot,
+): boolean {
+  return (
+    snapshot.build !== undefined &&
+    !snapshot.progress &&
+    !(entry.journal && pendingUpdate(entry.journal)) &&
+    !!entry.check &&
+    !entry.check.available &&
+    entry.earlier !== undefined &&
+    !qualifiedBy(entry.journal, entry.installation, snapshot.build)
+  );
+}
+
+export function updateChoice(
+  entry: RuntimeUpdateEntry,
+  snapshot: RuntimeUpdateSnapshot,
+): string {
   const name = runtimeLabel(entry.runtime);
   if (entry.journal && pendingUpdate(entry.journal))
     return `${name} · recovery required`;
   if (entry.error) return `${name} · check failed`;
+  if (qualifiable(entry, snapshot))
+    return `${name} · ${entry.installation!.version} · not verified`;
   if (entry.check?.blocked)
     return `${name} · ${entry.installation?.version ?? 'unavailable'} · setup needed`;
   return `${name} · ${entry.installation?.version ?? 'not installed'}${entry.check?.available ? ` → ${entry.check.target}` : ' · current'}`;
@@ -26,8 +47,11 @@ export function updatesText(snapshot: RuntimeUpdateSnapshot): string {
   const lines = [
     ...(snapshot.progress ? [snapshot.progress, ''] : []),
     ...(snapshot.checking ? ['Checking releases…', ''] : []),
-    ...(snapshot.error ? [`Update failed: ${snapshot.error}`, ''] : []),
-    'Updates run only when you confirm. Verification spends native account usage; a failed or incomplete check attempts recovery to the previous version.',
+    ...(snapshot.error ? [`Failed: ${snapshot.error}`, ''] : []),
+    ...(snapshot.buildError
+      ? [`Witch build identity failed: ${snapshot.buildError}`, '']
+      : []),
+    'Updates and qualification run only when you confirm, and their checks spend native account usage. A failed update keeps or restores the previous version, or leaves recovery pending here. Qualifying the installed version installs nothing; its failure is only reported.',
     '',
   ];
   for (const entry of snapshot.entries) {
@@ -60,14 +84,18 @@ export function updatesText(snapshot: RuntimeUpdateSnapshot): string {
           `Checked: ${new Date(entry.check.checkedAt).toLocaleString()}`,
           entry.check.blocked ?? '',
         );
-      if (
-        entry.journal?.phase === 'verified' &&
-        entry.installation?.digest === entry.journal.selected?.digest &&
-        entry.journal.build === snapshot.build
-      )
+      if (qualifiedBy(entry.journal, entry.installation, snapshot.build))
         lines.push('Verified with this Witch build.');
       else if (entry.installation)
-        lines.push('Not yet verified with this Witch build.');
+        lines.push(
+          'Not yet verified with this Witch build.',
+          ...(qualifiable(entry, snapshot)
+            ? [`Run /updates ${entry.runtime} to qualify it.`]
+            : []),
+          ...(entry.earlierError
+            ? [`Earlier version lookup failed: ${entry.earlierError}`]
+            : []),
+        );
       if (entry.journal?.phase === 'recovered')
         lines.push(
           'The last update was recovered to the previous version.',
@@ -116,8 +144,10 @@ export async function showUpdates(
   const confirm = (entry: RuntimeUpdateEntry) => {
     const journal =
       entry.journal && pendingUpdate(entry.journal) ? entry.journal : undefined;
+    const qualify = qualifiable(entry, updates.snapshot);
     if (
       !journal &&
+      !qualify &&
       (!entry.check?.available || entry.check.blocked || entry.error)
     )
       return details();
@@ -127,12 +157,16 @@ export async function showUpdates(
       ? `~/${installation.launcher.slice(homedir().length + 1)}`
       : installation.launcher;
     return picker(
-      `${journal ? 'Recover' : 'Update'} ${runtimeLabel(entry.runtime)} ${entry.installation?.version ?? installation.version}?`,
+      `${journal ? 'Recover' : qualify ? 'Qualify' : 'Update'} ${runtimeLabel(entry.runtime)} ${entry.installation?.version ?? installation.version}?`,
       [
         { id: 'cancel', label: 'Cancel' },
         {
           id: 'confirm',
-          label: journal ? `Restore ${target}` : `${target} + paid checks`,
+          label: journal
+            ? `Restore ${target}`
+            : qualify
+              ? `Paid checks on ${installation.version}`
+              : `${target} + paid checks`,
         },
       ],
       async (id) => {
@@ -159,7 +193,7 @@ export async function showUpdates(
       { id: 'details', label: 'Version and verification details' },
       ...updates.snapshot.entries.map((entry) => ({
         id: entry.runtime,
-        label: updateChoice(entry),
+        label: updateChoice(entry, updates.snapshot),
       })),
     ],
     (id) => {

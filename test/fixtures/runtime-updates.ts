@@ -9,7 +9,10 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { artifactDigest } from '../../src/agents/runtime-updates.js';
+import {
+  artifactDigest,
+  earlierArtifact,
+} from '../../src/agents/runtime-updates.js';
 import type {
   RuntimeInstallation,
   RuntimeUpdateCheck,
@@ -26,6 +29,7 @@ import { scratch } from './scratch.js';
 
 export async function runtimeUpdateFixture(
   host?: ConstructorParameters<typeof RuntimeUpdates>[0],
+  installed: '1.0.0' | '2.0.0' = '1.0.0',
 ) {
   const directory = await scratch('witch-native-update-');
   const root = join(directory, 'packages', 'standalone');
@@ -55,7 +59,7 @@ export async function runtimeUpdateFixture(
       automatic: false,
     });
   }
-  await symlink(artifacts.get('1.0.0')!.executable, launcher);
+  await symlink(artifacts.get(installed)!.executable, launcher);
   const registration = {
     adapter: new FixtureAgent('codex'),
     executable: launcher,
@@ -66,8 +70,8 @@ export async function runtimeUpdateFixture(
   const policy: Partial<RuntimeInstallation> = {};
   const build = { current: 'fixture-build' };
   let checks = 0;
-  const inspect = async () => {
-    const executable = await realpath(launcher);
+  const inspect = async (selection?: { executable?: string }) => {
+    const executable = await realpath(selection?.executable ?? launcher);
     const selected = [...artifacts.values()].find(
       (artifact) => artifact.executable === executable,
     );
@@ -76,6 +80,7 @@ export async function runtimeUpdateFixture(
   };
   const native: NativeUpdateOperations = {
     inspect,
+    earlier: earlierArtifact,
     check: async (installation) => {
       checks++;
       return {
