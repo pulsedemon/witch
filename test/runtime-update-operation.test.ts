@@ -431,6 +431,7 @@ for (const fails of [false, true]) {
     async () => {
       const reconnect = Promise.withResolvers<void>();
       const finish = Promise.withResolvers<void>();
+      const notices: string[] = [];
       const f = await runtimeUpdateFixture({
         maintain: async (_runtime, run) => {
           await run(new AbortController().signal);
@@ -438,7 +439,7 @@ for (const fails of [false, true]) {
           await finish.promise;
           if (fails) throw new Error('Reconnect failed');
         },
-        notice: () => {},
+        notice: (message) => notices.push(message),
       });
       const applying = f.updates.apply(f.check, { accountUsage: true });
       const completed = fails
@@ -457,6 +458,10 @@ for (const fails of [false, true]) {
         const final = (await f.store.journal(f.root))!;
         assert.equal(final.id, journal.id);
         assert.equal(final.phase, fails ? 'failed' : 'verified');
+        assert.equal(
+          notices.some((notice) => notice.includes('verified')),
+          !fails,
+        );
         const next = await f.store.transaction(f.root);
         await next.close();
       } finally {
