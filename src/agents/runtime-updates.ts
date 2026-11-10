@@ -94,18 +94,25 @@ export async function earlierArtifact(
 ): Promise<{ version: string; executable: string } | undefined> {
   const claude = installation.runtime === 'claude';
   const folder = join(installation.root, claude ? 'versions' : 'releases');
-  const selected = basename(dirname(dirname(installation.executable)));
+  const release = dirname(dirname(installation.executable));
+  const selected = basename(release);
+  // only a native releases directory promises `<version>-<target>` names
+  if (
+    !claude &&
+    dirname(release) === folder &&
+    !selected.startsWith(installation.version)
+  )
+    throw new Error(
+      `Unrecognized Codex release directory ${selected} for version ${installation.version}.`,
+    );
   // a Codex release directory is `<version>-<target>`, and only the same target can run here
-  const target = selected.startsWith(installation.version)
-    ? selected.slice(installation.version.length)
-    : undefined;
-  if (!claude && target === undefined) return undefined;
+  const target = selected.slice(installation.version.length);
   return ((await unlessGone(readdir(folder))) ?? [])
     .flatMap((name) => {
       const version = claude
         ? name
-        : name.endsWith(target!)
-          ? name.slice(0, name.length - target!.length)
+        : name.endsWith(target)
+          ? name.slice(0, name.length - target.length)
           : '';
       return versionSchema.safeParse(version).success &&
         compareVersions(version, installation.version) < 0
