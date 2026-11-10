@@ -53,6 +53,8 @@ export interface Usage {
   context?: number;
   /** the native agent's context capacity in tokens. */
   contextWindow?: number;
+  /** the same model's 1M-context id while `contextWindow` is below 1M. */
+  longContext?: string;
   account?: AccountReading;
   /** lines the session's edits added and removed. */
   lines?: { added: number; removed: number };

@@ -35,7 +35,7 @@ export interface Status {
 }
 
 const white = colors.whiteBright;
-const tokenCount = new Intl.NumberFormat('en', {
+export const tokenCount = new Intl.NumberFormat('en', {
   notation: 'compact',
   maximumFractionDigits: 1,
 });

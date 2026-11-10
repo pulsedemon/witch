@@ -112,10 +112,12 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=4c4668e1-3f7c-46a3-b271-6647a0b9f0e3",
+              "--session-id=1301b07a-c324-4b1a-b8f5-b5924b2bd480",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           },
           {
@@ -129,14 +131,17 @@
               "--effort=low",
               "--model=haiku",
               "--permission-prompt-tool=stdio",
-              "--resume=4c4668e1-3f7c-46a3-b271-6647a0b9f0e3",
+              "--resume=1301b07a-c324-4b1a-b8f5-b5924b2bd480",
               "--include-partial-messages",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
-        ]
+        ],
+        "capturedOn": "2026-11-10"
       },
       "control": {
         "files": ["control-0.jsonl"],

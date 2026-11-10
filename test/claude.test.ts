@@ -1403,6 +1403,7 @@ test('reports context, the 5H and 7D limits and lines once the session is idle',
       {
         context: 12.5,
         contextWindow: 200000,
+        longContext: 'claude-a[1m]',
         lines: { added: 4, removed: 1 },
         account: {
           limits: [

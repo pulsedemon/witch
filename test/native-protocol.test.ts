@@ -17,6 +17,7 @@ import { fixture, close } from './fixtures/codex-adapter.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import type {
   AgentEvent,
+  Limit,
   TurnResult,
   UserRequest,
   UserResponse,
@@ -92,16 +93,20 @@ for (const runtime of ['codex', 'claude'] as const) {
         const expected =
           runtime === 'codex'
             ? [{ window: '7D', percent: 37, resetsAt: 1793820572 }]
-            : [
-                { window: '5H', percent: 8, resetsAt: 1793298599.822 },
-                { window: '7D', percent: 71, resetsAt: 1793483999.822 },
-              ];
+            : [{ window: '7D', percent: 47, resetsAt: 1794693600.275 }];
         assert.deepEqual(limits[0], expected);
         if (runtime === 'claude') {
-          // later cached replies omit native rows and cannot replace the complete account reading.
+          // later cached replies omit native rows and cannot replace the complete account reading; a fresh reply's reset time moves by a fraction of a second.
+          const seconds = (
+            reading: readonly Omit<Limit, 'observedAt'>[] | undefined,
+          ) =>
+            reading?.map((limit) => ({
+              ...limit,
+              resetsAt: Math.floor(limit.resetsAt!),
+            }));
           assert.ok(limits.length > 1);
           for (const reading of limits.slice(1))
-            assert.deepEqual(reading, expected);
+            assert.deepEqual(seconds(reading), seconds(expected));
         }
       }
       if (runtime === 'codex') {
