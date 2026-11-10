@@ -25,11 +25,12 @@ export function parseFindings(
   cwd: string,
   files: readonly string[],
 ): Finding[] | { invalid: string } {
-  const last = [...report.matchAll(/```json[^\n]*\n([\s\S]*?)\n\s*```/g)].at(
-    -1,
-  );
+  // a fence opens a line, indented at most three spaces, so a mention in prose isn't one
+  const last = [
+    ...report.matchAll(/^[ \t]{0,3}```json[^\n]*\n([\s\S]*?)\n\s*```/gm),
+  ].at(-1);
   if (!last) return { invalid: 'no closed json block' };
-  if (report.includes('```json', last.index + last[0].length))
+  if (/^[ \t]{0,3}```json/m.test(report.slice(last.index + last[0].length)))
     return { invalid: 'a json block opens after the last closed one' };
   let parsed: unknown;
   try {

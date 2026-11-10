@@ -44,6 +44,23 @@ test('parseFindings reads only the last json block and normalizes paths, and say
     parseFindings(report('/w/repo/plan.md'), '/w/repo', ['plan.md']),
     [finding(3, true)],
   );
+  // a fence mentioned in prose isn't one, and a list item's indented fence still is
+  assert.deepEqual(
+    parseFindings(
+      `I end with a \`\`\`json block.\n\n${json({ findings: [] })}\n`,
+      '/w/repo',
+      [],
+    ),
+    [],
+  );
+  assert.deepEqual(
+    parseFindings(
+      '- result\n\n  ```json\n  {"findings": []}\n  ```\n',
+      '/w/repo',
+      [],
+    ),
+    [],
+  );
   const invalid = (report: string) => {
     const parsed = parseFindings(report, '/w/repo', ['plan.md']);
     assert.ok('invalid' in parsed, JSON.stringify(parsed));
