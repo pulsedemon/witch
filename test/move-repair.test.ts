@@ -984,6 +984,39 @@ test('an unprovable move is reported with its command, and a declared one repair
   }
 });
 
+test('a declared recovery named through a symlinked parent repairs the saved path', async () => {
+  const f = await setup();
+  await f.save('copied', 'w/main');
+  await symlink(f.at('w'), f.at('alias'));
+  await mkdir(f.at('c'));
+  await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
+  await rm(f.at('w/main'), { recursive: true });
+  await f.repair('c/main', {
+    declared: { from: f.at('alias/main'), to: f.at('c/main') },
+  });
+  assert.equal((await f.saved('copied')).raw.cwd, f.at('c/main'));
+  assert.ok(
+    !(await readLedger(f.at('state'))).moves.some(
+      ({ from }) => from === f.at('alias/main'),
+    ),
+  );
+});
+
+test('a declared recovery whose old path names nothing saved is refused before anything is written', async () => {
+  const f = await setup();
+  await f.save('copied', 'w/main');
+  await mkdir(f.at('c'));
+  await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
+  await rm(f.at('w/main'), { recursive: true });
+  const moves = (await readLedger(f.at('state'))).moves;
+  const report = await f.repair('c/main', {
+    declared: { from: f.at('w/MAIN'), to: f.at('c/main') },
+  });
+  assert.match(report.blocked[0]?.reason ?? '', /No saved conversation/);
+  assert.deepEqual((await readLedger(f.at('state'))).moves, moves);
+  assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
+});
+
 test('a declared copy removed as repair starts is reported, not recorded', async () => {
   const f = await setup();
   await f.save('copied', 'w/main');
