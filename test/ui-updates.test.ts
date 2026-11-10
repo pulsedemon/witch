@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
-import { mkdir } from 'node:fs/promises';
+import { chmod, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
@@ -486,4 +486,25 @@ test('inventory waits for the build identity before offering qualification', asy
     /not verified/,
   );
   slow.close();
+});
+
+test('an unreadable release directory withholds qualification without hiding the available update', async () => {
+  const f = await runtimeUpdateFixture();
+  const releases = join(f.root, 'releases');
+  // listing fails while the selected artifact stays reachable
+  await chmod(releases, 0o300);
+  try {
+    await f.updates.check(true);
+  } finally {
+    await chmod(releases, 0o755);
+  }
+  const entry = f.updates.snapshot.entries[0]!;
+  assert.equal(entry.error, undefined);
+  assert.equal(entry.check?.available, true);
+  assert.equal(entry.earlier, undefined);
+  assert.match(updateChoice(entry, f.updates.snapshot), /1\.0\.0 → 2\.0\.0/);
+  const text = updatesText(f.updates.snapshot);
+  assert.match(text, /Earlier version lookup failed: EACCES/);
+  assert.doesNotMatch(text, /Check failed/);
+  f.updates.close();
 });
