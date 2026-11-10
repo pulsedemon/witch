@@ -286,6 +286,31 @@ for (const relative of ['.git', 'gitdir'])
     assert.deepEqual(report.unresolved, []);
   });
 
+for (const [move, to, main] of [
+  ['to the same depth', 'w/near', false],
+  ['to another depth', 'x/y/far', false],
+  ['to another depth with its main checkout', 'x/y/far', true],
+] as const)
+  test(`a worktree whose relative gitdir moved ${move} is repaired`, async () => {
+    const f = await setup();
+    await writeFile(
+      f.at('w/main-1/.git'),
+      'gitdir: ../main/.git/worktrees/main-1\n',
+    );
+    await status(f.at('w/main-1'));
+    await mkdir(f.at('x/y'), { recursive: true });
+    await rename(f.at('w/main-1'), f.at(to));
+    if (main) {
+      await rename(f.at('w/main'), f.at('c'));
+      // the main checkout's move is recorded first, so the worktree's run maps the old common directory without /.vol
+      await f.repair('c');
+    }
+    const report = await f.repair(to);
+    assert.deepEqual(report.blocked, []);
+    assert.deepEqual(report.unresolved, []);
+    await status(f.at(to));
+  });
+
 test('a worktree named with slot 0 gets no slot and the ledger stays readable', async () => {
   const f = await setup();
   await git(
@@ -957,6 +982,39 @@ test('an unprovable move is reported with its command, and a declared one repair
     });
     assert.ok(blocked.blocked.length, from);
   }
+});
+
+test('a declared recovery named through a symlinked parent repairs the saved path', async () => {
+  const f = await setup();
+  await f.save('copied', 'w/main');
+  await symlink(f.at('w'), f.at('alias'));
+  await mkdir(f.at('c'));
+  await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
+  await rm(f.at('w/main'), { recursive: true });
+  await f.repair('c/main', {
+    declared: { from: f.at('alias/main'), to: f.at('c/main') },
+  });
+  assert.equal((await f.saved('copied')).raw.cwd, f.at('c/main'));
+  assert.ok(
+    !(await readLedger(f.at('state'))).moves.some(
+      ({ from }) => from === f.at('alias/main'),
+    ),
+  );
+});
+
+test('a declared recovery whose old path names nothing saved is refused before anything is written', async () => {
+  const f = await setup();
+  await f.save('copied', 'w/main');
+  await mkdir(f.at('c'));
+  await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
+  await rm(f.at('w/main'), { recursive: true });
+  const moves = (await readLedger(f.at('state'))).moves;
+  const report = await f.repair('c/main', {
+    declared: { from: f.at('w/MAIN'), to: f.at('c/main') },
+  });
+  assert.match(report.blocked[0]?.reason ?? '', /No saved conversation/);
+  assert.deepEqual((await readLedger(f.at('state'))).moves, moves);
+  assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
 });
 
 test('a declared copy removed as repair starts is reported, not recorded', async () => {

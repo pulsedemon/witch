@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import { projectKey } from '../memory/memory.js';
@@ -107,16 +108,30 @@ const scopeDiffers = ({ cwd, title }: ConversationRecord, target: string) => ({
   reason: `${title}'s saved project memory scope differs from ${target}`,
 });
 
+/** the real path a gone source was named by, through its deepest ancestor that still exists, such as `/var` for `/private/var`. */
+async function realSource(from: string): Promise<string> {
+  for (const prefix of prefixes(from)) {
+    const real = await realpath(prefix).catch(() => undefined);
+    if (real !== undefined) return join(real, from.slice(prefix.length));
+  }
+  return from;
+}
+
 /** why a move the user declares can't be applied, found before anything is written. */
 async function declaredProblem(
   declared: Move,
   records: readonly ConversationRecord[],
+  entries: readonly DirectoryEntry[],
   memory: Memory,
   scopes: Scopes,
 ): Promise<string | undefined> {
-  if (!isAbsolute(declared.from))
-    return 'Choose an absolute saved directory to recover';
   if (await present(declared.from)) return 'The source directory still exists';
+  // a source matched by no saved path, such as one named in the wrong case, would record a move that repairs nothing
+  if (
+    !records.some(({ cwd }) => within(cwd, declared.from)) &&
+    !entries.some(({ path }) => within(path, declared.from))
+  )
+    return `No saved conversation or known directory is in ${declared.from}`;
   for (const record of records) {
     if (!within(record.cwd, declared.from)) continue;
     const target = declared.to + record.cwd.slice(declared.from.length);
@@ -218,7 +233,7 @@ export async function repairMoves(
   memory: Memory,
   cwd: string,
   {
-    declared,
+    declared: asked,
     preview = false,
     run = runCommand,
   }: { declared?: Move; preview?: boolean; run?: Run } = {},
@@ -231,15 +246,30 @@ export async function repairMoves(
   };
   const { records, unreadable } = await store.records();
   const scopes: Scopes = new Map();
-  if (declared)
+  if (asked)
     report.blocked.push(
       ...unreadable.map(({ file, error }) => ({ path: file, reason: error })),
     );
   const listed = await worktreeList(run, cwd);
   const seeds = [cwd, ...(listed ?? [])];
 
+  if (asked && !isAbsolute(asked.from)) {
+    report.blocked.push({
+      path: asked.from,
+      reason: 'Choose an absolute saved directory to recover',
+    });
+    return report;
+  }
+  const declared = asked && { ...asked, from: await realSource(asked.from) };
   if (declared) {
-    const problem = await declaredProblem(declared, records, memory, scopes);
+    const { entries } = await readLedger(store.root);
+    const problem = await declaredProblem(
+      declared,
+      records,
+      entries,
+      memory,
+      scopes,
+    );
     if (problem) {
       report.blocked.push({ path: declared.from, reason: problem });
       return report;

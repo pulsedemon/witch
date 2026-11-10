@@ -53,8 +53,11 @@ async function registrations(common: string): Promise<Registration[]> {
   return found;
 }
 
-/** the admin directory a worktree's `.git` file names, `<common>/worktrees/<name>`, which Git may write relative to it. */
-async function namedAdmin(worktree: string): Promise<string | undefined> {
+/** the admin directory a worktree's `.git` file names, `<common>/worktrees/<name>`, which Git may write relative to `base`. */
+async function namedAdmin(
+  worktree: string,
+  base = worktree,
+): Promise<string | undefined> {
   const text = await unlessGone(readFile(join(worktree, '.git'), 'utf8')).catch(
     (error: unknown) => {
       // a .git directory is a checkout of its own, which names no admin directory
@@ -63,7 +66,7 @@ async function namedAdmin(worktree: string): Promise<string | undefined> {
     },
   );
   return text?.startsWith('gitdir: ')
-    ? resolvePath(worktree, text.slice(8).trim())
+    ? resolvePath(base, text.slice(8).trim())
     : undefined;
 }
 
@@ -123,19 +126,28 @@ async function repairWorktrees(
     checked.push(target);
     const admin = await namedAdmin(target);
     const expected = join(common, 'worktrees', name);
-    if (admin === expected) continue;
     // a .git naming the old common directory is this repository's only while nothing else sits there
-    const old = admin && dirname(dirname(admin));
-    if (
-      admin &&
-      basename(admin) === name &&
-      old !== undefined &&
-      !(await present(old)) &&
-      map(old) === common
-    ) {
+    const ours = async (named: string | undefined) => {
+      if (named === expected) return true;
+      const old = named && dirname(dirname(named));
+      if (
+        !named ||
+        basename(named) !== name ||
+        !old ||
+        (await present(old)) ||
+        map(old) !== common
+      )
+        return false;
       needed = true;
+      return true;
+    };
+    if (await ours(admin)) continue;
+    // a link Git wrote relative still names its admin from where the worktree was registered
+    if (
+      target !== registered &&
+      (await ours(await namedAdmin(target, registered)))
+    )
       continue;
-    }
     problems.push({
       path: target,
       reason: `its .git names ${admin ?? 'no repository'}, not ${expected}`,
