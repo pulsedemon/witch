@@ -727,9 +727,8 @@ test('pause records track each recipient and replay only their own retry', async
     issuer,
     'turn-1',
     ['a', 'b'],
-    [a, b, a],
     deadline(),
-    verify,
+    async () => [a, b, a],
   );
   assert.deepEqual(
     pause.recipients.map(({ conversation }) => conversation),
@@ -753,7 +752,6 @@ test('pause records track each recipient and replay only their own retry', async
     issuer,
     'turn-1',
     ['a', 'b'],
-    [b],
     deadline(),
     refused,
   );
@@ -765,8 +763,15 @@ test('pause records track each recipient and replay only their own retry', async
     [undefined, ['a', 'b']],
   ] as const)
     assert.notEqual(
-      (await store.issuePause(issuer, turn, requested, [b], deadline(), verify))
-        .id,
+      (
+        await store.issuePause(
+          issuer,
+          turn,
+          requested,
+          deadline(),
+          async () => [b],
+        )
+      ).id,
       pause.id,
     );
   await assert.rejects(store.resumePause('a', pause.id, deadline()), {

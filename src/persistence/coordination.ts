@@ -424,24 +424,27 @@ export class CoordinationStore {
     );
   }
 
-  /** `verify` runs under the lock and must not read the ledger, whose lock this holds. */
+  /** `recipients` runs under the lock, so a session live when the pause is recorded is chosen; it must not read the ledger, whose lock this holds. */
   async issuePause(
     issuer: ClaimOwner,
     turn: string | undefined,
     requested: readonly string[] | undefined,
-    recipients: readonly { conversation: string; project: string }[],
     deadline: number,
-    verify: () => Promise<void>,
+    recipients: () => Promise<
+      readonly { conversation: string; project: string }[]
+    >,
   ): Promise<Pause> {
     return this.transact(pauses, deadline, async (issued) => {
       const existing = issued.find((pause) =>
         sameRequest(pause, issuer.conversation, turn, requested),
       );
       if (existing) return { result: existing };
-      await verify();
       const unique = [
         ...new Map(
-          recipients.map((recipient) => [recipient.conversation, recipient]),
+          (await recipients()).map((recipient) => [
+            recipient.conversation,
+            recipient,
+          ]),
         ).values(),
       ];
       const pause = pauseSchema.parse({

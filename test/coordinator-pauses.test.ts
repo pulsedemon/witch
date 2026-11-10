@@ -415,6 +415,30 @@ test('--to pauses only the named sessions, in any project', async (t) => {
   assert.equal(interrupts(c), 1);
 });
 
+test('a session that goes live before a default pause is recorded is a recipient', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await unitCoordinationFixture(cleanup);
+  await f.checkout('D');
+  const a = await f.start('A');
+  const b = await f.start('B');
+  let d: Awaited<ReturnType<typeof f.start>> | undefined;
+  // D opens in the same project after admission chose the recipients, before the pause is recorded
+  const issue = CoordinationStore.prototype.issuePause;
+  const spy = vi
+    .spyOn(CoordinationStore.prototype, 'issuePause')
+    .mockImplementationOnce(async function (this: CoordinationStore, ...args) {
+      d = await f.start('D');
+      return issue.apply(this, args);
+    });
+  const issued = await pause(a);
+  spy.mockRestore();
+  assert.deepEqual(
+    new Set(issued.recipients.map(({ conversation }) => conversation)),
+    new Set([id(b), id(d!)]),
+  );
+});
+
 test('a pause that cannot reach every intended recipient records nothing', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
