@@ -141,8 +141,9 @@ export class Reviewers {
     };
     try {
       const codes = await Promise.race([Promise.all(exits), missed.promise]);
-      // a wrapper killed outright leaves its native CLI in the group
-      for (const group of groups) signalGroup(group, 'SIGKILL');
+      // a wrapper killed outright leaves its native CLI in the group. after an abort the stop owns escalation, since a
+      // shell that forked its command exits on SIGTERM while the command still has its grace period
+      if (!stopping) for (const group of groups) signalGroup(group, 'SIGKILL');
       if (!stopping) {
         const deadline = stopDeadline();
         await beforeDeadline(gone(groups, deadline, signal), deadline);
