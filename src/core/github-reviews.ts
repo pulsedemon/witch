@@ -352,13 +352,18 @@ export async function reviewCommitPushed(
   run: Run = runCommand,
 ): Promise<boolean> {
   const { api, owner, name } = client(pr, cwd, signal, run);
+  const response = await api([
+    `repos/${owner}/${name}/compare/${encodeURIComponent(commit)}...${encodeURIComponent(pr.commit)}`,
+  ]).catch((error: unknown) => {
+    // GitHub answers 404 for a commit it doesn't have, which is a commit nobody pushed
+    if ((error as { stderr?: string }).stderr?.includes('(HTTP 404)'))
+      return undefined;
+    throw error;
+  });
+  if (response === undefined) return false;
   const comparison = z
     .object({ status: z.string(), behind_by: z.number() })
-    .parse(
-      await api([
-        `repos/${owner}/${name}/compare/${encodeURIComponent(commit)}...${encodeURIComponent(pr.commit)}`,
-      ]),
-    );
+    .parse(response);
   return (
     comparison.behind_by === 0 &&
     ['identical', 'ahead'].includes(comparison.status)

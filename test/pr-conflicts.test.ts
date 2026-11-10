@@ -13,11 +13,15 @@ import { pullRequest, repositoryRead } from './fixtures/repository.js';
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const pr = pullRequest;
 const status = repositoryRead;
-const merge = (id: string, base: string): MergeEvent => ({
+const merge = (
+  id: string,
+  base: string,
+  observedAt = '2026-10-30T00:00:00.000Z',
+): MergeEvent => ({
   id,
   project: 'p',
   source: 's',
-  observedAt: '2026-10-30T00:00:00.000Z',
+  observedAt,
   pullRequest: { ...pr({ branch: id, base }), state: 'MERGED' },
   recipients: ['c'],
 });
@@ -93,6 +97,7 @@ function stubRepository() {
     },
     refreshPullRequest: () => refreshes++,
     readPullRequest: async () => {},
+    pullRequestReadAt: undefined as number | undefined,
   };
   const publish = async (snapshot: Repository | undefined) => {
     repository.snapshot = snapshot;
@@ -167,7 +172,8 @@ test('a merge into the pull request base reads it again, and a pull request that
   };
   await until('first pull request read', () => !!watch.snapshot?.pullRequest);
   assert.equal(reads, 1);
-  await merged([merge('old', 'main')]);
+  const before = '1969-12-31T23:59:59.000Z';
+  await merged([merge('old', 'main', before)]);
   await step();
   assert.equal(reads, 1, 'a merge recorded before the first read');
   mergeable = 'CONFLICTING';
@@ -175,7 +181,7 @@ test('a merge into the pull request base reads it again, and a pull request that
   await step();
   assert.equal(reads, 1, 'a merge into another base');
   await merged([
-    merge('old', 'main'),
+    merge('old', 'main', before),
     merge('other', 'release'),
     merge('new', 'main'),
   ]);
@@ -185,10 +191,53 @@ test('a merge into the pull request base reads it again, and a pull request that
   assert.equal(reads, 2);
   assert.equal(coordinator.conflict?.pullRequest.mergeable, 'CONFLICTING');
   await merged([
-    merge('old', 'main'),
+    merge('old', 'main', before),
     merge('other', 'release'),
     merge('new', 'main'),
   ]);
   await step();
   assert.equal(reads, 2, 'a repeated event');
+});
+
+const at = (milliseconds: number) => new Date(milliseconds).toISOString();
+
+for (const [name, observed, expected] of [
+  ['a merge observed after the first open read started refreshes it', 2000, 1],
+  ['a merge observed before the first open read started does not', 500, 0],
+] as const)
+  test(name, async (t) => {
+    const stub = stubRepository();
+    const { merged } = fixture(t.onTestFinished, stub.repository);
+    stub.repository.pullRequestReadAt = 1000;
+    await stub.publish(status({ pullRequest: pr() }));
+    // the first coordination notification after the read
+    await merged([merge('m', 'main', at(observed))]);
+    assert.equal(stub.refreshes(), expected);
+  });
+
+test('a merge delivered before the open read publishes refreshes it once it does', async (t) => {
+  const stub = stubRepository();
+  const { merged } = fixture(t.onTestFinished, stub.repository);
+  stub.repository.pullRequestReadAt = 1000;
+  await merged([merge('m', 'main', at(1500))]);
+  assert.equal(stub.refreshes(), 0);
+  await stub.publish(status({ pullRequest: pr() }));
+  assert.equal(stub.refreshes(), 1);
+});
+
+test('a merge delivered before the conversation opens refreshes the pull request once it does', async (t) => {
+  const stub = stubRepository();
+  const { coordinator, merged, publish } = fixture(
+    t.onTestFinished,
+    stub.repository,
+  );
+  const conversation = coordinator.snapshot.conversation;
+  publish({ conversation: undefined });
+  stub.repository.pullRequestReadAt = 1000;
+  await stub.publish(status({ pullRequest: pr() }));
+  await merged([merge('m', 'main', at(2000))]);
+  assert.equal(stub.refreshes(), 0);
+  publish({ conversation });
+  await tick();
+  assert.equal(stub.refreshes(), 1);
 });

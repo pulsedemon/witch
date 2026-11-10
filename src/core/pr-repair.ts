@@ -284,7 +284,11 @@ export class PullRequestRepair {
 export function watchConflicts(
   repository: Pick<
     RepositoryWatch,
-    'snapshot' | 'subscribe' | 'refreshPullRequest' | 'readPullRequest'
+    | 'snapshot'
+    | 'subscribe'
+    | 'refreshPullRequest'
+    | 'readPullRequest'
+    | 'pullRequestReadAt'
   >,
   coordinator: Pick<
     Coordinator,
@@ -310,26 +314,37 @@ export function watchConflicts(
   const schedule = () => {
     if (!stopped) pending ??= setImmediate(check);
   };
-  let seen: Set<string> | undefined;
+  const seen = new Set<string>();
+  // the start of the first open read, which covers merges recorded before it, even ones delivered later
+  let opened: number | undefined;
   const coordination = coordinator.coordination;
   const merged = () => {
-    const conversation = coordinator.snapshot.conversation;
     const request = repository.snapshot?.pullRequest;
-    if (!coordination || !conversation || request?.state !== 'OPEN') return;
-    const events = coordination.events.mergeEvents(conversation.id);
-    const fresh = events.filter(({ id }) => !seen?.has(id));
-    const first = !seen;
-    seen ??= new Set();
+    if (request?.state !== 'OPEN') return;
+    const boundary = (opened ??= repository.pullRequestReadAt);
+    const conversation = coordinator.snapshot.conversation;
+    if (!coordination || !conversation || boundary === undefined) return;
+    const fresh = coordination.events
+      .mergeEvents(conversation.id)
+      .filter(({ id }) => !seen.has(id));
     for (const { id } of fresh) seen.add(id);
     if (
-      !first &&
-      fresh.some(({ pullRequest }) => pullRequest.base === request.base)
+      fresh.some(
+        ({ pullRequest, observedAt }) =>
+          pullRequest.base === request.base &&
+          Date.parse(observedAt) >= boundary,
+      )
     )
       repository.refreshPullRequest();
   };
+  // a merge delivered before the first open read publishes, or before the conversation opens, is checked once they do
+  const changed = () => {
+    merged();
+    schedule();
+  };
   const stops = [
-    repository.subscribe(schedule),
-    coordinator.subscribe(schedule),
+    repository.subscribe(changed),
+    coordinator.subscribe(changed),
     ...(coordination ? [coordination.subscribe(merged)] : []),
   ];
   coordinator.repair.setRefresh(async () => {
