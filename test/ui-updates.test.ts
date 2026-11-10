@@ -496,23 +496,39 @@ test('inventory waits for the build identity before reporting verification', asy
   slow.close();
 });
 
-test('an unreadable release directory withholds qualification without hiding the available update', async () => {
-  const f = await runtimeUpdateFixture();
+/** rechecks while the releases directory cannot be listed and the selected artifact stays reachable. */
+async function recheckUnlistable(
+  f: Awaited<ReturnType<typeof runtimeUpdateFixture>>,
+) {
   const releases = join(f.root, 'releases');
-  // listing fails while the selected artifact stays reachable
   await chmod(releases, 0o300);
   try {
     await f.updates.check(true);
   } finally {
     await chmod(releases, 0o755);
   }
-  const entry = f.updates.snapshot.entries[0]!;
+  return f.updates.snapshot.entries[0]!;
+}
+
+test('an unreadable release directory is reported without hiding the available update', async () => {
+  const f = await runtimeUpdateFixture();
+  const entry = await recheckUnlistable(f);
   assert.equal(entry.error, undefined);
   assert.equal(entry.check?.available, true);
-  assert.equal(entry.earlier, undefined);
   assert.match(updateChoice(entry, f.updates.snapshot), /1\.0\.0 → 2\.0\.0/);
   const text = updatesText(f.updates.snapshot);
   assert.match(text, /Earlier version lookup failed: EACCES/);
   assert.doesNotMatch(text, /Check failed/);
+  f.updates.close();
+});
+
+test('an unreadable release directory withholds the qualification offer', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  assert.equal(f.updates.snapshot.entries[0]!.earlier, '1.0.0');
+  const entry = await recheckUnlistable(f);
+  assert.equal(entry.earlier, undefined);
+  assert.match(entry.earlierError ?? '', /EACCES/);
+  assert.doesNotMatch(updateChoice(entry, f.updates.snapshot), /not verified/);
+  assert.doesNotMatch(updatesText(f.updates.snapshot), /to qualify it/);
   f.updates.close();
 });
