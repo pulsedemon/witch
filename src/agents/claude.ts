@@ -486,16 +486,13 @@ class ClaudeSession implements AgentSession {
     return skillsOf(await this.query.supportedCommands());
   }
 
-  /** an omitted effort leaves `effortLevel` unsent, which keeps the effort in force. */
+  /** an omitted effort leaves `effortLevel` unsent, which keeps the effort in force; the new model's window is published before it returns. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.answers.busy || (this.turn && !this.replied))
       throw new Error('Stop the current turn before changing models');
     const level = effort == null ? effort : effortLevel.parse(effort);
     await this.query.setModel(model);
-    if (model !== this.info.model) {
-      this.report({ context: undefined, contextWindow: undefined });
-      this.context.invalidate();
-    }
+    if (model !== this.info.model) this.report(this.context.invalidate());
     if (level !== undefined)
       await this.query.applyFlagSettings({ effortLevel: level });
     this.info = {
@@ -506,6 +503,7 @@ class ClaudeSession implements AgentSession {
         : {}),
     };
     this.options.onEvent({ type: 'info', info: this.info });
+    await this.contextUsage();
     if (this.options.automaticCompaction) await this.context.configure();
   }
 

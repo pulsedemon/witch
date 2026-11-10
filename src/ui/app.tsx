@@ -14,7 +14,7 @@ import { errorMessage } from '../agents/stderr.js';
 import type { CompletionList } from './completion.js';
 import type { Coordinator } from '../core/coordinator.js';
 import type { Snapshot } from '../core/snapshot.js';
-import { modelKey, modelTarget } from '../core/models.js';
+import { modelKey } from '../core/models.js';
 import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
 import { agentWorking, contextStart } from '../core/state.js';
@@ -56,6 +56,7 @@ import { delegation } from './delegation.js';
 import { coordinationText } from './peers.js';
 import { conversationLabel } from './conversations.js';
 import { StatusLine, statusFooter, useStatusTime } from './status-line.js';
+import { chooseModel } from './model-choice.js';
 import { ScrollPage } from './scroll-page.js';
 import { helpText } from './help.js';
 import { PhaseRow } from './phase-row.js';
@@ -611,44 +612,20 @@ export function App({
       },
     );
   };
-  const selectModel = async (
-    id: string,
-    effort?: string,
-    chooseEffort = false,
-  ) => {
-    const active = coordinator.snapshot.conversation!.agent;
-    const selection = modelTarget(
+  const selectModel = (id: string, effort?: string, live?: () => boolean) =>
+    chooseModel(
+      {
+        coordinator,
+        picker,
+        toChat: (handoff) => {
+          setView({ kind: 'chat' });
+          if (handoff) setTop(null);
+        },
+      },
       id,
-      active,
-      state.agents.map((agent) => agent.id),
-      coordinator.snapshot,
+      effort,
+      live,
     );
-    const efforts =
-      coordinator.snapshot.models.find(
-        (model) => model.id === selection.id && model.agent === selection.agent,
-      )?.efforts ?? [];
-    const select = (effort?: string) => {
-      setView({ kind: 'chat' });
-      if (selection.agent !== active) setTop(null);
-      return coordinator.selectModel({ ...selection, effort });
-    };
-    if (chooseEffort && efforts.length)
-      return picker(
-        `Reasoning for ${selection.id}`,
-        [
-          {
-            id: '',
-            label:
-              selection.agent === active
-                ? 'Keep current effort'
-                : `Use ${state.agents.find((agent) => agent.id === selection.agent)!.label}'s current/default effort`,
-          },
-          ...efforts.map((effort) => ({ id: effort, label: effort })),
-        ],
-        (effort) => select(effort || undefined),
-      );
-    else await select(effort);
-  };
   const executeCommand = async (
     { name, argument }: WitchCommand,
     active: () => boolean,
@@ -704,7 +681,7 @@ export function App({
               label: `${state.agents.find((agent) => agent.id === model.agent)!.label} · ${model.label}`,
               exact: model.id,
             })),
-            (id) => selectModel(id, undefined, true),
+            (id) => selectModel(id, undefined, active),
             true,
           );
         }

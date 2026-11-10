@@ -79,7 +79,16 @@ export class ClaudeContext {
       const capacity = z.number().safeParse(value.maxTokens);
       const usage = {
         ...(percentage.success ? { context: percentage.data } : {}),
-        ...(capacity.success ? { contextWindow: capacity.data } : {}),
+        ...(capacity.success
+          ? {
+              contextWindow: capacity.data,
+              // Claude Code lists no `[1m]` ids, and `claude-fable-5-2` runs at 200k without one
+              longContext:
+                model && capacity.data < 1_000_000 && !model.endsWith('[1m]')
+                  ? `${model}[1m]`
+                  : undefined,
+            }
+          : {}),
       };
       if (Object.keys(usage).length) publish(usage);
       return usage.context;
@@ -92,8 +101,14 @@ export class ClaudeContext {
     this.context = context.safeParse(value).data;
   }
 
-  invalidate(): void {
+  /** returns the usage the dropped sample vouched for, cleared. */
+  invalidate(): Usage {
     this.context = undefined;
+    return {
+      context: undefined,
+      contextWindow: undefined,
+      longContext: undefined,
+    };
   }
 
   async configure(): Promise<void> {

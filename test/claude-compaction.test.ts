@@ -364,6 +364,56 @@ test('Claude reports automatic main-session replacement without admitting child 
   }
 });
 
+/** the id of the context read the fixture holds, once it differs from `previous`. */
+async function contextRequest(cwd: string, previous = ''): Promise<string> {
+  let id = '';
+  await until('context read', async () =>
+    jsonLines(join(cwd, 'context-request.json')).then(([message]) => {
+      if (!message) return false;
+      id = (message as { request_id: string }).request_id;
+      return id !== previous;
+    }),
+  );
+  return id;
+}
+
+function contextReply(
+  f: Awaited<ReturnType<typeof scripted>>,
+  request_id: string,
+  percentage: number,
+  maxTokens: number,
+) {
+  return f.emit({
+    type: 'control_response',
+    response: {
+      subtype: 'success',
+      request_id,
+      response: { percentage, maxTokens },
+    },
+  });
+}
+
+test('Claude reports the 1M form of a model that runs below 1M', async () => {
+  const f = await scripted();
+  try {
+    // the fixture reports a 200k window
+    await f.session.selectModel('claude-b');
+    assert.equal(f.session.usage.contextWindow, 200000);
+    assert.equal(f.session.usage.longContext, 'claude-b[1m]');
+    // a settings-limited window can keep a 1M form below 1M
+    await f.session.selectModel('claude-b[1m]');
+    assert.equal(f.session.usage.longContext, undefined);
+    await f.session.selectModel('claude-b');
+    await writeFile(join(f.cwd, 'hold-context'), '');
+    const selecting = f.session.selectModel('claude-c');
+    await contextReply(f, await contextRequest(f.cwd), 5, 1_000_000);
+    await within(selecting, 2000, 'model change');
+    assert.equal(f.session.usage.longContext, undefined);
+  } finally {
+    await f.session.close();
+  }
+});
+
 test('Claude process closure settles a compaction without a native result', async () => {
   const f = await scripted();
   try {
@@ -398,37 +448,18 @@ test('Claude awaits a fresh context read without waiting for account usage and r
     await writeFile(join(f.cwd, 'hold-context'), '');
     const stale = f.session.contextUsage();
     const isSettled = settled(stale);
-    const request = async (previous = '') => {
-      let id = '';
-      await until('context read', async () =>
-        jsonLines(join(f.cwd, 'context-request.json')).then(([message]) => {
-          if (!message) return false;
-          id = (message as { request_id: string }).request_id;
-          return id !== previous;
-        }),
-      );
-      return id;
-    };
-    const first = await request();
+    const first = await contextRequest(f.cwd);
     assert.equal(isSettled(), false);
-    await f.session.selectModel('claude-b');
-    const reply = (request_id: string, percentage: number, maxTokens: number) =>
-      f.emit({
-        type: 'control_response',
-        response: {
-          subtype: 'success',
-          request_id,
-          response: { percentage, maxTokens },
-        },
-      });
-    await reply(first, 71, 300000);
+    const selecting = f.session.selectModel('claude-b');
+    // the new model's own read proves setModel resolved, so the held sample is obsolete
+    const second = await contextRequest(f.cwd, first);
+    await contextReply(f, first, 71, 300000);
     assert.equal(await stale, undefined);
     assert.equal(f.session.usage.context, undefined);
-    const fresh = f.session.contextUsage();
-    await reply(await request(first), 82, 900000);
-    assert.equal(await within(fresh, 2000, 'fresh context'), 82);
+    await contextReply(f, second, 82, 1_000_000);
+    await within(selecting, 2000, 'model change');
     assert.equal(f.session.usage.context, 82);
-    assert.equal(f.session.usage.contextWindow, 900000);
+    assert.equal(f.session.usage.contextWindow, 1_000_000);
   } finally {
     await f.session.close();
   }

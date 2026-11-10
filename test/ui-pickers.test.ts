@@ -109,6 +109,146 @@ for (const [choice, keys, effort, outcome] of [
     }
   });
 
+for (const [choice, keys, outcome] of [
+  ['1M', ENTER, 'selects its 1M form'],
+  ['Keep', `${DOWN}${ENTER}`, 'keeps the model'],
+] as const)
+  test(`/model then ${choice} in the context window picker ${outcome}`, async () => {
+    const { app, calls, coordinator } = fake({
+      models: [
+        { agent: 'a', id: 'm', label: 'Model M', efforts: ['low', 'high'] },
+      ],
+    });
+    coordinator.publish({
+      usage: { contextWindow: 200000, longContext: 'm[1m]' },
+    });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      await openCommand(ui, '/model', 'Model M');
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the effort picker', () =>
+        ui.text().includes('Keep current effort'),
+      );
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the window picker', () =>
+        ui.text().includes('Context window for m'),
+      );
+      assert.match(ui.text(), /1M[\s\S]*Keep 200K/);
+      await delay(30);
+      ui.stdin.write(keys);
+      await until(
+        'the picker closed',
+        () => !ui.text().includes('Context window for m'),
+      );
+      await delay(30);
+      assert.deepEqual(calls, [
+        ['refreshModels'],
+        ['selectModel', { agent: 'a', id: 'm', effort: undefined }],
+        ...(choice === '1M'
+          ? [['selectModel', { agent: 'a', id: 'm[1m]' }]]
+          : []),
+      ]);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+test('Escape while a picked model is still being selected opens no context window picker', async () => {
+  const { app, calls, coordinator } = fake({
+    models: [{ agent: 'a', id: 'm', label: 'Model M', efforts: [] }],
+  });
+  const selecting = Promise.withResolvers<void>();
+  coordinator.selectModel = async (...args: unknown[]) => {
+    calls.push(['selectModel', ...args]);
+    await selecting.promise;
+  };
+  coordinator.publish({
+    usage: { contextWindow: 200000, longContext: 'm[1m]' },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await openCommand(ui, '/model', 'Model M');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the selection', () =>
+      calls.some(([name]) => name === 'selectModel'),
+    );
+    ui.stdin.write('\u001b');
+    await delay(60);
+    selecting.resolve();
+    await delay(100);
+    assert.ok(!ui.text().includes('Context window'), ui.text());
+  } finally {
+    selecting.resolve();
+    ui.unmount();
+  }
+});
+
+test('a failed 1M choice for a model without efforts stops the rest of the command batch', async () => {
+  const { app, calls, coordinator } = fake({
+    models: [{ agent: 'a', id: 'm', label: 'Model M', efforts: [] }],
+  });
+  coordinator.selectModel = async (...args: unknown[]) => {
+    calls.push(['selectModel', ...args]);
+    if ((args[0] as { id: string }).id === 'm[1m]')
+      throw new Error('Usage credits are required for long context requests');
+  };
+  coordinator.publish({
+    usage: { contextWindow: 200000, longContext: 'm[1m]' },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await openCommand(ui, '/model /clear', 'Model M');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the window picker', () =>
+      ui.text().includes('Context window for m'),
+    );
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the reported failure', () =>
+      calls.some(([name]) => name === 'report'),
+    );
+    await until('batch released', () => !coordinator.snapshot.commandsPending);
+    assert.equal(
+      calls.some(([name]) => name === 'clear'),
+      false,
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a model picked on another runtime is never offered a context window', async () => {
+  const { app, calls, coordinator } = fake({
+    models: [{ agent: 'b', id: 'x', label: 'X', efforts: [] }],
+  });
+  coordinator.publish({
+    usage: { contextWindow: 200000, longContext: 'x[1m]' },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await openCommand(ui, '/model', 'b · X');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the selection', () => calls.length === 2);
+    await delay(60);
+    assert.deepEqual(calls, [
+      ['refreshModels'],
+      ['selectModel', { agent: 'b', id: 'x', effort: undefined }],
+    ]);
+    assert.ok(!ui.text().includes('Context window'), ui.text());
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('a model id carrying a link sequence shows as plain text in the effort picker title', async () => {
   const { app } = fake({
     models: [
