@@ -28,6 +28,60 @@ async function claudeCoordinator(mode: string) {
   return { ...launched, coordinator, memory };
 }
 
+test('a prompt Claude Code never read before an interrupt runs next, ahead of the steer behind it', async () => {
+  const { coordinator, cwd, children } =
+    await claudeCoordinator('hold-initial');
+  const held = () => readFile(join(cwd, 'held.json'), 'utf8').catch(() => '');
+  try {
+    await coordinator.initialize(cwd);
+    void coordinator.send('an ordinary prompt');
+    await until('the held prompt', async () => (await held()).length > 0);
+    await coordinator.send('a steer');
+    await within(coordinator.interrupt(), 5000, 'interrupt');
+    await until(
+      'the rerun',
+      async () =>
+        children.length === 2 &&
+        (await held()).includes('an ordinary prompt\\na steer'),
+      200,
+    );
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter(({ kind }) => kind === 'user')
+        .slice(0, 2)
+        .map(({ text, unread }) => [text, unread]),
+      [
+        ['an ordinary prompt', true],
+        ['a steer', true],
+      ],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a held ! command interrupted before Claude Code read it runs once', async () => {
+  const { coordinator, cwd, children } =
+    await claudeCoordinator('hold-initial');
+  try {
+    await coordinator.initialize(cwd);
+    const turn = coordinator.send("!printf 'once\\n' >> executions");
+    await until('the held command reply', async () =>
+      (await readFile(join(cwd, 'held.json'), 'utf8').catch(() => '')).includes(
+        '<bash-input>',
+      ),
+    );
+    await within(coordinator.interrupt(), 5000, 'interrupt');
+    await within(turn, 5000, 'turn');
+    await delay(300);
+    assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
+    assert.equal(children.length, 1);
+    assert.deepEqual(coordinator.snapshot.queue, []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 for (const [entry, route, failures] of [
   ['initial', 'reconnect', 1],
   ['initial', 'switch', 1],

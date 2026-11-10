@@ -351,6 +351,10 @@ export class TurnRunner {
       // first, so the prompts the turn left unread go ahead of those a refused steer gives back
       await steering;
       await this.compaction.busy;
+      // unread input settles as unsent, so an automatic instruction never reaches the user queue; the drain reruns a
+      // user prompt itself
+      if (result.inputUnread && command === undefined)
+        result = { ...result, inputUnsent: true };
       if (command === undefined && !result.inputUnsent) delivered?.();
       // a `!` command was delivered before it ran
       const back = command === undefined && result.inputUnsent;

@@ -245,6 +245,8 @@ export interface TurnResult {
   unreadContext?: string[];
   /** the input passed to send() is proven unwritten; absent when delivery is uncertain. */
   inputUnsent?: boolean;
+  /** the input passed to send() was written, but the agent reports it never read it. */
+  inputUnread?: true;
   /** the adapter confirmed native usage exhaustion. */
   exhausted?: true;
 }

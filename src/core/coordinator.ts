@@ -790,7 +790,8 @@ export class Coordinator {
           !this.halted()
         )
           continue;
-        if (!delivered || this.halted()) return;
+        // a prompt the agent never read runs next, as an interrupt's unread steers do
+        if ((!delivered && !result?.inputUnread) || this.halted()) return;
         tried.clear();
       }
     } finally {
