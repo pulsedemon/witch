@@ -220,14 +220,17 @@ test('only a supporting session receives familiar instructions and the exact use
   assert.ok(rule, input.context);
   assert.match(
     rule,
-    /before you present it or carry it out, without waiting for the user to ask; this rule is the user's request for that review/,
+    /or a familiar writes one for you, have familiars review it before you present it or carry it out, without waiting for the user to ask; this rule is the user's request for that review/,
   );
   assert.match(
     rule,
     /Your native progress list, carrying out an already approved plan and a plan Witch's \/review has reviewed don't need this review/,
   );
   assert.match(rule, /A spell's self-review doesn't replace it/);
-  assert.match(rule, /--route review --of <your runtime>:<your model> --json/);
+  assert.match(
+    rule,
+    /--route review --of <runtime>:<model> --json, naming the runtime and model that wrote the plan/,
+  );
   assert.match(
     rule,
     /launch only on a newly returned route that has no reviewer in this round, and in this round don't relaunch one that failed, stopped or was interrupted/,
