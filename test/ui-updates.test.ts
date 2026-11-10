@@ -435,6 +435,16 @@ test('the picker label and the status text offer qualification by one rule', asy
     offered({ ...snapshot, progress: 'Qualifying codex 2.0.0' }),
     { label: false, hint: false },
   );
+  const unidentified: RuntimeUpdateSnapshot = {
+    ...snapshot,
+    build: undefined,
+    buildError: 'Build tree unreadable',
+  };
+  assert.deepEqual(offered(unidentified), { label: false, hint: false });
+  assert.match(
+    updatesText(unidentified),
+    /Witch build identity failed: Build tree unreadable/,
+  );
   const pending: RuntimeUpdateSnapshot = {
     ...snapshot,
     entries: [{ ...entry, journal: { ...journal, phase: 'failed' } }],

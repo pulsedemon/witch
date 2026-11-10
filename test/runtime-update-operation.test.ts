@@ -28,6 +28,12 @@ test('an update selects and verifies the confirmed artifact before releasing adm
   assert.equal(journal.phase, 'verified');
   assert.equal(journal.selected?.digest, f.artifacts.get('2.0.0')!.digest);
   assert.deepEqual(f.installs, ['2.0.0']);
+  assert.deepEqual(
+    f.notices.filter((notice) => notice.includes('verified')),
+    [
+      `codex 2.0.0 installed and verified. Evidence: ${f.store.operation(journal)}`,
+    ],
+  );
   const release = holdRuntime(f.root, f.store.directory);
   release();
   assert.equal(f.updates.snapshot.entries[0]!.installation?.version, '2.0.0');
@@ -741,6 +747,56 @@ test('a failed build identity is reported by the operation instead of hiding the
     /Build tree unreadable/,
   );
   assert.equal(broken.updates.snapshot.progress, undefined);
+  assert.equal(broken.updates.snapshot.buildError, 'Build tree unreadable');
   assert.equal(await f.store.journal(f.root), undefined);
   broken.updates.close();
 });
+
+test('qualifying refuses an installation that changed since it was offered', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  let prepared = false;
+  f.native.prepare = async () => {
+    prepared = true;
+    throw new Error('Preparation ran for a changed installation');
+  };
+  await assert.rejects(
+    f.updates.apply(
+      {
+        ...f.check,
+        installation: { ...f.check.installation, digest: 'offered-artifact' },
+      },
+      { accountUsage: true },
+    ),
+    /installation changed/,
+  );
+  assert.equal(prepared, false);
+  assert.equal(await f.store.journal(f.root), undefined);
+  f.updates.close();
+});
+
+for (const [name, tamper] of [
+  ['did not pass', { passed: false }],
+  ['names another candidate', { candidate: 'another-artifact' }],
+] as const) {
+  test(`a qualification report that ${name} records nothing`, async () => {
+    const f = await runtimeUpdateFixture(undefined, '2.0.0');
+    const verify = f.native.verify;
+    f.native.verify = async (...args) => {
+      const report = await verify(...args);
+      return 'passed' in tamper
+        ? { ...report, passed: tamper.passed }
+        : {
+            ...report,
+            candidate: { ...report.candidate, digest: tamper.candidate },
+          };
+    };
+    await assert.rejects(
+      f.updates.apply(f.check, { accountUsage: true }),
+      /did not verify this version/,
+    );
+    assert.equal(await f.store.journal(f.root), undefined);
+    assert.deepEqual(f.notices, []);
+    holdRuntime(f.root, f.store.directory)();
+    f.updates.close();
+  });
+}

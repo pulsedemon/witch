@@ -197,6 +197,20 @@ test('the earlier artifact is the newest older sibling in either native layout',
     executable: join(releases, '1.9.0-aarch64-apple-darwin', 'bin', 'codex'),
   });
   assert.equal(await earlierArtifact(codex('1.2.3')), undefined);
+  const unversioned = join(releases, 'notes', 'bin', 'codex');
+  await assert.rejects(
+    earlierArtifact({ ...codex('1.10.0'), executable: unversioned }),
+    /Unrecognized Codex release directory notes for version 1\.10\.0/,
+  );
+  // outside a native releases directory the name promises nothing
+  assert.equal(
+    await earlierArtifact({
+      ...codex('1.10.0'),
+      root: join(releases, 'notes'),
+      executable: unversioned,
+    }),
+    undefined,
+  );
 
   const versions = join(root, 'claude', 'versions');
   await mkdir(versions, { recursive: true });
