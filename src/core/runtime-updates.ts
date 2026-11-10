@@ -54,6 +54,8 @@ export interface RuntimeUpdateSnapshot {
   entries: readonly RuntimeUpdateEntry[];
   checking: boolean;
   build?: string;
+  /** why this Witch build could not be identified; nothing can be verified against it. */
+  buildError?: string;
   progress?: string;
   error?: string;
 }
@@ -144,7 +146,9 @@ export class RuntimeUpdates {
       (build) => {
         if (!this.closed) this.publish({ build });
       },
-      () => {},
+      (error: unknown) => {
+        if (!this.closed) this.publish({ buildError: errorMessage(error) });
+      },
     );
   }
 
@@ -286,7 +290,7 @@ export class RuntimeUpdates {
           }
         }),
       );
-      // entries are compared against the build, so they wait for it; apply reports a failed one
+      // entries are compared against the build, so they wait for it to settle
       await this.build.catch(() => undefined);
       if (!this.closed) this.publish({ entries });
     } finally {

@@ -18,6 +18,7 @@ function qualifiable(
   snapshot: RuntimeUpdateSnapshot,
 ): boolean {
   return (
+    snapshot.build !== undefined &&
     !snapshot.progress &&
     !(entry.journal && pendingUpdate(entry.journal)) &&
     !!entry.check &&
@@ -47,6 +48,9 @@ export function updatesText(snapshot: RuntimeUpdateSnapshot): string {
     ...(snapshot.progress ? [snapshot.progress, ''] : []),
     ...(snapshot.checking ? ['Checking releases…', ''] : []),
     ...(snapshot.error ? [`Failed: ${snapshot.error}`, ''] : []),
+    ...(snapshot.buildError
+      ? [`Witch build identity failed: ${snapshot.buildError}`, '']
+      : []),
     'Updates and qualification run only when you confirm, and their checks spend native account usage. A failed update keeps or restores the previous version, or leaves recovery pending here. Qualifying the installed version installs nothing; its failure is only reported.',
     '',
   ];
