@@ -98,6 +98,9 @@ export async function checkNativeSettings(
       JSON.parse(await readFile(join(cwd, 'settings-result.json'), 'utf8')),
       expected,
     );
+  } catch (error) {
+    // a failed approval aborts the session, so the turn's own failure only says it was aborted
+    throw failure.signal.aborted ? failure.signal.reason : error;
   } finally {
     try {
       await session.close();
