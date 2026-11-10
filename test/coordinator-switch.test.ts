@@ -151,6 +151,33 @@ test('destination startup failure retains the source conversation and session', 
   }
 });
 
+for (const failure of ['destination', 'summary'] as const)
+  test(`a switch that fails at its ${failure} keeps the pending handoff`, async () => {
+    const { coordinator, a, b, root } = await unitFixture();
+    try {
+      await coordinator.send('Start');
+      await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+      const pending = structuredClone(
+        coordinator.snapshot.conversation!.handoff,
+      );
+      assert.equal(pending?.summary, 'a: finish the migration');
+      // a failed summary falls back to the transcript; an interrupted one stops before replacing anything
+      if (failure === 'destination') b.failNext = true;
+      else b.interruptNext = true;
+      a.failConnect = true;
+      await assert.rejects(
+        coordinator.selectModel({ agent: 'a', id: 'a-model' }),
+      );
+      const id = coordinator.snapshot.conversation!.id;
+      assert.deepEqual(coordinator.snapshot.conversation!.handoff, pending);
+      assert.deepEqual((await readRecord(root, id)).handoff, pending);
+      await coordinator.send('Continue');
+      assert.ok(b.inputs.at(-1)?.context?.includes('a: finish the migration'));
+    } finally {
+      await coordinator.close();
+    }
+  });
+
 for (const resumed of [false, true])
   for (const effort of ['high', undefined])
     test(`${resumed ? 'resumed' : 'first'} handoff dispatch uses the selected model and ${effort ?? 'destination'} effort`, async () => {
