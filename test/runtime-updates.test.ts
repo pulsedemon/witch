@@ -12,6 +12,7 @@ import { test } from 'vitest';
 import { CodexAdapter } from '../src/agents/codex.js';
 import {
   checkRuntimeUpdate,
+  earlierArtifact,
   inspectRuntime,
 } from '../src/agents/runtime-updates.js';
 import type { RuntimeInstallation } from '../src/agents/runtime-updates.js';
@@ -165,4 +166,62 @@ test('an unsupported PATH executable is diagnosed without running it or selectin
     },
   );
   await assert.rejects(access(`${executable}.ran`), { code: 'ENOENT' });
+});
+
+test('the earlier artifact is the newest older sibling in either native layout', async () => {
+  const root = await scratch('witch-runtime-earlier-');
+  const releases = join(root, 'standalone', 'releases');
+  for (const name of [
+    '1.2.3-aarch64-apple-darwin',
+    '1.9.0-aarch64-apple-darwin',
+    '1.9.5-x86_64-apple-darwin',
+    '1.10.0-aarch64-apple-darwin',
+    '2.0.0-aarch64-apple-darwin',
+    'notes',
+  ])
+    await mkdir(join(releases, name, 'bin'), { recursive: true });
+  const codex = (version: string): RuntimeInstallation => ({
+    ...installation,
+    runtime: 'codex',
+    root: join(root, 'standalone'),
+    executable: join(
+      releases,
+      `${version}-aarch64-apple-darwin`,
+      'bin',
+      'codex',
+    ),
+    version,
+  });
+  assert.deepEqual(await earlierArtifact(codex('1.10.0')), {
+    version: '1.9.0',
+    executable: join(releases, '1.9.0-aarch64-apple-darwin', 'bin', 'codex'),
+  });
+  assert.equal(await earlierArtifact(codex('1.2.3')), undefined);
+
+  const versions = join(root, 'claude', 'versions');
+  await mkdir(versions, { recursive: true });
+  for (const name of [
+    '2.1.296',
+    '2.1.299',
+    '2.1.300.partial',
+    '2.1.322',
+    '2.1.400',
+    '.DS_Store',
+  ])
+    await writeFile(join(versions, name), '');
+  const claude = (version: string): RuntimeInstallation => ({
+    ...installation,
+    root: join(root, 'claude'),
+    executable: join(versions, version),
+    version,
+  });
+  assert.deepEqual(await earlierArtifact(claude('2.1.322')), {
+    version: '2.1.299',
+    executable: join(versions, '2.1.299'),
+  });
+  assert.equal(await earlierArtifact(claude('2.1.296')), undefined);
+  assert.equal(
+    await earlierArtifact({ ...claude('2.1.322'), root: join(root, 'gone') }),
+    undefined,
+  );
 });

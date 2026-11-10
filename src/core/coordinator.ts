@@ -1118,7 +1118,7 @@ export class Coordinator {
       !this.link.maintenanceReady
     )
       throw new Refusal(
-        'Finish current work and queued prompts before updating a native runtime.',
+        'Finish current work and queued prompts before updating or qualifying a native runtime.',
       );
     const release = this.holdPromptDelivery();
     const abort = new AbortController();

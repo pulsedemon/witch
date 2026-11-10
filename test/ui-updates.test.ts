@@ -5,8 +5,14 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import { App } from '../src/ui/app.js';
-import { updatesText } from '../src/ui/updates.js';
-import { holdRuntime } from '../src/persistence/runtime-updates.js';
+import { updateChoice, updatesText } from '../src/ui/updates.js';
+import {
+  holdRuntime,
+  NativeUpdatePending,
+} from '../src/persistence/runtime-updates.js';
+import type { UpdateJournal } from '../src/persistence/runtime-updates.js';
+import { RuntimeUpdates } from '../src/core/runtime-updates.js';
+import type { RuntimeUpdateSnapshot } from '../src/core/runtime-updates.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { StateStore } from '../src/persistence/store.js';
 import { runtimeUpdateFixture } from './fixtures/runtime-updates.js';
@@ -280,7 +286,10 @@ test('failed reconnect keeps qualified candidate recovery available and restores
     );
     const journal = (await update.store.journal(update.root))!;
     assert.equal(journal.phase, 'failed');
-    assert.match(updatesText(update.updates.snapshot), /recover/);
+    assert.match(
+      updatesText(update.updates.snapshot),
+      /Run \/updates codex to recover/,
+    );
     agent.beforeConnect = undefined;
     await update.updates.recover(journal);
     assert.equal((await update.inspect()).version, '1.0.0');
@@ -331,4 +340,150 @@ test('an unrelated startup failure leaves a qualified update usable', async () =
     update.updates.close();
     await c.close();
   }
+});
+
+test('a current unverified installation is offered qualification even when updates are blocked', async () => {
+  const f = await unitFixture();
+  const update = await runtimeUpdateFixture(
+    {
+      maintain: (runtime, run) => f.coordinator.maintainNative(runtime, run),
+      notice: () => {},
+    },
+    '2.0.0',
+  );
+  update.policy.automatic = true;
+  update.policy.blocked = 'Native Codex automatic updates are enabled.';
+  const ui = show(
+    createElement(App, {
+      coordinator: f.coordinator,
+      updates: update.updates,
+      onExit: () => {},
+    }),
+    80,
+    24,
+  );
+  try {
+    await delay(70);
+    await submit(ui, '/updates codex');
+    await until('qualify confirmation', () =>
+      ui.text().includes('Paid checks on 2.0.0'),
+    );
+    assert.match(ui.text(), /Qualify Codex 2\.0\.0\?/);
+    assert.ok(ui.text().includes('codex'));
+    ui.stdin.write(ENTER);
+    await until('cancelled confirmation', () =>
+      ui.text().includes('Run /updates codex to qualify it.'),
+    );
+    assert.equal(await update.store.journal(update.root), undefined);
+    ui.stdin.write('\u001b[27u');
+    await delay(30);
+    await submit(ui, '/updates codex');
+    await until('second confirmation', () =>
+      ui.text().includes('Paid checks on 2.0.0'),
+    );
+    ui.stdin.write(DOWN);
+    ui.stdin.write(ENTER);
+    await until('verified version', () =>
+      ui.text().includes('Verified with this Witch build'),
+    );
+    assert.deepEqual(update.installs, []);
+    assert.equal((await update.store.journal(update.root))?.phase, 'verified');
+  } finally {
+    ui.unmount();
+    update.updates.close();
+    await f.coordinator.close();
+  }
+});
+
+test('the picker label and the status text offer qualification by one rule', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  const snapshot = f.updates.snapshot;
+  const entry = snapshot.entries[0]!;
+  const offered = (state: RuntimeUpdateSnapshot) => ({
+    label: /not verified/.test(updateChoice(state.entries[0]!, state)),
+    hint: /Run \/updates codex to qualify it\./.test(updatesText(state)),
+  });
+  const journal: UpdateJournal = {
+    id: '4b4c6f0e-6f58-4a55-9a0c-3c2a5a4f7d10',
+    previous: f.artifacts.get('1.0.0')!,
+    target: '2.0.0',
+    build: snapshot.build!,
+    selected: entry.installation,
+    phase: 'verified',
+    startedAt: 1,
+  };
+  assert.deepEqual(offered(snapshot), { label: true, hint: true });
+  assert.deepEqual(
+    offered({
+      ...snapshot,
+      entries: [{ ...entry, check: { ...entry.check!, blocked: 'Blocked' } }],
+    }),
+    { label: true, hint: true },
+  );
+  for (const [reason, changed] of [
+    ['a newer release', { check: { ...entry.check!, available: true } }],
+    ['no earlier version', { earlier: undefined }],
+    ['a verified record', { journal }],
+    ['a pending journal', { journal: { ...journal, phase: 'failed' } }],
+  ] as const)
+    assert.deepEqual(
+      offered({ ...snapshot, entries: [{ ...entry, ...changed }] }),
+      { label: false, hint: false },
+      reason,
+    );
+  assert.deepEqual(
+    offered({ ...snapshot, progress: 'Qualifying codex 2.0.0' }),
+    { label: false, hint: false },
+  );
+  const pending: RuntimeUpdateSnapshot = {
+    ...snapshot,
+    entries: [{ ...entry, journal: { ...journal, phase: 'failed' } }],
+  };
+  assert.match(updateChoice(pending.entries[0]!, pending), /recovery required/);
+  assert.match(updatesText(pending), /Run \/updates codex to recover/);
+  f.updates.close();
+});
+
+test('a refused qualification leaves the offer in place', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  const transaction = await f.store.transaction(f.root);
+  try {
+    await assert.rejects(
+      f.updates.apply(f.check, { accountUsage: true }),
+      NativeUpdatePending,
+    );
+  } finally {
+    await transaction.close();
+  }
+  assert.equal(f.updates.snapshot.progress, undefined);
+  assert.match(
+    updateChoice(f.updates.snapshot.entries[0]!, f.updates.snapshot),
+    /not verified/,
+  );
+  f.updates.close();
+});
+
+test('inventory waits for the build identity before offering qualification', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  await f.updates.apply(f.check, { accountUsage: true });
+  f.updates.close();
+  const slow = new RuntimeUpdates(
+    {
+      maintain: async (_runtime, run) => run(new AbortController().signal),
+      notice: () => {},
+    },
+    f.store,
+    f.native,
+    async () => [f.registration],
+    async () => {
+      await delay(200);
+      return 'fixture-build';
+    },
+  );
+  await slow.check();
+  assert.doesNotMatch(
+    updateChoice(slow.snapshot.entries[0]!, slow.snapshot),
+    /not verified/,
+  );
+  slow.close();
 });

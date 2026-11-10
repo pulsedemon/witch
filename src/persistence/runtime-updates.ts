@@ -11,6 +11,7 @@ import {
   runtimeCheckSchema,
   versionSchema,
 } from '../agents/runtime-updates.js';
+import type { RuntimeInstallation } from '../agents/runtime-updates.js';
 import { gone, readJson, unlessGone, writeJson } from './json.js';
 import { openLocked, tryOpenLocked, tryOpenLockedSync } from './lock.js';
 
@@ -57,15 +58,25 @@ export async function listParticipants(directory: string): Promise<string[]> {
 }
 export const pendingUpdate = (journal: UpdateJournal) =>
   !['verified', 'recovered', 'aborted'].includes(journal.phase);
+/** whether `journal` records a passed qualification of exactly this artifact by this Witch build. */
+export const qualifiedBy = (
+  journal: UpdateJournal | undefined,
+  installation: RuntimeInstallation | undefined,
+  build: string | undefined,
+) =>
+  journal?.phase === 'verified' &&
+  !!installation &&
+  installation.digest === journal.selected?.digest &&
+  journal.build === build;
 const key = (root: string) => createHash('sha256').update(root).digest('hex');
 const journalFile = (directory: string, root: string) =>
   join(directory, `${key(root)}.json`);
 
 export class NativeUpdatePending extends Error {
-  constructor() {
-    super(
-      'A native runtime update needs attention. Press Ctrl+P and choose Native runtime updates and recovery.',
-    );
+  constructor(
+    message = 'A native runtime update needs attention. Press Ctrl+P and choose Native runtime updates and recovery.',
+  ) {
+    super(message);
   }
 }
 
@@ -106,7 +117,10 @@ export class RuntimeUpdateStore {
       join(this.directory, `${key(root)}.transaction`),
       constants.O_CREAT | constants.O_RDWR,
     );
-    if (!file) throw new NativeUpdatePending();
+    if (!file)
+      throw new NativeUpdatePending(
+        'Another native update, recovery or qualification holds this installation. Try again when it finishes.',
+      );
     return file;
   }
 

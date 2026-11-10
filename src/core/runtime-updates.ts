@@ -10,6 +10,7 @@ import {
   assessRuntimeUpdate,
   checkRuntimeUpdate,
   contentDigest,
+  earlierArtifact,
   fileDigest,
   inspectRuntime,
   runtimeSchema,
@@ -31,6 +32,7 @@ import { errorMessage } from '../agents/stderr.js';
 import {
   holdRuntime,
   pendingUpdate,
+  qualifiedBy,
   RuntimeUpdateStore,
 } from '../persistence/runtime-updates.js';
 import type { UpdateJournal } from '../persistence/runtime-updates.js';
@@ -42,6 +44,8 @@ export interface RuntimeUpdateEntry {
   installation?: RuntimeInstallation;
   check?: RuntimeUpdateCheck;
   journal?: UpdateJournal;
+  /** the newest older version on disk, which qualifying the installed one resumes from. */
+  earlier?: string;
   error?: string;
 }
 export interface RuntimeUpdateSnapshot {
@@ -61,6 +65,7 @@ interface UpdateHost {
 }
 const operations = {
   inspect: inspectRuntime,
+  earlier: earlierArtifact,
   check: checkRuntimeUpdate,
   install: installNative,
   prepare: prepareNativeUpdate,
@@ -211,6 +216,8 @@ export class RuntimeUpdates {
   private async read(force: boolean): Promise<void> {
     this.publish({ checking: true });
     try {
+      // entries are compared against the build, so they wait for it; apply reports a failed one
+      await this.build.catch(() => undefined);
       const journals = await this.store.journals();
       const entries = await Promise.all(
         (await this.registrations()).map(async (registration) => {
@@ -257,7 +264,13 @@ export class RuntimeUpdates {
                 `${runtime === 'claude' ? 'Claude Code' : 'Codex'} ${check.target} is available. Open /updates to review it.`,
               );
             }
-            return { runtime, installation, check, journal };
+            return {
+              runtime,
+              installation,
+              check,
+              journal,
+              earlier: (await this.native.earlier(installation))?.version,
+            };
           } catch (error) {
             return {
               runtime,
@@ -288,74 +301,113 @@ export class RuntimeUpdates {
 
   private progress = (message: string) => this.publish({ progress: message });
 
+  /** installs and qualifies `check.target`, or with no newer release qualifies the installed version. */
   async apply(
     check: RuntimeUpdateCheck,
     consent: { accountUsage: true },
   ): Promise<void> {
     if (!consent.accountUsage)
       throw new Error('Native qualification requires account-usage consent.');
-    if (check.blocked) throw new Error(check.blocked);
-    if (!check.available) throw new Error('No newer release is available.');
+    const installing = check.available;
+    // every blocked reason restricts installing, and qualifying installs nothing
+    if (installing && check.blocked) throw new Error(check.blocked);
     let qualified: UpdateJournal | undefined;
     let transaction: FileHandle | undefined;
     await this.maintain(check.installation.runtime, async (stop) => {
       const signal = AbortSignal.any([stop, AbortSignal.timeout(15 * 60_000)]);
-      const previous = check.installation;
+      const installed = check.installation;
       const build = await this.build;
       if ((await this.identifyBuild()) !== build)
         throw new Error(
-          'Witch changed since startup. Restart before updating a native runtime.',
+          'Witch changed since startup. Restart before updating or qualifying a native runtime.',
         );
-      transaction = await this.store.transaction(previous.root);
+      transaction = await this.store.transaction(installed.root);
       let exclusive: FileHandle | undefined;
       const journal: UpdateJournal = {
         id: randomUUID(),
-        previous,
-        target: check.target,
+        previous: installed,
+        target: installing ? check.target : installed.version,
         build,
         phase: 'preparing',
         startedAt: Date.now(),
       };
       let recorded = false;
       let changed = false;
+      let evidence: string | undefined;
       try {
-        const unfinished = await this.store.journal(previous.root);
+        if (!installing)
+          this.progress(`Qualifying ${installed.runtime} ${installed.version}`);
+        const unfinished = await this.store.journal(installed.root);
         if (unfinished && pendingUpdate(unfinished))
           throw new Error('Recover the unfinished update first.');
-        const registration = await this.registration(previous.runtime);
-        const current = await this.native.inspect(
-          registration,
-          signal,
-          this.host.cwd?.() ?? process.cwd(),
-        );
+        const registration = await this.registration(installed.runtime);
+        const cwd = this.host.cwd?.() ?? process.cwd();
+        const current = await this.native.inspect(registration, signal, cwd);
         if (
-          current.root !== previous.root ||
-          current.digest !== previous.digest ||
-          current.launcher !== previous.launcher
+          current.root !== installed.root ||
+          current.digest !== installed.digest ||
+          current.launcher !== installed.launcher
         )
           throw new Error(
             'The installation changed. Check updates again before confirming.',
           );
-        const fresh = await this.native.check(current, signal);
-        await this.store.cache(fresh);
-        if (fresh.target !== check.target || fresh.blocked || !fresh.available)
-          throw new Error(
-            fresh.blocked ??
-              'The available release changed. Check updates again before confirming.',
+        if (installing) {
+          const fresh = await this.native.check(current, signal);
+          await this.store.cache(fresh);
+          if (
+            fresh.target !== check.target ||
+            fresh.blocked ||
+            !fresh.available
+          )
+            throw new Error(
+              fresh.blocked ??
+                'The available release changed. Check updates again before confirming.',
+            );
+          await this.record(journal);
+          recorded = true;
+          exclusive = await this.store.exclusive(installed.root, signal);
+          const users = await this.native.users(
+            installed.root,
+            this.store.directory,
           );
-        await this.record(journal);
-        recorded = true;
-        exclusive = await this.store.exclusive(previous.root, signal);
-        const users = await this.native.users(
-          previous.root,
-          this.store.directory,
-        );
-        if (users.length)
-          throw new Error(
-            users.map((user) => `PID ${user.pid}: ${user.reason}`).join('\n'),
+          if (users.length)
+            throw new Error(
+              users.map((user) => `PID ${user.pid}: ${user.reason}`).join('\n'),
+            );
+        } else {
+          if (qualifiedBy(unfinished, current, build))
+            throw new Error(
+              'This version is already verified with this Witch build.',
+            );
+          const earlier = await this.native.earlier(current);
+          if (!earlier)
+            throw new Error(
+              `No earlier ${installed.runtime} version is installed to check conversation resume against.`,
+            );
+          const artifact = await this.native.inspect(
+            { ...registration, executable: earlier.executable },
+            signal,
+            cwd,
           );
+          if (
+            artifact.root !== current.root ||
+            artifact.version !== earlier.version
+          )
+            throw new Error(
+              `The earlier ${installed.runtime} artifact at ${earlier.executable} is not version ${earlier.version} of this installation.`,
+            );
+          // no journal is written until the checks pass: a pending one blocks launches and demands recovery
+          journal.previous = {
+            ...current,
+            executable: artifact.executable,
+            version: artifact.version,
+            digest: artifact.digest,
+          };
+          journal.selected = current;
+        }
         const directory = this.store.operation(journal);
         await mkdir(directory, { recursive: true, mode: 0o700 });
+        evidence = directory;
         const options = {
           directory,
           build: journal.build,
@@ -363,41 +415,45 @@ export class RuntimeUpdates {
           signal,
           progress: this.progress,
         };
-        const prepared = await this.native.prepare(previous, options);
+        const prepared = await this.native.prepare(journal.previous, options);
         await writeJson(join(directory, 'prepared.json'), prepared);
         signal.throwIfAborted();
-        journal.phase = 'installing';
-        await this.record(journal);
-        changed = true;
-        this.progress(`Installing ${previous.runtime} ${journal.target}`);
-        await this.native.install(previous, journal.target, directory, signal);
-        const candidate = await this.native.inspect(
-          registration,
-          signal,
-          this.host.cwd?.() ?? process.cwd(),
-        );
-        journal.selected = candidate;
-        if (
-          candidate.root !== previous.root ||
-          candidate.version !== journal.target
-        )
-          throw new Error(
-            'The native installer did not select the confirmed version.',
+        let candidate = current;
+        if (installing) {
+          journal.phase = 'installing';
+          await this.record(journal);
+          changed = true;
+          this.progress(`Installing ${installed.runtime} ${journal.target}`);
+          await this.native.install(
+            installed,
+            journal.target,
+            directory,
+            signal,
           );
-        journal.phase = 'verifying';
-        await this.record(journal);
+          candidate = await this.native.inspect(registration, signal, cwd);
+          journal.selected = candidate;
+          if (
+            candidate.root !== installed.root ||
+            candidate.version !== journal.target
+          )
+            throw new Error(
+              'The native installer did not select the confirmed version.',
+            );
+          journal.phase = 'verifying';
+          await this.record(journal);
+        }
         const report = await this.native.verify(prepared, candidate, options);
         if (
           !report.passed ||
           report.build !== build ||
           report.profile !== verificationProfile ||
-          report.runtime !== previous.runtime ||
+          report.runtime !== installed.runtime ||
           JSON.stringify(report.completed) !==
-            JSON.stringify(requiredNativeChecks(previous.runtime)) ||
-          report.previous.digest !== previous.digest ||
+            JSON.stringify(requiredNativeChecks(installed.runtime)) ||
+          report.previous.digest !== journal.previous.digest ||
           report.candidate.digest !== candidate.digest
         )
-          throw new Error('Native qualification did not verify this upgrade.');
+          throw new Error('Native qualification did not verify this version.');
         if ((await this.identifyBuild()) !== build)
           throw new Error('Witch changed during native qualification.');
         journal.phase = 'verified';
@@ -419,14 +475,22 @@ export class RuntimeUpdates {
             await this.record(journal);
           }
         }
-        throw new Error(journal.error ?? errorMessage(error), { cause: error });
+        throw new Error(
+          journal.error ??
+            [
+              errorMessage(error),
+              ...(evidence ? [`Evidence: ${evidence}`] : []),
+            ].join('\n'),
+          { cause: error },
+        );
       } finally {
         await exclusive?.close();
         this.publish({ progress: undefined });
       }
     })
       .catch(async (error: unknown) => {
-        if (qualified) {
+        // a qualified installed version has nothing to recover to, so its record stands
+        if (qualified && installing) {
           qualified.phase = 'failed';
           qualified.error = `Qualification passed, but reconnect failed: ${errorMessage(error)}`;
           await this.record(qualified);
@@ -435,11 +499,11 @@ export class RuntimeUpdates {
       })
       .finally(async () => {
         await transaction?.close();
+        if (qualified?.phase === 'verified')
+          this.host.notice(
+            `${qualified.previous.runtime} ${qualified.selected!.version} ${installing ? 'installed and verified' : 'verified'}. Evidence: ${this.store.operation(qualified)}`,
+          );
       });
-    if (qualified)
-      this.host.notice(
-        `${qualified.previous.runtime} ${qualified.selected!.version} installed and verified. Evidence: ${this.store.operation(qualified)}`,
-      );
   }
 
   private async restore(journal: UpdateJournal): Promise<void> {

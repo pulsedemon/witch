@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { appendFile } from 'node:fs/promises';
+import { appendFile, rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { artifactDigest } from '../src/agents/runtime-updates.js';
 import {
   holdRuntime,
@@ -459,3 +460,287 @@ for (const fails of [false, true]) {
     },
   );
 }
+
+/** a second Witch over the fixture's store and operations, with its own build, notices and cancellation. */
+function successor(
+  f: Awaited<ReturnType<typeof runtimeUpdateFixture>>,
+  identifyBuild: () => Promise<string>,
+) {
+  const abort = new AbortController();
+  const notices: string[] = [];
+  const updates = new RuntimeUpdates(
+    {
+      maintain: async (_runtime, run) => run(abort.signal),
+      notice: (message) => notices.push(message),
+    },
+    f.store,
+    f.native,
+    async () => [f.registration],
+    identifyBuild,
+  );
+  return { updates, abort, notices };
+}
+
+test('qualifying the installed version records it verified without installing or excluding other users', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  assert.equal(f.updates.snapshot.entries[0]!.earlier, '1.0.0');
+  const lease = holdRuntime(f.root, f.store.directory);
+  f.native.users = async () => [{ pid: 1, reason: 'active session' }];
+  const admitted = async () => {
+    holdRuntime(f.root, f.store.directory)();
+    assert.equal(await f.store.journal(f.root), undefined);
+  };
+  const prepare = f.native.prepare;
+  f.native.prepare = async (...args) => {
+    await admitted();
+    assert.match(
+      f.updates.snapshot.progress ?? '',
+      /^Qualifying codex 2\.0\.0/,
+    );
+    await assert.rejects(f.store.transaction(f.root), (error) => {
+      assert.ok(error instanceof NativeUpdatePending);
+      assert.match(error.message, /holds this installation/);
+      return true;
+    });
+    return prepare(...args);
+  };
+  const verify = f.native.verify;
+  f.native.verify = async (...args) => {
+    await admitted();
+    return verify(...args);
+  };
+  try {
+    await f.updates.apply(f.check, { accountUsage: true });
+  } finally {
+    lease();
+  }
+  const journal = (await f.store.journal(f.root))!;
+  assert.equal(journal.phase, 'verified');
+  assert.equal(journal.target, '2.0.0');
+  assert.equal(journal.previous.digest, f.artifacts.get('1.0.0')!.digest);
+  assert.equal(journal.previous.launcher, f.launcher);
+  assert.equal(journal.selected?.digest, f.artifacts.get('2.0.0')!.digest);
+  assert.deepEqual(f.installs, []);
+  assert.deepEqual(f.notices, [
+    `codex 2.0.0 verified. Evidence: ${f.store.operation(journal)}`,
+  ]);
+  assert.equal(f.updates.snapshot.progress, undefined);
+  f.updates.close();
+});
+
+test('a blocked check restricts installing, not qualifying the installed version', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  f.policy.blocked = 'Native policy blocks installs';
+  await f.updates.check(true);
+  const check = f.updates.snapshot.entries[0]!.check!;
+  assert.equal(check.blocked, 'Native policy blocks installs');
+  await f.updates.apply(check, { accountUsage: true });
+  assert.equal((await f.store.journal(f.root))?.phase, 'verified');
+  f.updates.close();
+  const update = await runtimeUpdateFixture();
+  await assert.rejects(
+    update.updates.apply(
+      { ...update.check, blocked: 'Native policy blocks installs' },
+      { accountUsage: true },
+    ),
+    /Native policy blocks installs/,
+  );
+  assert.deepEqual(update.installs, []);
+  assert.equal(await update.store.journal(update.root), undefined);
+  update.updates.close();
+});
+
+for (const failure of ['a failed check', 'cancellation'] as const) {
+  test(`${failure} while qualifying changes nothing and reports its evidence`, async () => {
+    const f = await runtimeUpdateFixture(undefined, '2.0.0');
+    await f.updates.apply(f.check, { accountUsage: true });
+    const seeded = (await f.store.journal(f.root))!;
+    f.updates.close();
+    const next = successor(f, async () => 'another-build');
+    await next.updates.check();
+    if (failure === 'a failed check')
+      f.native.verify = async () => {
+        throw new Error('Native permission check failed');
+      };
+    else
+      f.native.prepare = async (_previous, options) => {
+        next.abort.abort(new Error('Cancelled by the user'));
+        options.signal.throwIfAborted();
+        throw new Error('The cancelled signal did not stop preparation');
+      };
+    await assert.rejects(
+      next.updates.apply(next.updates.snapshot.entries[0]!.check!, {
+        accountUsage: true,
+      }),
+      (error) => {
+        assert.ok(error instanceof Error);
+        assert.match(
+          error.message,
+          failure === 'a failed check'
+            ? /Native permission check failed/
+            : /Cancelled by the user/,
+        );
+        assert.ok(
+          error.message.includes(
+            `Evidence: ${join(f.store.directory, 'operations')}`,
+          ),
+        );
+        return true;
+      },
+    );
+    assert.deepEqual(await f.store.journal(f.root), seeded);
+    assert.equal((await f.inspect()).version, '2.0.0');
+    assert.deepEqual(f.installs, []);
+    assert.deepEqual(next.notices, []);
+    assert.equal(next.updates.snapshot.progress, undefined);
+    holdRuntime(f.root, f.store.directory)();
+    await (await f.store.transaction(f.root)).close();
+    next.updates.close();
+  });
+}
+
+test('qualifying refuses before preparation when the earlier artifact is gone', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  await rm(dirname(dirname(f.artifacts.get('1.0.0')!.executable)), {
+    recursive: true,
+  });
+  let prepared = false;
+  f.native.prepare = async () => {
+    prepared = true;
+    throw new Error('Preparation ran without an earlier artifact');
+  };
+  await assert.rejects(
+    f.updates.apply(f.check, { accountUsage: true }),
+    /No earlier codex version is installed/,
+  );
+  assert.equal(prepared, false);
+  assert.equal(await f.store.journal(f.root), undefined);
+  f.updates.close();
+});
+
+for (const [name, mismatch] of [
+  ['another version', { version: '0.9.0' }],
+  ['another installation', { root: '/another/installation' }],
+] as const) {
+  test(`qualifying refuses an earlier artifact that reports ${name}`, async () => {
+    const f = await runtimeUpdateFixture(undefined, '2.0.0');
+    const inspect = f.native.inspect;
+    f.native.inspect = async (registration, ...rest) => {
+      const artifact = await inspect(registration, ...rest);
+      return registration.executable === f.launcher
+        ? artifact
+        : { ...artifact, ...mismatch };
+    };
+    let prepared = false;
+    f.native.prepare = async () => {
+      prepared = true;
+      throw new Error('Preparation ran against a mismatched artifact');
+    };
+    await assert.rejects(
+      f.updates.apply(f.check, { accountUsage: true }),
+      /is not version 1\.0\.0 of this installation/,
+    );
+    assert.equal(prepared, false);
+    f.updates.close();
+  });
+}
+
+test('a verified version is refused a second qualification until the Witch build changes', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  await f.updates.apply(f.check, { accountUsage: true });
+  const first = (await f.store.journal(f.root))!;
+  await assert.rejects(
+    f.updates.apply(f.updates.snapshot.entries[0]!.check!, {
+      accountUsage: true,
+    }),
+    /already verified with this Witch build/,
+  );
+  assert.equal((await f.store.journal(f.root))!.id, first.id);
+  f.updates.close();
+  const rebuilt = successor(f, async () => 'rebuilt-witch');
+  await rebuilt.updates.check();
+  await rebuilt.updates.apply(rebuilt.updates.snapshot.entries[0]!.check!, {
+    accountUsage: true,
+  });
+  const second = (await f.store.journal(f.root))!;
+  assert.notEqual(second.id, first.id);
+  assert.equal(second.build, 'rebuilt-witch');
+  assert.equal(second.phase, 'verified');
+  rebuilt.updates.close();
+});
+
+test('a cancellation that arrives after the last check keeps the passed qualification', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  f.updates.close();
+  let identified = 0;
+  // the constructor and the start of apply identify the build first; the third call is the final check
+  const late = successor(f, async () => {
+    if (++identified === 3) late.abort.abort(new Error('Cancelled late'));
+    return 'fixture-build';
+  });
+  await late.updates.check();
+  await late.updates.apply(late.updates.snapshot.entries[0]!.check!, {
+    accountUsage: true,
+  });
+  assert.equal(identified, 3);
+  assert.equal((await f.store.journal(f.root))?.phase, 'verified');
+  late.updates.close();
+});
+
+test('a failed reconnect after a passed qualification keeps the record, its notice and every diagnostic', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  f.updates.close();
+  let reconnecting = false;
+  const notices: string[] = [];
+  const updates = new RuntimeUpdates(
+    {
+      maintain: async (_runtime, run) => {
+        await run(new AbortController().signal);
+        reconnecting = true;
+        throw new Error('Reconnect failed');
+      },
+      notice: (message) => notices.push(message),
+    },
+    f.store,
+    f.native,
+    async () => {
+      if (reconnecting) throw new Error('Inventory offline');
+      return [f.registration];
+    },
+    async () => 'fixture-build',
+  );
+  await updates.check();
+  await assert.rejects(
+    updates.apply(updates.snapshot.entries[0]!.check!, { accountUsage: true }),
+    { message: 'Reconnect failed' },
+  );
+  const journal = (await f.store.journal(f.root))!;
+  assert.equal(journal.phase, 'verified');
+  holdRuntime(f.root, f.store.directory)();
+  assert.equal(
+    updates.snapshot.error,
+    'Reconnect failed\nStatus refresh failed: Inventory offline',
+  );
+  assert.deepEqual(notices, [
+    `codex 2.0.0 verified. Evidence: ${f.store.operation(journal)}`,
+  ]);
+  updates.close();
+});
+
+test('a failed build identity is reported by the operation instead of hiding the inventory', async () => {
+  const f = await runtimeUpdateFixture(undefined, '2.0.0');
+  f.updates.close();
+  const broken = successor(f, async () => {
+    throw new Error('Build tree unreadable');
+  });
+  await broken.updates.check();
+  const entry = broken.updates.snapshot.entries[0]!;
+  assert.equal(entry.installation?.version, '2.0.0');
+  await assert.rejects(
+    broken.updates.apply(entry.check!, { accountUsage: true }),
+    /Build tree unreadable/,
+  );
+  assert.equal(broken.updates.snapshot.progress, undefined);
+  assert.equal(await f.store.journal(f.root), undefined);
+  broken.updates.close();
+});
