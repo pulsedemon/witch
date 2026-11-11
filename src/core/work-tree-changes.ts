@@ -379,21 +379,25 @@ export class WorkTreeChanges {
       throw error;
     }
     const env = { ...(await statusEnv(this.run, top)), LC_ALL: 'C' };
-    const [index, objects] = (
-      await this.run(
-        'git',
-        [
-          ...options,
-          'rev-parse',
-          '--path-format=absolute',
-          '--git-path',
-          'index',
-          '--git-path',
-          'objects',
-        ],
-        { cwd: top, timeout, env },
-      )
-    ).stdout.split('\n') as [string, string];
+    // one call each: a directory's name can hold a newline, so two paths in one output can't be told apart
+    const path = async (name: string) =>
+      (
+        await this.run(
+          'git',
+          [
+            ...options,
+            'rev-parse',
+            '--path-format=absolute',
+            '--git-path',
+            name,
+          ],
+          { cwd: top, timeout, env },
+        )
+      ).stdout.replace(/\n$/, '');
+    const [index, objects] = await Promise.all([
+      path('index'),
+      path('objects'),
+    ]);
     const store = join(this.directory, 'objects');
     await mkdir(store, { recursive: true });
     // a state directory can sit inside the checkout, and a snapshot must not take in its own storage
