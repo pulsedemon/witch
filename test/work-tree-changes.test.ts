@@ -745,6 +745,17 @@ test('a directory outside a repository reads nothing, and another failure of the
   );
 });
 
+test('a nested repository with no commit stays out of the snapshot, and the rest still shows', async () => {
+  const { work, changes } = await repository({ 'a.txt': 'a\n' });
+  await execute('git', ['init', '-q', join(work, 'nested')]);
+  await writeFile(join(work, 'nested', 'inside.txt'), 'inside\n');
+  await changes.watch(work);
+  await appendFile(join(work, 'a.txt'), 'more\n');
+  assert.deepEqual(changed(work, await changes.read(work)), [
+    { path: 'a.txt', kind: 'update', lines: ['+more'] },
+  ]);
+});
+
 test("a failure names Git's error past its warnings, and a command stopped at its time limit", async () => {
   const root = await scratch('witch-changes-');
   const failing = (failure: object): Run => {
