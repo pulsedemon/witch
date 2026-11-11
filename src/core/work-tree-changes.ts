@@ -37,7 +37,7 @@ interface Entry {
 }
 
 const timeout = 10_000;
-/** the name and count reads list every changed file, which a branch switch can make long. */
+/** the name reads list every changed file, which a branch switch can make long. */
 const listBuffer = 64 * 1024 * 1024;
 const lineBudget = 400;
 const fileBudget = 100;
@@ -187,22 +187,6 @@ export class WorkTreeChanges {
           path: raw[index + 1]!,
         });
       }
-      const counts = new Map<string, FileDiff['unshown']>();
-      for (const row of fields(
-        await list('--numstat', baseline.tree, snapshot.tree),
-      )) {
-        const [added, removed, ...path] = row.split('\t') as [
-          string,
-          string,
-          ...string[],
-        ];
-        counts.set(
-          path.join('\t'),
-          added === '-'
-            ? 'binary'
-            : { added: Number(added), removed: Number(removed) },
-        );
-      }
       let withHead = 0;
       if (
         baseline.head !== snapshot.head &&
@@ -216,6 +200,32 @@ export class WorkTreeChanges {
         withHead = changed - entries.length;
       }
       const shown = entries.slice(0, fileBudget);
+      // counting reads each file's content, so only the files a row can list are counted
+      const counts = new Map<string, FileDiff['unshown']>();
+      if (shown.length)
+        for (const row of fields(
+          await this.git(checkout, [
+            '--literal-pathspecs',
+            ...treeDiff,
+            '--numstat',
+            baseline.tree,
+            snapshot.tree,
+            '--',
+            ...shown.map(({ path }) => path),
+          ]),
+        )) {
+          const [added, removed, ...path] = row.split('\t') as [
+            string,
+            string,
+            ...string[],
+          ];
+          counts.set(
+            path.join('\t'),
+            added === '-'
+              ? 'binary'
+              : { added: Number(added), removed: Number(removed) },
+          );
+        }
       const files: FileDiff[] = [];
       let budget = lineBudget;
       for (const entry of shown) {
@@ -314,6 +324,7 @@ export class WorkTreeChanges {
       // Git can count lines by the path's attributes in a blob it then calls binary without them
       return parsed.length || !lines ? { ...file, hunks: parsed } : unshown;
     } catch {
+      // a blob Git can't hand over, one line past the output buffer for instance, keeps its file listed
       return unshown;
     }
   }
