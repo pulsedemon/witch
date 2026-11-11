@@ -325,6 +325,11 @@ export class WorkTreeChanges {
     }
   }
 
+  /** settles once every operation asked for so far has finished, after which none of them writes `directory`. */
+  settled(): Promise<void> {
+    return this.chain.then(() => undefined);
+  }
+
   /** `cwd`'s checkout and the environment its Git calls run in, or nothing outside a repository. */
   private async checkout(cwd: string): Promise<Checkout | undefined> {
     const plain = { ...process.env, LC_ALL: 'C' };

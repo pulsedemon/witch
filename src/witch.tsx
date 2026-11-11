@@ -147,6 +147,10 @@ export async function runWitch(
     join(store.root, 'notifications'),
   );
   const registrations = await installedAgents();
+  // outside scratch, which agents can write: a symlink planted there would redirect Witch's own writes
+  const changes = new WorkTreeChanges(
+    instanceDirectory(join(store.root, 'changes')),
+  );
   const coordinator = new Coordinator(
     store,
     memory,
@@ -154,8 +158,7 @@ export async function runWitch(
     jobs,
     undefined,
     coordination,
-    // outside scratch, which agents can write: a symlink planted there would redirect Witch's own writes
-    new WorkTreeChanges(instanceDirectory(join(store.root, 'changes'))),
+    changes,
   );
   const updates = new RuntimeUpdates({
     cwd: () => coordinator.snapshot.conversation?.cwd ?? process.cwd(),
@@ -331,6 +334,8 @@ export async function runWitch(
     await scratch.close();
   }
   if (restarting) {
+    // the replacement takes over this pid's snapshot directory, so nothing here may still be writing it
+    await changes.settled();
     // execve fires no exit event; the replacement resets job reports and resumes scratch
     restore();
     const id = coordinator.snapshot.conversation?.id ?? handedOver;
