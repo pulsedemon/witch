@@ -154,7 +154,8 @@ export async function runWitch(
     jobs,
     undefined,
     coordination,
-    new WorkTreeChanges(join(scratch.directory, 'changes')),
+    // outside scratch, which agents can write: a symlink planted there would redirect Witch's own writes
+    new WorkTreeChanges(instanceDirectory(join(store.root, 'changes'))),
   );
   const updates = new RuntimeUpdates({
     cwd: () => coordinator.snapshot.conversation?.cwd ?? process.cwd(),
