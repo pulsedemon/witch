@@ -335,7 +335,7 @@ export async function runWitch(
     await scratch.close();
   }
   if (restarting) {
-    // the replacement takes over this pid's snapshot directory, so nothing here may still be writing it
+    // the replacement takes over this pid's snapshot directory, so no snapshot operation here may still be running
     await changes.settled();
     // execve fires no exit event; the replacement resets job reports and resumes scratch
     restore();

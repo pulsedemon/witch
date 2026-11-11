@@ -362,7 +362,7 @@ export class WorkTreeChanges {
     }
   }
 
-  /** settles once every operation asked for so far has finished, after which none of them writes `directory`. */
+  /** settles once every operation asked for so far has finished; a Git call that `close` stopped may still be exiting. */
   settled(): Promise<void> {
     return this.chain.then(() => undefined);
   }
@@ -465,11 +465,18 @@ export class WorkTreeChanges {
         (entry) =>
           `:(top,exclude,literal)${entry.slice(entry.indexOf('\t') + 1)}`,
       );
-    await this.git(checkout, [
-      'add',
-      '-A',
-      ...(tracked.length ? ['--', ':(top)', ...tracked] : []),
-    ]);
+    try {
+      await this.git(checkout, [
+        'add',
+        '-A',
+        '--ignore-errors',
+        ...(tracked.length ? ['--', ':(top)', ...tracked] : []),
+      ]);
+    } catch (error) {
+      // 1 says only that a path Git couldn't add, such as an unreadable file or a nested repository with no commit,
+      // stayed out of an index that took the rest
+      if (exitCode(error) !== 1) throw error;
+    }
     return {
       tree: (await this.git(checkout, ['write-tree'])).trim(),
       head,
@@ -499,7 +506,9 @@ export class WorkTreeChanges {
     });
     this.chain = result.catch(() => undefined);
     return result.catch((error: unknown) => {
-      throw new Error(`Couldn't read file changes: ${cause(error)}`);
+      throw new Error(`Couldn't read file changes: ${cause(error)}`, {
+        cause: error,
+      });
     });
   }
 }
