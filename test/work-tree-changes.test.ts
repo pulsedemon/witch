@@ -701,6 +701,34 @@ test('a directory outside a repository reads nothing, and another failure of the
   );
 });
 
+test("a failure names Git's error past its warnings, and a command stopped at its time limit", async () => {
+  const root = await scratch('witch-changes-');
+  const failing = (failure: object): Run => {
+    return () => Promise.reject(Object.assign(new Error('failed'), failure));
+  };
+  await assert.rejects(
+    new WorkTreeChanges(
+      join(root, 'warned'),
+      failing({
+        code: 128,
+        stderr:
+          'warning: adding embedded git repository: nested\nerror: open("locked"): Permission denied\nfatal: adding files failed\n',
+      }),
+    ).read(root),
+    {
+      message:
+        'Couldn\'t read file changes: error: open("locked"): Permission denied',
+    },
+  );
+  await assert.rejects(
+    new WorkTreeChanges(
+      join(root, 'slow'),
+      failing({ code: null, killed: true, signal: 'SIGTERM', stderr: '' }),
+    ).read(root),
+    { message: "Couldn't read file changes: Git timed out" },
+  );
+});
+
 test('a failed read keeps its baseline, so the next read still shows the change', async () => {
   const { root, work } = await repository({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
   let fail = true;
