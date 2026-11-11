@@ -21,6 +21,8 @@ export interface ToolTitle {
   /** the complete label, including the native name or original command, shown on expansion. */
   expandedTitle?: string;
   singleLine?: true;
+  /** the call ran a shell command, which can change files it doesn't report. */
+  command?: true;
 }
 
 export type CommandPrefixes = Readonly<{ control: string; familiar: string }>;
@@ -214,8 +216,14 @@ export function claudeTitle(
     typeof input.command === 'string'
   ) {
     const bound = boundCommandTitle(input.command, prefixes);
-    if (bound) return { ...bound, expandedTitle: `Bash  $ ${input.command}` };
+    if (bound)
+      return {
+        ...bound,
+        expandedTitle: `Bash  $ ${input.command}`,
+        command: true,
+      };
   }
+  if (name === 'Bash') return { ...toolTitle(name, input, cwd), command: true };
   const witch = claudeNames.get(name);
   if (!witch) return toolTitle(name, input, cwd);
   return {

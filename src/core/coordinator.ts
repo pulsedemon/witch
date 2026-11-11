@@ -1,6 +1,6 @@
 import { settleMemory } from './memory-settlement.js';
 import { RuntimeSwitch } from './runtime-switch.js';
-import { SessionLink } from './session-link.js';
+import { SessionLink, type LinkJobs } from './session-link.js';
 import { TurnRunner } from './turn-runner.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
 import {
@@ -55,7 +55,7 @@ import {
   without,
   type Pending,
 } from './queue.js';
-import type { JobWatch } from './jobs.js';
+import type { WorkTreeChanges } from './work-tree-changes.js';
 import type { SessionCoordination } from './coordination.js';
 import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
@@ -226,12 +226,10 @@ export class Coordinator {
     private readonly store: StateStore,
     readonly memory: Memory,
     private readonly agents: readonly AgentRegistration[],
-    private readonly jobs?: Pick<
-      JobWatch,
-      'track' | 'environment' | 'script' | 'setActive'
-    >,
+    private readonly jobs?: LinkJobs,
     private readonly editFile = editInVSCode,
     readonly coordination?: SessionCoordination,
+    changes?: WorkTreeChanges,
   ) {
     this.catalog = new ModelCatalog(agents, (error) =>
       this.notice(errorMessage(error), undefined, false),
@@ -260,6 +258,7 @@ export class Coordinator {
       this.reviewers,
       coordination,
       jobs,
+      changes,
     );
     this.turns = new TurnRunner(
       {

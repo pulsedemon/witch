@@ -31,6 +31,14 @@ import {
   type DisplayUpdate,
 } from './state.js';
 import type { AccountUsage } from './usage.js';
+import type { WorkTreeChanges } from './work-tree-changes.js';
+
+export type LinkJobs = Pick<
+  JobWatch,
+  'track' | 'environment' | 'script' | 'setActive'
+>;
+
+type ToolEvent = Extract<AgentEvent, { type: 'tool' }>;
 
 interface LinkHost {
   conversation(): ConversationRecord;
@@ -60,6 +68,8 @@ export class SessionLink {
   private readonly compactedListeners = new Set<() => void>();
   /** the project memory the live session may write; native permissions are fixed at connect. */
   private sessionProject?: string;
+  /** the last failure to read file changes that was posted, so a repeat stays quiet. */
+  private changeFailure?: string;
 
   constructor(
     private readonly host: LinkHost,
@@ -67,10 +77,8 @@ export class SessionLink {
     private readonly usage: AccountUsage,
     private readonly reviewers: Reviewers,
     private readonly coordination?: SessionCoordination,
-    private readonly jobs?: Pick<
-      JobWatch,
-      'track' | 'environment' | 'script' | 'setActive'
-    >,
+    private readonly jobs?: LinkJobs,
+    private readonly changes?: WorkTreeChanges,
   ) {}
 
   retryInitialization?: () => Promise<void>;
@@ -208,6 +216,7 @@ export class SessionLink {
     const conversation = this.host.conversation();
     const files = this.host.files();
     const tools = new Map<string, string>();
+    const commands = new Set<string>();
     const { adapter, executable } = this.catalog.installed(agent);
     const workspace = this.host.workspace();
     // prepared before the old session closes, so a failure here leaves the activation in place
@@ -219,6 +228,8 @@ export class SessionLink {
     await this.coordination?.activate(conversation, scope.project);
     const stored = conversation.sessions[agent];
     this.aborter = new AbortController();
+    // queued before the session can report a tool, so its first command has a baseline
+    if (this.changes) this.watched(files, this.changes.watch(conversation.cwd));
     try {
       const session = await adapter.connect({
         cwd: conversation.cwd,
@@ -236,7 +247,8 @@ export class SessionLink {
         automaticCompaction: true,
         signal: this.aborter.signal,
         onEvent: (event) => {
-          if (!files.closed) this.receive(conversation, agent, event, tools);
+          if (!files.closed)
+            this.receive(conversation, agent, event, tools, commands, files);
         },
         ...processReports(conversation, files, (pid) => this.jobs?.track(pid)),
         mark: this.jobs,
@@ -313,6 +325,8 @@ export class SessionLink {
     agent: string,
     event: AgentEvent,
     tools: Map<string, string>,
+    commands: Set<string>,
+    files: ConversationStore,
   ): void {
     const host = this.host;
     if (event.type === 'info') {
@@ -366,6 +380,67 @@ export class SessionLink {
         else tools.set(event.id, id);
       }
       host.display(agentDisplay(event, id, agent, conversation.cwd));
+      if (event.type === 'tool')
+        this.observe(event, id, conversation.cwd, commands, files);
     }
+  }
+
+  /** shows what a finished shell command changed in the checkout; a tool's own report moves the baseline past it. */
+  private observe(
+    event: ToolEvent,
+    id: string,
+    cwd: string,
+    commands: Set<string>,
+    files: ConversationStore,
+  ): void {
+    const changes = this.changes;
+    if (!changes) return;
+    if (!event.done) {
+      if (event.command) commands.add(event.id);
+      return;
+    }
+    // Claude marks only the start; Codex marks the finish too, which covers a command whose start never arrived
+    const command = commands.delete(event.id) || !!event.command;
+    if (event.diff) {
+      // Codex keeps a diff on a patch that failed or was declined
+      if (!event.failed)
+        this.watched(
+          files,
+          changes.absorb(
+            cwd,
+            event.diff.flatMap(({ path, movePath }) =>
+              movePath ? [path, movePath] : [path],
+            ),
+          ),
+        );
+    } else if (command)
+      this.watched(
+        files,
+        changes.read(cwd).then(({ files: diff, withHead, more }) => {
+          const plural = (count: number) => (count === 1 ? 'file' : 'files');
+          const text =
+            (withHead
+              ? `\n… ${withHead} ${plural(withHead)} changed with HEAD`
+              : '') + (more ? `\n… ${more} more ${plural(more)} changed` : '');
+          if ((diff.length || text) && !files.closed)
+            this.host.display({
+              id,
+              kind: 'tool',
+              title: '',
+              text,
+              cwd,
+              ...(diff.length ? { diff } : {}),
+            });
+        }),
+      );
+  }
+
+  private watched(files: ConversationStore, operation: Promise<void>): void {
+    void operation.catch((error: unknown) => {
+      const text = errorMessage(error);
+      if (files.closed || text === this.changeFailure) return;
+      this.changeFailure = text;
+      this.host.notice(text, undefined, false);
+    });
   }
 }

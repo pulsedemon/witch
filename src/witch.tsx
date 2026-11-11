@@ -16,6 +16,7 @@ import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
 import { watchConflicts } from './core/pr-repair.js';
 import { RepositoryWatch } from './core/repository.js';
+import { WorkTreeChanges } from './core/work-tree-changes.js';
 import { watchCopilotReviews } from './core/copilot-review-watch.js';
 import { Memory, memoryRepository } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
@@ -153,6 +154,7 @@ export async function runWitch(
     jobs,
     undefined,
     coordination,
+    new WorkTreeChanges(join(scratch.directory, 'changes')),
   );
   const updates = new RuntimeUpdates({
     cwd: () => coordinator.snapshot.conversation?.cwd ?? process.cwd(),

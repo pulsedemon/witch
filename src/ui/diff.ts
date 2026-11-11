@@ -231,12 +231,21 @@ function prepareFile(
 
   const link = (path: string) =>
     hyperlink(oneLine(shortPath(path, cwd)), path, cwd);
+  // a file whose lines were left out carries Git's counts, and a binary one has none
+  const counts =
+    file.unshown === 'binary'
+      ? undefined
+      : (file.unshown ?? { added, removed });
   const header = [
     colors.dim(file.movePath ? 'Move' : verbs[file.kind]),
     link(file.path),
     ...(file.movePath ? ['→', link(file.movePath)] : []),
-    ...(file.kind === 'delete' ? [] : [colors.green(`+${added}`)]),
-    ...(file.kind === 'add' ? [] : [colors.red(`-${removed}`)]),
+    ...(counts && file.kind !== 'delete'
+      ? [colors.green(`+${counts.added}`)]
+      : []),
+    ...(counts && file.kind !== 'add'
+      ? [colors.red(`-${counts.removed}`)]
+      : []),
   ].join(' ');
   const gutter = ' '.repeat(digits + 2);
   const painted = rows.map((row) => {
@@ -272,6 +281,10 @@ function prepareFile(
       );
     }
     if (hidden) lines.push([colors.dim(`… +${hidden} lines`)]);
+    if (file.unshown)
+      lines.push([
+        colors.dim(file.unshown === 'binary' ? '… binary' : '… not shown'),
+      ]);
     return lines;
   };
 }

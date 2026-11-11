@@ -1080,19 +1080,20 @@ test('a shell command runs through thread/shellCommand as its own turn and shows
       threadId: 'native-thread',
       command: 'echo hi',
     });
-    // Codex titles the item with its shell wrapper
+    // Codex titles the item with its shell wrapper; the user's own command isn't marked as the agent's
     assert.deepEqual(
-      tools.map(({ id, title, text, done, shell }) => [
+      tools.map(({ id, title, text, done, shell, command }) => [
         id,
         title,
         text,
         done,
         shell,
+        command,
       ]),
       [
-        ['shell-1', 'echo hi', '', false, true],
-        ['shell-1', '', 'hi\n', false, undefined],
-        ['shell-1', 'echo hi', 'hi\n', true, true],
+        ['shell-1', 'echo hi', '', false, true, undefined],
+        ['shell-1', '', 'hi\n', false, undefined, undefined],
+        ['shell-1', 'echo hi', 'hi\n', true, true, undefined],
       ],
     );
   } finally {
