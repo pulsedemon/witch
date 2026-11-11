@@ -320,6 +320,7 @@ export async function runWitch(
   stopCopilot();
   stopCoordinationRepository();
   repository.close();
+  changes.close();
   jobs.close();
   for (const signal of signals) process.removeListener(signal, shutdown);
   process.stdout.removeListener('error', shutdown);

@@ -110,12 +110,23 @@ const fields = (output: string) => output.split('\0').slice(0, -1);
 export class WorkTreeChanges {
   private readonly baselines = new Map<string, Baseline>();
   private chain: Promise<unknown> = Promise.resolve();
+  private readonly closing = new AbortController();
+  private readonly run: Run;
 
   /** `directory` holds the index copy and the objects; it is created on first use. */
   constructor(
     private readonly directory: string,
-    private readonly run: Run = execute,
-  ) {}
+    run: Run = execute,
+  ) {
+    const { signal } = this.closing;
+    this.run = (command, args, options) =>
+      run(command, args, { ...options, signal });
+  }
+
+  /** stops the Git call in flight and fails every operation queued behind it, so an exit doesn't wait for them. */
+  close(): void {
+    this.closing.abort();
+  }
 
   /** takes a baseline unless one is held for `cwd`'s checkout. */
   watch(cwd: string): Promise<void> {
@@ -482,7 +493,10 @@ export class WorkTreeChanges {
 
   /** one operation at a time, since they share the index copy, and a failed one leaves its baseline as it was. */
   private queue<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.chain.then(operation);
+    const result = this.chain.then(() => {
+      this.closing.signal.throwIfAborted();
+      return operation();
+    });
     this.chain = result.catch(() => undefined);
     return result.catch((error: unknown) => {
       throw new Error(`Couldn't read file changes: ${cause(error)}`);
