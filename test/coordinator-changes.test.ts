@@ -207,6 +207,7 @@ test("a tool's own diff moves the baseline past its files, unless the tool faile
     watcher,
   );
   const diff: FileDiff[] = [
+    { path: `${project}/edited.ts`, kind: 'update', hunks: [] },
     {
       path: `${project}/old.ts`,
       kind: 'update',
@@ -235,7 +236,11 @@ test("a tool's own diff moves the baseline past its files, unless the tool faile
       failed: true,
     });
     assert.deepEqual(watcher.calls.slice(1), [
-      ['absorb', project, [`${project}/old.ts`, `${project}/new.ts`]],
+      [
+        'absorb',
+        project,
+        [`${project}/edited.ts`, `${project}/old.ts`, `${project}/new.ts`],
+      ],
     ]);
   } finally {
     await coordinator.close();

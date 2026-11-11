@@ -202,7 +202,7 @@ test('a read from a subdirectory of a linked worktree covers the whole worktree'
   assert.deepEqual(await changes.read(work), none);
 });
 
-for (const name of ['ends in a space ', 'a:b"c\\d'])
+for (const name of ['ends in a space ', 'a:b"c\\d', 'line\nbreak'])
   test(`a checkout in a directory named ${JSON.stringify(name)} is read as itself`, async () => {
     const root = await scratch('witch-changes-');
     const work = join(root, name);
@@ -212,17 +212,19 @@ for (const name of ['ends in a space ', 'a:b"c\\d'])
         cwd: work,
       });
     await git('init', '-q', '-b', 'main');
-    await writeFile(join(work, 'a.txt'), 'a\n');
+    // tracked though ignored, so a snapshot has it only from the repository's index
+    await writeFile(join(work, '.gitignore'), '*.log\n');
+    await writeFile(join(work, 'tracked.log'), 'a\n');
     await writeFile(join(work, 'kept.txt'), 'kept\n');
     // older than the index, so a snapshot takes this file's content from the repository's objects
     await utimes(join(work, 'kept.txt'), new Date(past), new Date(past));
-    await git('add', '-A');
+    await git('add', '-A', '-f');
     await git('commit', '-qm', 'first');
     const changes = new WorkTreeChanges(join(root, 'changes'));
     await changes.watch(work);
-    await appendFile(join(work, 'a.txt'), 'more\n');
+    await appendFile(join(work, 'tracked.log'), 'more\n');
     assert.deepEqual(changed(work, await changes.read(work)), [
-      { path: 'a.txt', kind: 'update', lines: ['+more'] },
+      { path: 'tracked.log', kind: 'update', lines: ['+more'] },
     ]);
   });
 
