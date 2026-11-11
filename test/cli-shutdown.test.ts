@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { test } from 'vitest';
@@ -140,6 +140,8 @@ async function check(
     await wait('native connection', async () =>
       Boolean((await record()).process),
     );
+    // snapshot storage sits in the state directory, since agents can write the scratch one
+    assert.match((await readdir(join(store.root, 'changes'))).join(), /^\d+$/);
     const first = `shutdown-first-${randomUUID()}`;
     await submit(first);
     await wait('initial native input', () => input(first));
@@ -150,6 +152,7 @@ async function check(
     if (action === 'exit') {
       await within(closed, 11000, 'CLI exit');
       assert.equal(child.exitCode, 0, stderr);
+      assert.deepEqual(await readdir(join(store.root, 'changes')), []);
     } else if (action === 'restart') {
       await wait('replacement native connection', async () => {
         const current = await record();

@@ -5,6 +5,7 @@ import type { AgentEvent, FileDiff } from '../src/agents/types.js';
 import type { Coordinator } from '../src/core/coordinator.js';
 import { WorkTreeChanges } from '../src/core/work-tree-changes.js';
 import type { Changes } from '../src/core/work-tree-changes.js';
+import type { FixtureAgent } from './fixtures/agent.js';
 import { fixture } from './fixtures/coordinator.js';
 import { until } from './fixtures/within.js';
 
@@ -106,6 +107,31 @@ test("a finished shell command's row gains what changed, keeps its output and su
   } finally {
     await coordinator.close();
     await reopened?.close();
+  }
+});
+
+test("the native session starts only once its checkout's baseline has settled", async () => {
+  const watcher = new Watcher();
+  const baseline = Promise.withResolvers<void>();
+  watcher.watching = () => baseline.promise;
+  let agent: FixtureAgent | undefined;
+  const opening = fixture(
+    undefined,
+    (a) => {
+      agent = a;
+    },
+    true,
+    watcher,
+  );
+  await until('the baseline request', () => watcher.calls.length === 1);
+  await setImmediate();
+  assert.equal(agent!.sessions.length, 0);
+  baseline.resolve();
+  const { coordinator, a } = await opening;
+  try {
+    assert.equal(a.sessions.length, 1);
+  } finally {
+    await coordinator.close();
   }
 });
 
