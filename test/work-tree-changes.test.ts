@@ -756,6 +756,28 @@ test('a nested repository with no commit stays out of the snapshot, and the rest
   ]);
 });
 
+test('a path Git could not add fails the snapshot and is the one named, beside a nested repository with no commit', async () => {
+  const { root, work } = await repository({ 'a.txt': 'a\n' });
+  // what `add --ignore-errors` says and exits with when it also met a file it couldn't open
+  const run: Run = (command, args, options) =>
+    args.includes('add')
+      ? Promise.reject(
+          Object.assign(new Error('failed'), {
+            code: 1,
+            stderr:
+              "error: 'nested/' does not have a commit checked out\nerror: open(\"locked\"): Permission denied\nerror: unable to index file 'locked'\n",
+          }),
+        )
+      : execute(command, args, options);
+  await assert.rejects(
+    new WorkTreeChanges(join(root, 'failing'), run).watch(work),
+    {
+      message:
+        'Couldn\'t read file changes: error: open("locked"): Permission denied',
+    },
+  );
+});
+
 test("a failure names Git's error past its warnings, and a command stopped at its time limit", async () => {
   const root = await scratch('witch-changes-');
   const failing = (failure: object): Run => {
