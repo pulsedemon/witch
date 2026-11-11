@@ -68,7 +68,7 @@ export class SessionLink {
   private readonly compactedListeners = new Set<() => void>();
   /** the project memory the live session may write; native permissions are fixed at connect. */
   private sessionProject?: string;
-  /** the last failure to read file changes posted in each conversation, so a repeat there stays quiet. */
+  /** the failure to read file changes each conversation last posted, until a success, so a repeat in a row stays quiet. */
   private readonly changeFailures = new WeakMap<ConversationStore, string>();
 
   constructor(
@@ -449,11 +449,16 @@ export class SessionLink {
     files: ConversationStore,
     operation: Promise<void>,
   ): Promise<void> {
-    return operation.catch((error: unknown) => {
-      const text = errorMessage(error);
-      if (files.closed || this.changeFailures.get(files) === text) return;
-      this.changeFailures.set(files, text);
-      this.host.notice(text, undefined, false);
-    });
+    return operation.then(
+      () => {
+        this.changeFailures.delete(files);
+      },
+      (error: unknown) => {
+        const text = errorMessage(error);
+        if (files.closed || this.changeFailures.get(files) === text) return;
+        this.changeFailures.set(files, text);
+        this.host.notice(text, undefined, false);
+      },
+    );
   }
 }
