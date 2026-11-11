@@ -102,6 +102,9 @@ function cause(error: unknown): string {
 
 const fields = (output: string) => output.split('\0').slice(0, -1);
 
+/** Git's complaint about a nested repository with no commit, which `add` can't take and a snapshot does without. */
+const unborn = /^error: '.*' does not have a commit checked out$/;
+
 /**
  * what changed in a checkout between two looks, read from Git trees built in `directory` so that the repository's own
  * index, refs and objects stay unwritten. each checkout keeps one baseline, which only `read` and `absorb` move, so
@@ -473,9 +476,14 @@ export class WorkTreeChanges {
         ...(tracked.length ? ['--', ':(top)', ...tracked] : []),
       ]);
     } catch (error) {
-      // 1 says only that a path Git couldn't add, such as an unreadable file or a nested repository with no commit,
-      // stayed out of an index that took the rest
       if (exitCode(error) !== 1) throw error;
+      const said = String((error as { stderr?: unknown }).stderr)
+        .split('\n')
+        .filter((line) => !unborn.test(line));
+      // 1 with no other error says only nested repositories with no commit stayed out. another path Git couldn't
+      // add would keep what the index holds and show as changed back, so that fails the snapshot
+      if (said.some((line) => line.startsWith('error:')))
+        throw Object.assign(error as object, { stderr: said.join('\n') });
     }
     return {
       tree: (await this.git(checkout, ['write-tree'])).trim(),
