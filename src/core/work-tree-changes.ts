@@ -77,7 +77,8 @@ function cost(file: FileDiff): number {
   let total = 0;
   for (const hunk of file.hunks)
     for (const line of hunk.lines)
-      total += (line[0] === ' ' ? 0 : 1) + Math.floor(line.length / lineWidth);
+      total +=
+        (line[0] === ' ' ? 0 : 1) + Math.floor((line.length - 1) / lineWidth);
   return total;
 }
 
@@ -153,6 +154,8 @@ export class WorkTreeChanges {
           await git(
             'update-index',
             '--add',
+            // a path the baseline holds as a file can be a directory by now, or the reverse
+            '--replace',
             '--cacheinfo',
             `${mode},${id},${path}`,
           );
