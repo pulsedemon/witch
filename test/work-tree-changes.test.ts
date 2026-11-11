@@ -498,8 +498,6 @@ test("a file replaced by a directory, and a nested repository's new commit, leav
     });
   await inner('init', '-q', '-b', 'main');
   await inner('commit', '-q', '--allow-empty', '-m', 'one');
-  await git('add', 'nested');
-  await git('commit', '-qm', 'nested');
   // the user's setting would print a nested repository's change without a file header
   await git('config', 'diff.submodule', 'log');
   await changes.watch(work);
@@ -527,6 +525,63 @@ test("a file replaced by a directory, and a nested repository's new commit, leav
     },
     { path: 'z.txt', kind: 'update', lines: ['+edited'] },
   ]);
+});
+
+test('a nested repository the index tracks never runs its own filter, and shows once the index takes its commit', async () => {
+  const { root, work, git, changes } = await repository();
+  const nested = join(work, 'nested');
+  const marker = join(root, 'ran');
+  await mkdir(nested);
+  const inner = (...args: string[]) =>
+    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: nested,
+    });
+  await inner('init', '-q', '-b', 'main');
+  await writeFile(join(nested, '.gitattributes'), 'in.txt filter=probe\n');
+  await writeFile(join(nested, 'in.txt'), 'a\n');
+  await inner('add', '-A');
+  await inner('commit', '-qm', 'one');
+  await inner('config', 'filter.probe.clean', `sh -c 'touch "${marker}"; cat'`);
+  await git('add', 'nested');
+  await git('commit', '-qm', 'nested');
+  await changes.watch(work);
+  // the same size at another time, which Git settles only by reading the content through the filter
+  await writeFile(join(nested, 'in.txt'), 'b\n');
+  await utimes(join(nested, 'in.txt'), new Date(past), new Date(past));
+  assert.deepEqual(await changes.read(work), none);
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+
+  await inner('commit', '-qam', 'two');
+  assert.deepEqual(await changes.read(work), none);
+  await git('add', 'nested');
+  assert.deepEqual(changed(work, await changes.read(work)), [
+    {
+      path: 'nested',
+      kind: 'update',
+      lines: [],
+      unshown: { added: 1, removed: 1 },
+    },
+  ]);
+});
+
+test('settled waits for the operations already asked for', async () => {
+  const { root, work } = await repository();
+  const held = Promise.withResolvers<void>();
+  const order: string[] = [];
+  const run: Run = async (command, args, options) => {
+    if (args.includes('write-tree')) {
+      await held.promise;
+      order.push('snapshot');
+    }
+    return execute(command, args, options);
+  };
+  const changes = new WorkTreeChanges(join(root, 'changes'), run);
+  const watching = changes.watch(work);
+  const settled = changes.settled().then(() => order.push('settled'));
+  held.resolve();
+  await settled;
+  await watching;
+  assert.deepEqual(order, ['snapshot', 'settled']);
 });
 
 test('a directory outside a repository reads nothing, and another failure of the lookup rejects', async () => {

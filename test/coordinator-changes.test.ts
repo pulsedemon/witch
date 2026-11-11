@@ -277,6 +277,23 @@ test('a failure posts one notice until its text changes, and a failed baseline l
   }
 });
 
+test('a new conversation posts a failure the one before it already saw', async () => {
+  const watcher = new Watcher();
+  watcher.watching = () => Promise.reject(new Error("Couldn't read: baseline"));
+  const { coordinator } = await fixture(undefined, undefined, true, watcher);
+  try {
+    await until('the first notice', () => notices(coordinator).length === 1);
+    await coordinator.newConversation();
+    await until(
+      'the new conversation to connect',
+      () => watcher.calls.length === 2,
+    );
+    await until('its notice', () => notices(coordinator).length === 1);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a read that settles after its conversation closed shows and posts nothing', async () => {
   const watcher = new Watcher();
   const { coordinator, a, project } = await fixture(
