@@ -441,6 +441,28 @@ test("a row's files share the line budget, and a name Git could read as pathspec
   );
 });
 
+test('a long line takes more of the line budget, as a changed line or as context', async () => {
+  const { work, changes } = await repository({
+    'context.txt': `${'x'.repeat(90_000)}\nsmall\n`,
+  });
+  await changes.watch(work);
+  await writeFile(join(work, 'context.txt'), `${'x'.repeat(90_000)}\nedited\n`);
+  await writeFile(join(work, 'long.json'), `${'x'.repeat(100_000)}\n`);
+  await writeFile(join(work, 'short.txt'), `${'x'.repeat(199)}\n`);
+  assert.deepEqual(
+    changed(work, await changes.read(work)).map(({ path, lines, unshown }) => [
+      path,
+      lines.length,
+      unshown,
+    ]),
+    [
+      ['context.txt', 0, { added: 1, removed: 1 }],
+      ['long.json', 0, { added: 1, removed: 0 }],
+      ['short.txt', 1, undefined],
+    ],
+  );
+});
+
 test('files past the hundredth are counted, and only the listed files have their lines counted', async () => {
   const { root, work } = await repository();
   const counted: string[][] = [];
