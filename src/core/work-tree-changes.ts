@@ -103,7 +103,9 @@ function cause(error: unknown): string {
 const fields = (output: string) => output.split('\0').slice(0, -1);
 
 /** Git's complaint about a nested repository with no commit, which `add` can't take and a snapshot does without. */
-const unborn = /^error: '.*' does not have a commit checked out$/;
+const unborn = /^error: '(.*)' does not have a commit checked out$/;
+/** the line newer Gits print after their complaint about any path they couldn't add. */
+const unindexed = /^error: unable to index file '(.*)'$/;
 
 /**
  * what changed in a checkout between two looks, read from Git trees built in `directory` so that the repository's own
@@ -477,9 +479,14 @@ export class WorkTreeChanges {
       ]);
     } catch (error) {
       if (exitCode(error) !== 1) throw error;
-      const said = String((error as { stderr?: unknown }).stderr)
-        .split('\n')
-        .filter((line) => !unborn.test(line));
+      const lines = String((error as { stderr?: unknown }).stderr).split('\n');
+      const nested = new Set(
+        lines.flatMap((line) => unborn.exec(line)?.slice(1) ?? []),
+      );
+      const said = lines.filter((line) => {
+        const path = unindexed.exec(line)?.[1];
+        return !unborn.test(line) && (path === undefined || !nested.has(path));
+      });
       // 1 with no other error says only nested repositories with no commit stayed out. another path Git couldn't
       // add would keep what the index holds and show as changed back, so that fails the snapshot
       if (said.some((line) => line.startsWith('error:')))
