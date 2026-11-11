@@ -226,12 +226,14 @@ export class SessionLink {
     // an initial connect keeps the activation published when its conversation opened; a runtime switch drops questions once it activates
     await this.disconnect(!this.connected, true);
     await this.coordination?.activate(conversation, scope.project);
-    // settled before the session exists, so a command's edit can't land in the baseline
-    if (this.changes)
-      await this.watched(files, this.changes.watch(conversation.cwd));
-    const stored = conversation.sessions[agent];
     this.aborter = new AbortController();
     try {
+      // settled before the session exists, so a command's edit can't land in the baseline
+      if (this.changes)
+        await this.watched(files, this.changes.watch(conversation.cwd));
+      if (this.aborter.signal.aborted)
+        throw new DOMException('Connection was interrupted', 'AbortError');
+      const stored = conversation.sessions[agent];
       const session = await adapter.connect({
         cwd: conversation.cwd,
         executable: executable!,
