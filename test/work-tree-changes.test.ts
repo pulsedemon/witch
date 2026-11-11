@@ -460,6 +460,27 @@ test("a row's files share the line budget, and a name Git could read as pathspec
   );
 });
 
+test("the user's setting to join nearby hunks leaves the lines between them out", async () => {
+  const lines = Array.from({ length: 40 }, (_, line) => `${line}`);
+  const { work, git, changes } = await repository({
+    'a.txt': `${lines.join('\n')}\n`,
+  });
+  await git('config', 'diff.interHunkContext', '100');
+  await changes.watch(work);
+  await writeFile(
+    join(work, 'a.txt'),
+    `first\n${lines.slice(1, -1).join('\n')}\nlast\n`,
+  );
+  const [file] = (await changes.read(work)).files;
+  assert.deepEqual(
+    file!.hunks.map(({ lines }) => lines),
+    [
+      ['-0', '+first', ' 1', ' 2', ' 3'],
+      [' 36', ' 37', ' 38', '-39', '+last'],
+    ],
+  );
+});
+
 test('a long line takes more of the line budget, as a changed line or as context', async () => {
   const { work, changes } = await repository({
     'context.txt': `${'x'.repeat(90_000)}\nsmall\n`,
