@@ -356,13 +356,13 @@ export class WorkTreeChanges {
     const plain = { ...process.env, LC_ALL: 'C' };
     let top: string;
     try {
-      top = (
-        await this.run('git', [...options, 'rev-parse', '--show-toplevel'], {
-          cwd,
-          timeout,
-          env: plain,
-        })
-      ).stdout.trimEnd();
+      const { stdout } = await this.run(
+        'git',
+        [...options, 'rev-parse', '--show-toplevel'],
+        { cwd, timeout, env: plain },
+      );
+      // only Git's own newline goes: a directory's name can end in a space
+      top = stdout.replace(/\n$/, '');
     } catch (error) {
       const { stderr } = error as { stderr?: unknown };
       if (
