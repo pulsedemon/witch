@@ -40,6 +40,8 @@ const timeout = 10_000;
 /** the name reads list every changed or tracked file, which can be long. */
 const listBuffer = 64 * 1024 * 1024;
 const lineBudget = 400;
+/** a line counts once more against the budget for each this many characters, which bounds a row whatever its lines hold. */
+const lineWidth = 200;
 const fileBudget = 100;
 const gitlink = '160000';
 
@@ -69,6 +71,15 @@ const treeDiff = [
   '--ignore-submodules=none',
   '-z',
 ];
+
+/** what a file's lines take from a row's budget. */
+function cost(file: FileDiff): number {
+  let total = 0;
+  for (const hunk of file.hunks)
+    for (const line of hunk.lines)
+      total += (line[0] === ' ' ? 0 : 1) + Math.floor(line.length / lineWidth);
+  return total;
+}
 
 const exitCode = (error: unknown) => (error as { code?: unknown }).code;
 
@@ -231,8 +242,7 @@ export class WorkTreeChanges {
           counts.get(entry.path),
           budget,
         );
-        for (const hunk of file.hunks)
-          for (const line of hunk.lines) if (line[0] !== ' ') budget--;
+        budget -= cost(file);
         files.push(file);
       }
       this.baselines.set(checkout.top, snapshot);
@@ -296,29 +306,35 @@ export class WorkTreeChanges {
     if (kind === 'update' && entry.old === entry.new)
       return { ...file, hunks: [] };
     try {
-      if (kind !== 'update')
-        return wholeFile(
-          file.path,
-          kind,
-          await this.git(checkout, [
-            'cat-file',
-            'blob',
-            kind === 'add' ? entry.new : entry.old,
-          ]),
-        );
-      const parsed = hunks(
-        await this.git(checkout, [
-          'diff',
-          '--no-color',
-          '--no-ext-diff',
-          '--no-textconv',
-          '-U3',
-          entry.old,
-          entry.new,
-        ]),
-      );
+      const shown: FileDiff =
+        kind === 'update'
+          ? {
+              ...file,
+              hunks: hunks(
+                await this.git(checkout, [
+                  'diff',
+                  '--no-color',
+                  '--no-ext-diff',
+                  '--no-textconv',
+                  '-U3',
+                  entry.old,
+                  entry.new,
+                ]),
+              ),
+            }
+          : wholeFile(
+              file.path,
+              kind,
+              await this.git(checkout, [
+                'cat-file',
+                'blob',
+                kind === 'add' ? entry.new : entry.old,
+              ]),
+            );
       // Git can count lines by the path's attributes in a blob it then calls binary without them
-      return parsed.length || !lines ? { ...file, hunks: parsed } : unshown;
+      return (shown.hunks.length || !lines) && cost(shown) <= budget
+        ? shown
+        : unshown;
     } catch {
       // a blob Git can't hand over, one line past the output buffer for instance, keeps its file listed
       return unshown;
