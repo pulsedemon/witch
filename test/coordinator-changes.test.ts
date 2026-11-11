@@ -277,6 +277,30 @@ test('a failure posts one notice until its text changes, and a failed baseline l
   }
 });
 
+test('a failure that comes back after a success posts again', async () => {
+  const watcher = new Watcher();
+  const { coordinator, a } = await fixture(undefined, undefined, true, watcher);
+  try {
+    await coordinator.send('first');
+    const { onEvent } = a.sessions.at(-1)!.options;
+    const failure = () => Promise.reject(new Error("Couldn't read: again"));
+    watcher.reads = [failure()];
+    command(onEvent, 'one');
+    await until('the first notice', () => notices(coordinator).length === 1);
+    command(onEvent, 'two');
+    await until(
+      'the read that works',
+      () => watcher.calls.filter(([name]) => name === 'read').length === 2,
+    );
+    await setImmediate();
+    watcher.reads = [failure()];
+    command(onEvent, 'three');
+    await until('the second notice', () => notices(coordinator).length === 2);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a new conversation posts a failure the one before it already saw', async () => {
   const watcher = new Watcher();
   watcher.watching = () => Promise.reject(new Error("Couldn't read: baseline"));

@@ -202,23 +202,42 @@ test('a read from a subdirectory of a linked worktree covers the whole worktree'
   assert.deepEqual(await changes.read(work), none);
 });
 
-test('a checkout whose directory name ends in a space is read as itself', async () => {
-  const root = await scratch('witch-changes-');
-  const work = join(root, 'spaced ');
-  await mkdir(work);
-  const git = (...args: string[]) =>
-    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
-      cwd: work,
-    });
-  await git('init', '-q', '-b', 'main');
-  await writeFile(join(work, 'a.txt'), 'a\n');
-  await git('add', '-A');
-  await git('commit', '-qm', 'first');
-  const changes = new WorkTreeChanges(join(root, 'changes'));
-  await changes.watch(work);
-  await appendFile(join(work, 'a.txt'), 'more\n');
+for (const name of ['ends in a space ', 'a:b"c\\d'])
+  test(`a checkout in a directory named ${JSON.stringify(name)} is read as itself`, async () => {
+    const root = await scratch('witch-changes-');
+    const work = join(root, name);
+    await mkdir(work);
+    const git = (...args: string[]) =>
+      execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        cwd: work,
+      });
+    await git('init', '-q', '-b', 'main');
+    await writeFile(join(work, 'a.txt'), 'a\n');
+    await writeFile(join(work, 'kept.txt'), 'kept\n');
+    // older than the index, so a snapshot takes this file's content from the repository's objects
+    await utimes(join(work, 'kept.txt'), new Date(past), new Date(past));
+    await git('add', '-A');
+    await git('commit', '-qm', 'first');
+    const changes = new WorkTreeChanges(join(root, 'changes'));
+    await changes.watch(work);
+    await appendFile(join(work, 'a.txt'), 'more\n');
+    assert.deepEqual(changed(work, await changes.read(work)), [
+      { path: 'a.txt', kind: 'update', lines: ['+more'] },
+    ]);
+  });
+
+test('a read with no baseline takes one and shows nothing, and an absorb with none does nothing', async () => {
+  const { work, changes } = await repository({
+    'a.txt': 'a\n',
+    'b.txt': 'b\n',
+  });
+  await appendFile(join(work, 'a.txt'), 'native\n');
+  await changes.absorb(work, [join(work, 'a.txt')]);
+  await appendFile(join(work, 'b.txt'), 'before\n');
+  assert.deepEqual(await changes.read(work), none);
+  await appendFile(join(work, 'b.txt'), 'after\n');
   assert.deepEqual(changed(work, await changes.read(work)), [
-    { path: 'a.txt', kind: 'update', lines: ['+more'] },
+    { path: 'b.txt', kind: 'update', lines: ['+after'] },
   ]);
 });
 
