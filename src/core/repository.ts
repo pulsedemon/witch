@@ -5,7 +5,7 @@ import { sep } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 
-const execute = promisify(execFile);
+export const execute = promisify(execFile);
 
 export const pullRequestSchema = z.object({
   number: z.number(),
@@ -264,6 +264,7 @@ export type Run = (
     timeout: number;
     env?: NodeJS.ProcessEnv;
     signal?: AbortSignal;
+    maxBuffer?: number;
   },
 ) => Promise<{ stdout: string; stderr?: string }>;
 

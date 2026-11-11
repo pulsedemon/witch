@@ -885,3 +885,26 @@ test('a later hunk retains syntax colors while the file has budget', () => {
     ['Update ./a.ts +2 -0', '1 +const a = 1;', '...', '9 +const b = 2;'],
   );
 });
+
+test("a file whose lines were left out keeps its header, with Git's counts unless it is binary", () => {
+  const files: FileDiff[] = [
+    {
+      path: '/work/pnpm-lock.yaml',
+      kind: 'update',
+      hunks: [],
+      unshown: { added: 812, removed: 640 },
+    },
+    { path: '/work/shot.png', kind: 'add', hunks: [], unshown: 'binary' },
+    // a mode change has nothing left out
+    { path: '/work/run.sh', kind: 'update', hunks: [] },
+  ];
+  assert.deepEqual(plainRows(files, 60), [
+    'Update ./pnpm-lock.yaml +812 -640',
+    '… not shown',
+    '',
+    'Create ./shot.png',
+    '… binary',
+    '',
+    'Update ./run.sh +0 -0',
+  ]);
+});

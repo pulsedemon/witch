@@ -183,7 +183,7 @@ function itemTitle(
 ): ToolTitle {
   if (type === 'commandExecution' && typeof item.command === 'string') {
     const bound = boundCommandTitle(item.command, prefixes);
-    if (bound) return bound;
+    return { ...(bound ?? { title: item.command }), command: true };
   }
   if (typeof item.command === 'string') return { title: item.command };
   if (type === 'fileChange')

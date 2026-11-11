@@ -16,6 +16,7 @@ import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
 import { watchConflicts } from './core/pr-repair.js';
 import { RepositoryWatch } from './core/repository.js';
+import { WorkTreeChanges } from './core/work-tree-changes.js';
 import { watchCopilotReviews } from './core/copilot-review-watch.js';
 import { Memory, memoryRepository } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
@@ -146,6 +147,10 @@ export async function runWitch(
     join(store.root, 'notifications'),
   );
   const registrations = await installedAgents();
+  // outside scratch, which agents can write: a symlink planted there would redirect Witch's own writes
+  const changes = new WorkTreeChanges(
+    instanceDirectory(join(store.root, 'changes')),
+  );
   const coordinator = new Coordinator(
     store,
     memory,
@@ -153,6 +158,7 @@ export async function runWitch(
     jobs,
     undefined,
     coordination,
+    changes,
   );
   const updates = new RuntimeUpdates({
     cwd: () => coordinator.snapshot.conversation?.cwd ?? process.cwd(),
@@ -314,6 +320,7 @@ export async function runWitch(
   stopCopilot();
   stopCoordinationRepository();
   repository.close();
+  changes.close();
   jobs.close();
   for (const signal of signals) process.removeListener(signal, shutdown);
   process.stdout.removeListener('error', shutdown);
@@ -328,6 +335,8 @@ export async function runWitch(
     await scratch.close();
   }
   if (restarting) {
+    // the replacement takes over this pid's snapshot directory, so no snapshot operation here may still be running
+    await changes.settled();
     // execve fires no exit event; the replacement resets job reports and resumes scratch
     restore();
     const id = coordinator.snapshot.conversation?.id ?? handedOver;

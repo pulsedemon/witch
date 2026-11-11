@@ -162,6 +162,13 @@ const fileDiffSchema = z.object({
   /** where an update moved the file. */
   movePath: z.string().optional(),
   hunks: z.array(hunkSchema),
+  /** set when the lines were left out, with Git's counts, or `'binary'`. */
+  unshown: z
+    .union([
+      z.object({ added: z.number(), removed: z.number() }),
+      z.literal('binary'),
+    ])
+    .optional(),
 });
 export type FileDiff = z.infer<typeof fileDiffSchema>;
 
@@ -220,6 +227,8 @@ export type AgentEvent =
       shell?: boolean;
       /** the call failed or was declined; set with `done`. */
       failed?: true;
+      /** the call ran a shell command, which can change files it doesn't report. */
+      command?: true;
     }
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }

@@ -82,6 +82,7 @@ export async function fixture(
   /** runs before the launch connects. */
   prepare?: (a: FixtureAgent, b: FixtureAgent) => void,
   unit = false,
+  changes?: ConstructorParameters<typeof Coordinator>[6],
 ) {
   const root = await scratch('witch-coordinator-');
   if (unit) ephemeralFiles(root);
@@ -106,7 +107,15 @@ export async function fixture(
     },
     environment: {},
   };
-  const coordinator = new Coordinator(store, memory, agents, jobs, editFile);
+  const coordinator = new Coordinator(
+    store,
+    memory,
+    agents,
+    jobs,
+    editFile,
+    undefined,
+    changes,
+  );
   prepare?.(a, b);
   await coordinator.initialize(project);
   const workspace = (id = coordinator.snapshot.conversation!.id) =>

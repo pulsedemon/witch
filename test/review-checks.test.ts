@@ -565,7 +565,7 @@ test("a regex literal's quotes and brackets don't count", async () => {
     )
   )
     .split('\n')
-    .slice(65, 80)
+    .slice(67, 82)
     .join('\n');
   assert.deepEqual(
     await check({

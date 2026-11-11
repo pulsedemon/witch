@@ -84,6 +84,18 @@ test('Codex command lifecycle events preserve bound titles, original commands an
         },
       );
       const row = project(f.events).find((row) => row.id === call.id);
+      // the start and the finish both say a shell command ran, bound to Witch or not
+      assert.deepEqual(
+        f.events.flatMap((event) =>
+          event.type === 'tool' && event.id === call.id && !event.append
+            ? [[event.done, event.command]]
+            : [],
+        ),
+        [
+          [false, true],
+          [true, true],
+        ],
+      );
       assert.equal(row?.title, call.title ?? call.command);
       assert.equal(row?.expandedTitle, call.title ? call.command : undefined);
       assert.equal(row?.singleLine, call.title ? true : undefined);
@@ -171,6 +183,18 @@ test('Claude Bash results retain bound titles and multiline commands after repla
         },
       );
       const row = project(events).find((row) => row.id === call.id);
+      // Claude's result names no tool, so only the start says a shell command ran
+      assert.deepEqual(
+        events.flatMap((event) =>
+          event.type === 'tool' && event.id === call.id
+            ? [[event.done, event.command]]
+            : [],
+        ),
+        [
+          [false, true],
+          [true, undefined],
+        ],
+      );
       assert.equal(row?.title, call.title ?? `Bash  $ ${call.command}`);
       assert.equal(
         row?.expandedTitle,

@@ -108,7 +108,16 @@ test('mentions, other bindings and compound scripts keep their ordinary titles',
     claudeTitle('Bash', { command: 'git status' }, '/task', prefixes),
     {
       title: 'Bash  $ git status',
+      command: true,
     },
+  );
+  assert.equal(
+    claudeTitle('Bash', { command: call }, '/task', prefixes).command,
+    true,
+  );
+  assert.equal(
+    claudeTitle('Read', { file_path: '/task/a.ts' }, '/task').command,
+    undefined,
   );
   assert.equal(
     claudeTitle('Other', { command: call }, '/task', prefixes).singleLine,

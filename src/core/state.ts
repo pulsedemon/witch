@@ -129,6 +129,12 @@ const fileDiff = z.object({
   kind: z.enum(['add', 'delete', 'update']),
   movePath: z.string().optional(),
   hunks: z.array(hunk),
+  unshown: z
+    .union([
+      z.object({ added: z.number(), removed: z.number() }),
+      z.literal('binary'),
+    ])
+    .optional(),
 });
 
 export const displayUpdateSchema = z.object({
