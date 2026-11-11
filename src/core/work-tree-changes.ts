@@ -1,5 +1,5 @@
 import { copyFile, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
-import { delimiter, isAbsolute, join, relative, sep } from 'node:path';
+import { delimiter, join, relative, sep } from 'node:path';
 import { hunks, wholeFile } from '../agents/file-diff.js';
 import type { FileDiff } from '../agents/types.js';
 import { execute, statusEnv } from './repository.js';
@@ -118,11 +118,7 @@ export class WorkTreeChanges {
       const inside = paths
         .map((path) => relative(checkout.top, path))
         .filter(
-          (path) =>
-            path &&
-            path !== '..' &&
-            !path.startsWith(`..${sep}`) &&
-            !isAbsolute(path),
+          (path) => path && path !== '..' && !path.startsWith(`..${sep}`),
         );
       if (!inside.length) return;
       const snapshot = await this.snapshot(checkout);

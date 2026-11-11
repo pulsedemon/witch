@@ -226,10 +226,11 @@ export class SessionLink {
     // an initial connect keeps the activation published when its conversation opened; a runtime switch drops questions once it activates
     await this.disconnect(!this.connected, true);
     await this.coordination?.activate(conversation, scope.project);
+    // settled before the session exists, so a command's edit can't land in the baseline
+    if (this.changes)
+      await this.watched(files, this.changes.watch(conversation.cwd));
     const stored = conversation.sessions[agent];
     this.aborter = new AbortController();
-    // queued before the session can report a tool, so its first command has a baseline
-    if (this.changes) this.watched(files, this.changes.watch(conversation.cwd));
     try {
       const session = await adapter.connect({
         cwd: conversation.cwd,
@@ -404,7 +405,7 @@ export class SessionLink {
     if (event.diff) {
       // Codex keeps a diff on a patch that failed or was declined
       if (!event.failed)
-        this.watched(
+        void this.watched(
           files,
           changes.absorb(
             cwd,
@@ -414,7 +415,7 @@ export class SessionLink {
           ),
         );
     } else if (command)
-      this.watched(
+      void this.watched(
         files,
         changes.read(cwd).then(({ files: diff, withHead, more }) => {
           const plural = (count: number) => (count === 1 ? 'file' : 'files');
@@ -435,8 +436,12 @@ export class SessionLink {
       );
   }
 
-  private watched(files: ConversationStore, operation: Promise<void>): void {
-    void operation.catch((error: unknown) => {
+  /** settles once `operation` has, with its failure posted as a notice. */
+  private watched(
+    files: ConversationStore,
+    operation: Promise<void>,
+  ): Promise<void> {
+    return operation.catch((error: unknown) => {
       const text = errorMessage(error);
       if (files.closed || text === this.changeFailure) return;
       this.changeFailure = text;
