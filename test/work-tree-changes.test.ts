@@ -687,6 +687,29 @@ test('settled waits for the operations already asked for', async () => {
   assert.deepEqual(order, ['snapshot', 'settled']);
 });
 
+test('close stops the Git call in flight and fails what is queued behind it without starting it', async () => {
+  const { root, work } = await repository();
+  const calls: string[][] = [];
+  const inFlight = Promise.withResolvers<void>();
+  const run: Run = (command, args, options) => {
+    calls.push(args);
+    if (!args.includes('write-tree')) return execute(command, args, options);
+    inFlight.resolve();
+    // without the call's time limit, so only the close can stop it
+    return execute('sleep', ['600'], { signal: options.signal });
+  };
+  const changes = new WorkTreeChanges(join(root, 'changes'), run);
+  const watching = changes.watch(work);
+  const queued = changes.read(work);
+  await inFlight.promise;
+  const started = calls.length;
+  changes.close();
+  await assert.rejects(watching, /^Error: Couldn't read file changes: /);
+  await assert.rejects(queued, /^Error: Couldn't read file changes: /);
+  await changes.settled();
+  assert.equal(calls.length, started);
+});
+
 test('a directory outside a repository reads nothing, and another failure of the lookup rejects', async () => {
   const root = await scratch('witch-changes-');
   const calls: string[][] = [];
