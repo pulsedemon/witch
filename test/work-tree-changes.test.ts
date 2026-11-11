@@ -272,6 +272,25 @@ test('absorb takes only the reported paths into the baseline', async () => {
   ]);
 });
 
+test('absorb takes a file that became a directory, and a directory that became a file', async () => {
+  const { work, git, changes } = await repository({ file: 'file\n' });
+  await mkdir(join(work, 'directory'));
+  await writeFile(join(work, 'directory', 'inside.txt'), 'inside\n');
+  await git('add', '-A');
+  await git('commit', '-qm', 'directory');
+  await changes.watch(work);
+  await rm(join(work, 'file'));
+  await mkdir(join(work, 'file'));
+  await writeFile(join(work, 'file', 'new.txt'), 'new\n');
+  await rm(join(work, 'directory'), { recursive: true });
+  await writeFile(join(work, 'directory'), 'now a file\n');
+  await changes.absorb(work, [
+    join(work, 'file', 'new.txt'),
+    join(work, 'directory'),
+  ]);
+  assert.deepEqual(await changes.read(work), none);
+});
+
 test('an edit committed since the baseline shows, as does the first commit of an unborn branch', async () => {
   const { work, git, changes } = await repository();
   await changes.watch(work);
@@ -447,8 +466,9 @@ test('a long line takes more of the line budget, as a changed line or as context
   });
   await changes.watch(work);
   await writeFile(join(work, 'context.txt'), `${'x'.repeat(90_000)}\nedited\n`);
+  // 199 characters cost one line each, so 400 of them take the whole budget and no more
+  await writeFile(join(work, 'fits.txt'), `${'x'.repeat(199)}\n`.repeat(400));
   await writeFile(join(work, 'long.json'), `${'x'.repeat(100_000)}\n`);
-  await writeFile(join(work, 'short.txt'), `${'x'.repeat(199)}\n`);
   assert.deepEqual(
     changed(work, await changes.read(work)).map(({ path, lines, unshown }) => [
       path,
@@ -457,8 +477,8 @@ test('a long line takes more of the line budget, as a changed line or as context
     ]),
     [
       ['context.txt', 0, { added: 1, removed: 1 }],
+      ['fits.txt', 400, undefined],
       ['long.json', 0, { added: 1, removed: 0 }],
-      ['short.txt', 1, undefined],
     ],
   );
 });

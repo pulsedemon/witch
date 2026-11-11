@@ -145,7 +145,7 @@ test('an interrupt during the baseline wait starts no native session', async () 
     clearing = coordinator.clear();
     await until('the baseline request', () => watcher.calls.length === 2);
     await coordinator.interrupt();
-    baseline.resolve();
+    // the baseline is still held: the interrupt alone ends the wait
     await assert.rejects(clearing, { name: 'AbortError' });
     assert.equal(a.sessions.length, 1);
   } finally {
