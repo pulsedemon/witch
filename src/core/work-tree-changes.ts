@@ -84,15 +84,20 @@ function cost(file: FileDiff): number {
 
 const exitCode = (error: unknown) => (error as { code?: unknown }).code;
 
-function firstLine(error: unknown): string {
-  const { stderr } = error as { stderr?: unknown };
+/** what a failed Git call says went wrong, in one line. */
+function cause(error: unknown): string {
+  const { stderr, killed } = error as { stderr?: unknown; killed?: unknown };
+  // a command stopped at its time limit has said nothing of it
+  if (killed) return 'Git timed out';
   const text =
     typeof stderr === 'string' && stderr.trim()
       ? stderr
       : error instanceof Error
         ? error.message
         : String(error);
-  return text.trim().split('\n')[0]!;
+  const lines = text.trim().split('\n');
+  // Git prints its warnings before the line that says what failed
+  return lines.find((line) => /^(?:fatal|error):/.test(line)) ?? lines[0]!;
 }
 
 const fields = (output: string) => output.split('\0').slice(0, -1);
@@ -476,7 +481,7 @@ export class WorkTreeChanges {
     const result = this.chain.then(operation);
     this.chain = result.catch(() => undefined);
     return result.catch((error: unknown) => {
-      throw new Error(`Couldn't read file changes: ${firstLine(error)}`);
+      throw new Error(`Couldn't read file changes: ${cause(error)}`);
     });
   }
 }
