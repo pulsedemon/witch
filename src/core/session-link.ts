@@ -228,10 +228,16 @@ export class SessionLink {
     await this.coordination?.activate(conversation, scope.project);
     this.aborter = new AbortController();
     try {
-      // settled before the session exists, so a command's edit can't land in the baseline
+      const { signal } = this.aborter;
+      // settled before the session exists, so a command's edit can't land in the baseline; an abort ends the wait
       if (this.changes)
-        await this.watched(files, this.changes.watch(conversation.cwd));
-      if (this.aborter.signal.aborted)
+        await Promise.race([
+          this.watched(files, this.changes.watch(conversation.cwd)),
+          new Promise<void>((resolve) =>
+            signal.addEventListener('abort', () => resolve(), { once: true }),
+          ),
+        ]);
+      if (signal.aborted)
         throw new DOMException('Connection was interrupted', 'AbortError');
       const stored = conversation.sessions[agent];
       const session = await adapter.connect({
