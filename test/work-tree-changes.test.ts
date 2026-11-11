@@ -202,6 +202,26 @@ test('a read from a subdirectory of a linked worktree covers the whole worktree'
   assert.deepEqual(await changes.read(work), none);
 });
 
+test('a checkout whose directory name ends in a space is read as itself', async () => {
+  const root = await scratch('witch-changes-');
+  const work = join(root, 'spaced ');
+  await mkdir(work);
+  const git = (...args: string[]) =>
+    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: work,
+    });
+  await git('init', '-q', '-b', 'main');
+  await writeFile(join(work, 'a.txt'), 'a\n');
+  await git('add', '-A');
+  await git('commit', '-qm', 'first');
+  const changes = new WorkTreeChanges(join(root, 'changes'));
+  await changes.watch(work);
+  await appendFile(join(work, 'a.txt'), 'more\n');
+  assert.deepEqual(changed(work, await changes.read(work)), [
+    { path: 'a.txt', kind: 'update', lines: ['+more'] },
+  ]);
+});
+
 test('a checkout keeps its baseline through a second watch and a watch of another checkout', async () => {
   const first = await repository();
   const second = await repository();
@@ -485,23 +505,22 @@ test('a long line takes more of the line budget, as a changed line or as context
   const { work, changes } = await repository({
     'context.txt': `${'x'.repeat(90_000)}\nsmall\n`,
   });
-  await changes.watch(work);
-  await writeFile(join(work, 'context.txt'), `${'x'.repeat(90_000)}\nedited\n`);
-  // 199 characters cost one line each, so 400 of them take the whole budget and no more
-  await writeFile(join(work, 'fits.txt'), `${'x'.repeat(199)}\n`.repeat(400));
-  await writeFile(join(work, 'long.json'), `${'x'.repeat(100_000)}\n`);
-  assert.deepEqual(
+  const sizes = async () =>
     changed(work, await changes.read(work)).map(({ path, lines, unshown }) => [
       path,
       lines.length,
       unshown,
-    ]),
-    [
-      ['context.txt', 0, { added: 1, removed: 1 }],
-      ['fits.txt', 400, undefined],
-      ['long.json', 0, { added: 1, removed: 0 }],
-    ],
-  );
+    ]);
+  await changes.watch(work);
+  await writeFile(join(work, 'long.json'), `${'x'.repeat(100_000)}\n`);
+  assert.deepEqual(await sizes(), [['long.json', 0, { added: 1, removed: 0 }]]);
+  await writeFile(join(work, 'context.txt'), `${'x'.repeat(90_000)}\nedited\n`);
+  assert.deepEqual(await sizes(), [
+    ['context.txt', 0, { added: 1, removed: 1 }],
+  ]);
+  // 199 characters cost one line each, so 400 of them take the whole budget and no more
+  await writeFile(join(work, 'fits.txt'), `${'x'.repeat(199)}\n`.repeat(400));
+  assert.deepEqual(await sizes(), [['fits.txt', 400, undefined]]);
 });
 
 test('files past the hundredth are counted, and only the listed files have their lines counted', async () => {
