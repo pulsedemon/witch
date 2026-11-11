@@ -419,15 +419,70 @@ test('a file past the line budget, a binary file and a type change keep their he
   ]);
 });
 
-test('files past the hundredth are counted', async () => {
+test("a row's files share the line budget, and a name Git could read as pathspec magic keeps its count", async () => {
   const { work, changes } = await repository();
   await changes.watch(work);
-  for (let file = 0; file < 101; file++)
-    await writeFile(join(work, `n${String(file).padStart(3, '0')}.txt`), 'n\n');
+  const lines = (count: number) =>
+    Array.from({ length: count }, (_, line) => `${line}\n`).join('');
+  await writeFile(join(work, ':a.txt'), lines(401));
+  await writeFile(join(work, 'first.txt'), lines(250));
+  await writeFile(join(work, 'second.txt'), lines(250));
+  assert.deepEqual(
+    changed(work, await changes.read(work)).map(({ path, lines, unshown }) => [
+      path,
+      lines.length,
+      unshown,
+    ]),
+    [
+      [':a.txt', 0, { added: 401, removed: 0 }],
+      ['first.txt', 250, undefined],
+      ['second.txt', 0, { added: 250, removed: 0 }],
+    ],
+  );
+});
+
+test('files past the hundredth are counted, and only the listed files have their lines counted', async () => {
+  const { root, work } = await repository();
+  const counted: string[][] = [];
+  const run: Run = (command, args, options) => {
+    if (args.includes('--numstat'))
+      counted.push(args.slice(args.indexOf('--') + 1));
+    return execute(command, args, options);
+  };
+  const changes = new WorkTreeChanges(join(root, 'changes'), run);
+  await changes.watch(work);
+  const names = Array.from(
+    { length: 101 },
+    (_, file) => `n${String(file).padStart(3, '0')}.txt`,
+  );
+  for (const name of names) await writeFile(join(work, name), 'n\n');
   const read = await changes.read(work);
   assert.equal(read.files.length, 100);
   assert.equal(read.more, 1);
   assert.equal(read.files.at(-1)!.path, join(work, 'n099.txt'));
+  assert.deepEqual(counted, [names.slice(0, 100)]);
+});
+
+test('a file whose content Git fails to hand over keeps its header, and the rest of the row shows', async () => {
+  const { root, work } = await repository();
+  const run: Run = (command, args, options) =>
+    args.includes('cat-file')
+      ? Promise.reject(Object.assign(new Error('failed'), { code: 128 }))
+      : execute(command, args, options);
+  const changes = new WorkTreeChanges(join(root, 'changes'), run);
+  await changes.watch(work);
+  await appendFile(join(work, 'a.txt'), 'more\n');
+  await writeFile(join(work, 'new.txt'), 'new\n');
+  assert.deepEqual(changed(work, await changes.read(work)), [
+    { path: 'a.txt', kind: 'update', lines: ['+more'] },
+    {
+      path: 'new.txt',
+      kind: 'add',
+      lines: [],
+      unshown: { added: 1, removed: 0 },
+    },
+  ]);
+  assert.deepEqual(await changes.read(work), none);
 });
 
 test("a file replaced by a directory, and a nested repository's new commit, leave the next file its own lines", async () => {
