@@ -37,7 +37,7 @@ interface Entry {
 }
 
 const timeout = 10_000;
-/** the name reads list every changed file, which a branch switch can make long. */
+/** the name reads list every changed or tracked file, which can be long. */
 const listBuffer = 64 * 1024 * 1024;
 const lineBudget = 400;
 const fileBudget = 100;
@@ -409,7 +409,21 @@ export class WorkTreeChanges {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
-    await this.git(checkout, ['add', '-A']);
+    // `add` asks a nested repository the index tracks whether it changed, which can run a filter that repository's
+    // own config names, so each stays out of the add and keeps the commit the index holds
+    const tracked = fields(
+      await this.git(checkout, ['ls-files', '-s', '-z'], listBuffer),
+    )
+      .filter((entry) => entry.startsWith(gitlink))
+      .map(
+        (entry) =>
+          `:(top,exclude,literal)${entry.slice(entry.indexOf('\t') + 1)}`,
+      );
+    await this.git(checkout, [
+      'add',
+      '-A',
+      ...(tracked.length ? ['--', ':(top)', ...tracked] : []),
+    ]);
     return {
       tree: (await this.git(checkout, ['write-tree'])).trim(),
       head,
