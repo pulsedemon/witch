@@ -320,6 +320,8 @@ export class WorkTreeChanges {
                   '--no-ext-diff',
                   '--no-textconv',
                   '-U3',
+                  // the user's setting could join distant hunks with every line between them
+                  '--inter-hunk-context=0',
                   entry.old,
                   entry.new,
                 ]),
