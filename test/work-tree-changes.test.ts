@@ -745,16 +745,26 @@ test('a directory outside a repository reads nothing, and another failure of the
   );
 });
 
-test('a nested repository with no commit stays out of the snapshot, and the rest still shows', async () => {
-  const { work, changes } = await repository({ 'a.txt': 'a\n' });
-  await execute('git', ['init', '-q', join(work, 'nested')]);
-  await writeFile(join(work, 'nested', 'inside.txt'), 'inside\n');
-  await changes.watch(work);
-  await appendFile(join(work, 'a.txt'), 'more\n');
-  assert.deepEqual(changed(work, await changes.read(work)), [
-    { path: 'a.txt', kind: 'update', lines: ['+more'] },
-  ]);
-});
+for (const wording of ['the installed', 'a newer'])
+  test(`a nested repository with no commit stays out of the snapshot in ${wording} Git's wording, and the rest still shows`, async () => {
+    const { root, work } = await repository({ 'a.txt': 'a\n' });
+    await execute('git', ['init', '-q', join(work, 'nested')]);
+    await writeFile(join(work, 'nested', 'inside.txt'), 'inside\n');
+    // Git 2.56 follows its complaint with this line, which Git 2.45 leaves out
+    const followed = "error: unable to index file 'nested/'\n";
+    const run: Run = (command, args, options) =>
+      execute(command, args, options).catch((error: { stderr: string }) => {
+        if (wording === 'a newer' && !error.stderr.includes(followed))
+          error.stderr += followed;
+        throw error;
+      });
+    const changes = new WorkTreeChanges(join(root, 'worded'), run);
+    await changes.watch(work);
+    await appendFile(join(work, 'a.txt'), 'more\n');
+    assert.deepEqual(changed(work, await changes.read(work)), [
+      { path: 'a.txt', kind: 'update', lines: ['+more'] },
+    ]);
+  });
 
 test('a path Git could not add fails the snapshot and is the one named, beside a nested repository with no commit', async () => {
   const { root, work } = await repository({ 'a.txt': 'a\n' });
@@ -765,7 +775,7 @@ test('a path Git could not add fails the snapshot and is the one named, beside a
           Object.assign(new Error('failed'), {
             code: 1,
             stderr:
-              "error: 'nested/' does not have a commit checked out\nerror: open(\"locked\"): Permission denied\nerror: unable to index file 'locked'\n",
+              "error: 'nested/' does not have a commit checked out\nerror: unable to index file 'nested/'\nerror: open(\"locked\"): Permission denied\nerror: unable to index file 'locked'\n",
           }),
         )
       : execute(command, args, options);
