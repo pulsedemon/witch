@@ -135,6 +135,26 @@ test("the native session starts only once its checkout's baseline has settled", 
   }
 });
 
+test('an interrupt during the baseline wait starts no native session', async () => {
+  const watcher = new Watcher();
+  const { coordinator, a } = await fixture(undefined, undefined, true, watcher);
+  const baseline = Promise.withResolvers<void>();
+  let clearing: Promise<void> | undefined;
+  try {
+    watcher.watching = () => baseline.promise;
+    clearing = coordinator.clear();
+    await until('the baseline request', () => watcher.calls.length === 2);
+    await coordinator.interrupt();
+    baseline.resolve();
+    await assert.rejects(clearing, { name: 'AbortError' });
+    assert.equal(a.sessions.length, 1);
+  } finally {
+    baseline.resolve();
+    await clearing?.catch(() => undefined);
+    await coordinator.close();
+  }
+});
+
 test('only shell commands are read, and counts alone append without a diff', async () => {
   const watcher = new Watcher();
   const { coordinator, a } = await fixture(undefined, undefined, true, watcher);
