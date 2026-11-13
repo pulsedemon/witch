@@ -486,6 +486,33 @@ test('MCP form submissions validate required fields, types and constraints befor
   }
 });
 
+test('an MCP form whose schema cannot be compiled says so instead of blaming the answer', async () => {
+  const sent: UserResponse[] = [];
+  const ui = await mountRequest(
+    {
+      id: 'form',
+      kind: 'elicitation',
+      title: 'Contact',
+      detail: 'MCP server',
+      schema: {
+        type: 'object',
+        properties: { name: { type: 'string', pattern: '[' } },
+      },
+    },
+    (response) => sent.push(response),
+  );
+  try {
+    await ready();
+    await press(ui.stdin, '\r');
+    assert.deepEqual(sent, []);
+    const frame = ui.lastFrame() ?? '';
+    assert.match(frame, /The request's schema can't be used: Invalid regular/);
+    assert.doesNotMatch(frame, /matching the requested fields/);
+  } finally {
+    await unmount(ui);
+  }
+});
+
 test('an MCP form whose schema names draft-07 validates the answer', async () => {
   const sent: UserResponse[] = [];
   const ui = await mountRequest(
