@@ -173,6 +173,31 @@ test('a pull request read that failed gets one unsaved notice per failure, again
   assert.equal(notices.length, 5, 'a newly opened conversation');
 });
 
+test('a failure beside a pull request that was read gets one notice until a read has none', async (t) => {
+  const stub = stubRepository();
+  const { notices } = fixture(t.onTestFinished, stub.repository);
+  const partial = (fields: Partial<Repository> = {}) =>
+    status({
+      pullRequest: pr(),
+      pullRequestFailure: 'spawn gh EMFILE',
+      ...fields,
+    });
+  await stub.publish(partial());
+  await stub.publish(partial({ modified: 1 }));
+  assert.deepEqual(
+    notices.map(({ text }) => text),
+    ["Can't read this branch's pull request: spawn gh EMFILE"],
+    'the same failure at the next status',
+  );
+  await stub.publish(status({ pullRequest: pr() }));
+  await stub.publish(partial());
+  assert.equal(
+    notices.length,
+    2,
+    'the failure came back after a read without one',
+  );
+});
+
 test('a merge into the pull request base reads it again, and a pull request that turns conflicting reaches the coordinator', async (t) => {
   vi.useFakeTimers({
     toFake: ['setInterval', 'clearInterval', 'Date'],
