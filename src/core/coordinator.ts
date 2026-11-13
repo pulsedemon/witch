@@ -57,7 +57,7 @@ import {
 } from './queue.js';
 import type { WorkTreeChanges } from './work-tree-changes.js';
 import type { SessionCoordination } from './coordination.js';
-import { sessionWorking } from './coordination-state.js';
+import { sessionWorking, witchWorking } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
@@ -737,11 +737,12 @@ export class Coordinator {
           let ran: boolean;
           if (this.answerReady() && !tried.has(answers)) {
             tried.add(answers);
-            ran = await this.answerPeers();
-          } else if (this.repair.ready()) ran = await this.repair.run();
+            ran = await this.runAutomatic(() => this.answerPeers());
+          } else if (this.repair.ready())
+            ran = await this.runAutomatic(() => this.repair.run());
           else if (!tried.has('copilot') && this.copilot.ready()) {
             tried.add('copilot');
-            ran = await this.copilot.run();
+            ran = await this.runAutomatic(() => this.copilot.run());
           } else return;
           if (ran) {
             if (this.halted()) return;
@@ -798,6 +799,12 @@ export class Coordinator {
       // a repair that became ready while this drain ran had its wake dropped
       if (this.repair.ready()) this.drainAfter();
     }
+  }
+
+  /** an automatic turn's admission and reconciliation run at idle, so the flag marks what the phase doesn't. */
+  private runAutomatic(run: () => Promise<boolean>): Promise<boolean> {
+    this.publish({ automatic: true });
+    return run().finally(() => this.publish({ automatic: false }));
   }
 
   private automaticReady(): boolean {
@@ -1480,13 +1487,9 @@ export class Coordinator {
       pendingCompaction: this.compaction.pending,
     };
     if ('queue' in update) this.saveQueue();
-    const working = sessionWorking(this.snapshot);
+    this.pentacle.set(localActivity, witchWorking(this.snapshot));
     // merge cleanup and closing start no agent jobs
-    this.pentacle.set(
-      localActivity,
-      working || ['cleaning', 'closing'].includes(this.snapshot.phase),
-    );
-    this.jobs?.setActive(working);
+    this.jobs?.setActive(sessionWorking(this.snapshot));
     this.coordination?.update(this.snapshot);
     if ('nativeRunning' in update && !update.nativeRunning)
       this.confirmPauses();

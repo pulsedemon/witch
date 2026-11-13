@@ -266,6 +266,20 @@ export function sessionWorking(
   );
 }
 
+/** whether Witch itself is at work: `sessionWorking`, or merge cleanup or closing, which start no agent jobs. */
+export function witchWorking(
+  snapshot: Pick<
+    Snapshot,
+    'phase' | 'nativeRunning' | 'subagents' | 'backgroundCommands'
+  >,
+): boolean {
+  return (
+    sessionWorking(snapshot) ||
+    snapshot.phase === 'cleaning' ||
+    snapshot.phase === 'closing'
+  );
+}
+
 /** an idle session runs in the background while its familiars or brews do. */
 function idleStatus(phase: Phase, background: boolean): string {
   return phase === 'idle' && background ? 'background' : phase;
