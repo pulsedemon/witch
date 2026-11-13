@@ -13,7 +13,7 @@ const tilt = 0.22;
 const camera = 4;
 const ringSegments = 40;
 
-export interface Run {
+interface Run {
   text: string;
   /** on the side facing the viewer. */
   near: boolean;

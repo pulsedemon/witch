@@ -74,7 +74,7 @@ export async function artifactDigest(
   return contentDigest(packageFile?.isFile() ? release : executable);
 }
 
-export function compareVersions(left: string, right: string): number {
+function compareVersions(left: string, right: string): number {
   const [a, preA] = versionSchema.parse(left).split('-');
   const [b, preB] = versionSchema.parse(right).split('-');
   const parts = b!.split('.').map(Number);

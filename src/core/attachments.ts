@@ -7,7 +7,7 @@ import { resolveFile, unescapePath } from '../paths.js';
 import { shellCommand } from './prompts.js';
 import type { ConversationStore } from '../persistence/store.js';
 
-export const markerPattern = /\[Image #(\d+)\]/g;
+const markerPattern = /\[Image #(\d+)\]/g;
 // Claude Code's extensions, which are also the types Claude's API accepts
 const imageName = /\.(?:png|jpe?g|gif|webp)$/i;
 // a quoted path, or one where a backslash escapes the next character, then ASCII whitespace; `\s` would split at the U+202F in screenshot names

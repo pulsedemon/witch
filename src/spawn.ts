@@ -19,7 +19,7 @@ import { unlessGone } from './persistence/json.js';
 import { StateStore } from './persistence/store.js';
 import { oneLine } from './ui/links.js';
 
-export interface Spawned {
+interface Spawned {
   path: string;
   /** false for a path that isn't a registered worktree on disk, which gets no install or tab. */
   slot: boolean;
@@ -419,12 +419,13 @@ export async function runSpawn(
     const store = await StateStore.open(stateRoot);
     const memory = new Memory(memoryRepository(stateRoot));
     // spawning without a repair would open worktrees whose registrations nothing checked
-    const report = await repairMoves(store, memory, cwd, { run });
-    const notice = describeMoves(report, stateRoot);
+    const repaired = await repairMoves(store, memory, cwd, { run });
+    const notice = describeMoves(repaired, stateRoot);
     if (notice) process.stdout.write(`${notice}\n`);
     const list = await listWorktrees(run, cwd);
     const main = list[0]!;
-    if (report.blocked.some(({ repository }) => repository === main)) return 1;
+    if (repaired.blocked.some(({ repository }) => repository === main))
+      return 1;
     const { entries } = await readLedger(stateRoot);
     const slots = new Map(
       entries.flatMap(({ path, main: owner, slot }) =>

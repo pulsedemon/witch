@@ -8,7 +8,7 @@ const keptLength = 1 << 20;
 const recordLength = 30000;
 const cutNote = '\n[output past 1 MiB cut]\n';
 
-export interface ShellRun {
+interface ShellRun {
   /** stdout and stderr in arrival order. */
   output: string;
   /** null when a signal ended the shell. */

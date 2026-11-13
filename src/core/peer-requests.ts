@@ -38,8 +38,8 @@ export const peerRequestStatusSchema = z.enum([
 ]);
 
 export type PeerRequest = z.infer<typeof peerRequestSchema>;
-export type PeerRequestStatus = z.infer<typeof peerRequestStatusSchema>;
-export type PeerAction = Extract<
+type PeerRequestStatus = z.infer<typeof peerRequestStatusSchema>;
+type PeerAction = Extract<
   CoordinationAction,
   { kind: 'ask' | 'answer' | 'peer-request' }
 >;

@@ -40,7 +40,7 @@ const skillInput = z.object({
   path: z.string(),
 });
 
-export interface SpellCast {
+interface SpellCast {
   /** the spell's canonical SKILL.md. */
   path: string;
   name: string;

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { unlessGone } from '../persistence/json.js';
 import type { SessionCoordination } from './coordination.js';
 import {
@@ -23,7 +23,7 @@ import { untitled } from './state.js';
 import type { ConversationRecord, DisplayUpdate } from './state.js';
 
 /** what a review needs from the coordinator. */
-export interface ReviewHost {
+interface ReviewHost {
   conversation: ConversationRecord;
   coordination:
     Pick<SessionCoordination, 'router' | 'commandPrefixes'> | undefined;
@@ -104,7 +104,13 @@ async function runReview(
     const path = resolve(cwd, file.replace(/^@/, ''));
     const inside = relative(cwd, path);
     const exists = (await unlessGone(stat(path)))?.isFile() ?? false;
-    if (!inside || inside.startsWith('..') || isAbsolute(inside) || !exists) {
+    if (
+      !inside ||
+      inside === '..' ||
+      inside.startsWith(`..${sep}`) ||
+      isAbsolute(inside) ||
+      !exists
+    ) {
       host.notice(`Review refused: ${file} is not a file in ${cwd}`);
       return;
     }

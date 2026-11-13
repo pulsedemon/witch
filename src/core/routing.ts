@@ -38,7 +38,7 @@ export const defaultPolicy: Policy = {
   work: {},
 };
 
-export interface Choice {
+interface Choice {
   runtime: string;
   model: string;
 }

@@ -1,6 +1,6 @@
 import type { Skill } from '../agents/types.js';
 
-export type Token =
+type Token =
   | { kind: 'command'; query: string }
   /** `[start, end)` spans the whole token, `@` included. */
   | { kind: 'file'; query: string; start: number; end: number };

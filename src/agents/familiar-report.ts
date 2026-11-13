@@ -8,7 +8,7 @@ import {
   userResponseSchema,
 } from './types.js';
 
-export const familiarProgressSchema = z.object({
+const familiarProgressSchema = z.object({
   status: z.enum(taskStatuses),
   model: z.string().min(1).optional(),
   activity: z.string().optional(),
@@ -84,14 +84,14 @@ export function isFamiliarAction(action: {
   return action.kind.startsWith('familiar-');
 }
 
-export const familiarMarkerSchema = z.object({
+const familiarMarkerSchema = z.object({
   version: z.literal(1),
   conversation: z.string().min(1),
   activation: z.string().uuid(),
   run: z.string().uuid(),
 });
-export type FamiliarMarker = z.infer<typeof familiarMarkerSchema>;
-export const familiarMarkerPrefix = 'WITCH_FAMILIAR ';
+type FamiliarMarker = z.infer<typeof familiarMarkerSchema>;
+const familiarMarkerPrefix = 'WITCH_FAMILIAR ';
 
 export function familiarMarker(marker: FamiliarMarker): string {
   return `${familiarMarkerPrefix}${JSON.stringify(marker)}\n`;

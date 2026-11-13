@@ -274,7 +274,7 @@ export interface AnswerInput {
   requestFile: string;
 }
 
-export type TurnPurpose = 'user' | 'peer-answer' | 'pr-review' | 'pr-repair';
+type TurnPurpose = 'user' | 'peer-answer' | 'pr-review' | 'pr-repair';
 
 export interface SendOptions {
   skill?: SkillCall;

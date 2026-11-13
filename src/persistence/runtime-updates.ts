@@ -19,7 +19,7 @@ const cachedCheckSchema = runtimeCheckSchema.extend({
   notified: z.string().optional(),
 });
 
-export const updateJournalSchema = z.object({
+const updateJournalSchema = z.object({
   id: z.string().uuid(),
   previous: installationSchema,
   target: versionSchema,
@@ -149,10 +149,7 @@ export class RuntimeUpdateStore {
   }
 
   async journals(): Promise<UpdateJournal[]> {
-    const files = await readdir(this.directory).catch((error) => {
-      if (gone(error)) return [];
-      throw error;
-    });
+    const files = (await unlessGone(readdir(this.directory))) ?? [];
     const values = await Promise.all(
       files
         .filter((file) => /^[a-f0-9]{64}\.json$/.test(file))
