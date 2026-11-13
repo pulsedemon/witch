@@ -175,6 +175,15 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
     async () => {},
   );
   const failures: unknown[] = [];
+  const selection = {
+    ticket: {
+      owner: { conversation: 'a', project: 'project-p' },
+      activation: binding.activation,
+      turn: randomUUID(),
+      id: randomUUID(),
+    },
+    position: 1,
+  };
   const host = await ControlHost.open(
     directory,
     async ({ action, conversation, deadline }) => {
@@ -185,6 +194,7 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
             peers: [],
             reservations: [{ claim: occupied, status: 'unattended' }],
             unregistered: [],
+            ownSelection: selection,
           },
         };
       if (action.kind === 'release') {
@@ -219,6 +229,19 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
       { claim: occupied, status: 'unattended' },
     ]);
     assert.deepEqual(query.files, []);
+    for (const [position, status] of [
+      [1, 'choosing'],
+      [3, 'queued #3'],
+    ] as const) {
+      selection.position = position;
+      const text = await run(`${prefix} --peers`);
+      assert.equal(text.code, 0);
+      assert.equal(text.stderr, '');
+      assert.equal(
+        text.stdout.split('\n')[0],
+        `Selection ${selection.ticket.id}: ${status}`,
+      );
+    }
     const conflict = await run(
       `${prefix} --claim task:occupied --summary 'Duplicate' --json`,
     );
