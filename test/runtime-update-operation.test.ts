@@ -251,7 +251,9 @@ test('the 24-hour cache still reads installed identity and current policy', asyn
 
 test('a release is announced once across successive Witch instances', async () => {
   const f = await runtimeUpdateFixture();
-  assert.equal(f.notices.length, 1);
+  assert.deepEqual(f.notices, [
+    'Fixture Codex 2.0.0 is available. Open /updates to review it.',
+  ]);
   f.updates.close();
   const notices: string[] = [];
   const next = new RuntimeUpdates(

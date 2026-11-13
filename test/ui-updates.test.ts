@@ -23,6 +23,24 @@ import { scratch } from './fixtures/scratch.js';
 import { show, ENTER, DOWN } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
+const agents = [{ id: 'codex', label: 'Fixture Codex', installed: true }];
+
+/** an open conversation on `a` whose agent list also holds the update fixture's runtime, as the app's must to label it. */
+async function session() {
+  const root = await scratch('witch-update-ui-');
+  const project = join(root, 'project');
+  await mkdir(project);
+  const coordinator = new Coordinator(
+    await StateStore.open(join(root, 'state')),
+    new EmptyMemory(join(root, 'memory.git')),
+    [new FixtureAgent('a'), new FixtureAgent('codex', 'Fixture Codex')].map(
+      (adapter) => ({ adapter, executable: adapter.id }),
+    ),
+  );
+  await coordinator.initialize(project);
+  return coordinator;
+}
+
 async function submit(ui: ReturnType<typeof show>, text: string) {
   ui.stdin.write(text);
   await delay(30);
@@ -30,14 +48,14 @@ async function submit(ui: ReturnType<typeof show>, text: string) {
 }
 
 test('native updates require explicit confirmation and show the selected verified version', async () => {
-  const f = await unitFixture();
+  const coordinator = await session();
   const update = await runtimeUpdateFixture({
-    maintain: (runtime, run) => f.coordinator.maintainNative(runtime, run),
+    maintain: (runtime, run) => coordinator.maintainNative(runtime, run),
     notice: () => {},
   });
   const ui = show(
     createElement(App, {
-      coordinator: f.coordinator,
+      coordinator,
       updates: update.updates,
       onExit: () => {},
     }),
@@ -51,7 +69,7 @@ test('native updates require explicit confirmation and show the selected verifie
       ui.text().includes('2.0.0 + paid checks'),
     );
     assert.deepEqual(update.installs, []);
-    assert.match(ui.text(), /Update Codex 1\.0\.0/);
+    assert.match(ui.text(), /Update Fixture Codex 1\.0\.0/);
     assert.ok(ui.text().includes('codex'));
     ui.stdin.write(ENTER);
     await until('cancelled confirmation', () =>
@@ -74,16 +92,16 @@ test('native updates require explicit confirmation and show the selected verifie
   } finally {
     ui.unmount();
     update.updates.close();
-    await f.coordinator.close();
+    await coordinator.close();
   }
 });
 
 test('the narrow confirmation retains both its version and paid-check disclosure', async () => {
-  const f = await unitFixture();
+  const coordinator = await session();
   const update = await runtimeUpdateFixture();
   const ui = show(
     createElement(App, {
-      coordinator: f.coordinator,
+      coordinator,
       updates: update.updates,
       onExit: () => {},
     }),
@@ -100,7 +118,7 @@ test('the narrow confirmation retains both its version and paid-check disclosure
   } finally {
     ui.unmount();
     update.updates.close();
-    await f.coordinator.close();
+    await coordinator.close();
   }
 });
 
@@ -287,7 +305,7 @@ test('failed reconnect keeps qualified candidate recovery available and restores
     const journal = (await update.store.journal(update.root))!;
     assert.equal(journal.phase, 'failed');
     assert.match(
-      updatesText(update.updates.snapshot),
+      updatesText(update.updates.snapshot, agents),
       /Run \/updates codex to recover/,
     );
     agent.beforeConnect = undefined;
@@ -306,8 +324,8 @@ test('unknown check state and recovered failures are not labeled verified', asyn
     throw new Error('Account usage exhausted');
   };
   await assert.rejects(f.updates.apply(f.check, { accountUsage: true }));
-  const text = updatesText(f.updates.snapshot);
-  assert.match(text, /Installed: 1.0.0/);
+  const text = updatesText(f.updates.snapshot, agents);
+  assert.match(text, /^Fixture Codex\nInstalled: 1\.0\.0$/m);
   assert.match(text, /Account usage exhausted/);
   assert.match(text, /Not yet verified/);
   assert.doesNotMatch(text, /Installed: 2.0.0/);
@@ -343,10 +361,10 @@ test('an unrelated startup failure leaves a qualified update usable', async () =
 });
 
 test('a current unverified installation is offered qualification even when updates are blocked', async () => {
-  const f = await unitFixture();
+  const coordinator = await session();
   const update = await runtimeUpdateFixture(
     {
-      maintain: (runtime, run) => f.coordinator.maintainNative(runtime, run),
+      maintain: (runtime, run) => coordinator.maintainNative(runtime, run),
       notice: () => {},
     },
     '2.0.0',
@@ -355,7 +373,7 @@ test('a current unverified installation is offered qualification even when updat
   update.policy.blocked = 'Native Codex automatic updates are enabled.';
   const ui = show(
     createElement(App, {
-      coordinator: f.coordinator,
+      coordinator,
       updates: update.updates,
       onExit: () => {},
     }),
@@ -368,7 +386,7 @@ test('a current unverified installation is offered qualification even when updat
     await until('qualify confirmation', () =>
       ui.text().includes('Paid checks on 2.0.0'),
     );
-    assert.match(ui.text(), /Qualify Codex 2\.0\.0\?/);
+    assert.match(ui.text(), /Qualify Fixture Codex 2\.0\.0\?/);
     assert.ok(ui.text().includes('codex'));
     ui.stdin.write(ENTER);
     await until('cancelled confirmation', () =>
@@ -391,7 +409,7 @@ test('a current unverified installation is offered qualification even when updat
   } finally {
     ui.unmount();
     update.updates.close();
-    await f.coordinator.close();
+    await coordinator.close();
   }
 });
 
@@ -400,8 +418,10 @@ test('the picker label and the status text offer qualification by one rule', asy
   const snapshot = f.updates.snapshot;
   const entry = snapshot.entries[0]!;
   const offered = (state: RuntimeUpdateSnapshot) => ({
-    label: /not verified/.test(updateChoice(state.entries[0]!, state)),
-    hint: /Run \/updates codex to qualify it\./.test(updatesText(state)),
+    label: /not verified/.test(updateChoice(state.entries[0]!, state, agents)),
+    hint: /Run \/updates codex to qualify it\./.test(
+      updatesText(state, agents),
+    ),
   });
   const journal: UpdateJournal = {
     id: '4b4c6f0e-6f58-4a55-9a0c-3c2a5a4f7d10',
@@ -442,15 +462,18 @@ test('the picker label and the status text offer qualification by one rule', asy
   };
   assert.deepEqual(offered(unidentified), { label: false, hint: false });
   assert.match(
-    updatesText(unidentified),
+    updatesText(unidentified, agents),
     /Witch build identity failed: Build tree unreadable/,
   );
   const pending: RuntimeUpdateSnapshot = {
     ...snapshot,
     entries: [{ ...entry, journal: { ...journal, phase: 'failed' } }],
   };
-  assert.match(updateChoice(pending.entries[0]!, pending), /recovery required/);
-  assert.match(updatesText(pending), /Run \/updates codex to recover/);
+  assert.match(
+    updateChoice(pending.entries[0]!, pending, agents),
+    /recovery required/,
+  );
+  assert.match(updatesText(pending, agents), /Run \/updates codex to recover/);
   f.updates.close();
 });
 
@@ -467,7 +490,7 @@ test('a refused qualification leaves the offer in place', async () => {
   }
   assert.equal(f.updates.snapshot.progress, undefined);
   assert.match(
-    updateChoice(f.updates.snapshot.entries[0]!, f.updates.snapshot),
+    updateChoice(f.updates.snapshot.entries[0]!, f.updates.snapshot, agents),
     /not verified/,
   );
   f.updates.close();
@@ -492,7 +515,10 @@ test('inventory waits for the build identity before reporting verification', asy
   );
   await slow.check();
   assert.equal(slow.snapshot.build, 'fixture-build');
-  assert.match(updatesText(slow.snapshot), /Verified with this Witch build\./);
+  assert.match(
+    updatesText(slow.snapshot, agents),
+    /Verified with this Witch build\./,
+  );
   slow.close();
 });
 
@@ -515,8 +541,11 @@ test('an unreadable release directory is reported without hiding the available u
   const entry = await recheckUnlistable(f);
   assert.equal(entry.error, undefined);
   assert.equal(entry.check?.available, true);
-  assert.match(updateChoice(entry, f.updates.snapshot), /1\.0\.0 → 2\.0\.0/);
-  const text = updatesText(f.updates.snapshot);
+  assert.match(
+    updateChoice(entry, f.updates.snapshot, agents),
+    /^Fixture Codex · 1\.0\.0 → 2\.0\.0$/,
+  );
+  const text = updatesText(f.updates.snapshot, agents);
   assert.match(text, /Earlier version lookup failed: EACCES/);
   assert.doesNotMatch(text, /Check failed/);
   f.updates.close();
@@ -528,7 +557,10 @@ test('an unreadable release directory withholds the qualification offer', async 
   const entry = await recheckUnlistable(f);
   assert.equal(entry.earlier, undefined);
   assert.match(entry.earlierError ?? '', /EACCES/);
-  assert.doesNotMatch(updateChoice(entry, f.updates.snapshot), /not verified/);
-  assert.doesNotMatch(updatesText(f.updates.snapshot), /to qualify it/);
+  assert.doesNotMatch(
+    updateChoice(entry, f.updates.snapshot, agents),
+    /not verified/,
+  );
+  assert.doesNotMatch(updatesText(f.updates.snapshot, agents), /to qualify it/);
   f.updates.close();
 });

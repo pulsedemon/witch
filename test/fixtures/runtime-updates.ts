@@ -61,7 +61,7 @@ export async function runtimeUpdateFixture(
   }
   await symlink(artifacts.get(installed)!.executable, launcher);
   const registration = {
-    adapter: new FixtureAgent('codex'),
+    adapter: new FixtureAgent('codex', 'Fixture Codex'),
     executable: launcher,
   };
   const store = new RuntimeUpdateStore(join(directory, 'updates'));

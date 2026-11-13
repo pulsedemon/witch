@@ -265,7 +265,7 @@ export class RuntimeUpdates {
             const notify = !this.closed && (await this.store.cache(check));
             if (notify && !this.closed) {
               this.host.notice(
-                `${runtime === 'claude' ? 'Claude Code' : 'Codex'} ${check.target} is available. Open /updates to review it.`,
+                `${registration.adapter.label} ${check.target} is available. Open /updates to review it.`,
               );
             }
             return {

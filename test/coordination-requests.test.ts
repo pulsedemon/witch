@@ -500,11 +500,18 @@ test('claim finalization preserves newer background observations', async (t) => 
   );
   const a = await start(),
     b = await start('B');
+  const peerId = b.coordinator.snapshot.conversation!.id;
+  // the peer's own idle write would otherwise replace the title written below
+  await until('peer idle presence written', async () =>
+    (await registry.presences()).some(
+      (peer) => peer.id === peerId && peer.phase === 'idle',
+    ),
+  );
   const claiming = a.claim('task:chosen');
   try {
     await within(entered.promise, 5000, 'assignment');
     const peer = (await registry.presences()).find(
-      (entry) => entry.id === b.coordinator.snapshot.conversation!.id,
+      (entry) => entry.id === peerId,
     )!;
     await registry.publish({ ...peer, title: 'Changed during assignment' });
     refreshes[0]!();
