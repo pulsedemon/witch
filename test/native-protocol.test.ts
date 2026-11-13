@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -396,19 +396,54 @@ test('a restricted Codex fork and its structured reply use the generated native 
   }
 });
 
+test('a compaction window change unsubscribes and resumes through the generated native contract', async () => {
+  const contract = new CodexSchema(schema);
+  const sent: string[] = [];
+  const f = await fixture(undefined, {
+    model: 'model-a',
+    resume: 'native-thread',
+    automaticCompaction: true,
+    configuration: { model_context_window: 1_000_000 },
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'model-a',
+          context_window: 500_000,
+          max_context_window: 1_000_000,
+          effective_context_window_percent: 100,
+        },
+      ],
+    }),
+    onClient(message) {
+      if (!message.method) return;
+      contract.client(message);
+      requests.push(message);
+      sent.push(message.method);
+    },
+  });
+  try {
+    sent.length = 0;
+    await f.session.selectModel('model-b');
+    assert.deepEqual(sent, [
+      'thread/settings/update',
+      'thread/unsubscribe',
+      'thread/resume',
+    ]);
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
 test('every Codex request method in production is covered by the native schema and an exercised call', () => {
   const methods = new CodexSchema(schema).methods();
   const exercised = new Set(requests.map(({ method }) => method));
-  for (const file of [
-    'codex.ts',
-    'codex-commands.ts',
-    'codex-answer.ts',
-    'codex-config.ts',
-    'codex-models.ts',
-  ]) {
+  const agents = new URL('../src/agents/', import.meta.url);
+  for (const file of readdirSync(agents).filter((name) =>
+    /^codex.*\.ts$/.test(name),
+  )) {
     const source = ts.createSourceFile(
       file,
-      readFileSync(new URL(`../src/agents/${file}`, import.meta.url), 'utf8'),
+      readFileSync(new URL(file, agents), 'utf8'),
       ts.ScriptTarget.Latest,
       true,
     );
@@ -421,16 +456,21 @@ test('every Codex request method in production is covered by the native schema a
       );
     };
     const visit = (node: ts.Node) => {
-      if (
-        ts.isCallExpression(node) &&
-        ts.isPropertyAccessExpression(node.expression) &&
-        ['request', 'notify'].includes(node.expression.name.text)
-      ) {
-        for (const method of names(node.arguments[0]!)) {
-          assert.ok(methods.has(method), `Schema lacks ${method}`);
+      // `pages(rpc, method, …)` sends `method` once per page
+      const method = !ts.isCallExpression(node)
+        ? undefined
+        : ts.isPropertyAccessExpression(node.expression) &&
+            ['request', 'notify'].includes(node.expression.name.text)
+          ? node.arguments[0]
+          : ts.isIdentifier(node.expression) && node.expression.text === 'pages'
+            ? node.arguments[1]
+            : undefined;
+      if (method) {
+        for (const name of names(method)) {
+          assert.ok(methods.has(name), `Schema lacks ${name}`);
           assert.ok(
-            exercised.has(method),
-            `Contract cases do not exercise ${method}`,
+            exercised.has(name),
+            `Contract cases do not exercise ${name}`,
           );
         }
       }
