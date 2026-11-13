@@ -1,0 +1,97 @@
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { running } from '../agents/shutdown.js';
+import { errorMessage } from '../errors.js';
+import { sessionWorking } from './coordination-state.js';
+import type { Coordinator } from './coordinator.js';
+import type { Conversation } from './state.js';
+
+export interface WakeOptions {
+  platform?: NodeJS.Platform;
+  /** the process whose exit ends the hold. */
+  pid?: number;
+  launch?: (pid: number) => ChildProcess;
+}
+
+const caffeinate = (pid: number) =>
+  spawn('/usr/bin/caffeinate', ['-i', '-w', String(pid)], { stdio: 'ignore' });
+
+/**
+ * keeps macOS from idle sleeping while the session works, through one `caffeinate` per instance. `-w` ends the hold
+ * with Witch's pid, however Witch dies. a hold that ends on its own is not replaced: `failed` hears it then, and
+ * again whenever a conversation loads, since the load replaces the transcript.
+ */
+export function keepAwake(
+  coordinator: Pick<Coordinator, 'snapshot' | 'subscribe'>,
+  failed: (error: Error) => void,
+  {
+    platform = process.platform,
+    pid = process.pid,
+    launch = caffeinate,
+  }: WakeOptions = {},
+): () => void {
+  if (platform !== 'darwin') return () => {};
+  let holder: ChildProcess | undefined;
+  let working = false;
+  let lost: Error | undefined;
+  let reported: Conversation | undefined;
+
+  const release = () => {
+    const retiring = holder;
+    holder = undefined;
+    // a child whose spawn failed has no pid until its error arrives, so a kill before then has no valid target
+    if (retiring && running(retiring)) retiring.kill();
+  };
+  const lose = (reason: string, options?: ErrorOptions) => {
+    holder = undefined;
+    lost = new Error(
+      `Witch can't keep the Mac awake until it restarts: ${reason}`,
+      options,
+    );
+    reported = coordinator.snapshot.conversation;
+    failed(lost);
+  };
+  const hold = () => {
+    let child: ChildProcess;
+    try {
+      child = launch(pid);
+    } catch (error) {
+      lose(errorMessage(error), { cause: error });
+      return;
+    }
+    holder = child;
+    child.unref();
+    child.once('error', (error) => {
+      if (holder === child) lose(errorMessage(error), { cause: error });
+    });
+    child.once('exit', (code, signal) => {
+      if (holder === child)
+        lose(
+          signal
+            ? `caffeinate was stopped by ${signal}`
+            : `caffeinate exited with code ${code}`,
+        );
+    });
+  };
+  // `failed` publishes a notice, which runs this again before it returns, so every branch updates its state first
+  const update = () => {
+    if (lost) {
+      const { conversation } = coordinator.snapshot;
+      if (conversation === reported) return;
+      reported = conversation;
+      failed(lost);
+      return;
+    }
+    const next = sessionWorking(coordinator.snapshot);
+    if (next === working) return;
+    working = next;
+    if (working) hold();
+    else release();
+  };
+  const unsubscribe = coordinator.subscribe(update);
+  update();
+  return () => {
+    unsubscribe();
+    release();
+  };
+}

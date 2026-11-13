@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { work } from './routing.js';
 import type { Snapshot } from './snapshot.js';
 import {
+  agentWorking,
   conversationSchema,
   phaseSchema,
   processIdentity,
@@ -244,6 +245,20 @@ export function sessionStatus(
 ): string {
   if (snapshot.phase === 'idle' && snapshot.nativeRunning) return 'running';
   return idleStatus(snapshot.phase, taskActivity(snapshot).running);
+}
+
+/** whether a Witch operation, a familiar, a brew or the native agent on its own is running. */
+export function sessionWorking(
+  snapshot: Pick<
+    Snapshot,
+    'phase' | 'nativeRunning' | 'subagents' | 'backgroundCommands'
+  >,
+): boolean {
+  return (
+    agentWorking(snapshot.phase) ||
+    taskActivity(snapshot).running ||
+    !!snapshot.nativeRunning
+  );
 }
 
 /** an idle session runs in the background while its familiars or brews do. */

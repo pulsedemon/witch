@@ -18,6 +18,7 @@ import { watchConflicts } from './core/pr-repair.js';
 import { RepositoryWatch } from './core/repository.js';
 import { WorkTreeChanges } from './core/work-tree-changes.js';
 import { watchCopilotReviews } from './core/copilot-review-watch.js';
+import { keepAwake } from './core/wake.js';
 import { Memory, memoryRepository } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
 import { writeJson } from './persistence/json.js';
@@ -181,6 +182,7 @@ export async function runWitch(
   /** a desktop action that failed; nothing in the conversation depends on it. */
   const warn = (error: unknown) =>
     coordinator.notice(errorMessage(error), undefined, false);
+  const stopWake = keepAwake(coordinator, warn);
   const policy = await DelegationStore.open(join(store.root, 'delegation'));
   coordination.router = router(coordinator, policy);
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
@@ -318,6 +320,7 @@ export async function runWitch(
   stopMerges();
   stopConflicts();
   stopCopilot();
+  stopWake();
   stopCoordinationRepository();
   repository.close();
   changes.close();
