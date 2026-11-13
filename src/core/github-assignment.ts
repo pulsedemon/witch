@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { errorMessage } from '../errors.js';
 import { runCommand } from './command.js';
+import { githubReference } from './coordination-state.js';
 import type { TaskClaim } from './coordination-state.js';
 
 /** resolves the references GitHub confirmed and any failure so the caller can warn while retaining ownership. */
@@ -10,12 +11,12 @@ export async function assignGitHubTask(
   deadline: number,
 ): Promise<{ assigned: string[]; failure?: string }> {
   const issues = references.flatMap((reference) => {
-    const match = /^github:([^#]+)#(\d+)$/.exec(reference);
-    return match
+    const issue = githubReference(reference);
+    return issue
       ? [
           {
             reference,
-            endpoint: `repos/${match[1]}/issues/${match[2]}/assignees`,
+            endpoint: `repos/${issue.repository}/issues/${issue.number}/assignees`,
           },
         ]
       : [];

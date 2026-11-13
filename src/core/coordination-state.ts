@@ -236,6 +236,11 @@ export function presenceStatus(presence: SessionPresence): string {
   return idleStatus(presence.phase, !!(presence.familiars || presence.brews));
 }
 
+/** a session's place in the task-selection queue, as the peer lists show it. */
+export function selectionStatus({ position }: SelectionState): string {
+  return position === 1 ? 'choosing' : `queued #${position}`;
+}
+
 /** the session's status for display; an idle session whose native agent works on its own is running. */
 export function sessionStatus(
   snapshot: Pick<
@@ -294,4 +299,12 @@ export function taskReference(reference: string, project: string): string {
     }
   }
   throw new Error('Use a full GitHub issue or pr URL, or task:<name>.');
+}
+
+/** the parts of a `github:owner/repo#n` reference, which `taskReference` writes. */
+export function githubReference(
+  reference: string,
+): { repository: string; number: string } | undefined {
+  const match = /^github:([^#]+)#(\d+)$/.exec(reference);
+  return match ? { repository: match[1]!, number: match[2]! } : undefined;
 }

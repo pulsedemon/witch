@@ -123,6 +123,4 @@ export function safeQueueMerge(
   );
 }
 
-export const claimedCommands = new Set(
-  commands.flatMap(({ id, aliases = [] }) => [id, ...aliases]),
-);
+export const claimedCommands = new Set(names.keys());
