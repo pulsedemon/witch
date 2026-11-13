@@ -517,6 +517,35 @@ test('a slot spawn cannot look at reports why and does not stop the next one', a
   assert.deepEqual(tabs(), [[slot(2)]]);
 });
 
+test('a new slot that cannot be looked at, or is gone, keeps the error it already had', async (t) => {
+  const { main, slot } = await checkout();
+  const { run: recorded } = recording();
+  const run: Run = async (command, args, options) => {
+    if (args[0] !== 'ls-files' || options.cwd === main)
+      return recorded(command, args, options);
+    if (options.cwd === slot(2)) await rm(slot(2), { recursive: true });
+    throw Object.assign(new Error('Command failed'), {
+      code: 128,
+      stdout: '',
+      stderr: 'fatal: bad index\n',
+    });
+  };
+  unreadable(t, slot(1));
+  const { slots } = await spawnWorktrees(main, 2, {
+    run,
+    live: async () => false,
+  });
+  const copies =
+    "copies the worktree doesn't ignore may remain: ls-files failed: fatal: bad index";
+  assert.deepEqual(
+    slots.map(({ error }) => error),
+    [
+      `${copies}, EACCES: permission denied, stat '${slot(1)}'`,
+      `${copies}, registered but missing; start Witch where it moved`,
+    ],
+  );
+});
+
 test('a lockfile spawn cannot look at skips that install and nothing else', async (t) => {
   const { main, slot } = await checkout();
   await spawnWorktrees(main, 2, {
