@@ -13,7 +13,7 @@ import {
   USAGE_CURRENT_MS,
 } from '../src/core/usage.js';
 import { App } from '../src/ui/app.js';
-import { accountRows } from '../src/ui/status-line.js';
+import { accountRows } from '../src/ui/status-rows.js';
 import { close, controlledFixture } from './fixtures/codex-adapter.js';
 import { ENTER, fake, show } from './fixtures/ui.js';
 import { appears, until } from './fixtures/within.js';

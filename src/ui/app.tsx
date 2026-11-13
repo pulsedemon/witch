@@ -27,7 +27,8 @@ import {
 } from './commands.js';
 import type { WitchCommand, CommandName } from './commands.js';
 import { CommandBatches } from './command-batches.js';
-import { Input, inputRows } from './input.js';
+import { Input } from './input.js';
+import { inputRows } from './input-layout.js';
 import type { InputHandle } from './input.js';
 import type { InputBuffer } from './input-buffer.js';
 import {
@@ -46,16 +47,20 @@ import { hyperlink, linkify, oneLine, plain } from './links.js';
 import { useKeysReady } from './keys-ready.js';
 import { useLiveState } from './live-state.js';
 import { useDrafts } from './drafts.js';
+import type { Browsing } from './drafts.js';
 import { useClick, usePointer, useWheel } from './mouse.js';
 import { highlight, selectedText } from './selection.js';
 import type { Point, RangeEnd } from './selection.js';
-import { Activity, elapsed } from './activity.js';
+import { Activity } from './activity.js';
+import { elapsed } from './elapsed.js';
 import { castTitle, useCasting } from './cast.js';
-import { Sidebar, sidebarWidth, usagePlacement } from './sidebar.js';
+import { Sidebar } from './sidebar.js';
+import { sidebarWidth, usagePlacement } from './sidebar-layout.js';
 import { delegation } from './delegation.js';
 import { coordinationText } from './peers.js';
 import { conversationLabel } from './conversations.js';
-import { StatusLine, statusFooter, useStatusTime } from './status-line.js';
+import { StatusLine, useStatusTime } from './status-line.js';
+import { statusFooter } from './status-rows.js';
 import { chooseModel } from './model-choice.js';
 import { ScrollPage } from './scroll-page.js';
 import { helpText } from './help.js';
@@ -70,8 +75,10 @@ import { showUpdates, updatesText, useRuntimeUpdates } from './updates.js';
 
 const unwatched = () => () => {};
 
-/** where ↑/↓ stand among earlier prompts, -1 being the draft, with the composer's text at each place they left. */
-const unbrowsed = () => ({ index: -1, texts: new Map<number, string>() });
+const unbrowsed = (): Browsing => ({
+  index: -1,
+  texts: new Map<number, string>(),
+});
 
 export function App({
   coordinator,
@@ -140,7 +147,6 @@ export function App({
   );
   const size = useWindowSize();
   const columns = Math.max(30, size.columns);
-  // the sidebar shows only beside a main column of 80 cells
   const sidebar = columns - sidebarWidth >= 80;
   const width = sidebar ? columns - sidebarWidth : columns;
   /** inside the body's paddingX. */
@@ -170,7 +176,6 @@ export function App({
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [pageScroll, setPageScroll] = useState(0);
-  /** a page view always opens at its top. */
   const openPage = (next: View) => {
     setPageScroll(0);
     setView(next);
@@ -333,7 +338,7 @@ export function App({
   /** whether the composer holds the prompt ↑/↓ last showed, as shown. */
   const recalled = (
     value: string,
-    { index, texts }: ReturnType<typeof unbrowsed>,
+    { index, texts }: Browsing,
     prompts: string[],
   ) => index !== -1 && value === (texts.get(index) ?? prompts[index]);
   const listFor = (
@@ -568,7 +573,6 @@ export function App({
       [{ id: '+', label: 'Edit project essentials' }, ...noteChoices],
       (file) => {
         if (file === '+') {
-          setView({ kind: 'chat' });
           return coordinator.editMemory();
         } else if (notes.find((note) => note.path === file)?.deleted) {
           return showHistory(file, active);
@@ -606,10 +610,7 @@ export function App({
         id: String(job.group),
         label: `${Math.round(job.cpu)}% CPU · ${elapsed(Date.now() - job.startedAt)} · ${job.command}`,
       })),
-      (id) => {
-        setView({ kind: 'chat' });
-        return jobs!.stop(found.find(({ group }) => String(group) === id)!);
-      },
+      (id) => jobs!.stop(found.find(({ group }) => String(group) === id)!),
     );
   };
   const selectModel = (id: string, effort?: string, live?: () => boolean) =>

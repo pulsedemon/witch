@@ -25,4 +25,21 @@ export default defineConfig(
       'max-lines': ['error', 1500],
     },
   },
+  {
+    files: ['src/ui/**/*.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...[
+          'ExportNamedDeclaration > FunctionDeclaration[id.name!=/^([A-Z]|use[A-Z])/]',
+          'ExportNamedDeclaration > VariableDeclaration > VariableDeclarator[id.name!=/^([A-Z]|use[A-Z])/]',
+          'ExportNamedDeclaration[exportKind="value"] > ExportSpecifier[exportKind!="type"][local.name!=/^([A-Z]|use[A-Z])/]',
+        ].map((selector) => ({
+          selector,
+          message:
+            'component files export components and hooks; move helpers and constants to a .ts module',
+        })),
+      ],
+    },
+  },
 );

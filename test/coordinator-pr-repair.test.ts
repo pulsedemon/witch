@@ -9,7 +9,7 @@ import { watchConflicts } from '../src/core/pr-repair.js';
 import { conversationRecordSchema } from '../src/core/state.js';
 import { RepositoryWatch } from '../src/core/repository.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
-import { statusLines } from '../src/ui/status-line.js';
+import { statusLines } from '../src/ui/status-rows.js';
 import { callControl } from '../src/persistence/control.js';
 import { TurnGate } from './fixtures/agent.js';
 import { reviewSource } from './fixtures/github-reviews.js';

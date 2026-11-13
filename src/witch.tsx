@@ -40,7 +40,7 @@ const install = import.meta.url.endsWith('/dist/witch.js')
   : undefined;
 
 /** what a restart hands its replacement process through the environment. */
-export interface Handover {
+interface Handover {
   conversation?: string;
   scratch?: string;
   jobs?: string;

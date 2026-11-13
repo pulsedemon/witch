@@ -8,9 +8,9 @@ import { piped } from './theme.js';
 import { isExpanded, toggleGroup } from './transcript-layout.js';
 
 /** where a shown row's id leads once grouping hides or regroups it; ungrouped, every id leads to itself. */
-export type ShownAs = (id: string) => string;
+type ShownAs = (id: string) => string;
 /** the tools a group row stands for; undefined for any other row. */
-export type Members = (id: string) => readonly DisplayItem[] | undefined;
+type Members = (id: string) => readonly DisplayItem[] | undefined;
 
 /** the index of the selected tool among `tools`; with none selected, or one no longer shown, the first. */
 function indexOf(
