@@ -20,6 +20,7 @@ import { StateStore } from '../src/persistence/store.js';
 import { runSpawn, sessionsIn, spawnWorktrees } from '../src/spawn.js';
 import { scratch } from './fixtures/scratch.js';
 import { git } from './fixtures/git.js';
+import { unreadable } from './fixtures/unreadable.js';
 import { exists } from './fixtures/within.js';
 
 /**
@@ -488,6 +489,59 @@ test('a copy that a symlink the upstream tracks would carry outside the worktree
   );
   assert.deepEqual(await readdir(outside), []);
   assert.equal(await exists(join(slot(1), 'config')), true);
+});
+
+test('a slot spawn cannot look at reports why and does not stop the next one', async (t) => {
+  const { main, slot } = await checkout();
+  await spawnWorktrees(main, 2, {
+    run: recording().run,
+    live: async () => false,
+  });
+  unreadable(t, slot(1));
+  const { run, installs, tabs } = recording();
+  const { slots } = await spawnWorktrees(main, 2, {
+    run,
+    live: async () => false,
+  });
+  assert.deepEqual(slots, [
+    {
+      path: slot(1),
+      slot: false,
+      created: false,
+      opened: false,
+      error: `EACCES: permission denied, stat '${slot(1)}'`,
+    },
+    { path: slot(2), slot: true, created: false, opened: true },
+  ]);
+  assert.deepEqual(installs(), [slot(2)]);
+  assert.deepEqual(tabs(), [[slot(2)]]);
+});
+
+test('a lockfile spawn cannot look at skips that install and nothing else', async (t) => {
+  const { main, slot } = await checkout();
+  await spawnWorktrees(main, 2, {
+    run: recording().run,
+    live: async () => false,
+  });
+  const lockfile = join(slot(1), 'pnpm-lock.yaml');
+  unreadable(t, lockfile);
+  const { run, installs, tabs } = recording();
+  const { slots } = await spawnWorktrees(main, 2, {
+    run,
+    live: async () => false,
+  });
+  assert.deepEqual(slots, [
+    {
+      path: slot(1),
+      slot: true,
+      created: false,
+      opened: true,
+      error: `EACCES: permission denied, stat '${lockfile}'`,
+    },
+    { path: slot(2), slot: true, created: false, opened: true },
+  ]);
+  assert.deepEqual(installs(), [slot(2)]);
+  assert.deepEqual(tabs(), [[slot(1), slot(2)]]);
 });
 
 test('an ignored symlink whose target spawn cannot reach is still copied as the link', async () => {

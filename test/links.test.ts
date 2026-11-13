@@ -19,6 +19,7 @@ import {
 } from '../src/ui/links.js';
 import { markdown } from '../src/ui/markdown.js';
 import { scratch } from './fixtures/scratch.js';
+import { unreadable } from './fixtures/unreadable.js';
 
 const execute = promisify(execFile);
 
@@ -393,6 +394,22 @@ async function clickRoots(files: string[]) {
     ]);
   return { cwd, global, project, click };
 }
+
+test('a click on a path that cannot be looked at fails with why instead of calling the file missing', async (t) => {
+  const { cwd } = await clickRoots(['project/here.md']);
+  const hidden = join(cwd, 'hidden.md');
+  unreadable(t, hidden);
+  await assert.rejects(
+    clickTarget(`vscode://file${hidden}`, async () => []),
+    { code: 'EACCES' },
+  );
+});
+
+test('a bare name whose shared-memory note cannot be looked at fails with why', async (t) => {
+  const { global, click } = await clickRoots(['project/here.md']);
+  unreadable(t, join(global, 'note.md'));
+  await assert.rejects(click('see `note.md`'), { code: 'EACCES' });
+});
 
 test('a click opens a bare name in its cwd, else its one shared-memory note at the same line', async () => {
   const { cwd, project, click } = await clickRoots([
