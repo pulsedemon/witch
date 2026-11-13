@@ -44,7 +44,7 @@ export interface Repository {
   untracked: number;
   pullRequest?: PullRequest;
   pullRequestProject?: string;
-  /** why the branch's last pull request read couldn't be used; unset once a read works or while `gh` has no answer. */
+  /** why the branch's last pull request read, or its checks or base tip read, failed unexpectedly; unset once they work or while `gh` has no answer. */
   pullRequestFailure?: string;
   /** the branch's pull request as last read conflicting, with its base's tip when that read looked it up. */
   conflict?: Conflict;
@@ -273,12 +273,18 @@ export type Run = (
 
 /**
  * `gh` ran and said no, as without a pull request, a network or a login, ran out of time, or isn't installed. execFile
- * rejects with an exit status or no code for those, and with another errno when the spawn itself failed.
+ * rejects with an exit status or no code for those, and with another errno when the spawn itself failed. an answer that
+ * can't be parsed has no code either, and isn't one of them.
  */
 function unavailable(error: unknown): boolean {
+  if (error instanceof SyntaxError || error instanceof z.ZodError) return false;
   const { code } = error as { code?: unknown };
   return typeof code !== 'string' || code === 'ENOENT';
 }
+
+/** a failed read on one line; zod's own message is a JSON document. */
+const reason = (error: unknown) =>
+  error instanceof z.ZodError ? issuesText(error) : errorMessage(error);
 
 /** how soon a change is read, so one save's several writes take one read. */
 const debounce = 100;
@@ -545,6 +551,10 @@ export class RepositoryWatch {
     let value: PullRequest | undefined;
     let project: string | undefined;
     let failure: string | undefined;
+    // the checks and base tip reads keep their fallbacks when they fail, and say why when nobody expects the failure
+    const report = (error: unknown) => {
+      if (!unavailable(error)) failure ??= reason(error);
+    };
     try {
       project = await this.project?.();
       const view = await this.run(
@@ -561,9 +571,12 @@ export class RepositoryWatch {
       });
       if (view) {
         value = parsePullRequest(view.stdout);
-        if (value.checks === 'none' && (await this.checksExpected(value)))
+        if (
+          value.checks === 'none' &&
+          (await this.checksExpected(value, report))
+        )
           value.checks = 'pending';
-        const conflict = await this.conflicted(branch, value);
+        const conflict = await this.conflicted(branch, value, report);
         if (this.project && project !== (await this.project()))
           value = undefined;
         if (
@@ -578,8 +591,7 @@ export class RepositoryWatch {
       }
     } catch (error) {
       value = undefined;
-      failure =
-        error instanceof z.ZodError ? issuesText(error) : errorMessage(error);
+      failure = reason(error);
     } finally {
       this.fetching = undefined;
     }
@@ -602,7 +614,10 @@ export class RepositoryWatch {
     this.publish(repository);
   }
 
-  private async checksExpected(pr: PullRequest): Promise<boolean> {
+  private async checksExpected(
+    pr: PullRequest,
+    report: (error: unknown) => void,
+  ): Promise<boolean> {
     const github = gitHubRepository(pr.url);
     if (!github) return true;
     const [owner, name] = github.repository.split('/');
@@ -728,7 +743,8 @@ export class RepositoryWatch {
       return (
         current.headRefOid !== pr.commit || current.baseRefName !== pr.base
       );
-    } catch {
+    } catch (error) {
+      report(error);
       return true;
     }
   }
@@ -737,9 +753,10 @@ export class RepositoryWatch {
   private async conflicted(
     branch: string,
     value: PullRequest,
+    report: (error: unknown) => void,
   ): Promise<{ branch: string; conflict: Conflict } | undefined> {
     if (value.mergeable === 'CONFLICTING') {
-      const baseTip = await this.tip(value);
+      const baseTip = await this.tip(value, report);
       return {
         branch,
         conflict: { pullRequest: value, ...(baseTip ? { baseTip } : {}) },
@@ -754,7 +771,10 @@ export class RepositoryWatch {
   }
 
   /** the base branch's current tip, which gh's `baseRefOid` isn't, from the pull request's own repository. */
-  private async tip({ url, base }: PullRequest): Promise<string | undefined> {
+  private async tip(
+    { url, base }: PullRequest,
+    report: (error: unknown) => void,
+  ): Promise<string | undefined> {
     const github = gitHubRepository(url);
     if (!github) return;
     try {
@@ -771,7 +791,8 @@ export class RepositoryWatch {
         { cwd: this.cwd, timeout: 30_000 },
       );
       return stdout.trim() || undefined;
-    } catch {
+    } catch (error) {
+      report(error);
       return;
     }
   }

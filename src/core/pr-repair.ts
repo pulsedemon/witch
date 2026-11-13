@@ -349,7 +349,9 @@ export function watchConflicts(
   };
   // a merge delivered before the first open read publishes, or before the conversation opens, is checked once they do
   const changed = () => {
-    if (repository.snapshot?.pullRequest) reported = undefined;
+    const read = repository.snapshot;
+    if (read?.pullRequest && read.pullRequestFailure === undefined)
+      reported = undefined;
     merged();
     schedule();
   };
