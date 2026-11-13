@@ -113,6 +113,43 @@ test('Claude keeps the percentage valid when its native safety reserve compacts 
   assert.equal(percentage, '100');
 });
 
+test('Claude lets a failing usage publish reach its caller and keeps a failed context read quiet', async () => {
+  const control = {
+    getSettings: async () => ({ sources: [] }),
+    applyFlagSettings: async () => {},
+  };
+  const read = new ClaudeContext(() => ({
+    ...control,
+    getContextUsage: async () => context(1_000_000, 967_000),
+  }));
+  await assert.rejects(
+    read.read(
+      () => 'claude-opus-5-5',
+      () => {
+        throw new Error('publish failed');
+      },
+    ),
+    /^Error: publish failed$/,
+  );
+  const unread = new ClaudeContext(() => ({
+    ...control,
+    getContextUsage: async () => {
+      throw new Error('read failed');
+    },
+  }));
+  let published = false;
+  assert.equal(
+    await unread.read(
+      () => 'claude-opus-5-5',
+      () => {
+        published = true;
+      },
+    ),
+    undefined,
+  );
+  assert.equal(published, false);
+});
+
 test('Claude compact hooks retain the current context reader when an older turn releases its reader', async () => {
   const policy = new ClaudeContext(() => ({
     getContextUsage: async () => context(1_000_000, 967_000),
