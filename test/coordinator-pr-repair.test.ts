@@ -141,6 +141,34 @@ test('a conflict on the claimed pull request starts one repair turn per head and
   await until('second repair', () => s.repairs().length === 2);
 });
 
+test('a repair is flagged automatic from its admission read until it settles', async (t) => {
+  const s = await setup(t);
+  const refreshed = Promise.withResolvers<void>();
+  s.c.repair.setRefresh(() => refreshed.promise);
+  const published: [string, boolean][] = [];
+  s.c.subscribe(() =>
+    published.push([s.c.snapshot.phase, !!s.c.snapshot.automatic]),
+  );
+  s.observe(s.read());
+  try {
+    await until('the admission read', () => !!s.c.snapshot.automatic);
+    assert.equal(s.c.snapshot.phase, 'idle');
+    assert.equal(s.repairs().length, 0);
+  } finally {
+    // a refresh left pending would hang the session's close
+    refreshed.resolve();
+  }
+  await until('repair', () => s.repairs().length === 1);
+  await until('the repair to settle', () => !s.c.snapshot.automatic);
+  assert.equal(s.c.snapshot.phase, 'idle');
+  const running = published.filter(([phase]) => phase === 'running');
+  assert.ok(running.length > 0);
+  assert.deepEqual(
+    running,
+    running.map(() => ['running', true]),
+  );
+});
+
 test('a conflict kept through an uncomputed read, or on an unclaimed pull request, starts no repair', async (t) => {
   const s = await setup(t);
   const conflicting = s.pullRequest();

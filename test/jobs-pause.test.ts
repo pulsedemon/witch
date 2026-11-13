@@ -183,3 +183,59 @@ test('a job list while paused finds an orphan and resumes the reads', async () =
     jobs.close();
   }
 });
+
+test('a watch is live while a group is tracked and from the end of activity until a read after it', async () => {
+  const job = orphanRow(4242);
+  let rows: Row[] = [];
+  let held: Promise<void> | undefined;
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => {
+      await held;
+      return rows;
+    },
+    describe: leaders,
+  });
+  let changes = 0;
+  jobs.subscribe(() => changes++);
+  const state = () => [jobs.live, changes];
+  try {
+    assert.deepEqual(state(), [false, 0]);
+    jobs.track(job.pgid);
+    rows = [job];
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [job.pgid],
+    );
+    assert.deepEqual(state(), [true, 1]);
+    rows = [];
+    await jobs.list();
+    assert.deepEqual(state(), [false, 2]);
+
+    // tmux keeps the watch reading without giving it a job
+    rows = [{ ...orphanRow(4300), name: 'tmux' }];
+    await jobs.list();
+    assert.deepEqual(state(), [false, 2]);
+    rows = [];
+
+    jobs.setActive(false);
+    assert.deepEqual(state(), [true, 3]);
+    await jobs.list();
+    assert.deepEqual(state(), [false, 4]);
+
+    // a read already running when activity ends has not looked since
+    jobs.setActive(true);
+    const release = Promise.withResolvers<void>();
+    held = release.promise;
+    const reading = jobs.list();
+    jobs.setActive(false);
+    held = undefined;
+    release.resolve();
+    await reading;
+    assert.deepEqual(state(), [true, 5]);
+    await jobs.list();
+    assert.deepEqual(state(), [false, 6]);
+  } finally {
+    jobs.close();
+  }
+});

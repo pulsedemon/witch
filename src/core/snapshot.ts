@@ -49,6 +49,8 @@ export interface Snapshot {
   nativeRunning?: boolean;
   /** a Witch-started turn answering peer requests holds the phase. */
   answering?: boolean;
+  /** Witch is admitting, running or reconciling a turn it started itself: a peer answer, a repair or Copilot feedback. */
+  automatic?: boolean;
   /** a Witch-started turn handling Copilot feedback holds the phase. */
   reviewing?: boolean;
   recovery?: Recovery;

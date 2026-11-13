@@ -168,6 +168,10 @@ export class JobWatch {
   /** when activity last changed or a read last found something it tracks, from `performance.now()`. */
   private busyAt = 0;
   private paused = false;
+  /** activity ended and no read has begun since, so a job started just before it is in no read yet. */
+  private unread = false;
+  private announced = false;
+  private readonly listeners = new Set<() => void>();
 
   constructor(
     private readonly options: {
@@ -216,6 +220,25 @@ export class JobWatch {
     clearInterval(this.timer);
   }
 
+  /** whether a tracked job runs, or may: also true from the end of activity until a read that began after it completes. */
+  get live(): boolean {
+    return this.groups.size > 0 || this.unread;
+  }
+
+  /** hears each change of `live`. */
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  private announce(): void {
+    if (this.live === this.announced) return;
+    this.announced = this.live;
+    for (const listener of this.listeners) listener();
+  }
+
   /** preserves hidden ordinary members and historical exclusions for the next watcher's identity checks. */
   async checkpoint(): Promise<JobCheckpoint> {
     if (this.polling) await this.polling;
@@ -240,6 +263,8 @@ export class JobWatch {
     this.activityChanges++;
     this.busyAt = performance.now();
     if (active) this.paused = false;
+    if (!active) this.unread = true;
+    this.announce();
   }
 
   /** the tracked jobs as of a fresh read, oldest first. */
@@ -470,6 +495,8 @@ export class JobWatch {
       !excluded.size &&
       changes === this.activityChanges &&
       began - this.busyAt >= (this.options.settle ?? 5000);
+    if (changes === this.activityChanges) this.unread = false;
+    this.announce();
     return tracked;
   }
 

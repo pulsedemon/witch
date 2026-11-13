@@ -182,7 +182,7 @@ export async function runWitch(
   /** a desktop action that failed; nothing in the conversation depends on it. */
   const warn = (error: unknown) =>
     coordinator.notice(errorMessage(error), undefined, false);
-  const stopWake = keepAwake(coordinator, warn);
+  const stopWake = keepAwake(coordinator, jobs, warn);
   const policy = await DelegationStore.open(join(store.root, 'delegation'));
   coordination.router = router(coordinator, policy);
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
@@ -320,7 +320,6 @@ export async function runWitch(
   stopMerges();
   stopConflicts();
   stopCopilot();
-  stopWake();
   stopCoordinationRepository();
   repository.close();
   changes.close();
@@ -343,6 +342,8 @@ export async function runWitch(
     // execve fires no exit event; the replacement resets job reports and resumes scratch
     restore();
     const id = coordinator.snapshot.conversation?.id ?? handedOver;
+    // the replacement keeps this pid, so `-w` would never end the hold; any other exit ends it
+    stopWake();
     process.execve!(
       process.execPath,
       [
