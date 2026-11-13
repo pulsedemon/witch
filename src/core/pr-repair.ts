@@ -1,4 +1,4 @@
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import type { TurnResult } from '../agents/types.js';
 import { taskReference } from './coordination-state.js';
 import type { SessionCoordination } from './coordination.js';

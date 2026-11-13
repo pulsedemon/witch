@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import type { TurnResult } from '../agents/types.js';
 import { readJson } from '../persistence/json.js';
 import {

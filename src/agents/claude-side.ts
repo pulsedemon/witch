@@ -8,8 +8,8 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { InputQueue } from './input-queue.js';
-import { errorMessage, watchChild, withTail } from './stderr.js';
-import type { ChildExit } from './stderr.js';
+import { errorMessage } from '../errors.js';
+import { watchChild, withTail, type ChildExit } from './stderr.js';
 import type { ModelDiscoveryOptions } from './types.js';
 
 export type ClaudeLaunch = (

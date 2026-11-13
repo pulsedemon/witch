@@ -1,5 +1,5 @@
 import type { AgentRegistration } from '../agents/registry.js';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import { branchOf, exists } from '../memory/memory.js';
 import type { Memory } from '../memory/memory.js';
 import { LockedElsewhere } from '../persistence/store.js';

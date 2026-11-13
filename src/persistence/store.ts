@@ -11,7 +11,7 @@ import {
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import { unnumbered } from '../core/attachments.js';
 import {
   conversationRecordSchema,
@@ -24,7 +24,8 @@ import type {
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
-import { mapper, newestMoveTime, readLedger, within } from './directories.js';
+import { mapper, newestMoveTime, readLedger } from './directories.js';
+import { within } from '../paths.js';
 import { gone, replaceFile, unlessGone, writeJson } from './json.js';
 import { nativeProcessKeys, stopLeftProcesses } from './process.js';
 import { lockedFiles, tryOpenLocked } from './lock.js';

@@ -3,8 +3,9 @@ import type { FileHandle } from 'node:fs/promises';
 import { readFile, readdir, rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import type { Memory } from '../memory/memory.js';
+import { within } from '../paths.js';
 import { unlessGone } from '../persistence/json.js';
 import { tryOpenLocked } from '../persistence/lock.js';
 import { runs } from '../persistence/process.js';
@@ -200,7 +201,7 @@ async function peerTurnIn(
   for (const record of records)
     if (
       record.id !== id &&
-      (record.cwd === top || record.cwd.startsWith(`${top}/`)) &&
+      within(record.cwd, top) &&
       record.activity &&
       record.process &&
       (await runs(record.process))
@@ -216,9 +217,7 @@ const configValue = (git: Git, key: string) =>
     throw error;
   });
 
-/**
- * uses ssh batch mode to avoid passphrase and host key prompts unless the user configured an ssh command.
- */
+/** uses ssh batch mode to avoid passphrase and host key prompts unless the user configured an ssh command. */
 const fetchRemote = async (git: Git, ...args: string[]) => {
   const own =
     process.env.GIT_SSH || (await configValue(git, 'core.sshCommand'));
@@ -311,8 +310,7 @@ const ignored = (git: Git, path: string) =>
   );
 
 /**
- * what a switch would carry along or stop at. untracked files don't count, since `git switch` refuses to overwrite
- * one.
+ * what a switch would carry along or stop at. untracked files don't count, since `git switch` refuses to overwrite one.
  */
 const changed = ({ staged, modified, conflicts }: Repository) =>
   !!(staged || modified || conflicts);

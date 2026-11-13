@@ -10,7 +10,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import {
   branchOf,
   exists,
@@ -20,7 +20,8 @@ import {
   printable,
 } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
-import { mapper, within } from '../persistence/directories.js';
+import { within } from '../paths.js';
+import { mapper } from '../persistence/directories.js';
 import type { Ledger } from '../persistence/directories.js';
 
 export interface MemoryConflict {

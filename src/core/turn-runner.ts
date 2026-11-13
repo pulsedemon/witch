@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
-import { aborted, errorMessage } from '../agents/stderr.js';
+import { aborted, errorMessage } from '../errors.js';
 import type { AgentSession, TurnResult } from '../agents/types.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';

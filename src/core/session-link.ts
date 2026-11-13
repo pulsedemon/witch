@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { taskActivity } from './coordination-state.js';
 import type { NativeRuntime } from '../agents/runtime-updates.js';
-import { errorMessage, failureOf } from '../agents/stderr.js';
+import { errorMessage, failureOf } from '../errors.js';
 import type {
   AgentEvent,
   AgentSession,

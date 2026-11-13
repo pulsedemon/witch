@@ -1,7 +1,7 @@
 import { isAbsolute, normalize, relative } from 'node:path';
 import { formatPatch, structuredPatch } from 'diff';
 import { z } from 'zod';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import { quote } from '../shell.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Routed } from './routing.js';

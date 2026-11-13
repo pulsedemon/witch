@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import { present } from '../persistence/directories.js';
 import type { Ledger } from '../persistence/directories.js';
 import { unlessGone } from '../persistence/json.js';

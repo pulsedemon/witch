@@ -20,7 +20,7 @@ import {
   ps,
   sameProcess,
 } from '../persistence/process.js';
-import { errorMessage } from './stderr.js';
+import { errorMessage } from '../errors.js';
 
 export type NativeScenario =
   'basic' | 'control' | 'background' | 'spell' | 'idle-run';

@@ -6,7 +6,7 @@ import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
 import { registerNativeParticipant } from './agents/native-launch.js';
 import { RuntimeUpdates } from './core/runtime-updates.js';
-import { errorMessage } from './agents/stderr.js';
+import { errorMessage } from './errors.js';
 import { controlPrefix } from './cli-control.js';
 import type { parseCommand } from './cli-control.js';
 import { Coordinator } from './core/coordinator.js';

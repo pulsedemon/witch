@@ -10,7 +10,8 @@ import type {
   FamiliarProgress,
 } from './agents/familiar-report.js';
 import { mergeCasts } from './agents/familiar-report.js';
-import { errorMessage, watchChild, withTail } from './agents/stderr.js';
+import { errorMessage } from './errors.js';
+import { watchChild, withTail } from './agents/stderr.js';
 import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
 import {
   callFamiliar,
@@ -18,7 +19,7 @@ import {
   FamiliarReports,
   registerFamiliar,
   saveReport,
-} from './cli-familiar.js';
+} from './familiar-run.js';
 import { questionReply } from './core/prompts.js';
 import type { ControlBinding } from './persistence/control.js';
 

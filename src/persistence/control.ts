@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import {
   familiarActionSchema,
   familiarOutcomeSchema,

@@ -17,7 +17,7 @@ import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
 import { NativeUpdatePending } from '../persistence/runtime-updates.js';
 import type { NativeRuntime } from '../agents/runtime-updates.js';
-import { aborted, errorMessage, failureOf } from '../agents/stderr.js';
+import { aborted, errorMessage, failureOf } from '../errors.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
   AgentEvent,

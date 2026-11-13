@@ -10,7 +10,7 @@ import type { DOMElement } from 'ink';
 import { dirname, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
 import { textCommands } from '../agents/claude-spells.js';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import type { CompletionList } from './completion.js';
 import type { Coordinator } from '../core/coordinator.js';
 import type { Snapshot } from '../core/snapshot.js';

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import { runCommand } from './command.js';
 import type { TaskClaim } from './coordination-state.js';
 

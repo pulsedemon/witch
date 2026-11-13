@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import type { DelegationStore } from '../persistence/delegation.js';
 import type { ControlOutcome } from '../persistence/control.js';
 import type { RouteAction } from './coordination-state.js';
