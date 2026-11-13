@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { fullFormats } from 'ajv-formats/dist/formats.js';
 import type { UserRequest, UserResponse } from '../agents/types.js';
+import { errorMessage } from '../errors.js';
 import { Input } from './input.js';
 import { useKeysReady } from './keys-ready.js';
 import { linkify, plain } from './links.js';
@@ -113,29 +114,39 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     }
     const form = !request.url || !!request.schema;
     const json = text.trim() || '{}';
-    try {
-      let content: UserResponse['content'];
-      if (form)
+    let content: UserResponse['content'];
+    if (form)
+      try {
         content = z.record(z.string(), z.unknown()).parse(JSON.parse(json));
-      if (request.schema) {
-        // MCP allows any $schema, and Ajv2020 throws on a meta-schema it lacks
-        const validator = new Ajv2020({
-          strict: false,
-          validateSchema: false,
-          formats: fullFormats,
-        });
-        if (!validator.validate(request.schema, content)) {
-          // Ajv quotes the agent's property names, escapes included
-          setError(plain(validator.errorsText()));
-          return false;
-        }
+      } catch {
+        setError('Enter a JSON object matching the requested fields.');
+        return false;
       }
-      respond({ decision: 'accept', content });
-      return true;
-    } catch {
-      setError('Enter a JSON object matching the requested fields.');
-      return false;
+    if (request.schema) {
+      // MCP allows any $schema, and Ajv2020 throws on a meta-schema it lacks
+      const validator = new Ajv2020({
+        strict: false,
+        validateSchema: false,
+        formats: fullFormats,
+      });
+      let valid: boolean;
+      try {
+        valid = validator.validate(request.schema, content);
+      } catch (error) {
+        // Ajv compiles the schema here, and one it can't compile is the agent's fault, not the answer's
+        setError(
+          plain(`The request's schema can't be used: ${errorMessage(error)}`),
+        );
+        return false;
+      }
+      if (!valid) {
+        // Ajv quotes the agent's property names, escapes included
+        setError(plain(validator.errorsText()));
+        return false;
+      }
     }
+    respond({ decision: 'accept', content });
+    return true;
   };
 
   return (
