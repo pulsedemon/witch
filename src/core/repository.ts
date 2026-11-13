@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { realpathSync, watch } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
-import { sep } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import { within } from '../paths.js';
 
 export const execute = promisify(execFile);
 
@@ -439,8 +439,7 @@ export class RepositoryWatch {
     if (!previous) return;
     const roots: string[] = [];
     for (const path of paths.toSorted((a, b) => a.length - b.length))
-      if (!roots.some((root) => path === root || path.startsWith(root + sep)))
-        roots.push(path);
+      if (!roots.some((root) => within(path, root))) roots.push(path);
     const opened: FSWatcher[] = [];
     try {
       for (const root of roots) opened.push(this.open(root, true));

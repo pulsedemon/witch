@@ -28,8 +28,8 @@ import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
 import type { UsageSource } from './claude-usage.js';
 import { reportedDiff } from './claude-diff.js';
-import { errorMessage, watchChild, withTail } from './stderr.js';
-import type { ChildExit } from './stderr.js';
+import { errorMessage } from '../errors.js';
+import { watchChild, withTail, type ChildExit } from './stderr.js';
 import {
   beforeDeadline,
   closeFailedStart,

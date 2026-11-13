@@ -1,6 +1,7 @@
 import { lstat, mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
-import { basename, dirname, join, relative, sep } from 'node:path';
-import { errorMessage } from './agents/stderr.js';
+import { basename, dirname, join, relative } from 'node:path';
+import { errorMessage } from './errors.js';
+import { within } from './paths.js';
 import { runCommand } from './core/command.js';
 import { planDirectories } from './core/merged.js';
 import type { Run } from './core/repository.js';
@@ -118,7 +119,7 @@ async function seed(
     }
     return;
   }
-  if (plans.some((plan) => `${source}/`.startsWith(`${plan}/`))) return;
+  if (plans.some((plan) => within(source, plan))) return;
   // git lists what sits inside a partly tracked directory on its own
   for (
     let directory = source;
@@ -130,7 +131,7 @@ async function seed(
   while (!(await lstat(parent).catch(() => undefined)))
     parent = dirname(parent);
   const [real, root] = [await realpath(parent), await realpath(worktree)];
-  if (real !== root && !real.startsWith(root + sep))
+  if (!within(real, root))
     throw new Error(`${path} would land outside the worktree, at ${real}`);
   await mkdir(dirname(target), { recursive: true });
   // node's copyFile can't clone on macOS, so cp -c does, and dependencies and assets cost no space until a copy changes
@@ -381,7 +382,7 @@ export function sessionsIn(
     const { map } = await mapper(await readLedger(stateRoot));
     return records.some((record) =>
       [record.cwd, map(record.cwd, savedBefore(record))].some(
-        (held) => held && (held === real || held.startsWith(real + sep)),
+        (held) => held && within(held, real),
       ),
     );
   };

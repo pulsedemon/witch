@@ -28,7 +28,7 @@ import {
   verifyNativeUpdate,
 } from '../agents/native-verification.js';
 import { verificationAdapter } from '../agents/native-verification-profile.js';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import {
   holdRuntime,
   pendingUpdate,

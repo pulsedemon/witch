@@ -1,6 +1,7 @@
 import { copyFile, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { delimiter, join, relative, sep } from 'node:path';
 import { hunks, wholeFile } from '../agents/file-diff.js';
+import { errorMessage } from '../errors.js';
 import type { FileDiff } from '../agents/types.js';
 import { execute, statusEnv } from './repository.js';
 import type { Run } from './repository.js';
@@ -90,11 +91,7 @@ function cause(error: unknown): string {
   // a command stopped at its time limit has said nothing of it
   if (killed) return 'Git timed out';
   const text =
-    typeof stderr === 'string' && stderr.trim()
-      ? stderr
-      : error instanceof Error
-        ? error.message
-        : String(error);
+    typeof stderr === 'string' && stderr.trim() ? stderr : errorMessage(error);
   const lines = text.trim().split('\n');
   // Git prints its warnings before the line that says what failed
   return lines.find((line) => /^(?:fatal|error):/.test(line)) ?? lines[0]!;

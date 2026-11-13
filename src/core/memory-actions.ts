@@ -1,4 +1,4 @@
-import { aborted } from '../agents/stderr.js';
+import { aborted } from '../errors.js';
 import { main } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';

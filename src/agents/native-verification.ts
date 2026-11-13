@@ -22,6 +22,7 @@ import type {
   UserRequest,
 } from './types.js';
 import { unlessGone, writeJson } from '../persistence/json.js';
+import { errorMessage } from '../errors.js';
 
 export const verificationProfile = 'native-update-1';
 const execute = promisify(execFile);
@@ -463,7 +464,7 @@ export async function verifyNativeUpdate(
     );
     report.passed = true;
   } catch (error) {
-    report.error = error instanceof Error ? error.message : String(error);
+    report.error = errorMessage(error);
     report.diagnostic = error instanceof Error ? error.stack : String(error);
     throw error;
   } finally {

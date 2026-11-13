@@ -15,7 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
 import { parseCommand } from '../src/cli-control.js';
-import { FamiliarReports } from '../src/cli-familiar.js';
+import { FamiliarReports } from '../src/familiar-run.js';
 import { ControlHost } from '../src/persistence/control.js';
 import type {
   ControlRequest,

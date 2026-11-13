@@ -4,7 +4,8 @@ import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
+import { within } from '../paths.js';
 import { readJson, unlessGone, writeJson } from './json.js';
 import { openLocked } from './lock.js';
 
@@ -54,11 +55,6 @@ const ledgerFile = (root: string) => join(root, 'directories.json');
 /** when a conversation that takes its cwd now is dated from: every move recorded later is dated after it, whatever the clock reads. */
 export const newestMoveTime = (ledger: Ledger): string =>
   new Date(ledger.moves.at(-1)?.at ?? 0).toISOString();
-
-/** `path` itself or a path under it. */
-export function within(path: string, root: string): boolean {
-  return path === root || path.startsWith(root === '/' ? root : `${root}/`);
-}
 
 /** whether a path exists; a failure to look, such as a parent without permission, throws. */
 export const present = async (path: string) =>

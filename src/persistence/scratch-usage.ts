@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import type { ProcessIdentity } from '../core/state.js';
+import { within } from '../paths.js';
 import { ps, sameProcess } from './process.js';
 
 const execute = promisify(execFile);
@@ -100,10 +101,6 @@ function files(output: string): {
   return { pids, references };
 }
 
-function beneath(path: string, directory: string): boolean {
-  return path === directory || path.startsWith(`${directory}/`);
-}
-
 /** an older pane can accept scratch through tmux and survive its server without a visible mark. */
 export async function scratchRequiresBoot(): Promise<boolean> {
   try {
@@ -149,7 +146,7 @@ export function classifyScratch(
     } of candidates) {
       const referenced = opened.references.some(
         ({ pid, fd, name }) =>
-          beneath(name, directory) &&
+          within(name, directory) &&
           !(pid === process.pid && fd === String(lockFd) && name === directory),
       );
       const named = [...commands.values()].some((command) => {

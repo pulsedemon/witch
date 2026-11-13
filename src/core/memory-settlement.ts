@@ -1,4 +1,4 @@
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import type { MemoryConflict, Workspace } from '../memory/workspace.js';
 import type { Recovery } from './snapshot.js';
 

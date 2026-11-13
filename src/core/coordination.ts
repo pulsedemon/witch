@@ -2,7 +2,7 @@ import { isFamiliarAction } from '../agents/familiar-report.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { AgentSession } from '../agents/types.js';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
 import type { Memory } from '../memory/memory.js';
 import {
   CoordinationStore,

@@ -403,6 +403,7 @@ test('every Codex request method in production is covered by the native schema a
     'codex.ts',
     'codex-commands.ts',
     'codex-answer.ts',
+    'codex-config.ts',
     'codex-models.ts',
   ]) {
     const source = ts.createSourceFile(

@@ -13,7 +13,7 @@ import {
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { errorMessage } from '../src/agents/stderr.js';
+import { errorMessage } from '../src/errors.js';
 import { quote } from '../src/shell.js';
 
 const marker = '#!/bin/sh\n# Witch launcher\n';

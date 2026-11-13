@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { errorMessage } from '../agents/stderr.js';
+import { errorMessage } from '../errors.js';
+import { within } from '../paths.js';
 import type { Memory } from '../memory/memory.js';
 import { projectKey } from '../memory/memory.js';
 import {
@@ -16,7 +17,6 @@ import {
   relocate,
   resolve,
   updateLedger,
-  within,
 } from '../persistence/directories.js';
 import type {
   DirectoryEntry,

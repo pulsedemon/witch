@@ -1,11 +1,6 @@
 import { AnswerTurn } from './answer-turn.js';
-import {
-  answerConfiguration,
-  checkNoMcpTools,
-  object,
-  readConfig,
-  withoutMcp,
-} from './codex-answer.js';
+import { answerConfiguration, checkNoMcpTools } from './codex-answer.js';
+import { object, readConfig, withoutMcp } from './codex-config.js';
 import { readModels } from './codex-models.js';
 import {
   CodexCompactionPolicy,
@@ -26,7 +21,7 @@ import { CodexAccount, probeAccountUsage, rateLimits } from './codex-limits.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { mergeCasts } from './familiar-report.js';
 import { diffLines, hunks, wholeFile } from './file-diff.js';
-import { errorMessage } from './stderr.js';
+import { errorMessage } from '../errors.js';
 import {
   beforeDeadline,
   closeFailedStart,

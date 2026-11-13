@@ -17,7 +17,7 @@ import type {
 } from './familiar-report.js';
 import { pages } from './json-rpc.js';
 import type { JsonRpc, RpcMessage } from './json-rpc.js';
-import { errorMessage } from './stderr.js';
+import { errorMessage } from '../errors.js';
 import type { AgentEvent, BackgroundCommand, UserResponse } from './types.js';
 
 interface Command {
