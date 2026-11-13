@@ -295,6 +295,20 @@ test('a skill named like a Witch command is left out, since the command runs ins
   }
 });
 
+test("a skill named like a Witch command's alias is left out too", async () => {
+  const { ui } = await launched({
+    skills: [{ name: 'quit', description: 'Native quit' }],
+  });
+  try {
+    // the list matches an alias only when it is typed in full
+    ui.stdin.write('/quit');
+    await until('the list', () => ui.text().includes('/exit Exit'));
+    assert.ok(!ui.text().includes('Native quit'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 test("the composer's list leaves out built-in commands", async () => {
   // a shared prefix, since `/` alone lists Witch's commands first and the list shows eight rows
   const { ui } = await launched({

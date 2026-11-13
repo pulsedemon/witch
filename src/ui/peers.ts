@@ -3,13 +3,17 @@ import type {
   SelectionState,
   TaskClaim,
 } from '../core/coordination-state.js';
-import { presenceStatus } from '../core/coordination-state.js';
+import {
+  githubReference,
+  presenceStatus,
+  selectionStatus,
+} from '../core/coordination-state.js';
 import { hyperlink, oneLine, plain } from './links.js';
 
 function referenceTarget(reference: string): string | undefined {
-  const match = /^github:([^#]+)#(\d+)$/.exec(reference);
-  return match
-    ? `https://github.com/${match[1]}/issues/${match[2]}`
+  const issue = githubReference(reference);
+  return issue
+    ? `https://github.com/${issue.repository}/issues/${issue.number}`
     : undefined;
 }
 
@@ -25,10 +29,7 @@ export function peerTitle(peer: CoordinationSnapshot['peers'][number]): string {
 export function peerStatus(
   peer: CoordinationSnapshot['peers'][number],
 ): string {
-  if (peer.selection)
-    return peer.selection.position === 1
-      ? 'choosing'
-      : `queued #${peer.selection.position}`;
+  if (peer.selection) return selectionStatus(peer.selection);
   return peer.claim?.suggestion ? 'suggested' : presenceStatus(peer.presence);
 }
 
@@ -43,7 +44,7 @@ function claimText(claim: TaskClaim): string {
     ...claim.references.map((reference) => {
       const target = referenceTarget(reference);
       return target
-        ? hyperlink(reference.slice(7), target, '/')
+        ? hyperlink(reference.slice('github:'.length), target, '/')
         : oneLine(reference.replace(`task:${claim.owner.project}:`, 'task:'));
     }),
     `Claim: ${oneLine(claim.id)}`,

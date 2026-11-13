@@ -4,7 +4,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { aborted, errorMessage } from './errors.js';
 import { claudeArguments } from './cli-familiar.js';
 import { codexArguments } from './cli-codex-familiar.js';
-import { coordinationActionSchema } from './core/coordination-state.js';
+import {
+  coordinationActionSchema,
+  selectionStatus,
+} from './core/coordination-state.js';
 import { callControl, controlBindingSchema } from './persistence/control.js';
 import type { ControlBinding, ControlOutcome } from './persistence/control.js';
 import { quote } from './shell.js';
@@ -371,7 +374,7 @@ function describe(outcome: ControlOutcome): string {
             : []),
           ...(snapshot.ownSelection
             ? [
-                `Selection ${snapshot.ownSelection.ticket.id}: ${snapshot.ownSelection.position === 1 ? 'choosing' : `queued #${snapshot.ownSelection.position}`}`,
+                `Selection ${snapshot.ownSelection.ticket.id}: ${selectionStatus(snapshot.ownSelection)}`,
               ]
             : []),
           ...snapshot.peers.map(
