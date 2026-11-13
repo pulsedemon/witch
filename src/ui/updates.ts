@@ -1,16 +1,19 @@
 import { homedir } from 'node:os';
 import { useSyncExternalStore } from 'react';
-import type { RuntimeUpdates } from '../core/runtime-updates.js';
-import type { Picker } from './choices.js';
 import type {
   RuntimeUpdateEntry,
+  RuntimeUpdates,
   RuntimeUpdateSnapshot,
 } from '../core/runtime-updates.js';
+import type { Snapshot } from '../core/snapshot.js';
+import type { Picker } from './choices.js';
 import { pendingUpdate, qualifiedBy } from '../persistence/runtime-updates.js';
 import { plain } from './links.js';
 
-export const runtimeLabel = (runtime: string) =>
-  runtime === 'claude' ? 'Claude Code' : 'Codex';
+type Agents = Snapshot['agents'];
+
+const label = (agents: Agents, runtime: string) =>
+  agents.find((agent) => agent.id === runtime)!.label;
 
 /** whether `/updates <runtime>` offers to qualify the installed version; a blocked check only restricts installing. */
 function qualifiable(
@@ -31,8 +34,9 @@ function qualifiable(
 export function updateChoice(
   entry: RuntimeUpdateEntry,
   snapshot: RuntimeUpdateSnapshot,
+  agents: Agents,
 ): string {
-  const name = runtimeLabel(entry.runtime);
+  const name = label(agents, entry.runtime);
   if (entry.journal && pendingUpdate(entry.journal))
     return `${name} · recovery required`;
   if (entry.error) return `${name} · check failed`;
@@ -43,7 +47,10 @@ export function updateChoice(
   return `${name} · ${entry.installation?.version ?? 'not installed'}${entry.check?.available ? ` → ${entry.check.target}` : ' · current'}`;
 }
 
-export function updatesText(snapshot: RuntimeUpdateSnapshot): string {
+export function updatesText(
+  snapshot: RuntimeUpdateSnapshot,
+  agents: Agents,
+): string {
   const lines = [
     ...(snapshot.progress ? [snapshot.progress, ''] : []),
     ...(snapshot.checking ? ['Checking releases…', ''] : []),
@@ -55,7 +62,7 @@ export function updatesText(snapshot: RuntimeUpdateSnapshot): string {
     '',
   ];
   for (const entry of snapshot.entries) {
-    lines.push(runtimeLabel(entry.runtime));
+    lines.push(label(agents, entry.runtime));
     if (entry.journal && pendingUpdate(entry.journal)) {
       lines.push(
         `${snapshot.progress ? 'Update in progress' : 'Unfinished update'} to ${entry.journal.target}. Previous version: ${entry.journal.previous.version}.`,
@@ -126,6 +133,7 @@ export function useRuntimeUpdates(
 export async function showUpdates(
   argument: string,
   updates: RuntimeUpdates | undefined,
+  agents: Agents,
   active: () => boolean,
   picker: Picker,
   details: () => boolean,
@@ -157,7 +165,7 @@ export async function showUpdates(
       ? `~/${installation.launcher.slice(homedir().length + 1)}`
       : installation.launcher;
     return picker(
-      `${journal ? 'Recover' : qualify ? 'Qualify' : 'Update'} ${runtimeLabel(entry.runtime)} ${entry.installation?.version ?? installation.version}?`,
+      `${journal ? 'Recover' : qualify ? 'Qualify' : 'Update'} ${label(agents, entry.runtime)} ${entry.installation?.version ?? installation.version}?`,
       [
         { id: 'cancel', label: 'Cancel' },
         {
@@ -193,7 +201,7 @@ export async function showUpdates(
       { id: 'details', label: 'Version and verification details' },
       ...updates.snapshot.entries.map((entry) => ({
         id: entry.runtime,
-        label: updateChoice(entry, updates.snapshot),
+        label: updateChoice(entry, updates.snapshot, agents),
       })),
     ],
     (id) => {

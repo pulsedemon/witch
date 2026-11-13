@@ -708,6 +708,7 @@ export function App({
         return showUpdates(
           argument,
           updates,
+          state.agents,
           active,
           picker,
           () => {
@@ -967,7 +968,7 @@ export function App({
           : pageView?.kind === 'coordination'
             ? coordinationText(pageCoordination, pageView.mode)
             : pageView?.kind === 'updates'
-              ? updatesText(updateSnapshot)
+              ? updatesText(updateSnapshot, state.agents)
               : '';
     return wrapLines(pageText, bodyWidth);
   }, [
@@ -978,6 +979,7 @@ export function App({
     pageView,
     pageCoordination,
     updateSnapshot,
+    state.agents,
     bodyWidth,
   ]);
   const pageRows = Math.max(1, bodyHeight - (recovering ? 5 : 3));
