@@ -423,11 +423,8 @@ export async function runSpawn(
   try {
     await listWorktrees(run, cwd).catch(async (error: unknown) => {
       const identity = await identify(cwd);
-      const known = await readLedger(stateRoot).then(
-        ({ entries }) => entries.some((entry) => sameIdentity(entry, identity)),
-        () => false,
-      );
-      if (!known) throw error;
+      const { entries } = await readLedger(stateRoot);
+      if (!entries.some((entry) => sameIdentity(entry, identity))) throw error;
     });
     const store = await StateStore.open(stateRoot);
     const memory = new Memory(memoryRepository(stateRoot));
