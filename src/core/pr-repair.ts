@@ -279,7 +279,8 @@ export class PullRequestRepair {
 
 /**
  * the notice is unsaved, so a launch on a conflicted branch can't make its new conversation resumable. a failed status
- * read keeps the last conflict, and merges recorded before the first pull request read are already covered by it.
+ * read keeps the last conflict, and merges recorded before the first pull request read are already covered by it. a
+ * pull request read that failed unexpectedly gets a notice too, once per failure and again in a transcript without it.
  */
 export function watchConflicts(
   repository: Pick<
@@ -296,6 +297,8 @@ export function watchConflicts(
   >,
 ): () => void {
   let conflict: Conflict | undefined;
+  /** the read failure the notice was last shown for, until a read works. */
+  let reported: string | undefined;
   let pending: NodeJS.Immediate | undefined;
   let stopped = false;
   const check = () => {
@@ -306,10 +309,17 @@ export function watchConflicts(
     coordinator.conflict = conflict;
     coordinator.repair.observe(status);
     const { conversation, items } = coordinator.snapshot;
-    if (!conflict || !conversation) return;
-    const text = conflictNotice(conflict);
-    if (!items.some((item) => item.kind === 'notice' && item.text === text))
-      coordinator.notice(text, conversation.cwd, false);
+    if (!conversation) return;
+    const shown = (text: string) =>
+      items.some((item) => item.kind === 'notice' && item.text === text);
+    if (conflict && !shown(conflictNotice(conflict)))
+      coordinator.notice(conflictNotice(conflict), conversation.cwd, false);
+    const failure = status?.pullRequestFailure;
+    if (failure === undefined) return;
+    const text = `Can't read this branch's pull request: ${failure}`;
+    if (failure === reported && shown(text)) return;
+    reported = failure;
+    coordinator.notice(text, conversation.cwd, false);
   };
   const schedule = () => {
     if (!stopped) pending ??= setImmediate(check);
@@ -339,6 +349,7 @@ export function watchConflicts(
   };
   // a merge delivered before the first open read publishes, or before the conversation opens, is checked once they do
   const changed = () => {
+    if (repository.snapshot?.pullRequest) reported = undefined;
     merged();
     schedule();
   };

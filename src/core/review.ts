@@ -1,7 +1,7 @@
 import { isAbsolute, normalize, relative } from 'node:path';
 import { formatPatch, structuredPatch } from 'diff';
 import { z } from 'zod';
-import { errorMessage } from '../errors.js';
+import { errorMessage, issuesText } from '../errors.js';
 import { quote } from '../shell.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Routed } from './routing.js';
@@ -41,11 +41,7 @@ export function parseFindings(
   const result = findingsSchema.safeParse(parsed);
   if (!result.success)
     return {
-      invalid: result.error.issues
-        .map(({ path, message }) =>
-          path.length ? `${path.join('.')}: ${message}` : message,
-        )
-        .join('; '),
+      invalid: issuesText(result.error),
     };
   const findings: Finding[] = [];
   for (const finding of result.data.findings) {
