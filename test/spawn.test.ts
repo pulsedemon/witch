@@ -15,12 +15,12 @@ import { dirname, join } from 'node:path';
 import { describe, test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import type { Run } from '../src/core/repository.js';
-import { exists } from '../src/memory/memory.js';
 import { readLedger } from '../src/persistence/directories.js';
 import { StateStore } from '../src/persistence/store.js';
 import { runSpawn, sessionsIn, spawnWorktrees } from '../src/spawn.js';
 import { scratch } from './fixtures/scratch.js';
 import { git } from './fixtures/git.js';
+import { exists } from './fixtures/within.js';
 
 /**
  * a checkout on `main` tracking a bare origin, in its own scratch root so its `<main>-<i>` slots are removed with it.

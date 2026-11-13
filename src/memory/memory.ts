@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  access,
   lstat,
   mkdir,
   realpath,
@@ -11,6 +10,7 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
 import { Workspace } from './workspace.js';
+import { present } from '../persistence/directories.js';
 import { gone } from '../persistence/json.js';
 
 export interface MemoryScope {
@@ -136,13 +136,6 @@ async function physical(path: string): Promise<string> {
   return parent === path ? path : join(await physical(parent), basename(path));
 }
 
-export async function exists(path: string): Promise<boolean> {
-  return access(path).then(
-    () => true,
-    () => false,
-  );
-}
-
 /** a note path relative to the memory root, refusing one that leaves the root or enters `.git`. */
 export function notePath(path: string): string {
   const file = posix.normalize(path);
@@ -216,7 +209,7 @@ export class Memory {
 
   /** builds the seeded bare repository beside its final path, so a second instance never sees it half made. */
   async initialize(): Promise<void> {
-    if (await exists(this.root)) return;
+    if (await present(this.root)) return;
     const parent = dirname(this.root);
     await mkdir(parent, { recursive: true, mode: 0o700 });
     const building = `${this.root}.${randomUUID()}`;

@@ -11,17 +11,10 @@ import { homedir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from '../errors.js';
-import {
-  branchOf,
-  exists,
-  indexNote,
-  main,
-  notePath,
-  printable,
-} from './memory.js';
+import { branchOf, indexNote, main, notePath, printable } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 import { within } from '../paths.js';
-import { mapper } from '../persistence/directories.js';
+import { mapper, present } from '../persistence/directories.js';
 import type { Ledger } from '../persistence/directories.js';
 
 export interface MemoryConflict {
@@ -220,7 +213,7 @@ export class Workspace {
   }
 
   exists(): Promise<boolean> {
-    return exists(join(this.root, '.git'));
+    return present(join(this.root, '.git'));
   }
 
   async branchExists(): Promise<boolean> {
@@ -271,7 +264,7 @@ export class Workspace {
     const directory = resolve(this.root, gitdir);
     // a missing git directory fails like git would, instead of reading as no rebase
     await lstat(directory);
-    return exists(join(directory, 'rebase-merge'));
+    return present(join(directory, 'rebase-merge'));
   }
 
   /** reads a checkout's scope and creates its directories. */
@@ -572,7 +565,7 @@ export class Workspace {
         const target = await this.checkedPath(posix.join(project, note));
         await writeFile(
           target,
-          (await exists(target))
+          (await present(target))
             ? mergeLines((await readFile(target)).toString(), text)
             : text,
         );
@@ -582,7 +575,7 @@ export class Workspace {
       const placed = await this.place(project, label, note, content);
       if (placed === undefined) continue;
       const target = await this.checkedPath(posix.join(project, placed));
-      if (await exists(target)) await rm(source);
+      if (await present(target)) await rm(source);
       else {
         await mkdir(dirname(target), { recursive: true });
         await rename(source, target);
@@ -616,7 +609,7 @@ export class Workspace {
             throw new Error(`Name too long: ${placed}`);
           const target = await this.checkedPath(posix.join(project, placed));
           if (
-            !(await exists(target)) ||
+            !(await present(target)) ||
             (await readFile(target)).equals(content)
           )
             return placed;

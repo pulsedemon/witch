@@ -3,7 +3,7 @@ import LinkifyIt from 'linkify-it';
 import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { exists } from '../memory/memory.js';
+import { present } from '../persistence/directories.js';
 import { resolveFile, unescapePath } from '../paths.js';
 import { imageFile } from './images.js';
 import { colors } from './theme.js';
@@ -66,12 +66,12 @@ async function located(
       ? fileURLToPath(url)
       : undefined;
   if (path === undefined) return { open: url };
-  if (await exists(path)) return { open: url };
+  if (await present(path)) return { open: url };
   if (!bareNames.has(url)) return { notice: `No file at ${path}` };
   const name = basename(path);
   const notes: string[] = [];
   for (const directory of await memory())
-    if (await exists(join(directory, name))) notes.push(join(directory, name));
+    if (await present(join(directory, name))) notes.push(join(directory, name));
   if (notes.length === 1)
     return { open: linkTarget(notes[0]! + (file?.[2] ?? ''), '/') };
   return {
