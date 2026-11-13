@@ -75,7 +75,6 @@ export class TurnGate {
 
 /** an in-process agent that reports a process and ends turns the way the real adapters do. */
 export class FixtureAgent implements AgentAdapter {
-  readonly label: string;
   readonly inputs: {
     session: string;
     prompt: string;
@@ -160,8 +159,10 @@ export class FixtureAgent implements AgentAdapter {
   /** set to give the runtime family aliases, as Claude's adapter has. */
   latest?: (options: ModelDiscoveryOptions) => Promise<Record<string, string>>;
 
-  constructor(readonly id: string) {
-    this.label = id;
+  constructor(
+    readonly id: string,
+    readonly label = id,
+  ) {
     this.catalog = [
       { id: `${id}-model`, label: `${id}-model`, efforts: [] },
       { id: `${id}-big`, label: `${id}-big`, efforts: ['high'] },
