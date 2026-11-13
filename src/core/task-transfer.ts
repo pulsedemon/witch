@@ -130,6 +130,7 @@ async function poll<View extends { ledger: Ledger }>(
     try {
       view = await request.read(Math.min(Date.now() + 1000, end));
     } catch {
+      // the read recorded its own failure, and the poll goes on to the deadline
       continue;
     }
     const claim = view.ledger.claims.find((claim) => claim.id === id);
