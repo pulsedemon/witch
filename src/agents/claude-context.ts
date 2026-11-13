@@ -71,13 +71,14 @@ export class ClaudeContext {
     publish: (usage: Usage) => void,
   ): Promise<number | undefined> {
     const model = current();
+    let usage: Usage;
     try {
       const value = await this.query.getContextUsage({ detail: 'summary' });
       if (model === undefined || current() !== model) return;
       this.observe(value);
       const percentage = z.number().safeParse(value.percentage);
       const capacity = z.number().safeParse(value.maxTokens);
-      const usage = {
+      usage = {
         ...(percentage.success ? { context: percentage.data } : {}),
         ...(capacity.success
           ? {
@@ -90,11 +91,12 @@ export class ClaudeContext {
             }
           : {}),
       };
-      if (Object.keys(usage).length) publish(usage);
-      return usage.context;
     } catch {
+      // a failed native read skips this turn's compaction check instead of failing the turn
       return undefined;
     }
+    if (Object.keys(usage).length) publish(usage);
+    return usage.context;
   }
 
   observe(value: unknown): void {
