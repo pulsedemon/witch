@@ -1045,6 +1045,26 @@ describe('moved checkouts', () => {
     await assert.rejects(sessionsIn(f.state)(f.slot(1)), /directories\.json/);
   });
 
+  test('outside a repository, a ledger spawn cannot read is named instead of only Git', async () => {
+    const root = await scratch('witch-spawn-');
+    const state = join(root, 'state');
+    await mkdir(join(root, 'plain'));
+    await mkdir(state);
+    await writeFile(join(state, 'directories.json'), '{');
+    const errors = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
+    try {
+      assert.equal(await runSpawn(join(root, 'plain'), 1, state), 1);
+      assert.match(
+        errors.mock.calls.map(([text]) => text).join(''),
+        /^witch: .*directories\.json: /,
+      );
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   test('spawn fails when it cannot record the worktrees it opened', async () => {
     const f = await spawned(1);
     const { run: recorded } = recording();
