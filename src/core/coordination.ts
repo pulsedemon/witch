@@ -914,7 +914,12 @@ export class SessionCoordination {
         claim.owner.conversation === active.conversation.id &&
         (claim.transfer || claim.automaticTransfer),
     );
-    if (!claim || this.handing) return;
+    if (!claim) {
+      // a request that went away takes its failure with it
+      this.handover(active);
+      return;
+    }
+    if (this.handing) return;
     const field = claim.transfer ? 'transfer' : 'automaticTransfer';
     if (claim[field]?.refusal) return;
     const owner = { ...claim.owner, conversation: active.conversation.id };
@@ -934,15 +939,31 @@ export class SessionCoordination {
           if (this.admit() !== active) throw new Error('Coordination moved.');
         },
       );
+      this.handover(active);
       if (moved && !moved.transfer) void this.refresh();
     })
-      .catch(() => {
+      .catch((error: unknown) => {
         // the request stays pending, so the next tick rereads and answers again
         active.observed = undefined;
+        this.handover(active, error);
       })
       .finally(() => {
         this.handing = undefined;
       });
+  }
+
+  /** records the owner's handover failure, or clears it, while this activation is still admitted: a handover that a switch or close cut short didn't fail. */
+  private handover(active: Activation, error?: unknown): void {
+    if (
+      this.active !== active ||
+      !active.accepting ||
+      !active.publishing ||
+      this.ending ||
+      this.closed
+    )
+      return;
+    if (error !== undefined) this.fail('handover', error);
+    else if (this.failures.delete('handover')) this.publish(this.snapshot);
   }
 
   private refreshProject(active: Activation, deadline?: number): Promise<void> {
