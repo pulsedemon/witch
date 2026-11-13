@@ -317,9 +317,10 @@ export async function spawnWorktrees(
     }
     try {
       if (await present(spawned.path)) spawned.slot = true;
-      else spawned.error = 'registered but missing; start Witch where it moved';
+      else
+        report(spawned, 'registered but missing; start Witch where it moved');
     } catch (error) {
-      spawned.error = failure(error);
+      report(spawned, failure(error));
     }
   }
   const idle = async (spawned: Spawned) => {
@@ -412,7 +413,7 @@ function describe({ path, slot, created, opened, error }: Spawned): string {
 /**
  * repairs moved directories first, so a moved main checkout reuses its worktrees wherever they are, then spawns. a cwd
  * whose Git a move broke is repaired only when the ledger knows it, so a directory outside any repository still exits
- * with Git's error and leaves no state behind.
+ * with Git's error, or the ledger's when that can't be read, and leaves no state behind.
  */
 export async function runSpawn(
   cwd: string,
