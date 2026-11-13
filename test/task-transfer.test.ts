@@ -171,6 +171,30 @@ test('an owner whose handover fails shows why until one succeeds', async (t) => 
   );
 });
 
+test('a failed handover stops showing once its request is gone', async (t) => {
+  const { a, b, tick, requested, registry } = await transfer(t);
+  const before = await registry.claims();
+  vi.spyOn(a.coordination['registry'], 'handOver').mockRejectedValue(
+    new Error('claims.json could not be written'),
+  );
+  // watched from the start, since the request times out during the waits below
+  const unanswered = assert.rejects(
+    b.coordination.takeTask('task:shared', 3000),
+    /did not answer/,
+  );
+  await requested();
+  await until('the failure', () => {
+    tick();
+    return a.coordination.snapshot.error !== undefined;
+  });
+  await unanswered;
+  await until('the cleared failure', () => {
+    tick();
+    return a.coordination.snapshot.error === undefined;
+  });
+  assert.deepEqual(await registry.claims(), before);
+});
+
 test('a handover cut short by the owner quiescing is not shown as a failure', async (t) => {
   const { a, b, tick, requested } = await transfer(t);
   const local = a.coordination['registry'];
