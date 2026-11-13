@@ -57,7 +57,7 @@ import {
 } from './queue.js';
 import type { WorkTreeChanges } from './work-tree-changes.js';
 import type { SessionCoordination } from './coordination.js';
-import { taskActivity } from './coordination-state.js';
+import { sessionWorking } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
@@ -71,7 +71,6 @@ import { watchEventNotices } from './conversation-events.js';
 import { answerInstruction } from './peer-requests.js';
 import { entry, holding } from './pauses.js';
 import {
-  agentWorking,
   applyDisplayUpdate,
   createConversation,
   type Conversation,
@@ -1481,10 +1480,7 @@ export class Coordinator {
       pendingCompaction: this.compaction.pending,
     };
     if ('queue' in update) this.saveQueue();
-    const working =
-      agentWorking(this.snapshot.phase) ||
-      taskActivity(this.snapshot).running ||
-      !!this.snapshot.nativeRunning;
+    const working = sessionWorking(this.snapshot);
     // merge cleanup and closing start no agent jobs
     this.pentacle.set(
       localActivity,
