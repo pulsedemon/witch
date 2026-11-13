@@ -31,7 +31,7 @@ export function processRunning(pid: number): boolean {
 }
 
 /** what can't be removed stays for a later launch, since a throw here would end launch or skip later exit listeners. */
-export function removeDirectory(directory: string): void {
+function removeDirectory(directory: string): void {
   try {
     rmSync(directory, { recursive: true, force: true });
   } catch {

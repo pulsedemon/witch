@@ -1,12 +1,17 @@
 import type { AccountReading } from '../agents/types.js';
-import { family, resolve, ruleFor, work } from '../core/routing.js';
+import {
+  defaultPolicy,
+  family,
+  resolve,
+  ruleFor,
+  work,
+} from '../core/routing.js';
 import type { Catalog, Policy } from '../core/routing.js';
-import { defaultPolicy } from '../core/routing.js';
 import type { Coordinator } from '../core/coordinator.js';
 import { describeReading } from '../core/usage.js';
 import type { DelegationStore } from '../persistence/delegation.js';
 
-export const delegationUsage =
+const delegationUsage =
   '/delegation <kind> <same|other|both|runtime[:model or family]|clear>, /delegation family <runtime> <family> or /delegation shift <1-100|off>';
 
 /** the policy with one change from `/delegation`'s argument, or what is wrong with it. */

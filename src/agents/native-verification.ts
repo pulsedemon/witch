@@ -25,7 +25,7 @@ import { unlessGone, writeJson } from '../persistence/json.js';
 
 export const verificationProfile = 'native-update-1';
 const execute = promisify(execFile);
-export function nativeScenarios(runtime: NativeRuntime): NativeScenario[] {
+function nativeScenarios(runtime: NativeRuntime): NativeScenario[] {
   return [
     'basic',
     'control',
@@ -45,7 +45,7 @@ export function requiredNativeChecks(runtime: NativeRuntime): string[] {
   ];
 }
 
-export interface PreparedNativeUpdate {
+interface PreparedNativeUpdate {
   directory: string;
   runtime: NativeRuntime;
   previous: RuntimeInstallation;
@@ -54,7 +54,7 @@ export interface PreparedNativeUpdate {
   marker: string;
 }
 
-export interface NativeVerificationOptions {
+interface NativeVerificationOptions {
   directory: string;
   build: string;
   launch?: VerificationLaunch;
@@ -234,13 +234,11 @@ async function recall(
   }
 }
 
-export async function checkNativeApprovals(
+async function checkNativeApprovals(
   candidate: RuntimeInstallation,
   model: string,
   options: NativeVerificationOptions,
 ): Promise<void> {
-  if (!options.allowAccountUsage)
-    throw new Error('Native qualification requires account-usage consent.');
   const directory = join(options.directory, 'approvals');
   const cwd = await project(directory);
   const adapter = await verificationAdapter(candidate.runtime, directory, {

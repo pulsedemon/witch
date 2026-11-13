@@ -16,7 +16,7 @@ import {
 } from './review-ownership.js';
 import type { ConversationRecord } from './state.js';
 
-export function conflictNotice(conflict: Conflict): string {
+function conflictNotice(conflict: Conflict): string {
   const { number, url, commit, base } = conflict.pullRequest;
   return `Pull request conflict: [#${number}](${url}) at ${commit} conflicts with ${base}${conflict.baseTip ? `, observed at ${conflict.baseTip}` : ''}.`;
 }
@@ -84,8 +84,8 @@ interface RepairHost {
 
 /**
  * one automatic turn per conflicting head and base of the pull request this session claims, and one per head for the
- * checks that failed on it since its last. attempted keys are saved on the record; a refused ownership check declines a key until the user's
- * next prompt or another conversation.
+ * checks that failed on it since its last repair. attempted keys are saved on the record; a refused ownership check
+ * declines a key until the user's next prompt or another conversation.
  */
 export class PullRequestRepair {
   private repository?: Repository;

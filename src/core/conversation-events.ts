@@ -11,12 +11,12 @@ import type { PullRequest } from './repository.js';
 import type { Snapshot } from './snapshot.js';
 import type { DisplayUpdate } from './state.js';
 
-export interface EventScope {
+interface EventScope {
   conversation: string;
   project: string;
 }
 
-export interface EventHost {
+interface EventHost {
   /** the active conversation and its project. */
   scope(): EventScope | undefined;
   claims(): readonly TaskClaim[];
@@ -28,7 +28,7 @@ export interface EventHost {
   read(sources: readonly string[], notify: boolean): void;
 }
 
-export interface MergePublication {
+interface MergePublication {
   closed(): boolean;
   serialize(work: () => Promise<void>): Promise<void>;
   /** the open conversations in `project`, read after `source` rereads its own project. */

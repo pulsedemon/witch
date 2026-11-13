@@ -14,12 +14,12 @@ export const claimInputSchema = z.object({
   summary: z.string().trim().min(1),
 });
 
-export const claimOwnerSchema = z.object({
+const claimOwnerSchema = z.object({
   conversation: z.string(),
   project: z.string(),
 });
 
-export const selectionScopeSchema = z.object({
+const selectionScopeSchema = z.object({
   owner: claimOwnerSchema,
   activation: z.string().uuid(),
   turn: z.string().uuid(),

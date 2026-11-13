@@ -95,7 +95,7 @@ export function markdown(
     .trimEnd();
 }
 
-export interface MarkdownAppend {
+interface MarkdownAppend {
   complete: string[];
   tail: string;
   pending: string;

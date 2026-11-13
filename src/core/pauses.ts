@@ -31,7 +31,7 @@ export const pauseStatusSchema = z.enum(['pending', 'paused', 'resumed']);
 
 export type Pause = z.infer<typeof pauseSchema>;
 export type PauseRecipient = z.infer<typeof pauseRecipientSchema>;
-export type PauseStatus = z.infer<typeof pauseStatusSchema>;
+type PauseStatus = z.infer<typeof pauseStatusSchema>;
 export type PauseAction = Extract<
   CoordinationAction,
   { kind: 'pause' | 'resume' | 'pause-status' }
@@ -47,7 +47,7 @@ export function isPauseAction(
   );
 }
 
-export function recipientStatus(recipient: PauseRecipient): PauseStatus {
+function recipientStatus(recipient: PauseRecipient): PauseStatus {
   if (recipient.resumedAt) return 'resumed';
   return recipient.confirmedAt ? 'paused' : 'pending';
 }

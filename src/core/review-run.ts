@@ -23,7 +23,7 @@ import { untitled } from './state.js';
 import type { ConversationRecord, DisplayUpdate } from './state.js';
 
 /** what a review needs from the coordinator. */
-export interface ReviewHost {
+interface ReviewHost {
   conversation: ConversationRecord;
   coordination:
     Pick<SessionCoordination, 'router' | 'commandPrefixes'> | undefined;

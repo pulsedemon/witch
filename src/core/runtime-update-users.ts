@@ -11,7 +11,7 @@ import {
 import { unlessGone } from '../persistence/json.js';
 import { listParticipants } from '../persistence/runtime-updates.js';
 
-export interface RuntimeUser {
+interface RuntimeUser {
   pid: number;
   reason: string;
 }
@@ -65,7 +65,7 @@ export async function runtimeUpdateUsers(
   for (const { pid, command } of rows) {
     const args = argumentsByPid.get(pid);
     if (!args) {
-      if (await ps('pid=', [pid]).then((rows) => rows.length > 0))
+      if ((await ps('pid=', [pid])).length)
         users.push({
           pid,
           reason: 'Native process arguments are inaccessible',
