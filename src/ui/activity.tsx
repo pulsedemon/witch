@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Text } from 'ink';
+import { elapsed } from './elapsed.js';
 import { accent, colors, piped } from './theme.js';
 
 const verbs = [
@@ -13,13 +14,6 @@ const verbs = [
   'TRANSMUTING',
 ];
 const frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
-
-export function elapsed(milliseconds: number): string {
-  const seconds = Math.floor(milliseconds / 1000);
-  return seconds < 60
-    ? `${seconds}S`
-    : `${Math.floor(seconds / 60)}M${String(seconds % 60).padStart(2, '0')}S`;
-}
 
 /** the row above the composer while the agent works, since a model can think for many seconds before it shows anything. */
 export function Activity() {
