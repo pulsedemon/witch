@@ -1,10 +1,17 @@
 import { execFile } from 'node:child_process';
+
 import { readFile, readlink } from 'node:fs/promises';
+
 import { setTimeout as delay } from 'node:timers/promises';
+
 import { promisify } from 'node:util';
+
 import { signalGroup } from '../agents/shutdown.js';
+
 import type { ConversationRecord, ProcessIdentity } from '../core/state.js';
+
 import { unlessGone } from './json.js';
+
 import type { ConversationStore } from './store.js';
 
 const execute = promisify(execFile);
@@ -38,11 +45,13 @@ export async function processDirectory(
 ): Promise<string | undefined> {
   if (process.platform === 'linux')
     return unlessGone(readlink(`/proc/${pid}/cwd`));
+
   const { stdout } = await execute(
     '/usr/sbin/lsof',
     ['-a', '-p', String(pid), '-d', 'cwd', '-Fpn0'],
     { timeout: 5000 },
   );
+
   return stdout
     .split('\0')
     .map((field) => field.replace(/^\n/, ''))
@@ -59,11 +68,14 @@ export async function processArguments(
   pids: readonly number[],
 ): Promise<Map<number, string[]>> {
   const result = new Map<number, string[]>();
+
   if (!pids.length) return result;
+
   if (process.platform === 'linux') {
     for (const pid of pids) {
       try {
         const content = await readFile(`/proc/${pid}/cmdline`, 'utf8');
+
         if (content) result.set(pid, content.split('\0').slice(0, -1));
       } catch (error) {
         if (
@@ -74,30 +86,40 @@ export async function processArguments(
           throw error;
       }
     }
+
     return result;
   }
+
   const { stdout } = await execute('/usr/bin/perl', [
     '-e',
     argumentsQuery,
     ...pids.map(String),
   ]);
+
   const fields = stdout.split('\0');
+
   for (let at = 0; at < fields.length - 1;) {
     const pid = Number(fields[at++]);
+
     const count = Number(fields[at++]);
+
     result.set(pid, fields.slice(at, at + count));
+
     at += count;
   }
+
   return result;
 }
 
 export async function bootSession(): Promise<string> {
   if (process.platform === 'linux')
     return (await readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
+
   const { stdout } = await execute('/usr/sbin/sysctl', [
     '-n',
     'kern.bootsessionuuid',
   ]);
+
   return stdout.trim();
 }
 
@@ -139,11 +161,13 @@ export async function ps(
         ...(options.environment ? { maxBuffer: 64 << 20 } : {}),
       },
     );
+
     return stdout.split('\n').filter(Boolean);
   } catch (error) {
     // ps exits 1 when none of the listed processes still runs. a full listing always holds Witch, so there it failed
     if (pids && error instanceof Error && 'code' in error && error.code === 1)
       return [];
+
     throw error;
   }
 }
@@ -156,19 +180,27 @@ export async function identifyProcesses(
   options: { timeout?: number } = {},
 ): Promise<Map<number, ProcessIdentity>> {
   const known = own && pids.includes(process.pid) ? own : undefined;
+
   const probed = [...new Set(pids)].filter(
     (pid) => !known || pid !== known.pid,
   );
+
   const identities = new Map<number, ProcessIdentity>(
     known ? [[known.pid, known]] : [],
   );
+
   if (!probed.length) return identities;
+
   for (const line of await ps('pid=,lstart=', probed, options)) {
     const [, id, started] = /^\s*(\d+)\s+(.+?)\s*$/.exec(line)!;
+
     const pid = Number(id);
+
     identities.set(pid, { pid, started: started! });
   }
+
   own ??= identities.get(process.pid);
+
   return identities;
 }
 
@@ -194,14 +226,20 @@ export async function stopLeftProcesses(
 ): Promise<boolean> {
   const natives = nativeProcessKeys.flatMap((key) => {
     const identity = record[key];
+
     return identity ? [identity] : [];
   });
+
   if (!record.shell && !natives.length) return false;
+
   // the shell goes first, so a CLI that won't stop still leaves the command killed
   if (record.shell) await stopPreviousShell(record.shell);
+
   const stopped = await Promise.allSettled(natives.map(stopPreviousProcess));
+
   for (const result of stopped)
     if (result.status === 'rejected') throw result.reason;
+
   return true;
 }
 
@@ -215,10 +253,14 @@ export function processReports(
     (key: (typeof nativeProcessKeys)[number] | 'shell') =>
     async (pid?: number) => {
       const id = pid === undefined ? undefined : await identifyProcess(pid);
+
       if (files.closed) return;
+
       conversation[key] = id;
+
       await files.save(conversation);
     };
+
   return {
     onProcess: identify('process'),
     onUsageProcess: identify('usageProcess'),
@@ -226,6 +268,7 @@ export function processReports(
     // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
     onShell: async (pid?: number) => {
       if (pid !== undefined) track(pid);
+
       await identify('shell')(pid);
     },
   };
@@ -247,8 +290,10 @@ export async function runs(recorded: ProcessIdentity): Promise<boolean> {
 async function ends(recorded: ProcessIdentity, what: string): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
     await delay(100);
+
     if (!(await runs(recorded))) return;
   }
+
   throw new Error(
     `The previous ${what} (${recorded.pid}) has not stopped. Stop it before restarting Witch.`,
   );
@@ -256,20 +301,26 @@ async function ends(recorded: ProcessIdentity, what: string): Promise<void> {
 
 async function stopPreviousProcess(recorded: ProcessIdentity): Promise<void> {
   if (!(await runs(recorded))) return;
+
   try {
     process.kill(recorded.pid, 'SIGTERM');
   } catch (error) {
     // it can exit between the check above and the signal
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
+
     throw error;
   }
+
   await ends(recorded, 'agent process');
 }
 
 /** kills a recorded `!` command's group, then the group again once its shell exits, for a child forked as the first kill landed. */
 async function stopPreviousShell(recorded: ProcessIdentity): Promise<void> {
   if (!(await runs(recorded))) return;
+
   signalGroup(recorded.pid, 'SIGKILL');
+
   await ends(recorded, 'shell command');
+
   signalGroup(recorded.pid, 'SIGKILL');
 }

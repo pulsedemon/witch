@@ -1,7 +1,11 @@
 import { cp } from 'node:fs/promises';
+
 import { join } from 'node:path';
+
 import { Memory } from '../../src/memory/memory.js';
+
 import type { GitRunner } from '../../src/memory/memory.js';
+
 import { scratch } from './scratch.js';
 
 let template: Promise<string> | undefined;
@@ -12,7 +16,9 @@ export async function seededMemory(
   runner?: GitRunner,
 ): Promise<Memory> {
   template ??= build();
+
   await cp(await template, root, { recursive: true });
+
   return new Memory(root, runner);
 }
 
@@ -20,6 +26,8 @@ async function build(): Promise<string> {
   const memory = new Memory(
     join(await scratch('witch-memory-template-'), 'memory.git'),
   );
+
   await memory.initialize();
+
   return memory.root;
 }

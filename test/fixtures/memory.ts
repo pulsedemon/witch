@@ -1,30 +1,48 @@
 import { execFile } from 'node:child_process';
+
 import { mkdir, rm, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
+
 import { promisify } from 'node:util';
+
 import type { Workspace } from '../../src/memory/workspace.js';
+
 import { hookedGit, passThrough } from './git.js';
+
 import { scratch } from './scratch.js';
+
 import { seededMemory } from './seeded-memory.js';
 
 // a developer's `url.<base>.insteadOf` would rewrite the origins these tests key
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 
 const execute = promisify(execFile);
 
 export async function fixture() {
   const root = await scratch('witch-memory-');
+
   const project = join(root, 'project');
+
   await mkdir(project);
+
   const hook = { current: passThrough };
+
   const memory = await seededMemory(join(root, 'memory.git'), hookedGit(hook));
+
   const open = async (id: string) => {
     const directory = join(root, 'conversations', id);
+
     await mkdir(directory, { recursive: true });
+
     const workspace = memory.workspace(directory, id);
+
     await workspace.ensureWorktree();
+
     const scope = await workspace.scope(project);
+
     return {
       workspace,
       scope: {
@@ -33,11 +51,14 @@ export async function fixture() {
       },
     };
   };
+
   /** begins from `cwd`'s scope, as a turn does after reading it. */
   const begin = async (workspace: Workspace, cwd: string) => {
     const scope = await memory.scopePaths(cwd);
+
     return { revision: (await workspace.begin(scope)).revision, scope };
   };
+
   return { memory, root, project, hook, open, begin };
 }
 
@@ -48,12 +69,15 @@ export async function save(
 ) {
   for (const [path, text] of Object.entries(files)) {
     const file = join(workspace.root, path);
+
     if (text === null) await rm(file);
     else {
       await mkdir(join(file, '..'), { recursive: true });
+
       await writeFile(file, text);
     }
   }
+
   await workspace.commit(message);
 }
 
@@ -67,8 +91,12 @@ export async function repository(
   origin?: string,
 ): Promise<string> {
   const path = join(root, name);
+
   await mkdir(path, { recursive: true });
+
   await git(path, 'init', '--quiet');
+
   if (origin) await git(path, 'remote', 'add', 'origin', origin);
+
   return path;
 }

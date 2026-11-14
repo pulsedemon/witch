@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+
 import { constants } from 'node:fs';
+
 import {
   mkdir,
   open,
@@ -8,26 +10,38 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
+
 import type { FileHandle } from 'node:fs/promises';
+
 import { join } from 'node:path';
+
 import { z } from 'zod';
+
 import { errorMessage } from '../errors.js';
+
 import { unnumbered } from '../core/attachments.js';
+
 import {
   conversationRecordSchema,
   displayUpdateSchema,
   foldDisplayUpdates,
 } from '../core/state.js';
+
 import type {
   Conversation,
   ConversationRecord,
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
+
 import { mapper, newestMoveTime, readLedger } from './directories.js';
+
 import { within } from '../paths.js';
+
 import { gone, replaceFile, unlessGone, writeJson } from './json.js';
+
 import { nativeProcessKeys, stopLeftProcesses } from './process.js';
+
 import { lockedFiles, tryOpenLocked } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });
@@ -54,21 +68,32 @@ function moveRows(
   to: string,
 ): { content: Buffer; changed: number } {
   const parts: Buffer[] = [];
+
   const decoder = new TextDecoder('utf-8', { fatal: true });
+
   let changed = 0;
+
   for (let start = 0; start < history.length;) {
     const newline = history.indexOf(10, start);
+
     const end = newline < 0 ? history.length : newline;
+
     const next = newline < 0 ? end : end + 1;
+
     const textEnd = history[end - 1] === 13 ? end - 1 : end;
+
     let line = history.subarray(start, next);
+
     try {
       const raw: unknown = JSON.parse(
         decoder.decode(history.subarray(start, textEnd)),
       );
+
       const checked = displayUpdateSchema.safeParse(raw);
+
       if (checked.success && within(checked.data.cwd, from)) {
         const cwd = to + checked.data.cwd.slice(from.length);
+
         if (cwd !== checked.data.cwd) {
           line = Buffer.concat([
             Buffer.from(
@@ -76,15 +101,19 @@ function moveRows(
             ),
             history.subarray(textEnd, next),
           ]);
+
           changed++;
         }
       }
     } catch {
       // a torn or unreadable line stays available for the store's existing recovery rules
     }
+
     parts.push(line);
+
     start = next;
   }
+
   return { content: changed ? Buffer.concat(parts) : history, changed };
 }
 
@@ -99,12 +128,19 @@ export async function moveHistory(
   checkpoint?: (move: { from: string; inode: number }) => Promise<void>,
 ): Promise<void> {
   const file = historyPath(directory);
+
   const times = await unlessGone(stat(file));
+
   const source = times && from(times.ino);
+
   if (!times || source === undefined) return;
+
   const moved = moveRows(await readFile(file), source, to);
+
   if (!moved.changed) return;
+
   await checkpoint?.({ from: source, inode: times.ino });
+
   await replaceFile(file, moved.content, times);
 }
 
@@ -116,23 +152,29 @@ async function tryLock(file: string, shared = false): Promise<FileHandle> {
     constants.O_RDWR | constants.O_CREAT,
     { mode: 0o600, shared },
   );
+
   if (!handle)
     throw new LockedElsewhere(
       'This conversation is open in another Witch instance or being recovered.',
     );
+
   return handle;
 }
 
 /** current Witches serialize on `coordinated`; the shared conversation lock excludes legacy owners and identifies current ones. */
 async function hold(directory: string): Promise<() => Promise<void>> {
   const coordinated = await tryLock(join(directory, 'coordinated'));
+
   let lock: FileHandle;
+
   try {
     lock = await tryLock(join(directory, 'lock'), true);
   } catch (error) {
     await coordinated.close();
+
     throw error;
   }
+
   return async () => {
     try {
       await lock.close();
@@ -163,6 +205,7 @@ export class StateStore {
 
   static async open(root: string): Promise<StateStore> {
     await mkdir(conversationsPath(root), { recursive: true, mode: 0o700 });
+
     return new StateStore(root);
   }
 
@@ -171,7 +214,9 @@ export class StateStore {
     unreadable: UnreadableRecord[];
   }> {
     const records: ConversationRecord[] = [];
+
     const unreadable: UnreadableRecord[] = [];
+
     for (const id of ids ?? (await readdir(conversationsPath(this.root)))) {
       try {
         records.push(await readRecord(this.directory(id)));
@@ -183,16 +228,21 @@ export class StateStore {
           });
       }
     }
+
     return { records, unreadable };
   }
 
   /** conversations that have history or a saved draft or queue, newest first: this directory's, or every directory's without one. */
   async conversations(cwd?: string): Promise<ListedConversation[]> {
     const listed: ListedConversation[] = [];
+
     for (const record of (await this.records()).records) {
       if (cwd !== undefined && record.cwd !== cwd) continue;
+
       const directory = this.directory(record.id);
+
       const history = await unlessGone(stat(historyPath(directory)));
+
       if (history?.size) listed.push({ ...record, modified: history.mtimeMs });
       else if (record.draft || record.queue?.length)
         listed.push({
@@ -200,6 +250,7 @@ export class StateStore {
           modified: (await stat(recordPath(directory))).mtimeMs,
         });
     }
+
     return listed.sort((a, b) => b.modified - a.modified);
   }
 
@@ -210,22 +261,30 @@ export class StateStore {
   async prompts(cwd: string): Promise<string[]> {
     const content =
       (await unlessGone(readFile(this.promptsPath()))) ?? Buffer.alloc(0);
+
     // an unreadable ledger leaves exact matching
     const ledger = await readLedger(this.root).catch(() => undefined);
+
     const { map } = ledger
       ? await mapper(ledger)
       : { map: (path: string) => path };
+
     // lines from one directory between the same two move boundaries map alike, so each pair maps once
     const boundaries = [
       ...new Set((ledger?.moves ?? []).map(({ prompts }) => prompts)),
     ].sort((a, b) => a - b);
+
     const mapped = new Map<string, string | undefined>();
+
     // lines come in offset order, so the count of boundaries passed only grows
     let passed = 0;
+
     const destination = (cwd: string, start: number) => {
       while (passed < boundaries.length && boundaries[passed]! <= start)
         passed++;
+
       const key = `${passed}\0${cwd}`;
+
       if (!mapped.has(key))
         mapped.set(
           key,
@@ -234,23 +293,31 @@ export class StateStore {
             throughReused: true,
           }),
         );
+
       return mapped.get(key);
     };
+
     const prompts: string[] = [];
+
     for (let start = 0; start < content.length;) {
       const end = content.indexOf(10, start);
+
       const next = end < 0 ? content.length : end + 1;
+
       try {
         const prompt = promptSchema.parse(
           JSON.parse(content.toString('utf8', start, next)),
         );
+
         if ((destination(prompt.cwd, start) ?? prompt.cwd) === cwd)
           prompts.push(prompt.text);
       } catch {
         // a torn or foreign line isn't a prompt
       }
+
       start = next;
     }
+
     return prompts.reverse();
   }
 
@@ -260,8 +327,10 @@ export class StateStore {
    */
   addPrompt(cwd: string, text: string): Promise<void> {
     const line = { cwd, text: unnumbered(text) };
+
     const added = this.adding.then(async () => {
       const file = await open(this.promptsPath(), 'a', 0o600);
+
       try {
         // one write call, which other instances' appends never split; appendFile writes 512 KiB at a time
         await file.write(Buffer.from(`\n${JSON.stringify(line)}`));
@@ -269,7 +338,9 @@ export class StateStore {
         await file.close();
       }
     });
+
     this.adding = added.catch(() => {});
+
     return added;
   }
 
@@ -287,22 +358,30 @@ export class StateStore {
     ) => Promise<Record<string, unknown> | undefined>,
   ): Promise<'repaired' | 'unchanged'> {
     const directory = this.directory(id);
+
     const unlock = await hold(directory);
+
     try {
       const file = recordPath(directory);
+
       const { atime, mtime } = await stat(file);
+
       const save = (record: Record<string, unknown>) =>
         replaceFile(file, `${JSON.stringify(record, null, 2)}\n`, {
           atime,
           mtime,
         });
+
       const record = await change(
         JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>,
         directory,
         save,
       );
+
       if (!record) return 'unchanged';
+
       await save(record);
+
       return 'repaired';
     } finally {
       await unlock();
@@ -315,46 +394,66 @@ export class StateStore {
    */
   async create(conversation: Conversation): Promise<ConversationStore> {
     const directory = this.directory(conversation.id);
+
     // an unreadable ledger leaves `createdAt`, as move repair can't run until it reads
     const ledger = await readLedger(this.root).catch(() => undefined);
+
     const record = ledger
       ? { ...conversation, cwdSince: newestMoveTime(ledger) }
       : conversation;
+
     await mkdir(directory, { mode: 0o700 });
+
     const unlock = await hold(directory);
+
     const files = new ConversationStore(directory, unlock, record);
+
     try {
       await files.save(record);
     } catch (error) {
       await files.close().catch(() => {});
+
       throw error;
     }
+
     return files;
   }
 
   async claim(id: string): Promise<ConversationStore> {
     const directory = this.directory(id);
+
     const unlock = await hold(directory);
+
     try {
       const record = await readRecord(directory);
+
       const files = new ConversationStore(directory, unlock, record);
+
       // rows the conversation adds go to `cwd`, so a move repair a crash stopped finishes before any are added
       const { historyMove } = record;
+
       if (historyMove) {
         await moveHistory(directory, record.cwd, (inode) =>
           inode === historyMove.inode ? historyMove.from : undefined,
         );
+
         delete record.historyMove;
+
         await files.save(record);
       }
+
       if (await stopLeftProcesses(record)) {
         delete record.shell;
+
         for (const key of nativeProcessKeys) delete record[key];
+
         await files.save(record);
       }
+
       return files;
     } catch (error) {
       await unlock();
+
       throw error;
     }
   }
@@ -369,13 +468,19 @@ export class StateStore {
     options: { timeout?: number } = {},
   ): Promise<Map<string, { coordinated: boolean }>> {
     ids ??= await readdir(conversationsPath(this.root));
+
     const paths = ids.map((id) => join(this.directory(id), 'lock'));
+
     const locked = await lockedFiles(paths, options);
+
     const open = new Map<string, { coordinated: boolean }>();
+
     for (const [index, path] of paths.entries()) {
       const mode = locked.get(path);
+
       if (mode) open.set(ids[index]!, { coordinated: mode === 'shared' });
     }
+
     return open;
   }
 
@@ -422,77 +527,101 @@ export class ConversationStore {
   /** the absolute path of a new image file in the conversation, private like the rest of its state. */
   async saveImage(bytes: Buffer, extension: string): Promise<string> {
     if (this.released) throw new Error('This conversation is no longer open.');
+
     const directory = join(this.directory, 'images');
+
     const file = join(directory, `${randomUUID()}.${extension}`);
+
     const saving = mkdir(directory, { recursive: true, mode: 0o700 }).then(() =>
       writeFile(file, bytes, { mode: 0o600 }),
     );
+
     this.savingImages.add(saving);
+
     try {
       await saving;
     } finally {
       this.savingImages.delete(saving);
     }
+
     return file;
   }
 
   save(record: ConversationRecord): Promise<void> {
     const captured = JSON.parse(JSON.stringify(record)) as ConversationRecord;
+
     this.drainHistory();
+
     return this.enqueue(() => writeJson(recordPath(this.directory), captured));
   }
 
   append(update: DisplayUpdate): Promise<void> {
     const captured = JSON.parse(JSON.stringify(update)) as DisplayUpdate;
+
     if (
       (captured.kind !== 'assistant' && captured.kind !== 'tool') ||
       this.released ||
       this.failure
     ) {
       this.drainHistory();
+
       return this.enqueue(() => this.writeHistory(captured));
     }
+
     if (
       this.pending &&
       (this.pending.update.id !== captured.id ||
         this.pending.update.kind !== captured.kind)
     )
       this.drainHistory();
+
     if (this.pending) {
       const previous = this.pending.update;
+
       this.pending.update = {
         ...foldDisplayUpdates([previous, captured])[0]!,
         replace: previous.replace || captured.replace,
       };
     } else {
       const ready = Promise.withResolvers<void>();
+
       const pending: PendingHistory = {
         update: captured,
         release: ready.resolve,
         written: this.enqueue(async () => {
           await ready.promise;
+
           await this.writeHistory(pending.update);
         }),
         timer: setTimeout(() => this.drainHistory(), 100),
       };
+
       this.pending = pending;
     }
+
     const { written } = this.pending;
+
     if (captured.replace || captured.done) this.drainHistory();
+
     return written;
   }
 
   async history(): Promise<DisplayUpdate[]> {
     await this.flush();
+
     try {
       const content = await readFile(historyPath(this.directory), 'utf8');
+
       const lines = content.split('\n');
+
       if (!content.endsWith('\n')) lines.pop();
+
       return lines
         .filter(Boolean)
         .map((line) => displayUpdateSchema.parse(JSON.parse(line)));
     } catch (error) {
       if (gone(error)) return [];
+
       throw error;
     }
   }
@@ -503,22 +632,29 @@ export class ConversationStore {
 
   async flush(): Promise<void> {
     this.drainHistory();
+
     await this.queue;
+
     if (this.failure) throw this.failure;
+
     await this.historyFile?.sync();
   }
 
   async close(): Promise<void> {
     if (this.released) return;
+
     this.released = true;
+
     try {
       await Promise.allSettled(this.savingImages);
+
       await this.flush();
     } finally {
       try {
         await this.historyFile?.close();
       } finally {
         this.historyFile = undefined;
+
         await this.unlock();
       }
     }
@@ -526,28 +662,41 @@ export class ConversationStore {
 
   private drainHistory(): void {
     const pending = this.pending;
+
     if (!pending) return;
+
     this.pending = undefined;
+
     clearTimeout(pending.timer);
+
     pending.release();
   }
 
   private async writeHistory(update: DisplayUpdate): Promise<void> {
     const file = await this.openHistory();
+
     await file.writeFile(`${JSON.stringify(update)}\n`);
   }
 
   private async openHistory(): Promise<FileHandle> {
     if (this.historyFile) return this.historyFile;
+
     const file = await open(historyPath(this.directory), 'a+', 0o600);
+
     try {
       const { size } = await file.stat();
+
       const buffer = Buffer.alloc(Math.min(4096, size));
+
       let end = size;
+
       let length = Math.min(1, size);
+
       while (end) {
         const start = end - length;
+
         let read = 0;
+
         while (read < length) {
           const { bytesRead } = await file.read(
             buffer,
@@ -555,23 +704,35 @@ export class ConversationStore {
             length - read,
             start + read,
           );
+
           if (!bytesRead) break;
+
           read += bytesRead;
         }
+
         const newline = buffer.subarray(0, read).lastIndexOf(10);
+
         if (newline >= 0) {
           const complete = start + newline + 1;
+
           if (complete < size) await file.truncate(complete);
+
           break;
         }
+
         end = start;
+
         length = Math.min(buffer.length, end);
+
         if (!end) await file.truncate(0);
       }
+
       this.historyFile = file;
+
       return file;
     } catch (error) {
       await file.close();
+
       throw error;
     }
   }
@@ -579,13 +740,17 @@ export class ConversationStore {
   private enqueue(operation: () => Promise<void>): Promise<void> {
     if (this.released)
       return Promise.reject(new Error('This conversation is no longer open.'));
+
     const next = this.queue.then(() => {
       if (this.failure) throw this.failure;
+
       return operation();
     });
+
     this.queue = next.catch((error: unknown) => {
       this.failure = error instanceof Error ? error : new Error(String(error));
     });
+
     return next;
   }
 }

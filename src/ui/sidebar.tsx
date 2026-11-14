@@ -1,21 +1,36 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+
 import { Box, Text } from 'ink';
+
 import { basename } from 'node:path';
+
 import type { BackgroundCommand } from '../agents/types.js';
+
 import type { TimedSubagent } from '../core/snapshot.js';
+
 import { familiarIdentity } from '../core/familiars.js';
+
 import type { CoordinationSnapshot } from '../core/coordination-state.js';
+
 import type { PentacleActivity } from '../core/pentacle-activity.js';
+
 import { elapsed } from './elapsed.js';
+
 import { hyperlink, oneLine } from './links.js';
+
 import { peerStatus, peerTitle } from './peers.js';
+
 import { pentacle } from './pentacle.js';
+
 import { columns, rows, sidebarWidth } from './sidebar-layout.js';
+
 import { accent, accentDim, piped } from './theme.js';
+
 import { wrapLines } from './wrap.js';
 
 /** turned a little, so the pentacle shows its depth at rest. */
 const restAngle = 0.45;
+
 /** retain the last complete entries and reserve a count row when any are hidden. */
 function fit<T>(
   entries: readonly T[],
@@ -23,11 +38,14 @@ function fit<T>(
   room: number,
 ): { shown: readonly T[]; hidden: number } {
   let used = entries.reduce((sum, entry) => sum + cost(entry), 0);
+
   let hidden = 0;
+
   if (used > room) {
     while (hidden < entries.length && used > room - 1)
       used -= cost(entries[hidden++]!);
   }
+
   return { shown: entries.slice(hidden), hidden };
 }
 
@@ -36,19 +54,26 @@ function lineage(
   subagents: readonly TimedSubagent[],
 ): { subagent: TimedSubagent; depth: number }[] {
   const ids = new Set(subagents.map(({ id }) => id));
+
   const lines: { subagent: TimedSubagent; depth: number }[] = [];
+
   const visit = (parent: string | undefined, depth: number) => {
     for (const subagent of subagents) {
       const listed =
         subagent.parent !== undefined && ids.has(subagent.parent)
           ? subagent.parent
           : undefined;
+
       if (listed !== parent) continue;
+
       lines.push({ subagent, depth });
+
       visit(subagent.id, depth + 1);
     }
   };
+
   visit(undefined, 0);
+
   return lines;
 }
 
@@ -73,13 +98,18 @@ export function Sidebar({
     activity.subscribe,
     () => activity.active,
   );
+
   const [angle, setAngle] = useState(restAngle);
+
   const [now, setNow] = useState(Date.now);
+
   const familiars = lineage(
     subagents.filter(({ status }) => status === 'running'),
   ).map(({ subagent, depth }) => {
     const indent = '  '.repeat(Math.min(depth + 1, 2));
+
     const identity = oneLine(familiarIdentity(subagent));
+
     return {
       subagent,
       depth,
@@ -90,48 +120,70 @@ export function Sidebar({
         : [],
     };
   });
+
   const running = familiars.length > 0;
+
   const usage = usageText.length > 0;
+
   useEffect(() => {
     if (!running) return;
+
     const timer = setInterval(() => setNow(Date.now()), 1000);
+
     return () => clearInterval(timer);
   }, [running]);
+
   useEffect(() => {
     // wherever work stopped it, the pentacle returns to its rest angle, since edge on it reads as a line
     if (!spinning) {
       setAngle(restAngle);
+
       return;
     }
+
     const timer = setInterval(() => setAngle((value) => value + 0.12), 80);
+
     return () => clearInterval(timer);
   }, [spinning]);
+
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
+
   const below = rows + (usage ? 1 + usageText.length : 0);
+
   // brews take the rows above the pentacle first, less a running familiar's heading and count
   const peerRoom = Math.min(
     8,
     Math.max(0, height - below) - (brews.length ? 2 : 0) - (running ? 2 : 0),
   );
+
   const listedPeers = fit(peers, () => 2, peerRoom - 1);
+
   const peerRows =
     peers.length && peerRoom >= 2
       ? 1 + (listedPeers.hidden ? 1 : 0) + listedPeers.shown.length * 2
       : 0;
+
   const above = height - below - peerRows;
+
   const brewRoom = above - (running ? 2 : 0) - 1;
+
   const brewing = brews.length > 0 && brewRoom > 0;
+
   const listedBrews = fit(brews, () => 1, brewRoom);
+
   const brewRows = brewing
     ? 1 + (listedBrews.hidden ? 1 : 0) + listedBrews.shown.length
     : 0;
+
   // the last familiars in tree order show and a count stands in for the rest
   const room = above - brewRows - 1;
+
   const { shown, hidden } = fit(
     familiars,
     ({ identity }) => 3 + identity.length,
     room,
   );
+
   return (
     <Box
       flexDirection="column"

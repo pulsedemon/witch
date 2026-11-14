@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+
 import { access } from 'node:fs/promises';
+
 import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 
 export async function within<T>(
@@ -8,6 +10,7 @@ export async function within<T>(
   what: string,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   try {
     return await Promise.race([
       promise,
@@ -32,10 +35,13 @@ export async function until(
     if (await predicate()) {
       // a view shown after an await attaches its Ink input listeners in a later React task, so keys sent before it reach the previous view
       await setImmediate();
+
       return;
     }
+
     await delay(20);
   }
+
   assert.fail(`timed out waiting for ${what}`);
 }
 
@@ -52,9 +58,11 @@ export async function appears(path: string, what = path) {
 /** whether the promise has settled yet, either way. */
 export function settled(promise: Promise<unknown>) {
   let done = false;
+
   void promise.then(
     () => (done = true),
     () => (done = true),
   );
+
   return () => done;
 }

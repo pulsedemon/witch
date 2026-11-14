@@ -1,5 +1,7 @@
 import { z } from 'zod';
+
 import type { JsonRpc } from './json-rpc.js';
+
 import type { AccountReading, Limit } from './types.js';
 
 const rateWindow = z
@@ -9,6 +11,7 @@ const rateWindow = z
     resetsAt: z.number().nullable(),
   })
   .nullish();
+
 export const rateLimits = z.object({
   limitId: z.string().nullish(),
   primary: rateWindow,
@@ -24,6 +27,7 @@ export const rateLimits = z.object({
   spendControlReached: z.boolean().nullish().catch(undefined),
   rateLimitReachedType: z.string().nullish().catch(undefined),
 });
+
 type ObservedWindow = NonNullable<z.infer<typeof rateWindow>> & {
   observedAt: number;
 };
@@ -50,6 +54,7 @@ async function readRateLimits(rpc: JsonRpc): Promise<{
         excludeResetCreditDetails: true,
       }),
     );
+
   return response;
 }
 
@@ -63,7 +68,9 @@ function accountFunding(
   complete: boolean,
 ): Pick<AccountReading, 'funding' | 'creditAccess'> {
   const observedAt = Date.now();
+
   const { credits, spendControlReached, rateLimitReachedType } = update;
+
   const funding = credits
     ? {
         kind: 'credits' as const,
@@ -75,10 +82,12 @@ function accountFunding(
     : complete && credits === null
       ? { kind: 'unavailable' as const, observedAt }
       : undefined;
+
   const denied =
     spendControlReached === true ||
     workspaceDenied(rateLimitReachedType) ||
     (credits && !credits.unlimited && !credits.hasCredits);
+
   const state = denied
     ? 'unavailable'
     : complete &&
@@ -90,6 +99,7 @@ function accountFunding(
       : complete
         ? 'unknown'
         : undefined;
+
   return {
     ...(funding ? { funding } : {}),
     ...(state ? { creditAccess: { state, observedAt } } : {}),
@@ -130,14 +140,20 @@ export async function probeAccountUsage(
   previous: AccountReading,
 ): Promise<AccountReading> {
   const { rateLimits: update, accountId } = await readRateLimits(rpc);
+
   const { primary, secondary, limitId } = update;
+
   const identity = accountIdentity(accountId, limitId) ?? previous.identity;
+
   if (identity !== previous.identity) previous = { limits: [] };
+
   const observedAt = Date.now();
+
   const limits = windowLimits([
     primary && { ...primary, observedAt },
     secondary && { ...secondary, observedAt },
   ]);
+
   return {
     ...previous,
     ...(identity ? { identity } : {}),
@@ -162,13 +178,20 @@ export class CodexAccount {
   /** a reply cannot replace observations delivered while its request was pending. */
   async read(rpc: JsonRpc): Promise<AccountReading | undefined> {
     const previous = this.reading;
+
     const before = { ...this.windows };
+
     const { rateLimits, accountId } = await readRateLimits(rpc);
+
     const current = this.reading;
+
     const windows = { ...this.windows };
+
     const reading = this.update(rateLimits, true, accountId);
+
     if (!reading || (current.identity && current.identity !== reading.identity))
       return reading;
+
     this.windows = {
       primary:
         windows.primary === before.primary
@@ -179,6 +202,7 @@ export class CodexAccount {
           ? this.windows.secondary
           : windows.secondary,
     };
+
     this.reading = {
       ...reading,
       limits: windowLimits([this.windows.primary, this.windows.secondary]),
@@ -189,6 +213,7 @@ export class CodexAccount {
         ? { creditAccess: current.creditAccess }
         : {}),
     };
+
     return this.reading;
   }
 
@@ -198,11 +223,15 @@ export class CodexAccount {
     accountId?: string | null,
   ): AccountReading | undefined {
     const identity = accountIdentity(accountId, update.limitId);
+
     if (identity && identity !== this.reading.identity) {
       this.windows = {};
+
       this.limitId = update.limitId ?? defaultLimit;
+
       this.reading = { limits: [], identity };
     }
+
     if (update.limitId) {
       if (update.limitId !== this.limitId) {
         if (workspaceDenied(update.rateLimitReachedType)) {
@@ -210,22 +239,30 @@ export class CodexAccount {
             ...this.reading,
             creditAccess: { state: 'unavailable', observedAt: Date.now() },
           };
+
           return this.reading;
         }
+
         return;
       }
+
       this.limitId = update.limitId;
     }
+
     const observedAt = Date.now();
+
     if (update.primary)
       this.windows.primary = { ...update.primary, observedAt };
+
     if (update.secondary)
       this.windows.secondary = { ...update.secondary, observedAt };
+
     this.reading = {
       ...this.reading,
       ...accountFunding(update, complete),
       limits: windowLimits([this.windows.primary, this.windows.secondary]),
     };
+
     return this.reading;
   }
 }

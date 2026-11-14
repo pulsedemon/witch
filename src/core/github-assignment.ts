@@ -1,7 +1,11 @@
 import { z } from 'zod';
+
 import { errorMessage } from '../errors.js';
+
 import { runCommand } from './command.js';
+
 import { githubReference } from './coordination-state.js';
+
 import type { TaskClaim } from './coordination-state.js';
 
 /** resolves the references GitHub confirmed and any failure so the caller can warn while retaining ownership. */
@@ -12,6 +16,7 @@ export async function assignGitHubTask(
 ): Promise<{ assigned: string[]; failure?: string }> {
   const issues = references.flatMap((reference) => {
     const issue = githubReference(reference);
+
     return issue
       ? [
           {
@@ -21,18 +26,25 @@ export async function assignGitHubTask(
         ]
       : [];
   });
+
   if (!issues.length) return { assigned: [] };
+
   const request = async (endpoint: string, ...args: string[]) => {
     const timeout = deadline - Date.now();
+
     if (timeout <= 0) throw new Error('GitHub assignment deadline expired.');
+
     const { stdout } = await runCommand(
       'gh',
       ['api', '--hostname', 'github.com', endpoint, ...args],
       { cwd, timeout, killSignal: 'SIGKILL' },
     );
+
     return stdout;
   };
+
   let login: string;
+
   try {
     login = z
       .string()
@@ -42,8 +54,11 @@ export async function assignGitHubTask(
   } catch (error) {
     return { assigned: [], failure: errorMessage(error) };
   }
+
   const assigned: string[] = [];
+
   const failures: string[] = [];
+
   for (const { reference, endpoint } of issues) {
     try {
       const assignees = z
@@ -61,6 +76,7 @@ export async function assignGitHubTask(
             ),
           ),
         );
+
       // GitHub can ignore an assignee without failing the request.
       if (
         !assignees.some(
@@ -68,11 +84,13 @@ export async function assignGitHubTask(
         )
       )
         throw new Error(`GitHub did not confirm assignment to ${login}.`);
+
       assigned.push(reference);
     } catch (error) {
       failures.push(`${endpoint}: ${errorMessage(error)}`);
     }
   }
+
   return failures.length
     ? { assigned, failure: failures.join('\n') }
     : { assigned };
@@ -97,12 +115,15 @@ export async function recordTaskAssignment(
     cwd,
     deadline - 2000,
   );
+
   let recorded = claim;
+
   const warnings = failure
     ? [
         `GitHub assignment failed. The local claim is retained; repeat --claim to retry. ${failure}`,
       ]
     : [];
+
   if (assigned.length) {
     try {
       recorded = (await record(claim.id, assigned, deadline - 1000)) ?? claim;
@@ -112,6 +133,7 @@ export async function recordTaskAssignment(
       );
     }
   }
+
   return {
     claim: recorded,
     ...(warnings.length ? { warning: warnings.join('\n') } : {}),

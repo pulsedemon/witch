@@ -1,10 +1,13 @@
 import { z } from 'zod';
+
 import { sessionList, unregisteredList } from './coordination-state.js';
+
 import type {
   ClaimOwner,
   CoordinationAction,
   SessionPresence,
 } from './coordination-state.js';
+
 import type { Discovery } from './discovery.js';
 
 const pauseRecipientSchema = z.object({
@@ -30,8 +33,11 @@ export const pauseSchema = z.object({
 export const pauseStatusSchema = z.enum(['pending', 'paused', 'resumed']);
 
 export type Pause = z.infer<typeof pauseSchema>;
+
 export type PauseRecipient = z.infer<typeof pauseRecipientSchema>;
+
 type PauseStatus = z.infer<typeof pauseStatusSchema>;
+
 export type PauseAction = Extract<
   CoordinationAction,
   { kind: 'pause' | 'resume' | 'pause-status' }
@@ -49,6 +55,7 @@ export function isPauseAction(
 
 function recipientStatus(recipient: PauseRecipient): PauseStatus {
   if (recipient.resumedAt) return 'resumed';
+
   return recipient.confirmedAt ? 'paused' : 'pending';
 }
 
@@ -77,6 +84,7 @@ export function holding(
 ): Pause[] {
   return pauses.filter((pause) => {
     const recipient = entry(pause, conversation);
+
     return recipient !== undefined && !recipient.resumedAt;
   });
 }
@@ -101,7 +109,9 @@ export function pauseNotices(
 ): { id: string; text: string }[] {
   return pauses.flatMap((pause) => {
     const recipient = entry(pause, conversation);
+
     if (!recipient) return [];
+
     if (!recipient.resumedAt)
       return [
         {
@@ -109,6 +119,7 @@ export function pauseNotices(
           text: `Session ${pause.from} paused this conversation (pause ${pause.id}). Your next prompt resumes it.`,
         },
       ];
+
     return recipient.resumedBy === 'issuer'
       ? [
           {
@@ -127,31 +138,41 @@ export function pauseRecipients(
   discovery: Pick<Discovery, 'live' | 'unregistered'>,
 ): SessionPresence[] {
   let recipients: SessionPresence[];
+
   if (to) {
     const ids = [...new Set(to)].filter((id) => id !== issuer.conversation);
+
     const missing = ids.filter((id) => !discovery.live.has(id));
+
     if (missing.length)
       throw new Error(
         `These are not live Witch sessions: ${missing.join(', ')}. Query --peers --json for session ids.`,
       );
+
     recipients = ids.map((id) => discovery.live.get(id)!);
   } else {
     const unregistered = discovery.unregistered.get(issuer.project) ?? [];
+
     if (unregistered.length)
       throw new Error(
         `Restart or close these unregistered Witch sessions before pausing: ${unregisteredList(unregistered)}`,
       );
+
     recipients = [...discovery.live.values()].filter(
       (presence) =>
         presence.project === issuer.project &&
         presence.id !== issuer.conversation,
     );
   }
+
   if (!recipients.length) throw new Error('No other live session to pause.');
+
   const older = recipients.filter((presence) => !presence.pauses);
+
   if (older.length)
     throw new Error(
       `These Witch sessions cannot be paused until their user restarts them onto a current build: ${sessionList(older)}`,
     );
+
   return recipients;
 }

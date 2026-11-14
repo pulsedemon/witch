@@ -12,4 +12,5 @@ await new CodexAdapter()
     },
   })
   .catch(() => {});
+
 process.stdout.write('rejected\n');

@@ -1,6 +1,9 @@
 import { findExecutable } from './executable.js';
+
 import { ClaudeAdapter } from './claude.js';
+
 import { CodexAdapter } from './codex.js';
+
 import type { AgentAdapter } from './types.js';
 
 export interface AgentRegistration {

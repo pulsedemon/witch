@@ -1,15 +1,22 @@
 import { setTimeout as delay } from 'node:timers/promises';
+
 import { AbortError, query } from '@anthropic-ai/claude-agent-sdk';
+
 import type {
   Options,
   Query,
   SDKUserMessage,
   SpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk';
+
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+
 import { InputQueue } from './input-queue.js';
+
 import { errorMessage } from '../errors.js';
+
 import { watchChild, withTail, type ChildExit } from './stderr.js';
+
 import type { ModelDiscoveryOptions } from './types.js';
 
 export type ClaudeLaunch = (
@@ -55,7 +62,9 @@ export function promptlessQuery(
       ...overrides,
       spawnClaudeCodeProcess: (settings) => {
         const child = start(settings);
+
         onSpawn(child);
+
         return child;
       },
     },
@@ -68,11 +77,14 @@ export async function startupFailure(
   child: ChildExit | undefined,
 ): Promise<Error> {
   await Promise.race([child?.closed, delay(1000)]);
+
   const failure = new Error(
     withTail(errorMessage(error), child?.tail() ?? ''),
     { cause: error },
   );
+
   if (error instanceof AbortError) failure.name = 'AbortError';
+
   return failure;
 }
 
@@ -84,13 +96,21 @@ export async function sideQuery<T>(
   overrides: Options = {},
 ): Promise<T> {
   const input = new InputQueue<SDKUserMessage>();
+
   const abort = new AbortController();
+
   const cancel = () => abort.abort();
+
   options.signal?.addEventListener('abort', cancel, { once: true });
+
   if (options.signal?.aborted) cancel();
+
   let child: ChildExit | undefined;
+
   let side: Query | undefined;
+
   let reading: Promise<void> | undefined;
+
   try {
     side = promptlessQuery(
       start,
@@ -102,18 +122,25 @@ export async function sideQuery<T>(
       },
       overrides,
     );
+
     const stream = side;
+
     reading = (async () => {
       for await (const message of stream) void message;
     })().catch(() => {});
+
     return await read(side);
   } catch (error) {
     throw await startupFailure(error, child);
   } finally {
     input.close();
+
     side?.close();
+
     await reading;
+
     await child?.closed;
+
     options.signal?.removeEventListener('abort', cancel);
   }
 }

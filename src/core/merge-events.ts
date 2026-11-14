@@ -1,6 +1,9 @@
 import { z } from 'zod';
+
 import { createHash } from 'node:crypto';
+
 import { pullRequestSchema } from './repository.js';
+
 import type { PullRequest } from './repository.js';
 
 export const mergeEventSchema = z.object({
@@ -28,6 +31,7 @@ export function mergeNotices(
 ): { id: string; text: string }[] {
   return events.map((event) => {
     const { number, url, branch, base, commit } = event.pullRequest;
+
     return {
       id: `project-merge/${event.id}`,
       text: `Project merge: [#${number}](${url}) merged ${branch} into ${base} at ${commit}. Observed by Witch session ${event.source}.`,

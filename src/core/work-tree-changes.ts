@@ -1,9 +1,15 @@
 import { copyFile, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+
 import { delimiter, join, relative, sep } from 'node:path';
+
 import { hunks, wholeFile } from '../agents/file-diff.js';
+
 import { errorMessage } from '../errors.js';
+
 import type { FileDiff } from '../agents/types.js';
+
 import { execute, statusEnv } from './repository.js';
+
 import type { Run } from './repository.js';
 
 export interface Changes {
@@ -38,12 +44,17 @@ interface Entry {
 }
 
 const timeout = 10_000;
+
 /** the name reads list every changed or tracked file, which can be long. */
 const listBuffer = 64 * 1024 * 1024;
+
 const lineBudget = 400;
+
 /** a line counts once more against the budget for each this many characters, which bounds a row whatever its lines hold. */
 const lineWidth = 200;
+
 const fileBudget = 100;
+
 const gitlink = '160000';
 
 /**
@@ -65,6 +76,7 @@ const options = [
   'diff.suppressBlankEmpty=false',
   '--no-optional-locks',
 ];
+
 const treeDiff = [
   'diff',
   '--no-renames',
@@ -76,10 +88,12 @@ const treeDiff = [
 /** what a file's lines take from a row's budget. */
 function cost(file: FileDiff): number {
   let total = 0;
+
   for (const hunk of file.hunks)
     for (const line of hunk.lines)
       total +=
         (line[0] === ' ' ? 0 : 1) + Math.floor((line.length - 1) / lineWidth);
+
   return total;
 }
 
@@ -88,11 +102,15 @@ const exitCode = (error: unknown) => (error as { code?: unknown }).code;
 /** what a failed Git call says went wrong, in one line. */
 function cause(error: unknown): string {
   const { stderr, killed } = error as { stderr?: unknown; killed?: unknown };
+
   // a command stopped at its time limit has said nothing of it
   if (killed) return 'Git timed out';
+
   const text =
     typeof stderr === 'string' && stderr.trim() ? stderr : errorMessage(error);
+
   const lines = text.trim().split('\n');
+
   // Git prints its warnings before the line that says what failed
   return lines.find((line) => /^(?:fatal|error):/.test(line)) ?? lines[0]!;
 }
@@ -101,6 +119,7 @@ const fields = (output: string) => output.split('\0').slice(0, -1);
 
 /** Git's complaint about a nested repository with no commit, which `add` can't take and a snapshot does without. */
 const unborn = /^error: '(.*)' does not have a commit checked out$/;
+
 /** the line newer Gits print after their complaint about any path they couldn't add. */
 const unindexed = /^error: unable to index file '(.*)'$/;
 
@@ -121,6 +140,7 @@ export class WorkTreeChanges {
     run: Run = execute,
   ) {
     const { signal } = this.closing;
+
     this.run = (command, args, options) =>
       run(command, args, { ...options, signal });
   }
@@ -134,6 +154,7 @@ export class WorkTreeChanges {
   watch(cwd: string): Promise<void> {
     return this.queue(async () => {
       const checkout = await this.checkout(cwd);
+
       if (checkout && !this.baselines.has(checkout.top))
         this.baselines.set(checkout.top, await this.snapshot(checkout));
     });
@@ -143,18 +164,27 @@ export class WorkTreeChanges {
   absorb(cwd: string, paths: readonly string[]): Promise<void> {
     return this.queue(async () => {
       const checkout = await this.checkout(cwd);
+
       const baseline = checkout && this.baselines.get(checkout.top);
+
       if (!baseline) return;
+
       const inside = paths
         .map((path) => relative(checkout.top, path))
         .filter(
           (path) => path && path !== '..' && !path.startsWith(`..${sep}`),
         );
+
       if (!inside.length) return;
+
       const snapshot = await this.snapshot(checkout);
+
       const git = (...args: string[]) => this.git(checkout, args);
+
       await rm(checkout.env.GIT_INDEX_FILE!, { force: true });
+
       await git('read-tree', baseline.tree);
+
       for (const path of inside) {
         const [entry] = fields(
           await git(
@@ -167,7 +197,9 @@ export class WorkTreeChanges {
             path,
           ),
         );
+
         const [mode, type, id] = entry?.split('\t')[0]!.split(' ') ?? [];
+
         if (type === 'blob')
           await git(
             'update-index',
@@ -179,7 +211,9 @@ export class WorkTreeChanges {
           );
         else await git('update-index', '--force-remove', '--', path);
       }
+
       const tree = (await git('write-tree')).trim();
+
       this.baselines.set(checkout.top, { ...baseline, tree });
     });
   }
@@ -188,24 +222,35 @@ export class WorkTreeChanges {
   read(cwd: string): Promise<Changes> {
     return this.queue(async () => {
       const none: Changes = { files: [], withHead: 0, more: 0 };
+
       const checkout = await this.checkout(cwd);
+
       if (!checkout) return none;
+
       const baseline = this.baselines.get(checkout.top);
+
       const snapshot = await this.snapshot(checkout);
+
       if (!baseline) {
         this.baselines.set(checkout.top, snapshot);
+
         return none;
       }
+
       const list = (...args: string[]) =>
         this.git(checkout, [...treeDiff, ...args], listBuffer);
+
       const raw = fields(
         await list('--raw', '--no-abbrev', baseline.tree, snapshot.tree),
       );
+
       let entries: Entry[] = [];
+
       for (let index = 0; index + 1 < raw.length; index += 2) {
         const [oldMode, newMode, old, id, status] = raw[index]!.slice(1).split(
           ' ',
         ) as [string, string, string, string, string];
+
         entries.push({
           status,
           oldMode,
@@ -215,7 +260,9 @@ export class WorkTreeChanges {
           path: raw[index + 1]!,
         });
       }
+
       let withHead = 0;
+
       if (
         baseline.head !== snapshot.head &&
         !(await this.localCommits(checkout, baseline, snapshot.head))
@@ -223,13 +270,19 @@ export class WorkTreeChanges {
         const dirty = new Set(
           fields(await list('--name-only', snapshot.head!, snapshot.tree)),
         );
+
         const changed = entries.length;
+
         entries = entries.filter(({ path }) => dirty.has(path));
+
         withHead = changed - entries.length;
       }
+
       const shown = entries.slice(0, fileBudget);
+
       // counting reads each file's content, so only the files a row can list are counted
       const counts = new Map<string, FileDiff['unshown']>();
+
       if (shown.length)
         for (const row of fields(
           await this.git(checkout, [
@@ -247,6 +300,7 @@ export class WorkTreeChanges {
             string,
             ...string[],
           ];
+
           counts.set(
             path.join('\t'),
             added === '-'
@@ -254,8 +308,11 @@ export class WorkTreeChanges {
               : { added: Number(added), removed: Number(removed) },
           );
         }
+
       const files: FileDiff[] = [];
+
       let budget = lineBudget;
+
       for (const entry of shown) {
         const file = await this.file(
           checkout,
@@ -263,10 +320,14 @@ export class WorkTreeChanges {
           counts.get(entry.path),
           budget,
         );
+
         budget -= cost(file);
+
         files.push(file);
       }
+
       this.baselines.set(checkout.top, snapshot);
+
       return { files, withHead, more: entries.length - shown.length };
     });
   }
@@ -278,6 +339,7 @@ export class WorkTreeChanges {
     head: string | undefined,
   ): Promise<boolean> {
     if (!baseline.head || !head) return true;
+
     try {
       await this.git(checkout, [
         'merge-base',
@@ -287,8 +349,10 @@ export class WorkTreeChanges {
       ]);
     } catch (error) {
       if (exitCode(error) === 1) return false;
+
       throw error;
     }
+
     // `--before` includes its own second, and a commit made in the baseline's second is new
     const older = await this.git(checkout, [
       'rev-list',
@@ -296,6 +360,7 @@ export class WorkTreeChanges {
       `--before=${baseline.at - 1}`,
       `${baseline.head}..${head}`,
     ]);
+
     return Number(older) === 0;
   }
 
@@ -308,13 +373,17 @@ export class WorkTreeChanges {
   ): Promise<FileDiff> {
     const kind =
       entry.status === 'A' ? 'add' : entry.status === 'D' ? 'delete' : 'update';
+
     const file = { path: join(checkout.top, entry.path), kind } as const;
+
     const lines = typeof count === 'object' ? count.added + count.removed : 0;
+
     const unshown = {
       ...file,
       hunks: [],
       ...(count ? { unshown: count } : {}),
     };
+
     if (
       count === 'binary' ||
       entry.status === 'T' ||
@@ -323,9 +392,11 @@ export class WorkTreeChanges {
       lines > budget
     )
       return unshown;
+
     // a mode change alone
     if (kind === 'update' && entry.old === entry.new)
       return { ...file, hunks: [] };
+
     try {
       const shown: FileDiff =
         kind === 'update'
@@ -354,6 +425,7 @@ export class WorkTreeChanges {
                 kind === 'add' ? entry.new : entry.old,
               ]),
             );
+
       // Git can count lines by the path's attributes in a blob it then calls binary without them
       return (shown.hunks.length || !lines) && cost(shown) <= budget
         ? shown
@@ -372,26 +444,33 @@ export class WorkTreeChanges {
   /** `cwd`'s checkout and the environment its Git calls run in, or nothing outside a repository. */
   private async checkout(cwd: string): Promise<Checkout | undefined> {
     const plain = { ...process.env, LC_ALL: 'C' };
+
     let top: string;
+
     try {
       const { stdout } = await this.run(
         'git',
         [...options, 'rev-parse', '--show-toplevel'],
         { cwd, timeout, env: plain },
       );
+
       // only Git's own newline goes: a directory's name can end in a space
       top = stdout.replace(/\n$/, '');
     } catch (error) {
       const { stderr } = error as { stderr?: unknown };
+
       if (
         exitCode(error) === 128 &&
         typeof stderr === 'string' &&
         stderr.includes('not a git repository')
       )
         return undefined;
+
       throw error;
     }
+
     const env = { ...(await statusEnv(this.run, top)), LC_ALL: 'C' };
+
     // one call each: a directory's name can hold a newline, so two paths in one output can't be told apart
     const path = async (name: string) =>
       (
@@ -407,15 +486,21 @@ export class WorkTreeChanges {
           { cwd: top, timeout, env },
         )
       ).stdout.replace(/\n$/, '');
+
     const [index, objects] = await Promise.all([
       path('index'),
       path('objects'),
     ]);
+
     const store = join(this.directory, 'objects');
+
     await mkdir(store, { recursive: true });
+
     // a state directory can sit inside the checkout, and a snapshot must not take in its own storage
     await writeFile(join(this.directory, '.gitignore'), '*\n');
+
     const inherited = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+
     return {
       top,
       index,
@@ -434,7 +519,9 @@ export class WorkTreeChanges {
   /** the checkout as a tree: what the repository's index tracks plus untracked files that aren't ignored. */
   private async snapshot(checkout: Checkout): Promise<Baseline> {
     const at = Math.floor(Date.now() / 1000);
+
     let head: string | undefined;
+
     try {
       head = (
         await this.git(checkout, [
@@ -447,16 +534,22 @@ export class WorkTreeChanges {
     } catch (error) {
       if (exitCode(error) !== 1) throw error;
     }
+
     const copy = checkout.env.GIT_INDEX_FILE!;
+
     await rm(copy, { force: true });
+
     try {
       const { atime, mtime } = await stat(checkout.index);
+
       await copyFile(checkout.index, copy);
+
       // Git rechecks an entry as old as its index, which catches an edit made in the second the index was written
       await utimes(copy, atime, mtime);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
+
     // `add` asks a nested repository the index tracks whether it changed, which can run a filter that repository's
     // own config names, so each stays out of the add and keeps the commit the index holds
     const tracked = fields(
@@ -467,6 +560,7 @@ export class WorkTreeChanges {
         (entry) =>
           `:(top,exclude,literal)${entry.slice(entry.indexOf('\t') + 1)}`,
       );
+
     try {
       await this.git(checkout, [
         'add',
@@ -476,19 +570,25 @@ export class WorkTreeChanges {
       ]);
     } catch (error) {
       if (exitCode(error) !== 1) throw error;
+
       const lines = String((error as { stderr?: unknown }).stderr).split('\n');
+
       const nested = new Set(
         lines.flatMap((line) => unborn.exec(line)?.slice(1) ?? []),
       );
+
       const said = lines.filter((line) => {
         const path = unindexed.exec(line)?.[1];
+
         return !unborn.test(line) && (path === undefined || !nested.has(path));
       });
+
       // 1 with no other error says only nested repositories with no commit stayed out. another path Git couldn't
       // add would keep what the index holds and show as changed back, so that fails the snapshot
       if (said.some((line) => line.startsWith('error:')))
         throw Object.assign(error as object, { stderr: said.join('\n') });
     }
+
     return {
       tree: (await this.git(checkout, ['write-tree'])).trim(),
       head,
@@ -507,6 +607,7 @@ export class WorkTreeChanges {
       env: checkout.env,
       ...(maxBuffer ? { maxBuffer } : {}),
     });
+
     return stdout;
   }
 
@@ -514,9 +615,12 @@ export class WorkTreeChanges {
   private queue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.chain.then(() => {
       this.closing.signal.throwIfAborted();
+
       return operation();
     });
+
     this.chain = result.catch(() => undefined);
+
     return result.catch((error: unknown) => {
       throw new Error(`Couldn't read file changes: ${cause(error)}`, {
         cause: error,

@@ -2,6 +2,7 @@ export interface InputBuffer {
   value: string;
   cursor: number;
 }
+
 /** edits that need nothing but the buffer. */
 export type Step =
   | 'left'
@@ -16,6 +17,7 @@ export type Step =
   | 'wordRight'
   | 'backspaceWord'
   | 'deleteWord';
+
 export type Edit =
   | { type: 'insert'; text: string }
   /** deletes back to `start`; at a line's start, what backspace would. */
@@ -23,6 +25,7 @@ export type Edit =
   | { type: Step };
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
 const words = new Intl.Segmenter(undefined, { granularity: 'word' });
 
 function normalize(text: string): string {
@@ -31,6 +34,7 @@ function normalize(text: string): string {
 
 export function initialInput(value: string): InputBuffer {
   const normalized = normalize(value);
+
   return { value: normalized, cursor: normalized.length };
 }
 
@@ -43,12 +47,15 @@ export function boundaries(
   const result = [...segmenter.segment(value.slice(start, end))].map(
     (segment) => start + segment.index,
   );
+
   result.push(end);
+
   return result;
 }
 
 export function lineAt(value: string, position: number): [number, number] {
   const newline = value.indexOf('\n', position);
+
   return [
     // lastIndexOf treats a negative start as 0 and would find a leading newline
     position && value.lastIndexOf('\n', position - 1) + 1,
@@ -74,11 +81,15 @@ function lineWords(
 function wordStart(value: string, position: number): number {
   for (let at = position; ;) {
     const [start, end] = lineAt(value, at);
+
     const word = lineWords(value, start, end).findLast(
       ([from]) => from < position,
     );
+
     if (word) return word[0];
+
     if (start === 0) return 0;
+
     at = start - 1;
   }
 }
@@ -87,66 +98,92 @@ function wordStart(value: string, position: number): number {
 function wordEnd(value: string, position: number): number {
   for (let at = position; ;) {
     const [start, end] = lineAt(value, at);
+
     const word = lineWords(value, start, end).find(([, to]) => to > position);
+
     if (word) return word[1];
+
     if (end === value.length) return end;
+
     at = end + 1;
   }
 }
 
 export function editInput(state: InputBuffer, action: Edit): InputBuffer {
   const { value, cursor } = state;
+
   const [start, end] = lineAt(value, cursor);
+
   const left = () =>
     cursor === start
       ? Math.max(0, cursor - 1)
       : boundaries(value, start, end).findLast((index) => index < cursor)!;
+
   const right = () =>
     cursor === end
       ? Math.min(value.length, cursor + 1)
       : boundaries(value, start, end).find((index) => index > cursor)!;
+
   const back = (target: number) => ({
     value: value.slice(0, target) + value.slice(cursor),
     cursor: target,
   });
+
   const forward = (target: number) => ({
     value: value.slice(0, cursor) + value.slice(target),
     cursor,
   });
+
   switch (action.type) {
     case 'insert': {
       const text = normalize(action.text);
+
       return {
         value: value.slice(0, cursor) + text + value.slice(cursor),
         cursor: cursor + text.length,
       };
     }
+
     case 'left':
       return { value, cursor: left() };
+
     case 'right':
       return { value, cursor: right() };
+
     case 'home':
       return { value, cursor: start };
+
     case 'end':
       return { value, cursor: end };
+
     case 'wordLeft':
       return { value, cursor: wordStart(value, cursor) };
+
     case 'wordRight':
       return { value, cursor: wordEnd(value, cursor) };
+
     case 'backspace':
       return back(left());
+
     case 'backspaceWord':
       return back(wordStart(value, cursor));
+
     case 'backspaceRow':
       return back(cursor === start ? left() : action.start);
+
     case 'delete':
       return forward(right());
+
     case 'deleteWord':
       return forward(wordEnd(value, cursor));
+
     case 'up': {
       if (start === 0) return state;
+
       const [previous] = lineAt(value, start - 1);
+
       const destination = Math.min(start - 1, previous + cursor - start);
+
       return {
         value,
         cursor: boundaries(value, previous, start - 1).findLast(
@@ -154,10 +191,14 @@ export function editInput(state: InputBuffer, action: Edit): InputBuffer {
         )!,
       };
     }
+
     case 'down': {
       if (end === value.length) return state;
+
       const nextEnd = lineAt(value, end + 1)[1];
+
       const destination = Math.min(nextEnd, end + 1 + cursor - start);
+
       return {
         value,
         cursor: boundaries(value, end + 1, nextEnd).findLast(

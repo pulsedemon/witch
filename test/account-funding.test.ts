@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
+
 import { rm, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
+
 import { createElement } from 'react';
+
 import { test, vi } from 'vitest';
+
 import { accountReading } from '../src/agents/claude-usage.js';
+
 import type { AccountReading } from '../src/agents/types.js';
+
 import {
   AccountUsage,
   creditCapacity,
@@ -12,14 +19,20 @@ import {
   usageContext,
   USAGE_CURRENT_MS,
 } from '../src/core/usage.js';
+
 import { App } from '../src/ui/app.js';
+
 import { accountRows } from '../src/ui/status-rows.js';
+
 import { close, controlledFixture } from './fixtures/codex-adapter.js';
+
 import { ENTER, fake, show } from './fixtures/ui.js';
+
 import { appears, until } from './fixtures/within.js';
 
 test('native Codex credit states reach both rendered layouts beside a full weekly window', async () => {
   const f = await controlledFixture();
+
   const { app, coordinator } = fake({
     agents: [
       { id: 'codex', label: 'Codex', installed: true },
@@ -34,9 +47,11 @@ test('native Codex credit states reach both rendered layouts beside a full weekl
       hasHistory: false,
     },
   });
+
   const store = new AccountUsage([], (accounts) =>
     coordinator.publish({ accounts }),
   );
+
   store.report(
     'claude',
     accountReading(
@@ -56,13 +71,16 @@ test('native Codex credit states reach both rendered layouts beside a full weekl
       { limits: [] },
     ),
   );
+
   const ui = show(
     createElement(App, { coordinator: app, onExit() {} }),
     115,
     40,
   );
+
   try {
     await f.session.readAccountUsage!();
+
     for (const [credits, expected, capacity] of [
       [
         { hasCredits: true, unlimited: false, balance: '12345.678900' },
@@ -114,20 +132,29 @@ test('native Codex credit states reach both rendered layouts beside a full weekl
           },
         }),
       );
+
       await f.session.readAccountUsage!();
+
       const account = f.session.usage.account!;
+
       store.report('codex', account);
+
       assert.equal(creditCapacity(account, Date.now()), capacity);
+
       assert.equal(fundingText(account.funding!), expected);
+
       for (const width of [115, 80]) {
         ui.resize(width);
+
         await until(
           expected,
           () =>
             expected.split('; ').every((part) => ui.text().includes(part)) &&
             ui.text().split('\n')[0]!.includes('┃') === (width === 115),
         );
+
         assert.match(ui.text(), /7D 100%/);
+
         const accountText = ui
           .text()
           .split('\n')
@@ -136,25 +163,31 @@ test('native Codex credit states reach both rendered layouts beside a full weekl
           )
           .join(' ')
           .replace(/\s+/g, ' ');
+
         assert.match(
           accountText,
           /CLAUDE extra off: USD 6.51 spent \/ USD 100.00 cap/,
         );
+
         for (const old of ['12345.678900', '9876.543210'])
           if (old !== credits?.balance) assert.ok(!ui.text().includes(old));
+
         assert.equal(ui.text().split('\n').length, 40);
       }
     }
   } finally {
     ui.unmount();
+
     await close(f.session, f.cwd);
   }
 });
 
 test('a rolling update retains the credit timestamp, ignores another quota, and cannot erase a spending denial', async () => {
   const f = await controlledFixture();
+
   try {
     await f.session.readAccountUsage!();
+
     await writeFile(
       join(f.cwd, 'account-usage.json'),
       JSON.stringify({
@@ -167,8 +200,11 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
         },
       }),
     );
+
     await f.session.readAccountUsage!();
+
     const initial = f.session.usage.account!;
+
     await f.emit({
       method: 'account/rateLimits/updated',
       params: {
@@ -183,7 +219,9 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
         },
       },
     });
+
     assert.equal(f.session.usage.account!.funding, initial.funding);
+
     await f.emit({
       method: 'account/rateLimits/updated',
       params: {
@@ -193,7 +231,9 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
         },
       },
     });
+
     assert.equal(f.session.usage.account!.funding, initial.funding);
+
     await f.emit({
       method: 'account/rateLimits/updated',
       params: {
@@ -203,12 +243,16 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
         },
       },
     });
+
     assert.equal(f.session.usage.account!.funding, initial.funding);
+
     assert.equal(
       creditCapacity(f.session.usage.account!, Date.now()),
       'unavailable',
     );
+
     await f.session.readAccountUsage!();
+
     assert.equal(
       creditCapacity(f.session.usage.account!, Date.now()),
       'available',
@@ -218,10 +262,12 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
       method: 'account/rateLimits/updated',
       params: { rateLimits: { limitId: 'codex', spendControlReached: true } },
     });
+
     assert.equal(
       creditCapacity(f.session.usage.account, Date.now()),
       'unavailable',
     );
+
     await f.emit({
       method: 'account/rateLimits/updated',
       params: {
@@ -231,11 +277,14 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
         },
       },
     });
+
     assert.equal(
       creditCapacity(f.session.usage.account, Date.now()),
       'unavailable',
     );
+
     assert.equal(f.session.usage.account!.funding?.kind, 'credits');
+
     assert.notEqual(f.session.usage.account!.funding, initial.funding);
   } finally {
     await close(f.session, f.cwd);
@@ -244,6 +293,7 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
 
 test('a delayed account reply preserves newer native fields and accepts untouched fields', async () => {
   const f = await controlledFixture();
+
   const response = {
     accountId: 'one',
     rateLimits: {
@@ -263,16 +313,23 @@ test('a delayed account reply preserves newer native fields and accepts untouche
       rateLimitReachedType: null,
     },
   };
+
   try {
     await f.session.readAccountUsage!();
+
     await writeFile(
       join(f.cwd, 'account-usage.json'),
       JSON.stringify(response),
     );
+
     await f.session.readAccountUsage!();
+
     await writeFile(join(f.cwd, 'hold-account'), 'yes');
+
     const pending = f.session.readAccountUsage!();
+
     await appears(join(f.cwd, 'account-1.json'));
+
     await f.emit({
       method: 'account/rateLimits/updated',
       params: {
@@ -284,25 +341,37 @@ test('a delayed account reply preserves newer native fields and accepts untouche
         },
       },
     });
+
     const newer = f.session.usage.account!;
+
     response.rateLimits.secondary.usedPercent = 41;
+
     await f.reply(1, { result: response }, 'account');
+
     await pending;
+
     const reading = f.session.usage.account!;
+
     assert.equal(reading.funding, newer.funding);
+
     assert.equal(reading.creditAccess, newer.creditAccess);
+
     assert.equal(creditCapacity(reading, Date.now()), 'unavailable');
+
     assert.deepEqual(
       reading.limits.find(({ window }) => window === '5H'),
       newer.limits.find(({ window }) => window === '5H'),
     );
+
     assert.equal(
       reading.limits.find(({ window }) => window === '7D')?.percent,
       41,
     );
 
     const next = f.session.readAccountUsage!();
+
     await appears(join(f.cwd, 'account-2.json'));
+
     await f.emit({
       method: 'account/rateLimits/updated',
       params: {
@@ -312,32 +381,48 @@ test('a delayed account reply preserves newer native fields and accepts untouche
         },
       },
     });
+
     const denial = f.session.usage.account!.creditAccess;
+
     response.rateLimits.credits.balance = '789.012';
+
     await f.reply(2, { result: response }, 'account');
+
     await next;
+
     assert.equal(
       fundingText(f.session.usage.account!.funding!),
       '789.012 credits',
     );
+
     assert.equal(f.session.usage.account!.creditAccess, denial);
 
     await rm(join(f.cwd, 'hold-account'));
+
     await f.session.readAccountUsage!();
+
     assert.equal(
       creditCapacity(f.session.usage.account, Date.now()),
       'available',
     );
+
     await writeFile(join(f.cwd, 'hold-account'), 'yes');
+
     const switched = f.session.readAccountUsage!();
+
     await appears(join(f.cwd, 'account-3.json'));
+
     await f.emit({
       method: 'account/rateLimits/updated',
       params: { rateLimits: { limitId: 'codex', spendControlReached: true } },
     });
+
     await f.reply(3, { result: { ...response, accountId: 'two' } }, 'account');
+
     await switched;
+
     assert.equal(f.session.usage.account!.identity, 'two:codex');
+
     assert.equal(
       creditCapacity(f.session.usage.account, Date.now()),
       'available',
@@ -362,9 +447,12 @@ for (const [name, limitId, accountId, minutes, denial, expectedPercent] of [
 ] as const)
   test(`the first account read ${name}`, async () => {
     const f = await controlledFixture('initial-account');
+
     try {
       const pending = f.session.readAccountUsage!();
+
       await appears(join(f.cwd, 'account-1.json'));
+
       await f.emit({
         method: 'account/rateLimits/updated',
         params: {
@@ -381,6 +469,7 @@ for (const [name, limitId, accountId, minutes, denial, expectedPercent] of [
           },
         },
       });
+
       await f.reply(
         1,
         {
@@ -405,13 +494,18 @@ for (const [name, limitId, accountId, minutes, denial, expectedPercent] of [
         },
         'account',
       );
+
       await pending;
+
       const reading = f.session.usage.account!;
+
       assert.deepEqual(
         reading.limits.map(({ window, percent }) => ({ window, percent })),
         [{ window: '5H', percent: expectedPercent }],
       );
+
       assert.equal(fundingText(reading.funding!), '123.456 credits');
+
       assert.equal(
         creditCapacity(reading, Date.now()),
         denial ? 'unavailable' : 'available',
@@ -423,7 +517,9 @@ for (const [name, limitId, accountId, minutes, denial, expectedPercent] of [
 
 test('Claude spend keeps native units and disabled state, and a cached failure cannot refresh it', () => {
   const now = 2000000000000;
+
   vi.spyOn(Date, 'now').mockReturnValue(now);
+
   try {
     const raw = {
       rate_limits_available: true,
@@ -439,7 +535,9 @@ test('Claude spend keeps native units and disabled state, and a cached failure c
         },
       },
     };
+
     const first = accountReading(raw, { limits: [] })!;
+
     assert.deepEqual(first.funding, {
       kind: 'extra-usage',
       enabled: false,
@@ -449,16 +547,24 @@ test('Claude spend keeps native units and disabled state, and a cached failure c
       decimalPlaces: 2,
       observedAt: now - 60000,
     });
+
     assert.equal(creditCapacity(first, now), 'unavailable');
+
     vi.spyOn(Date, 'now').mockReturnValue(now + USAGE_CURRENT_MS + 1);
+
     const failed = accountReading(
       { ...raw, rate_limits: { ...raw.rate_limits, limits: undefined } },
       first,
     )!;
+
     assert.equal(failed.limits, first.limits);
+
     assert.equal(failed.funding, first.funding);
+
     assert.equal(failed.creditAccess, first.creditAccess);
+
     assert.equal(creditCapacity(failed, Date.now()), 'unknown');
+
     const malformed = accountReading(
       {
         ...raw,
@@ -469,7 +575,9 @@ test('Claude spend keeps native units and disabled state, and a cached failure c
       },
       first,
     )!;
+
     assert.equal(malformed.funding, first.funding);
+
     assert.equal(malformed.limits[0]!.percent, 100);
   } finally {
     vi.restoreAllMocks();
@@ -478,6 +586,7 @@ test('Claude spend keeps native units and disabled state, and a cached failure c
 
 test('credit access expires independently of newly observed windows', () => {
   const now = 2000000000000;
+
   const account: AccountReading = {
     limits: [{ window: '7D', percent: 100, observedAt: now }],
     funding: {
@@ -492,41 +601,59 @@ test('credit access expires independently of newly observed windows', () => {
       observedAt: now - USAGE_CURRENT_MS - 1,
     },
   };
+
   assert.equal(creditCapacity(account, now), 'unknown');
 });
 
 test('funding retained during an account read expires before its later access observation', async () => {
   const f = await controlledFixture();
+
   try {
     await f.session.readAccountUsage!();
+
     await writeFile(join(f.cwd, 'hold-account'), 'yes');
+
     const pending = f.session.readAccountUsage!();
+
     await appears(join(f.cwd, 'account-1.json'));
+
     const now = 2_000_000_000_000;
+
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+
     const rateLimits = {
       limitId: 'codex',
       credits: { hasCredits: true, unlimited: false, balance: '123.456' },
       spendControlReached: false,
       rateLimitReachedType: null,
     };
+
     await f.emit({
       method: 'account/rateLimits/updated',
       params: { rateLimits },
     });
+
     clock.mockReturnValue(now + 1000);
+
     await f.reply(1, { result: { rateLimits } }, 'account');
+
     await pending;
+
     const reading = f.session.usage.account!;
+
     assert.equal(reading.funding!.observedAt, now);
+
     assert.equal(reading.creditAccess!.observedAt, now + 1000);
+
     assert.equal(creditCapacity(reading, now + USAGE_CURRENT_MS), 'available');
+
     assert.equal(
       creditCapacity(reading, now + USAGE_CURRENT_MS + 1),
       'unknown',
     );
   } finally {
     vi.restoreAllMocks();
+
     await close(f.session, f.cwd);
   }
 });
@@ -558,6 +685,7 @@ test('currency formatting preserves minor-unit precision, zero-decimal units, an
 
 test('credit-only stale readings retain the full amount and age at wide, narrow and short terminal sizes', async () => {
   const now = Date.now();
+
   const reading: AccountReading = {
     limits: [],
     funding: {
@@ -569,6 +697,7 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
     },
     creditAccess: { state: 'available', observedAt: now - 11 * 60000 },
   };
+
   const { app } = fake({
     agents: [{ id: 'codex', label: 'Codex', installed: true }],
     native: {
@@ -580,6 +709,7 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
     },
     accounts: { codex: reading },
   });
+
   for (const [width, height] of [
     [115, 40],
     [80, 40],
@@ -591,6 +721,7 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
       width,
       height,
     );
+
     try {
       await until(
         'complete stale credits',
@@ -598,12 +729,15 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
           ui.text().includes('42886.6046410000 credits') &&
           /11M\s+OLD/.test(ui.text()),
       );
+
       assert.equal(ui.text().split('\n').length, height);
+
       assert.match(ui.text(), /CTX/);
     } finally {
       ui.unmount();
     }
   }
+
   assert.equal(
     usageContext({ codex: reading }, [{ id: 'codex', label: 'Codex' }], now),
     'Account usage: Codex 42886.6046410000 credits, not current (11 minutes old), credit execution unknown. A reading older than 10 minutes or past its reset is not current.',
@@ -612,6 +746,7 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
 
 test('the minimum terminal preserves the composer and live balance beside two accounts and a long error', async () => {
   const now = Date.now();
+
   const { app, coordinator, calls } = fake({
     items: [
       {
@@ -664,18 +799,24 @@ test('the minimum terminal preserves the composer and live balance beside two ac
       },
     },
   });
+
   const ui = show(
     createElement(App, { coordinator: app, onExit() {} }),
     30,
     24,
   );
+
   try {
     await until('live balance', () =>
       ui.text().includes('42886.6046410000 credits'),
     );
+
     assert.equal(ui.text().split('\n').length, 24);
+
     assert.match(ui.text(), /Ask the agent/);
+
     assert.match(ui.text(), /\/delegation/);
+
     for (const [funding, expected] of [
       [
         { balance: '42886.6046410000', available: true, unlimited: false },
@@ -696,16 +837,23 @@ test('the minimum terminal preserves the composer and live balance beside two ac
           },
         },
       });
+
       await until(
         'blocked live balance',
         () => ui.text().includes(expected) && ui.text().includes('BLOCKED'),
       );
+
       assert.equal(ui.text().split('\n').length, 24);
+
       assert.match(ui.text(), /Ask the agent/);
     }
+
     const draft = 'first line\nsecond line\nthird line\nfourth line';
+
     ui.stdin.write(`\u001b[200~${draft}\u001b[201~`);
+
     await until('multiline draft', () => ui.text().includes('fourth line'));
+
     for (const [phase, pendingCompaction] of [
       ['idle', false],
       ['running', false],
@@ -731,8 +879,10 @@ test('the minimum terminal preserves the composer and live balance beside two ac
           },
         },
       });
+
       await until('live raw-unit spending', () => {
         const text = ui.text();
+
         return (
           text.startsWith(phase.toUpperCase()) &&
           text.includes('Pending: /compact') === pendingCompaction &&
@@ -741,19 +891,30 @@ test('the minimum terminal preserves the composer and live balance beside two ac
           )
         );
       });
+
       assert.equal(ui.text().split('\n').length, 24);
+
       assert.match(ui.text(), /live command/);
+
       if (phase === 'running') assert.match(ui.text(), /[A-Z]+ \| \d+S/);
+
       assert.match(ui.text(), /^ ┃ fourth line\s+┃$/m);
+
       assert.match(ui.text(), /^ ┗━+┛$/m);
+
       if (pendingCompaction) assert.match(ui.text(), /^ Pending: \/compact$/m);
     }
+
     coordinator.publish({ phase: 'idle', pendingCompaction: false });
+
     await until('idle composer', () => ui.text().startsWith('IDLE'));
+
     ui.stdin.write(ENTER);
+
     await until('complete draft sent', () =>
       calls.some(([method]) => method === 'send'),
     );
+
     assert.deepEqual(
       calls.find(([method]) => method === 'send'),
       ['send', draft, { composer: true }],
@@ -765,6 +926,7 @@ test('the minimum terminal preserves the composer and live balance beside two ac
 
 test('an unlimited grant still displays a native spending denial', () => {
   const now = Date.now();
+
   assert.deepEqual(
     accountRows(
       {

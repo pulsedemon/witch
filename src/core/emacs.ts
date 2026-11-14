@@ -134,29 +134,36 @@ function matchesOption(option: string, name: string, minimum: number): boolean {
 /** option operands and Lisp payloads cannot select daemon or batch mode. */
 export function isEmacsDaemon(argv: readonly string[]): boolean {
   let daemon = false;
+
   for (let at = 1; at < argv.length; at++) {
     const argument = argv[at]!;
+
     if (argument === '--') break;
+
     const option = argument.startsWith('--')
       ? argument.split('=', 1)[0]!
       : argument;
+
     if (
       option === '-x' ||
       matchesOption(option, 'batch', 5) ||
       matchesOption(option, 'script', 3)
     )
       return false;
+
     if (
       matchesOption(option, 'daemon', 5) ||
       matchesOption(option, 'bg-daemon', 10) ||
       matchesOption(option, 'fg-daemon', 10)
     )
       daemon = true;
+
     const matches = option.startsWith('--')
       ? [...operandOptions, ...flagOptions].filter((candidate) =>
           candidate.startsWith(option),
         )
       : [];
+
     if (
       !argument.includes('=') &&
       (operandOptions.includes(option) ||
@@ -164,5 +171,6 @@ export function isEmacsDaemon(argv: readonly string[]): boolean {
     )
       at++;
   }
+
   return daemon;
 }

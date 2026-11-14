@@ -1,6 +1,9 @@
 import fs from 'node:fs';
+
 import { syncBuiltinESMExports } from 'node:module';
+
 import { vi } from 'vitest';
+
 import type { TestContext } from 'vitest';
 
 /** makes `stat` of `path` alone fail as the OS refusing to look, until the test ends. chmod can't stand in for it, since root ignores modes. */
@@ -9,6 +12,7 @@ export function unreadable(
   path: string,
 ): void {
   const stat = fs.promises.stat;
+
   const spy = vi
     .spyOn(fs.promises, 'stat')
     .mockImplementation(((target, options) =>
@@ -20,9 +24,12 @@ export function unreadable(
             ),
           )
         : stat(target, options)) as typeof fs.promises.stat);
+
   syncBuiltinESMExports();
+
   t.onTestFinished(() => {
     spy.mockRestore();
+
     syncBuiltinESMExports();
   });
 }

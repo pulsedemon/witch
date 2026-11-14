@@ -1,6 +1,9 @@
 import { z } from 'zod';
+
 import { pages } from './json-rpc.js';
+
 import type { JsonRpc } from './json-rpc.js';
+
 import type { Model } from './types.js';
 
 const modelPage = z.object({
@@ -22,6 +25,7 @@ export async function readModels(
   includeHidden?: true,
 ): Promise<Model[]> {
   const models: Model[] = [];
+
   for await (const data of pages(
     rpc,
     'model/list',
@@ -37,5 +41,6 @@ export async function readModels(
         ),
       })),
     );
+
   return models;
 }

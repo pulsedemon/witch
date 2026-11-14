@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs';
+
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+
 import { errorMessage } from '../errors.js';
+
 import type { SkillCall, TurnResult } from './types.js';
 
 type Content = SDKUserMessage['message']['content'];
+
 // `@anthropic-ai/sdk`, which names this type, isn't a direct dependency
 type ImageBlock = Extract<Exclude<Content, string>[number], { type: 'image' }>;
 
@@ -41,11 +45,14 @@ export function content(
   skill?: SkillCall,
 ): Content {
   const texts = [...records, ...(text ? [text] : [])];
+
   const command = skill
     ? [`/${skill.name}${skill.args ? ` ${skill.args}` : ''}`]
     : [];
+
   if (!images.length && texts.length + command.length <= 1)
     return texts[0] ?? command[0] ?? text;
+
   return [...texts.map(textBlock), ...images, ...command.map(textBlock)];
 }
 

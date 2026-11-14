@@ -1,6 +1,9 @@
 import type { AgentRegistration } from '../agents/registry.js';
+
 import { errorMessage } from '../errors.js';
+
 import type { AgentSession, Model } from '../agents/types.js';
+
 import type { Catalog } from './routing.js';
 
 export interface ModelChoice extends Model {
@@ -38,7 +41,9 @@ export function modelTarget(
   catalog: Catalog,
 ): Pick<ModelSelection, 'agent' | 'id'> {
   const colon = text.indexOf(':');
+
   const agent = text.slice(0, colon);
+
   if (colon < 0 || !agentIds.includes(agent)) {
     const listed = [
       ...catalog.models
@@ -48,6 +53,7 @@ export function modelTarget(
         .filter(([, aliases]) => Object.values(aliases).includes(text))
         .map(([runtime]) => runtime),
     ];
+
     return {
       agent: listed.includes(activeAgent)
         ? activeAgent
@@ -55,8 +61,11 @@ export function modelTarget(
       id: text,
     };
   }
+
   const id = text.slice(colon + 1);
+
   if (!id) throw new Error('Choose a model ID.');
+
   return { agent, id };
 }
 
@@ -86,16 +95,19 @@ export class ModelCatalog {
     const registration = this.registrations.find(
       ({ adapter }) => adapter.id === id,
     );
+
     if (!registration?.executable)
       throw new Error(
         `${registration?.adapter.label ?? id} is not installed. Install its native CLI and sign in before using it.`,
       );
+
     return registration;
   }
 
   invalidate(runtime: string): void {
     for (const key of this.lists.keys())
       if (key.startsWith(`${runtime}:`)) this.lists.delete(key);
+
     this.latestModels.delete(runtime);
   }
 
@@ -105,21 +117,28 @@ export class ModelCatalog {
     refresh = false,
   ): Promise<ModelChoice[]> {
     const discovery = new AbortController();
+
     this.discovery = discovery;
+
     const installed = this.registrations.filter(({ executable }) => executable);
+
     try {
       const latest = installed.filter(
         ({ adapter }) =>
           adapter.latest && (refresh || !this.latestModels.has(adapter.id)),
       );
+
       const latestReads = Promise.allSettled(
         latest.map(async ({ adapter, executable }) => {
           const timeout = new AbortController();
+
           const timer = setTimeout(
             () => timeout.abort(new Error('the alias read timed out')),
             LATEST_READ_MS,
           );
+
           timer.unref();
+
           try {
             this.latestModels.set(
               adapter.id,
@@ -134,39 +153,55 @@ export class ModelCatalog {
           }
         }),
       );
+
       const results = await Promise.allSettled(
         installed.map(async ({ adapter, executable }) => {
           let models: Model[] | undefined;
+
           if (active?.info.agent === adapter.id)
             models = await active.models(refresh);
           else {
             const key = `${adapter.id}:${cwd}`;
+
             if (!refresh) models = this.lists.get(key);
+
             models ??= await adapter.models({
               cwd,
               executable: executable!,
               signal: discovery.signal,
             });
+
             this.lists.set(key, models);
           }
+
           return models.map((model) => ({ ...model, agent: adapter.id }));
         }),
       );
+
       const latestResults = await latestReads;
+
       discovery.signal.throwIfAborted();
+
       const errors: string[] = [];
+
       const failed = (label: string, reason: unknown) =>
         errors.push(`${label}: ${errorMessage(reason)}`);
+
       const models = results.flatMap((result, index) => {
         if (result.status === 'fulfilled') return result.value;
+
         failed(installed[index]!.adapter.label, result.reason);
+
         return [];
       });
+
       latestResults.forEach((result, index) => {
         if (result.status === 'rejected')
           failed(latest[index]!.adapter.label, result.reason);
       });
+
       if (errors.length) this.report(new Error(errors.join('\n')));
+
       return models;
     } finally {
       this.discovery = undefined;

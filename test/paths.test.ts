@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+
 import { test } from 'vitest';
+
 import { within } from '../src/paths.js';
 
 test('within holds for a path itself and the paths under it', () => {
   assert.equal(within('/a/b', '/a/b'), true);
+
   assert.equal(within('/a/b/c', '/a/b'), true);
+
   assert.equal(within('/a', '/a/b'), false);
 });
 

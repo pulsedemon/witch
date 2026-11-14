@@ -1,11 +1,19 @@
 import assert from 'node:assert/strict';
+
 import { test } from 'vitest';
+
 import type { AgentEvent } from '../src/agents/types.js';
+
 import { agentDisplay, applyDisplayUpdate } from '../src/core/state.js';
+
 import type { DisplayItem } from '../src/core/state.js';
+
 import { quote } from '../src/shell.js';
+
 import { frameWriter, launcher } from './fixtures/claude-adapter.js';
+
 import { controlledFixture } from './fixtures/codex-adapter.js';
+
 import { until } from './fixtures/within.js';
 
 const prefixes = {
@@ -16,10 +24,12 @@ const prefixes = {
 };
 
 const claim = `${prefixes.control} --claim task:adapter-check --summary 'original summary'`;
+
 const foreign = claim.replace("'active'", "'another-activation'");
 
 function project(events: AgentEvent[]) {
   let items: DisplayItem[] = [];
+
   for (const event of events) {
     if (event.type === 'tool')
       items = applyDisplayUpdate(
@@ -27,12 +37,15 @@ function project(events: AgentEvent[]) {
         agentDisplay(event, event.id, 'Native', '/work'),
       );
   }
+
   return items;
 }
 
 test('Codex command lifecycle events preserve bound titles, original commands and output', async () => {
   const f = await controlledFixture('brews', prefixes);
+
   const familiar = `env TMPDIR='/task/tmp' ${prefixes.familiar} --familiar-claude review --report-file /report -- --model opus <<'PROMPT'\nReview this.\nPROMPT`;
+
   try {
     const calls = [
       {
@@ -48,8 +61,10 @@ test('Codex command lifecycle events preserve bound titles, original commands an
       { id: 'foreign', command: foreign, title: undefined },
       { id: 'ordinary', command: 'git status', title: undefined },
     ];
+
     for (const call of calls) {
       const params = { threadId: 'native-thread', turnId: 'command-turn' };
+
       const item = {
         id: call.id,
         type: 'commandExecution',
@@ -63,6 +78,7 @@ test('Codex command lifecycle events preserve bound titles, original commands an
         exitCode: null,
         durationMs: null,
       };
+
       await f.emit(
         { method: 'item/started', params: { ...params, item } },
         {
@@ -83,7 +99,9 @@ test('Codex command lifecycle events preserve bound titles, original commands an
           },
         },
       );
+
       const row = project(f.events).find((row) => row.id === call.id);
+
       // the start and the finish both say a shell command ran, bound to Witch or not
       assert.deepEqual(
         f.events.flatMap((event) =>
@@ -96,10 +114,15 @@ test('Codex command lifecycle events preserve bound titles, original commands an
           [true, true],
         ],
       );
+
       assert.equal(row?.title, call.title ?? call.command);
+
       assert.equal(row?.expandedTitle, call.title ? call.command : undefined);
+
       assert.equal(row?.singleLine, call.title ? true : undefined);
+
       assert.equal(row?.text, `finished ${call.id}`);
+
       assert.equal(row?.done, true);
     }
   } finally {
@@ -109,11 +132,14 @@ test('Codex command lifecycle events preserve bound titles, original commands an
 
 test('Claude Bash results retain bound titles and multiline commands after replacing input', async () => {
   const events: AgentEvent[] = [];
+
   const f = await launcher('background');
+
   const session = await f.connect({
     commandPrefixes: prefixes,
     onEvent: (event) => events.push(event),
   });
+
   const emit = frameWriter(
     f.cwd,
     (name) =>
@@ -122,16 +148,21 @@ test('Claude Bash results retain bound titles and multiline commands after repla
       ),
     f.children[0]!,
   );
+
   const familiar = `${prefixes.familiar} --familiar-codex review --report-file /report -- -c model='gpt-6-astra' <<'PROMPT'\nReview this.\nPROMPT`;
+
   const isolated = `${prefixes.familiar} --familiar-codex review --report-file /report --without-mcp -- -c model='gpt-6-astra'`;
+
   try {
     const turn = session.send('initial');
+
     await until('initial Claude result', () =>
       events.some(
         (event) =>
           event.type === 'skills' && event.skills[0]?.name === 'result-1',
       ),
     );
+
     const calls = [
       { id: 'control', command: claim, title: 'claim task:adapter-check' },
       { id: 'familiar', command: familiar, title: 'Familiar Codex review' },
@@ -139,6 +170,7 @@ test('Claude Bash results retain bound titles and multiline commands after repla
       { id: 'foreign', command: foreign, title: undefined },
       { id: 'ordinary', command: 'git status', title: undefined },
     ];
+
     for (const call of calls) {
       await emit(
         {
@@ -182,7 +214,9 @@ test('Claude Bash results retain bound titles and multiline commands after repla
           },
         },
       );
+
       const row = project(events).find((row) => row.id === call.id);
+
       // Claude's result names no tool, so only the start says a shell command ran
       assert.deepEqual(
         events.flatMap((event) =>
@@ -195,20 +229,27 @@ test('Claude Bash results retain bound titles and multiline commands after repla
           [true, undefined],
         ],
       );
+
       assert.equal(row?.title, call.title ?? `Bash  $ ${call.command}`);
+
       assert.equal(
         row?.expandedTitle,
         call.title ? `Bash  $ ${call.command}` : undefined,
       );
+
       assert.equal(row?.singleLine, call.title ? true : undefined);
+
       assert.equal(row?.text, `finished ${call.id}`);
+
       assert.equal(row?.done, true);
     }
+
     await emit({
       type: 'system',
       subtype: 'session_state_changed',
       state: 'idle',
     });
+
     assert.equal((await turn).status, 'completed');
   } finally {
     await session.close();

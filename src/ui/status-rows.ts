@@ -1,15 +1,22 @@
 import { basename } from 'node:path';
+
 import stringWidth from 'string-width';
+
 import type { AccountReading, Funding, Limit, Usage } from '../agents/types.js';
+
 import {
   creditCapacity,
   current,
   fundingText,
   untilReset,
 } from '../core/usage.js';
+
 import type { Repository } from '../core/repository.js';
+
 import { hyperlink, linkify, oneLine, plain } from './links.js';
+
 import { colors, piped } from './theme.js';
+
 import { wrapLines } from './wrap.js';
 
 export interface Account {
@@ -33,6 +40,7 @@ export interface Status {
 }
 
 const white = colors.whiteBright;
+
 export const tokenCount = new Intl.NumberFormat('en', {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -41,26 +49,33 @@ export const tokenCount = new Intl.NumberFormat('en', {
 /** white until 40%, then warming through yellow to red by 60%. */
 function bar(percent: number): string {
   const filled = Math.min(10, Math.floor((percent * 10) / 100));
+
   const cells = '█'.repeat(filled) + '░'.repeat(10 - filled);
+
   if (percent >= 60) return colors.rgb(255, 0, 0)(cells);
+
   if (percent >= 50)
     return colors.rgb(
       255,
       255 - Math.floor(((percent - 50) * 255) / 10),
       0,
     )(cells);
+
   if (percent >= 40)
     return colors.rgb(
       255,
       255,
       255 - Math.floor(((percent - 40) * 255) / 10),
     )(cells);
+
   return cells;
 }
 
 function duration(milliseconds: number): string {
   const minutes = Math.floor(milliseconds / 60_000);
+
   const hours = Math.floor(minutes / 60);
+
   return hours > 0
     ? `${hours}H${String(minutes % 60).padStart(2, '0')}M`
     : `${minutes}M`;
@@ -69,16 +84,20 @@ function duration(milliseconds: number): string {
 /** a window that isn't current shows dim, with its age in place of the reset when `reset` is set. */
 function windowText(limit: Limit, now: number, reset: boolean): string {
   const percent = Math.round(limit.percent);
+
   if (!current(limit, now))
     return colors.dim(
       `${limit.window} ${percent}%${reset ? `  ${duration(now - limit.observedAt)} OLD` : ''}`,
     );
+
   const left = reset ? untilReset(limit.resetsAt, now) : '';
+
   return `${limit.window} ${limitColor(percent)(`${percent}%`)}${left && ` ${left}`}`;
 }
 
 function fundingRow(funding: Funding, now: number): string {
   const text = plain(fundingText(funding));
+
   return current(funding, now)
     ? text
     : colors.dim(`${text} ${duration(now - funding.observedAt)} OLD`);
@@ -108,8 +127,11 @@ export function accountRows(
 ): string[] {
   const rows =
     account?.limits.map((limit) => windowText(limit, now, reset)) ?? [];
+
   if (account?.funding) rows.push(fundingRow(account.funding, now));
+
   if (spendingBlocked(account, now)) rows.push('credit spending blocked');
+
   return rows.length ? rows : ['?'];
 }
 
@@ -124,6 +146,7 @@ function limitColor(percent: number): (text: string) => string {
 function git(repository: Repository): string {
   const { branch, ahead, behind, staged, modified, conflicts, untracked } =
     repository;
+
   return [
     plain(branch),
     ...(ahead ? [`↑${ahead}`] : []),
@@ -141,10 +164,15 @@ function pullRequest({
   conflict,
 }: Repository): string | undefined {
   const shown = request ?? conflict?.pullRequest;
+
   if (!shown) return;
+
   const link = hyperlink(`PR#${shown.number}`, shown.url, '/');
+
   if (shown.state === 'MERGED') return `${link} ${colors.magenta('MERGED')}`;
+
   if (shown.state === 'CLOSED') return `${link} CLOSED`;
+
   return [
     link,
     ...(request
@@ -170,18 +198,23 @@ export function statusLines(
   maxRows = Infinity,
 ): [string, string, ...string[]] {
   const { usage, repository } = status;
+
   const context = Math.floor(usage.context ?? 0);
+
   const capacity =
     usage.contextWindow === undefined
       ? ''
       : ` (${tokenCount.format(usage.contextWindow)})`;
+
   const others = (status.others ?? []).map(({ id, reading }) =>
     [id.toUpperCase(), ...accountRows(reading, now, false)].join(' '),
   );
+
   const first = (reset: boolean) => {
     const limits = status.account
       ? accountRows(status.account, now, reset).join(' ')
       : '';
+
     return piped([
       white(plain(status.model || '?').toUpperCase()),
       plain(status.effort || 'default').toUpperCase(),
@@ -191,10 +224,15 @@ export function statusLines(
       ...others,
     ]);
   };
+
   const full = first(true);
+
   const compact = stringWidth(full) > width ? first(false) : full;
+
   const funded = hasFunding(status);
+
   const request = repository && pullRequest(repository);
+
   const lines: [string, string, ...string[]] = [
     compact,
     piped([
@@ -205,20 +243,26 @@ export function statusLines(
       `${usage.lines?.added ?? 0}+/${usage.lines?.removed ?? 0}-`,
     ]),
   ];
+
   if (funded) lines.splice(0, 1, ...wrapLines(compact, width, true));
+
   if (funded && lines.length > maxRows) {
     const live = status.account?.funding;
+
     const text = live
       ? fundingText(live) +
         (current(live, now) ? '' : ' OLD') +
         (spendingBlocked(status.account, now) ? ' BLOCKED' : '')
       : accountRows(status.account, now, false).join(' ');
+
     const balance = wrapLines(plain(text), width, true);
+
     const compact: [string, string, ...string[]] = [
       balance[0]!,
       balance[1] ?? 'Details: /delegation',
       ...balance.slice(2),
     ];
+
     if (compact.length < maxRows)
       compact.unshift(
         piped([
@@ -226,8 +270,10 @@ export function statusLines(
           plain(status.effort || 'default').toUpperCase(),
         ]),
       );
+
     return compact;
   }
+
   return lines;
 }
 
@@ -243,16 +289,20 @@ export function statusFooter(
   }: { width: number; height: number; error?: string; bodyRows: number },
 ): { lines: string[]; errors: string[] } {
   const funded = hasFunding(status);
+
   const minimumStatusRows = funded
     ? statusLines(status, now, width, 2).length
     : 2;
+
   const errorLimit = Math.max(
     0,
     Math.min(Math.floor(height / 3), height - 1 - minimumStatusRows - bodyRows),
   );
+
   const errorLines = error
     ? wrapLines(linkify(plain(error), status.cwd), width)
     : [];
+
   const errors =
     errorLimit === 0
       ? []
@@ -262,6 +312,7 @@ export function statusFooter(
             `+${errorLines.length - errorLimit + 1} more rows`,
           ]
         : errorLines;
+
   return {
     errors,
     lines: statusLines(

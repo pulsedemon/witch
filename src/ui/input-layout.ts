@@ -1,5 +1,7 @@
 import stripAnsi from 'strip-ansi';
+
 import type { InputBuffer } from './input-buffer.js';
+
 import { normalizeText, wrapLines } from './wrap.js';
 
 export const visible = (value: string, secret = false) =>
@@ -30,5 +32,6 @@ export function split(
 /** the rows an input holding `value` fills at `width`. */
 export function inputRows(value: string, width: number, shell = false): number {
   const drawn = split({ value, cursor: 0 }, width, shell);
+
   return wrap(visible(drawn.text.value), drawn.width).length;
 }

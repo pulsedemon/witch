@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+
 import { test } from 'vitest';
+
 import stripAnsi from 'strip-ansi';
+
 import { markdown, markdownAppend } from '../src/ui/markdown.js';
 
 test('nested lists and task lists render indented with each checkbox inline', () => {
@@ -15,13 +18,16 @@ test('nested lists and task lists render indented with each checkbox inline', ()
 test('relative link targets resolve against their own base or stay text without one, while web links, absolute targets and bare paths keep theirs', () => {
   const text =
     '[Ports](ports.md) [Line](ports.md:3) [Abs](/work/abs.md) [Web](https://example.com/x) docs/rules.md';
+
   const links = (output: string, targets: string[]) =>
     targets.every((target) => output.includes(`\u001b]8;;${target}\u0007`));
+
   const kept = [
     'vscode://file/work/abs.md',
     'https://example.com/x',
     'vscode://file/work/docs/rules.md',
   ];
+
   assert.ok(
     links(markdown(text, '/work', '/memory/global'), [
       'vscode://file/memory/global/ports.md',
@@ -29,23 +35,30 @@ test('relative link targets resolve against their own base or stay text without 
       ...kept,
     ]),
   );
+
   const unlinked = markdown(text, '/work', null);
+
   assert.ok(links(unlinked, kept));
+
   assert.ok(!unlinked.includes('ports.md'));
 });
 
 test('image alt text renders as plain text, and HTML gets the link checks other text gets', () => {
   const forged =
     '\u001b\\]8;;https://evil.example/share\u0007src/app.ts:12\u001b\\]8;;\u0007';
+
   const output = markdown(
     `Fixed in ![${forged}](x)\n\n<div>\u001b]8;;smb://evil.example/share\u0007name\u001b]8;;\u0007 \u001b]8;;https://example.com/log\u0007log\u001b]8;;\u0007</div>`,
     '/work',
   );
+
   assert.ok(!output.includes('evil.example'), JSON.stringify(output));
+
   assert.ok(
     output.includes('\u001b]8;;https://example.com/log\u0007'),
     JSON.stringify(output),
   );
+
   assert.equal(
     stripAnsi(output),
     'Fixed in [src/app.ts:12]\n\n<div>name log</div>',
@@ -62,7 +75,9 @@ test('character references render as their characters in text and link targets, 
     ['![x &amp; y](a.png)', '[x & y]'],
   ] as const)
     assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
+
   assert.equal(markdown('&#27;[31mred', '/work'), 'red');
+
   assert.ok(
     markdown('see https://e.com/?a=1&amp;b=2', '/work').includes(
       '\u001b]8;;https://e.com/?a=1&b=2\u0007',
@@ -112,24 +127,36 @@ test('headings, emphasis, line breaks, quotes, rules and tables render as termin
 
 function streamMarkdown(chunks: readonly string[]): string[] {
   let source = '';
+
   let pending = '';
+
   let full = false;
+
   const complete: string[] = [];
+
   return chunks.map((chunk) => {
     source += chunk;
+
     const rendered = full
       ? undefined
       : markdownAppend(pending + chunk, '/work');
+
     let output: string;
+
     if (rendered) {
       complete.push(...rendered.complete);
+
       pending = rendered.pending;
+
       output = [...complete, rendered.tail].join('\n');
     } else {
       full = true;
+
       output = markdown(source, '/work');
     }
+
     assert.equal(output, markdown(source, '/work'), JSON.stringify(source));
+
     return output;
   });
 }
@@ -183,8 +210,10 @@ for (const [name, source, expected] of [
         source.slice(0, split),
         source.slice(split),
       ]);
+
       assert.equal(stripAnsi(frames.at(-1)!), expected);
     }
+
     assert.equal(stripAnsi(streamMarkdown(source.split('')).at(-1)!), expected);
   });
 
@@ -196,6 +225,7 @@ test('an empty fence opener removes separators until its body arrives', () => {
     '\nbody',
     '\n```',
   ]);
+
   assert.deepEqual(frames.map(stripAnsi), [
     'first\n\nSecond.\n\n`',
     'first\n\nSecond.\n\n``',
@@ -219,15 +249,19 @@ test('late and nested definitions rebuild earlier references and retain the firs
       definition,
       '\n[g]: wrong.md\n\nAfter',
     ]);
+
     assert.match(frames[0]!, /^\[Guide\]\[g\]/);
+
     for (const frame of frames.slice(1)) {
       assert.ok(
         frame.includes(
           '\u001b]8;;vscode://file/work/src/guide.ts\u0007\u001b[4mGuide',
         ),
       );
+
       assert.ok(!frame.includes('vscode://file/work/wrong.md'));
     }
+
     assert.ok(frames.at(-1)!.endsWith('After'));
   }
 });
@@ -238,6 +272,8 @@ test('HTML state across streamed paragraphs keeps the existing link interpretati
     'www.example',
     '\n\n</a> end',
   ]);
+
   assert.ok(frames[1]!.endsWith('\n\nwww.example'));
+
   for (const frame of frames) assert.ok(!frame.includes('http://www.example'));
 });

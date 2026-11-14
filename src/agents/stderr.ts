@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+
 import type { Readable } from 'node:stream';
 
 export interface ChildExit {
@@ -16,15 +17,22 @@ export function readLines(
   line: (text: string) => void,
 ): void {
   let pending = '';
+
   stream.setEncoding('utf8');
+
   stream.on('data', (chunk: string) => {
     const lines = chunk.split('\n');
+
     lines[0] = pending + lines[0];
+
     pending = lines.pop()!;
+
     for (const text of lines) line(text);
   });
+
   stream.on('end', () => {
     if (pending) line(pending);
+
     pending = '';
   });
 }
@@ -32,25 +40,33 @@ export function readLines(
 /** watches a child from its spawn, since a failed spawn emits `close` and no `exit`. */
 export function watchChild(child: ChildProcess): ChildExit {
   let tail = '';
+
   let exited = false;
+
   const closed = new Promise<void>((resolve) =>
     child.once('close', () => resolve()),
   );
+
   child.stderr?.setEncoding('utf8');
+
   child.stderr?.on('data', (text: string) => {
     tail = (tail + text).slice(-4096);
   });
+
   child.once('exit', () => {
     exited = true;
+
     // a grandchild holding the pipes would otherwise keep `close` from firing
     setTimeout(() => {
       for (const stream of [child.stdout, child.stderr])
         if (stream && !stream.destroyed) {
           stream.push(null);
+
           stream.destroy();
         }
     }, 200);
   });
+
   return {
     closed,
     get exited() {

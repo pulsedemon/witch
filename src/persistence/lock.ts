@@ -1,13 +1,20 @@
 import { execFile } from 'node:child_process';
+
 import { closeSync, constants, openSync } from 'node:fs';
+
 import { open } from 'node:fs/promises';
+
 import type { FileHandle } from 'node:fs/promises';
+
 import { getSystemErrorName, promisify } from 'node:util';
+
 import { z } from 'zod';
 
 const execute = promisify(execFile);
+
 const nativeLocks =
   process.platform === 'linux' ? await import('fs-ext') : undefined;
+
 // paths arrive NUL-terminated and states leave space-separated: loading JSON::PP more than doubled each query's startup
 const query = `
 use Fcntl qw(F_GETLK F_RDLCK F_WRLCK F_UNLCK SEEK_SET);
@@ -69,6 +76,7 @@ print join(' ', @results);
 
 // macOS flock flags, which Node doesn't export
 const sharedLock = 0x10;
+
 const exclusiveLock = 0x20;
 
 /** native launches must hold admission before spawn returns a child. */
@@ -78,6 +86,7 @@ export function tryOpenLockedSync(
   shared = false,
 ): number | undefined {
   let descriptor: number | undefined;
+
   try {
     descriptor = openSync(
       file,
@@ -86,17 +95,21 @@ export function tryOpenLockedSync(
         (nativeLocks ? 0 : shared ? sharedLock : exclusiveLock),
       0o600,
     );
+
     if (nativeLocks)
       nativeLocks.flockSync(descriptor, shared ? 'shnb' : 'exnb');
+
     return descriptor;
   } catch (error) {
     if (descriptor !== undefined) closeSync(descriptor);
+
     if (
       ['EAGAIN', 'EWOULDBLOCK'].includes(
         (error as NodeJS.ErrnoException).code ?? '',
       )
     )
       return;
+
     throw error;
   }
 }
@@ -112,9 +125,11 @@ export async function openLocked(
     nativeLocks ? flags : flags | (options.shared ? sharedLock : exclusiveLock),
     options.mode,
   );
+
   if (nativeLocks) {
     try {
       const mode = options.shared ? 'sh' : 'ex';
+
       await new Promise<void>((resolve, reject) => {
         nativeLocks.flock(
           handle.fd,
@@ -124,9 +139,11 @@ export async function openLocked(
       });
     } catch (error) {
       await handle.close();
+
       throw error;
     }
   }
+
   return handle;
 }
 
@@ -139,6 +156,7 @@ export async function tryOpenLocked(
   return openLocked(file, flags | constants.O_NONBLOCK, options).catch(
     (error: unknown) => {
       if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
+
       return undefined;
     },
   );
@@ -150,14 +168,18 @@ export async function lockedFiles(
   options: { timeout?: number } = {},
 ): Promise<Map<string, 'shared' | 'exclusive'>> {
   if (!files.length) return new Map();
+
   const result = execute(
     '/usr/bin/perl',
     ['-e', nativeLocks ? linuxQuery : query],
     { ...options, killSignal: 'SIGKILL' },
   );
+
   // report the process failure even when stdin also fails with EPIPE.
   result.child.stdin?.on('error', () => {}).end(`${files.join('\0')}\0`);
+
   const { stdout } = await result;
+
   const states = z
     .array(
       z
@@ -168,11 +190,15 @@ export async function lockedFiles(
     )
     .length(files.length)
     .parse(stdout.split(' '));
+
   const locked = new Map<string, 'shared' | 'exclusive'>();
+
   for (const [index, state] of states.entries()) {
     const file = files[index]!;
+
     if (state < 0) {
       const code = getSystemErrorName(state);
+
       throw Object.assign(
         new Error(`${code}: Could not inspect lock ${file}`),
         {
@@ -181,7 +207,9 @@ export async function lockedFiles(
         },
       );
     }
+
     if (state > 0) locked.set(file, state === 1 ? 'shared' : 'exclusive');
   }
+
   return locked;
 }

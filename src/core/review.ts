@@ -1,9 +1,15 @@
 import { isAbsolute, normalize, relative } from 'node:path';
+
 import { formatPatch, structuredPatch } from 'diff';
+
 import { z } from 'zod';
+
 import { errorMessage, issuesText } from '../errors.js';
+
 import { quote } from '../shell.js';
+
 import type { CheckFailure } from './review-checks.js';
+
 import type { Routed } from './routing.js';
 
 const findingsSchema = z.strictObject({
@@ -17,6 +23,7 @@ const findingsSchema = z.strictObject({
     }),
   ),
 });
+
 export type Finding = z.infer<typeof findingsSchema>['findings'][number];
 
 /** the findings in a report's last fenced json block, with each file normalized to a listed target; `invalid` says why there are none to read. */
@@ -29,29 +36,40 @@ export function parseFindings(
   const last = [
     ...report.matchAll(/^[ \t]{0,3}```json[^\n]*\n([\s\S]*?)\n\s*```/gm),
   ].at(-1);
+
   if (!last) return { invalid: 'no closed json block' };
+
   if (/^[ \t]{0,3}```json/m.test(report.slice(last.index + last[0].length)))
     return { invalid: 'a json block opens after the last closed one' };
+
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(last[1]!);
   } catch (error) {
     return { invalid: errorMessage(error) };
   }
+
   const result = findingsSchema.safeParse(parsed);
+
   if (!result.success)
     return {
       invalid: issuesText(result.error),
     };
+
   const findings: Finding[] = [];
+
   for (const finding of result.data.findings) {
     const file = normalize(
       isAbsolute(finding.file) ? relative(cwd, finding.file) : finding.file,
     );
+
     if (!files.includes(file))
       return { invalid: `${finding.file} is not a review target` };
+
     findings.push({ ...finding, file });
   }
+
   return findings;
 }
 
@@ -64,28 +82,42 @@ export function changes(
   after: Texts,
 ): { diff: string; changed: Map<string, Set<number>>; ratio: number } {
   const patches = [];
+
   const changed = new Map<string, Set<number>>();
+
   let touched = 0;
+
   let total = 0;
+
   for (const file of new Set([...Object.keys(before), ...Object.keys(after)])) {
     const text = after[file] ?? '';
+
     total += text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+
     const patch = structuredPatch(file, file, before[file] ?? '', text);
+
     if (!patch.hunks.length) continue;
+
     patches.push(patch);
+
     const lines = new Set<number>();
+
     for (const hunk of patch.hunks) {
       let line = hunk.newStart;
+
       for (const row of hunk.lines) {
         if (row.startsWith('+')) {
           lines.add(line++);
+
           touched++;
         } else if (row.startsWith('-')) touched++;
         else if (row.startsWith(' ')) line++;
       }
     }
+
     if (lines.size) changed.set(file, lines);
   }
+
   return {
     diff: patches.length ? formatPatch(patches) : '',
     changed,
@@ -126,12 +158,14 @@ export function decide({
   const blockers = reviews.flatMap(({ findings }) =>
     findings.filter(({ blocking }) => blocking),
   );
+
   if (!blockers.length)
     return round.scope === 'full'
       ? {
           stop: `settled: round ${round.number} found no blockers in a full pass`,
         }
       : { blockers, sittingOut: [] };
+
   if (
     previousChanges &&
     blockers.every(({ file, line }) => previousChanges.get(file)?.has(line))
@@ -141,6 +175,7 @@ export function decide({
       sittingOut: [],
       stopAfter: 'every blocker sat on lines corrected since the last round',
     };
+
   return {
     blockers,
     sittingOut: round.runtimes
@@ -174,7 +209,9 @@ export function afterCorrection({
   | { next: { number: number; closing: boolean }; sittingOut: SitOut[] } {
   if (blockers && !changedDuring)
     return { stop: 'the blockers were not applied', ok: false };
+
   if (stopAfter) return { stop: stopAfter, ok: true };
+
   return blockers
     ? {
         next: { number: round.number + 1, closing: false },
@@ -210,10 +247,14 @@ export function correctionPrompt(
       '',
       'Reply with one line per changed file.',
     ].join('\n');
+
   const item = (finding: Finding) =>
     `- ${located(finding)}: ${finding.summary}\n  Correction: ${finding.correction}`;
+
   const blockers = input.findings.filter(({ blocking }) => blocking);
+
   const others = input.findings.filter(({ blocking }) => !blocking);
+
   return [
     "Witch review: this round's reviewers reported the findings below. Edit only the review targets, and start no review of your own.",
     ...(blockers.length
@@ -311,6 +352,7 @@ export function reviewerCommand({
           '-c',
           'approval_policy="never"',
         ];
+
   return [
     prefix,
     `--familiar-${route.runtime}`,

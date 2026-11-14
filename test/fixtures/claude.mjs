@@ -1,9 +1,15 @@
 import { peerAnswer } from './peer-answer.mjs';
+
 import { setInterval, clearInterval, setTimeout } from 'node:timers';
+
 import process from 'node:process';
+
 import { Buffer } from 'node:buffer';
+
 import readline from 'node:readline';
+
 import { spawn } from 'node:child_process';
+
 import {
   appendFileSync,
   writeFileSync,
@@ -11,27 +17,39 @@ import {
   existsSync,
   readFileSync,
 } from 'node:fs';
+
 import { join } from 'node:path';
+
 import { randomUUID } from 'node:crypto';
+
 import { URL } from 'node:url';
 
 // modes that a prompt can't reach come from the command line
 const mode = process.argv[2] ?? '';
+
 const sessionState = !process.argv.includes('--no-session-state');
+
 if (mode === 'ignore-term') {
   process.on('SIGTERM', () => {});
+
   setInterval(() => {}, 1000);
 }
+
 const mcpServers = () =>
   mode === 'mcp'
     ? JSON.parse(readFileSync(join(process.cwd(), 'mcp-status.json'), 'utf8'))
     : [];
+
 const lines = readline.createInterface({ input: process.stdin });
+
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
+
 const session_id = randomUUID();
+
 const nativeVersion = JSON.parse(
   readFileSync(new URL('native/manifest.json', import.meta.url), 'utf8'),
 ).claude.version;
+
 const stateCommands = [
   'autocompact',
   'config',
@@ -45,31 +63,44 @@ const stateCommands = [
   argumentHint: '',
   builtin: true,
 }));
+
 let initialization = 0;
+
 let model = 'claude-a';
+
 let lastPrompt = '';
+
 let lastInput = '';
+
 /** the uuids of prompts sent during a steerable turn. */
 const steered = [];
+
 /** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, `idle`, or `running` again. */
 let reporting = '';
+
 /** the uuids of prompts the CLI holds unread for an interrupt receipt. */
 const held = [];
+
 /** calls `then` once `file` exists in the cwd; the poll alone doesn't keep the CLI running. */
 const once = (file, then) => {
   const poll = setInterval(() => {
     if (!existsSync(join(process.cwd(), file))) return;
+
     clearInterval(poll);
+
     then();
   }, 5);
+
   poll.unref();
 };
+
 const state = (state) => {
   if (
     !sessionState ||
     (state === 'idle' && existsSync(join(process.cwd(), 'hold-idle')))
   )
     return;
+
   send({
     type: 'system',
     subtype: 'session_state_changed',
@@ -78,8 +109,10 @@ const state = (state) => {
     session_id,
   });
 };
+
 const task = (subtype, fields) =>
   send({ type: 'system', subtype, ...fields, uuid: randomUUID(), session_id });
+
 if (mode === 'compaction' || mode === 'background' || mode === 'mcp') {
   const read = (index) =>
     once(`events-${index}.json`, () => {
@@ -88,26 +121,33 @@ if (mode === 'compaction' || mode === 'background' || mode === 'mcp') {
       )) {
         if (mode === 'background' && frame.type === 'result') result(frame);
         else send({ uuid: randomUUID(), session_id, ...frame });
+
         if (
           frame.type === 'command_lifecycle' &&
           frame.state !== 'queued' &&
           (!frame.session_id || frame.session_id === session_id)
         ) {
           const index = held.indexOf(frame.command_uuid);
+
           if (index !== -1) held.splice(index, 1);
         }
       }
+
       task('commands_changed', {
         commands: [
           { name: `barrier-${index}`, description: '', argumentHint: '' },
         ],
       });
+
       read(index + 1);
     });
+
   read(1);
 }
+
 /** the live background tasks, as `background_tasks_changed` lists them. */
 const level = (tasks) => task('background_tasks_changed', { tasks });
+
 const streamEvent = (event, parent) =>
   send({
     type: 'stream_event',
@@ -116,6 +156,7 @@ const streamEvent = (event, parent) =>
     parent_tool_use_id: parent,
     event,
   });
+
 /**
  * streams a text reply as a delta before its full message, as partial messages do; `agent` marks a familiar's
  * frame, and frames that share `id` are blocks of one message.
@@ -129,6 +170,7 @@ const assistant = (
 ) => {
   if (text) {
     streamEvent({ type: 'message_start', message: { id } }, parent);
+
     streamEvent(
       {
         type: 'content_block_delta',
@@ -138,6 +180,7 @@ const assistant = (
       parent,
     );
   }
+
   send({
     type: 'assistant',
     uuid: randomUUID(),
@@ -161,6 +204,7 @@ const assistant = (
     },
   });
 };
+
 const toolResult = (id, content, parent = null, extra = {}) =>
   send({
     type: 'user',
@@ -173,9 +217,12 @@ const toolResult = (id, content, parent = null, extra = {}) =>
     },
     ...extra,
   });
+
 let results = 0;
+
 const result = (fields = {}) => {
   results++;
+
   send({
     type: 'result',
     subtype: 'success',
@@ -192,6 +239,7 @@ const result = (fields = {}) => {
     total_cost_usd: 0,
     ...fields,
   });
+
   // a later native frame proves the adapter consumed the result before a test continues.
   if (
     mode === 'background' ||
@@ -208,6 +256,7 @@ const result = (fields = {}) => {
       ],
     });
 };
+
 /** exits once a grandchild sharing stderr is running; it writes a line about 65 ms later. */
 const exitBeforeGrandchild = (code) => {
   const grandchild = spawn(
@@ -215,31 +264,43 @@ const exitBeforeGrandchild = (code) => {
     ['-c', 'printf r >&4; cat <&3; sleep 0.05; echo grandchild line >&2'],
     { stdio: ['ignore', 'ignore', 'inherit', 'pipe', 'pipe'] },
   );
+
   grandchild.stdio[4].once('data', () =>
     process.stderr.write('fixture stderr text\n', () => process.exit(code)),
   );
 };
+
 const finish = () => {
   // with lifecycle acknowledgements, a result names the input it answers
   result(mode === 'spell-user' ? { user_message_uuids: [lastInput] } : {});
+
   if (lastPrompt === 'wait for idle') {
     const states = ['running', 'requires_action', 'idle'];
+
     const interval = setInterval(() => {
       const next = states[0];
+
       if (!existsSync(join(process.cwd(), `allow-${next}`))) return;
+
       states.shift();
+
       state(next);
+
       if (next === 'idle') clearInterval(interval);
       else assistant(next);
     }, 5);
   } else {
     state('idle');
+
     if (mode === 'exit-when-idle') exitBeforeGrandchild(1);
   }
 };
+
 const finishPeerAnswer = () => {
   assistant('Reading requests.');
+
   const output = JSON.parse(peerAnswer(lastPrompt));
+
   assistant('', [
     {
       type: 'tool_use',
@@ -248,12 +309,17 @@ const finishPeerAnswer = () => {
       input: output,
     },
   ]);
+
   toolResult('answer-output', 'Valid output.');
+
   result({ structured_output: output });
+
   state('idle');
 };
+
 for await (const line of lines) {
   const message = JSON.parse(line);
+
   if (
     mode === 'peer-answer' &&
     message.type === 'control_response' &&
@@ -263,31 +329,44 @@ for await (const line of lines) {
       join(process.cwd(), 'answer-response.json'),
       JSON.stringify(message.response),
     );
+
     finishPeerAnswer();
+
     continue;
   }
+
   if (mode === 'background' || mode === 'catalog' || mode === 'mcp')
     appendFileSync(join(process.cwd(), 'wire.jsonl'), `${line}\n`);
+
   if (mode === 'pending-model' && message.type === 'user')
     message.message.content = message.message.content
       .split('User request:\n')
       .at(-1);
+
   if (message.type === 'control_request') {
     const request = message.request;
+
     let response = {};
+
     if (request.subtype === 'initialize') {
       initialization++;
+
       writeFileSync(
         join(process.cwd(), 'initialize.json'),
         JSON.stringify(request),
       );
+
       if (mode === 'hang-on-init') continue;
+
       if (mode === 'exit-on-init') {
         process.stderr.write('init exit text\n', () => process.exit(1));
+
         continue;
       }
+
       if (mode === 'init-error') {
         process.stderr.write('init failed text\n');
+
         send({
           type: 'control_response',
           response: {
@@ -296,8 +375,10 @@ for await (const line of lines) {
             error: 'initialize refused',
           },
         });
+
         continue;
       }
+
       response = {
         commands: [
           {
@@ -356,6 +437,7 @@ for await (const line of lines) {
         ],
       };
     }
+
     if (
       request.subtype === 'get_context_usage' &&
       existsSync(join(process.cwd(), 'hold-context'))
@@ -364,8 +446,10 @@ for await (const line of lines) {
         join(process.cwd(), 'context-request.json'),
         JSON.stringify(message),
       );
+
       continue;
     }
+
     if (
       request.subtype === 'get_usage' &&
       existsSync(join(process.cwd(), 'hold-usage'))
@@ -374,13 +458,17 @@ for await (const line of lines) {
         join(process.cwd(), 'usage-request.json'),
         JSON.stringify(message),
       );
+
       continue;
     }
+
     if (request.subtype === 'get_context_usage')
       response = { percentage: 12.5, maxTokens: 200000 };
+
     if (request.subtype === 'mcp_status') {
       if (mode === 'mcp' && existsSync(join(process.cwd(), 'hold-mcp')))
         continue;
+
       if (mode === 'mcp' && existsSync(join(process.cwd(), 'reject-mcp'))) {
         send({
           type: 'control_response',
@@ -390,26 +478,33 @@ for await (const line of lines) {
             error: 'MCP status unavailable',
           },
         });
+
         continue;
       }
+
       response = { mcpServers: mcpServers() };
     }
+
     if (request.subtype === 'get_task_output') {
       const outputs = JSON.parse(
         readFileSync(join(process.cwd(), 'task-outputs.json'), 'utf8'),
       );
+
       const output = outputs[request.task_id] ?? '';
+
       response = {
         output,
         total_bytes: Buffer.byteLength(output),
         truncated: false,
       };
     }
+
     if (
       request.subtype === 'stop_task' &&
       existsSync(join(process.cwd(), 'hold-stop'))
     )
       continue;
+
     if (request.subtype === 'stop_task')
       task('task_notification', {
         task_id: request.task_id,
@@ -417,6 +512,7 @@ for await (const line of lines) {
         output_file: '',
         summary: 'Stopped',
       });
+
     if (request.subtype === 'get_usage')
       response = {
         session: {
@@ -443,30 +539,39 @@ for await (const line of lines) {
               },
         behaviors: null,
       };
+
     if (request.subtype === 'set_model') {
       if (mode === 'pending-model') {
         writeFileSync(join(process.cwd(), 'model-entered'), '');
+
         continue;
       }
+
       model = request.model;
     }
+
     if (request.subtype === 'apply_flag_settings') {
       writeFileSync(
         join(process.cwd(), 'settings.json'),
         JSON.stringify(request.settings),
       );
+
       appendFileSync(
         join(process.cwd(), 'settings.jsonl'),
         `${JSON.stringify(request.settings)}\n`,
       );
     }
+
     if (request.subtype === 'interrupt') {
       appendFileSync(join(process.cwd(), 'interrupts.log'), 'interrupt\n');
+
       if (existsSync(join(process.cwd(), 'hold-interrupt'))) {
         if (existsSync(join(process.cwd(), 'late-interrupt'))) {
           const waiting = setInterval(() => {}, 1000);
+
           process.once('SIGTERM', () => {
             clearInterval(waiting);
+
             send({
               type: 'control_response',
               response: {
@@ -475,16 +580,24 @@ for await (const line of lines) {
                 response: { still_queued: [] },
               },
             });
+
             result();
+
             state('idle');
+
             result();
+
             state('idle');
+
             writeFileSync(join(process.cwd(), 'late-response.json'), 'true');
+
             process.stdout.end(() => process.exit(0));
           });
         }
+
         continue;
       }
+
       if (mode === 'background') {
         response = {
           still_queued: existsSync(join(process.cwd(), 'receipt.json'))
@@ -493,6 +606,7 @@ for await (const line of lines) {
               )
             : [...held],
         };
+
         if (!response.still_queued.length)
           setTimeout(() => {
             result({
@@ -500,6 +614,7 @@ for await (const line of lines) {
               is_error: true,
               errors: ['Turn interrupted.'],
             });
+
             state('idle');
           });
       } else if (
@@ -522,12 +637,15 @@ for await (const line of lines) {
           output_file: '',
           summary: '',
         });
+
         setTimeout(() => state('idle'));
       } else {
         result();
+
         state('idle');
       }
     }
+
     send({
       type: 'control_response',
       response: {
@@ -538,38 +656,51 @@ for await (const line of lines) {
     });
   } else if (message.type === 'user') {
     appendFileSync(join(process.cwd(), 'inputs.jsonl'), `${line}\n`);
+
     lastInput = message.uuid;
+
     if (mode === 'background') {
       if (lastPrompt) {
         held.push(message.uuid);
+
         continue;
       }
     }
+
     if (mode === 'compaction' && message.message.content === '/compact') {
       // whole, through a rename, since the test polls for it and parses what it reads
       writeFileSync(
         join(process.cwd(), 'compact.json.next'),
         JSON.stringify(message),
       );
+
       renameSync(
         join(process.cwd(), 'compact.json.next'),
         join(process.cwd(), 'compact.json'),
       );
+
       continue;
     }
+
     if (mode === 'hold-initial') {
       held.push(message.uuid);
+
       writeFileSync(join(process.cwd(), 'held.json'), JSON.stringify(message));
+
       continue;
     }
+
     if (lastPrompt === 'reporting familiar' && reporting === 'before') {
       held.push(message.uuid);
+
       appendFileSync(
         join(process.cwd(), 'steered.jsonl'),
         `${JSON.stringify(message.message.content)}\n`,
       );
+
       continue;
     }
+
     if (
       lastPrompt === 'reporting familiar' &&
       ['reported', 'running'].includes(reporting)
@@ -578,49 +709,66 @@ for await (const line of lines) {
         join(process.cwd(), 'early.jsonl'),
         `${JSON.stringify(message.message.content)}\n`,
       );
+
     // the CLI answers a prompt sent while it waits on a background familiar or workflow, then idles once it reports
     if (['background familiar', 'background workflow'].includes(lastPrompt)) {
       appendFileSync(
         join(process.cwd(), 'steered.jsonl'),
         `${JSON.stringify(message.message.content)}\n`,
       );
+
       assistant('Answered.');
+
       result();
+
       task('task_notification', {
         task_id: lastPrompt === 'background workflow' ? 'workflow' : 'helper',
         status: 'completed',
         output_file: '',
         summary: '',
       });
+
       assistant('Reported.');
+
       result();
+
       once('allow-idle', () => state('idle'));
+
       continue;
     }
+
     // the CLI folds a prompt sent during a turn into it, here until one says to wrap up
     if (lastPrompt === 'steerable') {
       steered.push(message.uuid);
+
       appendFileSync(
         join(process.cwd(), 'steered.jsonl'),
         `${JSON.stringify(message.message.content)}\n`,
       );
+
       if (message.message.content === 'wrap up') {
         lastPrompt = '';
+
         finish();
       }
+
       continue;
     }
+
     lastPrompt = message.message.content;
+
     writeFileSync(
       join(process.cwd(), 'content.json'),
       JSON.stringify(lastPrompt),
     );
+
     if (
       mode === 'coordinator-reporting' &&
       typeof lastPrompt === 'string' &&
       lastPrompt.endsWith('User request:\nreporting familiar')
     )
       lastPrompt = 'reporting familiar';
+
     // Claude Code starts a pushed input before init advertises lifecycle acknowledgements
     if (mode === 'spell-user')
       for (const state of ['queued', 'started'])
@@ -631,6 +779,7 @@ for await (const line of lines) {
           uuid: randomUUID(),
           session_id,
         });
+
     send({
       type: 'system',
       subtype: 'init',
@@ -653,7 +802,9 @@ for await (const line of lines) {
         : {}),
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
+
     state('running');
+
     if (mode === 'peer-answer') {
       if (existsSync(join(process.cwd(), 'answer-approval'))) {
         send({
@@ -671,24 +822,32 @@ for await (const line of lines) {
           },
         });
       } else finishPeerAnswer();
+
       continue;
     }
+
     if (mode === 'background') {
       if (!sessionState) {
         assistant('Working.');
+
         continue;
       }
+
       assistant('Initial reply.');
+
       result({
         user_message_uuid: message.uuid,
         user_message_uuids: [message.uuid],
       });
+
       continue;
     }
+
     if (lastPrompt === 'preview' || lastPrompt === 'preview-withdrawn') {
       const { tool, input } = JSON.parse(
         readFileSync(join(process.cwd(), 'preview.json'), 'utf8'),
       );
+
       send({
         type: 'control_request',
         request_id: 'preview-request',
@@ -699,16 +858,20 @@ for await (const line of lines) {
           tool_use_id: 'preview-tool',
         },
       });
+
       if (lastPrompt === 'preview-withdrawn')
         once('withdraw-preview', () => {
           send({
             type: 'control_cancel_request',
             request_id: 'preview-request',
           });
+
           finish();
         });
+
       continue;
     }
+
     if (lastPrompt === 'approval')
       send({
         type: 'control_request',
@@ -758,7 +921,9 @@ for await (const line of lines) {
           tool_use_id: 'tool-2',
         },
       });
+
       send({ type: 'control_cancel_request', request_id: 'permit-2' });
+
       finish();
     } else if (lastPrompt === 'elicit')
       send({
@@ -783,7 +948,9 @@ for await (const line of lines) {
           input: { command: 'ls\nwc -l a.md', description: 'List notes' },
         },
       ]);
+
       toolResult('tool-1', 'a.md');
+
       assistant('', [
         {
           type: 'tool_use',
@@ -792,7 +959,9 @@ for await (const line of lines) {
           input: { skill: 'handoff' },
         },
       ]);
+
       toolResult('tool-s', 'Launching skill: handoff');
+
       assistant('', [
         {
           type: 'tool_use',
@@ -801,17 +970,22 @@ for await (const line of lines) {
           input: { description: 'Find notes', prompt: 'look' },
         },
       ]);
+
       assistant('Subagent text.', undefined, 'tool-2');
+
       assistant(
         '',
         [{ type: 'tool_use', id: 'sub-1', name: 'Read', input: {} }],
         'tool-2',
       );
+
       toolResult('sub-1', 'inner', 'tool-2');
+
       toolResult('tool-2', [
         { type: 'text', text: 'Found a.md.' },
         { type: 'text', text: 'Read one file.' },
       ]);
+
       assistant('', [
         {
           type: 'tool_use',
@@ -820,26 +994,32 @@ for await (const line of lines) {
           input: { file_path: join(process.cwd(), 'shot.png') },
         },
       ]);
+
       toolResult('tool-3', [
         {
           type: 'image',
           source: { type: 'base64', media_type: 'image/png', data: 'iVBORw==' },
         },
       ]);
+
       assistant('Done.');
+
       finish();
     } else if (lastPrompt === 'edits' || lastPrompt === 'home-edits') {
       const call = (id, name, input) =>
         assistant('', [{ type: 'tool_use', id, name, input }]);
+
       const a =
         lastPrompt === 'home-edits'
           ? '~/issue69-edit.txt'
           : join(process.cwd(), 'a.txt');
+
       call('edit-1', 'Edit', {
         file_path: a,
         old_string: 'bravo',
         new_string: 'BRAVO',
       });
+
       toolResult(
         'edit-1',
         'The file a.txt has been updated successfully.',
@@ -864,8 +1044,11 @@ for await (const line of lines) {
           },
         },
       );
+
       const b = lastPrompt === 'home-edits' ? '~/issue69-write.txt' : 'b.txt';
+
       call('write-1', 'Write', { file_path: b, content: 'one\ntwo' });
+
       toolResult('write-1', `File created successfully at: ${b}`, null, {
         tool_use_result: {
           type: 'create',
@@ -876,15 +1059,21 @@ for await (const line of lines) {
           userModified: false,
         },
       });
+
       const missing = 'Error: String to replace not found in file.';
+
       call('edit-2', 'Edit', {
         file_path: a,
         old_string: 'zulu',
         new_string: 'ZULU',
       });
+
       toolResult('edit-2', missing, null, { tool_use_result: missing });
+
       const c = join(process.cwd(), 'c.txt');
+
       call('write-2', 'Write', { file_path: c, content: 'same' });
+
       toolResult(
         'write-2',
         'The file c.txt has been updated successfully.',
@@ -900,8 +1089,11 @@ for await (const line of lines) {
           },
         },
       );
+
       const settings = join(process.cwd(), '.claude', 'settings.json');
+
       call('write-3', 'Write', { file_path: settings, content: '{}' });
+
       toolResult('write-3', 'Staged for review.', null, {
         tool_use_result: {
           type: 'create',
@@ -913,10 +1105,13 @@ for await (const line of lines) {
           staged: true,
         },
       });
+
       assistant('Done.');
+
       finish();
     } else if (lastPrompt === 'created-edits') {
       const content = Array.from({ length: 12 }, (_, index) => `l${index + 1}`);
+
       const reports = [
         {
           id: 'create-edit',
@@ -968,6 +1163,7 @@ for await (const line of lines) {
           staged: true,
         },
       ];
+
       for (const { id, ...report } of reports) {
         assistant('', [
           {
@@ -981,6 +1177,7 @@ for await (const line of lines) {
             },
           },
         ]);
+
         toolResult(
           id,
           report.staged ? 'Staged for review.' : 'Updated successfully.',
@@ -994,7 +1191,9 @@ for await (const line of lines) {
           },
         );
       }
+
       assistant('Done.');
+
       finish();
     } else if (lastPrompt === 'familiar-work') {
       send({
@@ -1006,14 +1205,18 @@ for await (const line of lines) {
         uuid: randomUUID(),
         session_id,
       });
+
       const tool = (id, name, input) => ({ type: 'tool_use', id, name, input });
+
       assistant('Reading the tests.', undefined, 'agent-tool', 'reader');
+
       assistant(
         '',
         [tool('r-1', 'Read', { file_path: join(process.cwd(), 'a.test.ts') })],
         'agent-tool',
         'reader',
       );
+
       assistant(
         '',
         [
@@ -1025,15 +1228,20 @@ for await (const line of lines) {
         'agent-tool',
         'reader',
       );
+
       assistant(
         '',
         [tool('r-3', 'Skill', { skill: 'tdd' })],
         'agent-tool',
         'reader',
       );
+
       const report = randomUUID();
+
       assistant('All tests pass.', undefined, 'agent-tool', 'reader', report);
+
       assistant('See a.test.ts.', undefined, 'agent-tool', 'reader', report);
+
       // an agent Witch never listed, such as an ambient worker
       assistant(
         '',
@@ -1041,6 +1249,7 @@ for await (const line of lines) {
         'other-tool',
         'ghost',
       );
+
       send({
         type: 'system',
         subtype: 'task_notification',
@@ -1051,6 +1260,7 @@ for await (const line of lines) {
         uuid: randomUUID(),
         session_id,
       });
+
       finish();
     } else if (lastPrompt === 'familiars') {
       task('task_started', {
@@ -1059,17 +1269,20 @@ for await (const line of lines) {
         subagent_type: 'Explore',
         task_type: 'local_agent',
       });
+
       task('task_started', {
         task_id: 'inner',
         description: 'Read tests',
         parent_task_id: 'outer',
         task_type: 'local_agent',
       });
+
       task('task_started', {
         task_id: 'shell',
         description: 'ls',
         task_type: 'local_bash',
       });
+
       task('task_started', {
         task_id: 'worker',
         description: '/spell',
@@ -1078,6 +1291,7 @@ for await (const line of lines) {
         skip_transcript: true,
         ambient: true,
       });
+
       // run 1's start and notification arrive after run 2's start
       for (const run_id of ['1', '2', '1'])
         task('task_started', {
@@ -1086,6 +1300,7 @@ for await (const line of lines) {
           description: 'Fix lint',
           task_type: 'local_agent',
         });
+
       for (const [run_id, status] of [
         ['1', 'stopped'],
         ['2', 'completed'],
@@ -1097,6 +1312,7 @@ for await (const line of lines) {
           output_file: '',
           summary: '',
         });
+
       for (const [task_id, status] of [
         ['inner', 'completed'],
         ['shell', 'completed'],
@@ -1109,6 +1325,7 @@ for await (const line of lines) {
           output_file: '',
           summary: '',
         });
+
       finish();
     } else if (lastPrompt === 'brews') {
       const outer = {
@@ -1116,16 +1333,19 @@ for await (const line of lines) {
         task_type: 'local_agent',
         description: 'Map the code',
       };
+
       const serve = {
         task_id: 'serve',
         task_type: 'local_bash',
         description: 'Start the server',
       };
+
       const moved = {
         task_id: 'moved',
         task_type: 'local_bash',
         description: 'Run tests',
       };
+
       const end = (task_id, status) =>
         task('task_notification', {
           task_id,
@@ -1133,10 +1353,15 @@ for await (const line of lines) {
           output_file: '',
           summary: '',
         });
+
       level([outer]);
+
       task('task_started', outer);
+
       level([outer, serve]);
+
       task('task_started', { ...serve, is_backgrounded: true });
+
       // a foreground shell gets task frames but never joins the live set
       task('task_started', {
         task_id: 'build',
@@ -1144,21 +1369,33 @@ for await (const line of lines) {
         description: 'Build',
         is_backgrounded: false,
       });
+
       end('build', 'completed');
+
       // a foreground shell moved to the background joins the live set before its update
       task('task_started', { ...moved, is_backgrounded: false });
+
       level([outer, serve, moved]);
+
       task('task_updated', {
         task_id: 'moved',
         patch: { is_backgrounded: true },
       });
+
       task('task_updated', { task_id: 'serve', patch: { status: 'failed' } });
+
       end('serve', 'failed');
+
       level([outer, moved]);
+
       end('moved', 'stopped');
+
       level([outer]);
+
       end('outer', 'completed');
+
       level([]);
+
       finish();
     } else if (lastPrompt === 'reporting familiar') {
       // reports and may start another familiar, then idles, then dies or runs again on its own and idles, each once the
@@ -1168,19 +1405,27 @@ for await (const line of lines) {
         description: 'Reporting helper',
         task_type: 'local_agent',
       });
+
       assistant('Started.');
+
       result();
+
       reporting = 'before';
+
       once('allow-report', () => {
         reporting = 'reported';
+
         task('task_notification', {
           task_id: 'helper',
           status: 'completed',
           output_file: '',
           summary: '',
         });
+
         assistant('Reported.');
+
         result();
+
         once('allow-second', () =>
           task('task_started', {
             task_id: 'second',
@@ -1188,9 +1433,12 @@ for await (const line of lines) {
             task_type: 'local_agent',
           }),
         );
+
         once('allow-idle', () => {
           reporting = 'idle';
+
           state('idle');
+
           task('commands_changed', {
             commands: [
               {
@@ -1200,15 +1448,22 @@ for await (const line of lines) {
               },
             ],
           });
+
           once('allow-die', () => exitBeforeGrandchild(1));
+
           // as Claude Code does when a brew ends
           once('allow-run', () => {
             reporting = 'running';
+
             state('running');
+
             assistant('Brewed.');
+
             result();
+
             once('allow-rest', () => {
               reporting = 'idle';
+
               state('idle');
             });
           });
@@ -1220,7 +1475,9 @@ for await (const line of lines) {
         description: 'Slow helper',
         task_type: 'local_agent',
       });
+
       assistant('Started.');
+
       // no idle until the familiar reports
       result();
     } else if (lastPrompt === 'background workflow') {
@@ -1229,7 +1486,9 @@ for await (const line of lines) {
         description: 'Slow workflow',
         task_type: 'local_workflow',
       });
+
       assistant('Started.');
+
       // no idle until the workflow reports
       result();
     } else if (lastPrompt === 'dropped tasks') {
@@ -1239,52 +1498,70 @@ for await (const line of lines) {
         task_type: 'local_agent',
         description: 'Slow helper',
       };
+
       const workflow = {
         task_id: 'workflow',
         task_type: 'local_workflow',
         description: 'Slow workflow',
       };
+
       const serve = {
         task_id: 'serve',
         task_type: 'local_bash',
         description: 'Start the server',
       };
+
       task('task_started', {
         task_id: 'fore',
         task_type: 'local_agent',
         description: 'Foreground helper',
         is_backgrounded: false,
       });
+
       level([helper]);
+
       task('task_started', { ...helper, is_backgrounded: true });
+
       level([helper, workflow]);
+
       task('task_started', workflow);
+
       level([helper, workflow, serve]);
+
       task('task_notification', {
         task_id: 'fore',
         status: 'completed',
         output_file: '',
         summary: '',
       });
+
       assistant('Started.');
+
       result();
+
       once('allow-drop', () => {
         level([]);
+
         once('allow-idle', () => state('idle'));
       });
     } else if (['wait', 'still queued', 'steerable'].includes(lastPrompt))
       assistant('Working.');
     else if (lastPrompt === 'crash') {
       assistant('Working.');
+
       exitBeforeGrandchild(1);
     } else if (lastPrompt === 'die') {
       assistant('Working.');
+
       // holds stdout, so the SDK's read loop outlives the exit
       spawn('/bin/sleep', ['1'], { stdio: ['ignore', 'inherit', 'ignore'] });
+
       process.exit(1);
     } else if (lastPrompt === 'text error') {
       assistant('alpha draft', undefined, null, undefined, 'message-z');
+
       assistant('bravo', undefined, null, undefined, 'message-a');
+
       streamEvent(
         {
           type: 'content_block_delta',
@@ -1293,14 +1570,18 @@ for await (const line of lines) {
         },
         null,
       );
+
       assistant('alpha final', undefined, null, undefined, 'message-z');
+
       assistant('', [], null, undefined, 'message-a');
+
       result({
         subtype: 'error_during_execution',
         is_error: true,
         result: undefined,
         errors: ['fixture failure'],
       });
+
       state('idle');
     } else if (lastPrompt === 'execution error') {
       result({
@@ -1309,9 +1590,11 @@ for await (const line of lines) {
         result: undefined,
         errors: ['tool crashed'],
       });
+
       state('idle');
     } else if (lastPrompt === 'api error') {
       result({ is_error: true, result: 'API Error: 500' });
+
       state('idle');
     } else if (lastPrompt === 'quit early')
       process.stderr.write('quitting early\n', () => process.exit(0));
@@ -1335,6 +1618,7 @@ for await (const line of lines) {
         uuid: randomUUID(),
         session_id,
       });
+
       finish();
     } else finish();
   } else if (
@@ -1344,6 +1628,7 @@ for await (const line of lines) {
     )
   ) {
     const { response } = message.response;
+
     if (lastPrompt !== 'approval')
       writeFileSync(
         join(process.cwd(), 'response.json'),
@@ -1354,6 +1639,7 @@ for await (const line of lines) {
         join(process.cwd(), 'approved.txt'),
         response.updatedInput.content,
       );
+
     finish();
   }
 }

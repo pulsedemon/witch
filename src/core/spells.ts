@@ -1,4 +1,5 @@
 import type { Cast } from '../agents/types.js';
+
 import type { DisplayUpdate } from './state.js';
 
 export function castRow(
@@ -7,6 +8,7 @@ export function castRow(
   familiar?: string,
 ): DisplayUpdate {
   const name = `\`${cast.name}\``;
+
   return {
     id: `spell/${cast.id}`,
     kind: 'notice',

@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 import { homedir } from 'node:os';
+
 import { resolve, join } from 'node:path';
+
 import { fileURLToPath } from 'node:url';
+
 import { errorMessage } from './errors.js';
+
 import { parseCommand, runControl, writeControl } from './cli-control.js';
+
 import { runClaudeFamiliar } from './cli-familiar.js';
+
 import { runCodexFamiliar } from './cli-codex-familiar.js';
 
 const defaultState = join(homedir(), '.witch');
+
 const usage = `Usage: witch [options] [prompt...]
 
 Start a conversation in the current directory on the agent, model and effort
@@ -65,16 +72,24 @@ const handover = {
   scratch: process.env.WITCH_SCRATCH,
   jobs: process.env.WITCH_JOBS_RESUME,
 };
+
 delete process.env.WITCH_CONVERSATION;
+
 delete process.env.WITCH_SCRATCH;
+
 delete process.env.WITCH_JOBS_RESUME;
+
 let command;
+
 try {
   command = parseCommand();
+
   const { values, control, familiar, spawn } = command;
+
   // parseArgs accepts an empty value, which would put state in the project
   if (values['state-dir'] === '')
     throw new Error("Option '--state-dir' needs a directory");
+
   if (
     !control &&
     !familiar &&
@@ -88,12 +103,16 @@ try {
   if (process.argv.includes('--json'))
     writeControl({ kind: 'error', message: errorMessage(error) }, true);
   else process.stderr.write(`witch: ${errorMessage(error)}\n`);
+
   process.exit(1);
 }
+
 const { values, control, familiar, spawn } = command;
+
 if (familiar) {
   try {
     const { binding, name, reportFile, args } = familiar;
+
     process.exitCode =
       familiar.runtime === 'codex'
         ? await runCodexFamiliar(
@@ -106,6 +125,7 @@ if (familiar) {
         : await runClaudeFamiliar(binding, name, reportFile, args);
   } catch (error) {
     process.stderr.write(`witch: ${errorMessage(error)}\n`);
+
     process.exitCode = 1;
   }
 } else if (control) {
@@ -114,14 +134,18 @@ if (familiar) {
   process.stdout.write(usage);
 } else if (spawn !== undefined) {
   const { runSpawn } = await import('./spawn.js');
+
   process.exitCode = await runSpawn(process.cwd(), spawn, defaultState);
 } else {
   // React picks its slower development build when loaded without this, and agents inherit the environment, so it lasts only the load
   const production = process.env.NODE_ENV === undefined;
+
   if (production) process.env.NODE_ENV = 'production';
+
   const { runWitch } = await import('./witch.js').finally(() => {
     if (production) delete process.env.NODE_ENV;
   });
+
   await runWitch(
     command,
     resolve(values['state-dir'] ?? defaultState),

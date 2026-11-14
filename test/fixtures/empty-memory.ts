@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
+
 import { mkdir, readdir } from 'node:fs/promises';
+
 import { join } from 'node:path';
+
 import { Memory } from '../../src/memory/memory.js';
+
 import type { MemoryScope } from '../../src/memory/memory.js';
+
 import { Workspace } from '../../src/memory/workspace.js';
 
 const revision = '0'.repeat(40);
+
 const integration = 'Use the real memory fixture for memory integration tests';
 
 /** clean, unchanged memory for coordinator tests; persistence and note edits require the real fixture. */
@@ -14,7 +20,9 @@ export class EmptyMemory extends Memory {
 
   override async run(...args: Parameters<Memory['run']>) {
     const [cwd] = args;
+
     assert.ok(cwd !== this.root && !this.workspaces.has(cwd), integration);
+
     return super.run(...args);
   }
 
@@ -28,11 +36,15 @@ export class EmptyMemory extends Memory {
 
   override workspace(directory: string, id: string): Workspace {
     const root = join(directory, 'memory');
+
     let workspace = this.workspaces.get(root);
+
     if (!workspace) {
       workspace = new EmptyWorkspace(this, root, id);
+
       this.workspaces.set(root, workspace);
     }
+
     return workspace;
   }
 
@@ -58,6 +70,7 @@ class EmptyWorkspace extends Workspace {
 
   override async ensureWorktree(): Promise<void> {
     await mkdir(this.root, { recursive: true });
+
     this.created = true;
   }
 
@@ -74,21 +87,26 @@ class EmptyWorkspace extends Workspace {
       recursive: true,
       withFileTypes: true,
     });
+
     assert.ok(
       entries.every((entry) => entry.isDirectory()),
       integration,
     );
+
     return { dirty: false, head: revision, ahead: 0, behind: 0 };
   }
 
   override async begin(scope: MemoryScope) {
     await this.status();
+
     await this.prepare(scope);
+
     return { revision, repointed: 0 };
   }
 
   override async adoptCheckout() {
     await this.status();
+
     return { repointed: 0 };
   }
 
@@ -98,6 +116,7 @@ class EmptyWorkspace extends Workspace {
 
   override async publish() {
     await this.status();
+
     return 'published' as const;
   }
 }

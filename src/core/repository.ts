@@ -1,9 +1,15 @@
 import { execFile } from 'node:child_process';
+
 import { realpathSync, watch } from 'node:fs';
+
 import type { FSWatcher } from 'node:fs';
+
 import { promisify } from 'node:util';
+
 import { z } from 'zod';
+
 import { errorMessage, issuesText } from '../errors.js';
+
 import { within } from '../paths.js';
 
 export const execute = promisify(execFile);
@@ -95,30 +101,45 @@ async function filterless(
     ['config', '-z', '--name-only', '--show-scope', '--list'],
     { cwd, timeout: 10_000 },
   );
+
   const entries = stdout.split('\0');
+
   const drivers = new Set<string>();
+
   for (let index = 0; index + 1 < entries.length; index += 2) {
     const name = /^filter\.(.*)\.(?:clean|process)$/s.exec(
       entries[index + 1]!,
     )?.[1];
+
     if (name === undefined || !['local', 'worktree'].includes(entries[index]!))
       continue;
+
     if (name.includes('\uFFFD'))
       throw new Error("a filter driver's name isn't valid UTF-8");
+
     drivers.add(name);
   }
+
   if (!drivers.size) return undefined;
+
   const env: NodeJS.ProcessEnv = { ...process.env };
+
   let count = Number(process.env.GIT_CONFIG_COUNT) || 0;
+
   const set = (key: string, value: string) => {
     env[`GIT_CONFIG_KEY_${count}`] = key;
+
     env[`GIT_CONFIG_VALUE_${count++}`] = value;
   };
+
   for (const name of drivers) {
     set(`filter.${name}.process`, '');
+
     set(`filter.${name}.required`, 'false');
   }
+
   env.GIT_CONFIG_COUNT = String(count);
+
   return env;
 }
 
@@ -133,8 +154,10 @@ export function parseStatus(text: string): Repository {
     conflicts: 0,
     untracked: 0,
   };
+
   for (const line of text.split('\n')) {
     const [kind, field, value, other] = line.split(' ');
+
     if (kind === '#' && field === 'branch.head' && value !== '(detached)')
       repository.branch = value!;
     else if (kind === '#' && field === 'branch.oid' && value !== '(initial)')
@@ -143,13 +166,16 @@ export function parseStatus(text: string): Repository {
       repository.upstream = value;
     else if (kind === '#' && field === 'branch.ab') {
       repository.ahead = Number(value);
+
       repository.behind = -Number(other);
     } else if (kind === '1' || kind === '2') {
       if (field![0] !== '.') repository.staged++;
+
       if (field![1] !== '.') repository.modified++;
     } else if (kind === 'u') repository.conflicts++;
     else if (kind === '?') repository.untracked++;
   }
+
   return repository;
 }
 
@@ -190,6 +216,7 @@ export function gitHubRepository(
 ): { host: string; repository: string } | undefined {
   const [, host, repository] =
     /^https:\/\/([^/]+)\/([^/]+\/[^/]+)\/pull\//.exec(url) ?? [];
+
   return host && repository ? { host, repository } : undefined;
 }
 
@@ -220,15 +247,21 @@ const pullRequestView = gitHubPullRequestFields.extend({
 /** reads `gh pr view --json number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable,mergedAt`. */
 export function parsePullRequest(json: string): PullRequest {
   const view = pullRequestView.parse(JSON.parse(json));
+
   const { state, mergeable, mergedAt, statusCheckRollup } = view;
+
   const pullRequest = fromGitHub(view);
+
   if (state !== 'OPEN')
     return mergedAt ? { ...pullRequest, mergedAt } : pullRequest;
+
   // GitHub's rollup holds each check's latest run, so a rerun in progress hides its earlier failure
   const checks = statusCheckRollup ?? [];
+
   const named = (name: string, url: string | null | undefined) => [
     { name, ...(url ? { url } : {}) },
   ];
+
   const failed = checks.flatMap((entry) =>
     entry.__typename === 'CheckRun'
       ? entry.status === 'COMPLETED' &&
@@ -239,12 +272,15 @@ export function parsePullRequest(json: string): PullRequest {
         ? named(entry.context, entry.targetUrl)
         : [],
   );
+
   const failing = failed.length > 0;
+
   const pending = checks.some((check) =>
     check.__typename === 'CheckRun'
       ? check.status !== 'COMPLETED'
       : ['PENDING', 'EXPECTED'].includes(check.state),
   );
+
   return {
     ...pullRequest,
     checks: !checks.length
@@ -278,7 +314,9 @@ export type Run = (
  */
 function unavailable(error: unknown): boolean {
   if (error instanceof SyntaxError || error instanceof z.ZodError) return false;
+
   const { code } = error as { code?: unknown };
+
   return typeof code !== 'string' || code === 'ENOENT';
 }
 
@@ -339,6 +377,7 @@ export class RepositoryWatch {
     options: { interval?: number } = {},
   ) {
     this.interval = options.interval ?? 5000;
+
     if (process.platform === 'darwin')
       try {
         // the top level only until Git answers, so a plain directory such as home gets no events from below it
@@ -346,20 +385,27 @@ export class RepositoryWatch {
       } catch {
         // a missing directory polls
       }
+
     this.timer = setInterval(() => this.tick(), this.interval);
+
     this.timer.unref();
+
     void this.refresh();
   }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
+
     return () => this.listeners.delete(listener);
   };
 
   close(): void {
     this.closed = true;
+
     clearInterval(this.timer);
+
     clearTimeout(this.scheduled);
+
     this.unwatch();
   }
 
@@ -367,22 +413,28 @@ export class RepositoryWatch {
     const watcher = watch(directory, { recursive, persistent: false }, () =>
       this.changed(),
     );
+
     watcher.on('error', () => this.unwatch());
+
     return watcher;
   }
 
   /** leaves the timer polling. */
   private unwatch(): void {
     for (const watcher of this.watchers ?? []) watcher.close();
+
     this.watchers = undefined;
   }
 
   private tick(): void {
     if (!this.watchers || performance.now() - this.startedAt >= fallback) {
       void this.refresh();
+
       return;
     }
+
     const branch = this.snapshot?.branch;
+
     if (branch && this.due(branch)) void this.fetchPullRequest(branch);
   }
 
@@ -399,20 +451,31 @@ export class RepositoryWatch {
   /** an admission needs a read started after its request, including when an older read is still running. */
   async readPullRequest(): Promise<void> {
     await this.refreshing;
+
     await this.refresh();
+
     await this.fetching;
+
     const branch = this.snapshot?.branch;
+
     if (this.closed || !branch || branch === 'HEAD') return;
+
     await this.fetchPullRequest(branch);
+
     await this.refreshing;
+
     await this.refresh();
   }
 
   private due(branch: string): boolean {
     const known = this.pullRequest;
+
     if (this.closed || branch === 'HEAD' || this.fetching) return false;
+
     if (this.requested || known?.branch !== branch) return true;
+
     const wait = known.value?.mergeable === 'UNKNOWN' ? 10_000 : 90_000;
+
     return Date.now() - known.at >= wait;
   }
 
@@ -420,23 +483,30 @@ export class RepositoryWatch {
   private changed(): void {
     if (this.refreshing) {
       this.stale = true;
+
       return;
     }
+
     if (this.scheduled) return;
+
     this.scheduled = setTimeout(
       () => {
         this.scheduled = undefined;
+
         void this.refresh();
       },
       Math.max(debounce, this.startedAt + this.interval - performance.now()),
     );
+
     this.scheduled.unref();
   }
 
   /** widens the watch to the work tree and the Git dirs outside it, all of which `git status` reads. */
   private async locate(): Promise<void> {
     this.located = true;
+
     let paths: string[];
+
     try {
       const { stdout } = await this.run(
         'git',
@@ -449,45 +519,65 @@ export class RepositoryWatch {
         ],
         { cwd: this.cwd, timeout: 10_000 },
       );
+
       paths = stdout.split('\n').filter(Boolean);
     } catch {
       // the top-level watch would miss changes below it, so poll instead
       this.unwatch();
+
       return;
     }
+
     const previous = this.watchers;
+
     if (!previous) return;
+
     const roots: string[] = [];
+
     for (const path of paths.toSorted((a, b) => a.length - b.length))
       if (!roots.some((root) => within(path, root))) roots.push(path);
+
     const opened: FSWatcher[] = [];
+
     try {
       for (const root of roots) opened.push(this.open(root, true));
     } catch {
       for (const watcher of opened) watcher.close();
+
       this.unwatch();
+
       return;
     }
+
     // the new watches open before the old one closes, and a read covers anything between them
     this.watchers = opened;
+
     for (const watcher of previous) watcher.close();
+
     this.changed();
   }
 
   private refresh(): Promise<void> {
     // a status read can outlast the interval, and a slower, older read would publish over a newer one
     if (this.closed) return Promise.resolve();
+
     return (this.refreshing ??= this.readStatus());
   }
 
   private async readStatus(): Promise<void> {
     this.stale = false;
+
     // this read covers a change still waiting for its own, such as when the minute timer starts it first
     clearTimeout(this.scheduled);
+
     this.scheduled = undefined;
+
     this.startedAt = performance.now();
+
     let repository: Repository | undefined;
+
     let failure: unknown;
+
     try {
       const { stdout } = await this.run(
         'git',
@@ -499,6 +589,7 @@ export class RepositoryWatch {
           env: await statusEnv(this.run, this.cwd),
         },
       );
+
       repository = parseStatus(stdout);
     } catch (error) {
       // unavailable status leaves Git out, including when a partial clone lacks an object
@@ -506,8 +597,11 @@ export class RepositoryWatch {
     } finally {
       this.refreshing = undefined;
     }
+
     if (this.closed) return;
+
     const previous = this.snapshot;
+
     if (
       repository &&
       (!previous ||
@@ -518,17 +612,24 @@ export class RepositoryWatch {
         previous.behind !== repository.behind)
     )
       this.refreshPullRequest();
+
     const known = this.pullRequest;
+
     if (repository && known?.branch === repository.branch) {
       repository.pullRequest = known.value;
+
       if (known.project !== undefined)
         repository.pullRequestProject = known.project;
+
       if (known.failure !== undefined)
         repository.pullRequestFailure = known.failure;
     }
+
     this.publish(repository);
+
     if (this.watchers) {
       if (repository && !this.located) void this.locate();
+
       // exit 128 is any Git fatal error, such as outside a repository, and waits for tick's minute read; a timeout or a failed spawn may pass sooner
       if (
         this.stale ||
@@ -536,6 +637,7 @@ export class RepositoryWatch {
       )
         this.changed();
     }
+
     if (repository && this.due(repository.branch))
       void this.fetchPullRequest(repository.branch);
   }
@@ -546,17 +648,25 @@ export class RepositoryWatch {
 
   private async fetch(branch: string): Promise<void> {
     this.requested = false;
+
     const started = Date.now();
+
     const commit = this.snapshot?.commit;
+
     let value: PullRequest | undefined;
+
     let project: string | undefined;
+
     const failures = new Set<string>();
+
     // the checks and base tip reads keep their fallbacks when they fail, and say why when nobody expects the failure
     const report = (error: unknown) => {
       if (!unavailable(error)) failures.add(reason(error));
     };
+
     try {
       project = await this.project?.();
+
       const view = await this.run(
         'gh',
         [
@@ -569,33 +679,43 @@ export class RepositoryWatch {
       ).catch((error: unknown) => {
         if (!unavailable(error)) throw error;
       });
+
       if (view) {
         value = parsePullRequest(view.stdout);
+
         if (
           value.checks === 'none' &&
           (await this.checksExpected(value, report))
         )
           value.checks = 'pending';
+
         const conflict = await this.conflicted(branch, value, report);
+
         if (this.project && project !== (await this.project()))
           value = undefined;
+
         if (
           this.closed ||
           this.snapshot?.branch !== branch ||
           this.snapshot.commit !== commit
         ) {
           value = undefined;
+
           this.refreshPullRequest();
         }
+
         if (value) this.conflict = conflict;
       }
     } catch (error) {
       value = undefined;
+
       failures.add(reason(error));
     } finally {
       this.fetching = undefined;
     }
+
     const failure = [...failures].join('; ') || undefined;
+
     this.pullRequest = {
       branch,
       at: Date.now(),
@@ -604,14 +724,18 @@ export class RepositoryWatch {
       project,
       failure,
     };
+
     if (this.snapshot?.branch !== branch) return;
+
     const repository: Repository = {
       ...this.snapshot,
       pullRequest: value,
       ...(project === undefined ? {} : { pullRequestProject: project }),
     };
+
     if (failure === undefined) delete repository.pullRequestFailure;
     else repository.pullRequestFailure = failure;
+
     this.publish(repository);
   }
 
@@ -620,23 +744,30 @@ export class RepositoryWatch {
     report: (error: unknown) => void,
   ): Promise<boolean> {
     const github = gitHubRepository(pr.url);
+
     if (!github) return true;
+
     const [owner, name] = github.repository.split('/');
+
     const tree = z
       .object({
         __typename: z.literal('Tree'),
         entries: z.array(z.object({ name: z.string(), type: z.string() })),
       })
       .nullable();
+
     const fields = '__typename ... on Tree { entries { name type } }';
+
     const api = async (args: string[]) => {
       const { stdout } = await this.run(
         'gh',
         ['api', '--hostname', github.host, ...args],
         { cwd: this.cwd, timeout: 30_000 },
       );
+
       return JSON.parse(stdout) as unknown;
     };
+
     try {
       const { data } = z
         .object({
@@ -687,7 +818,9 @@ export class RepositoryWatch {
             `base=refs/heads/${pr.base}:.github/workflows`,
           ]),
         );
+
       const found = data.repository.pullRequest;
+
       if (
         found.headRefOid !== pr.commit ||
         found.baseRefName !== pr.base ||
@@ -699,6 +832,7 @@ export class RepositoryWatch {
         )
       )
         return true;
+
       // read classic required checks through REST; GraphQL can hide their protection rule from readers.
       const branch = z
         .object({
@@ -711,7 +845,9 @@ export class RepositoryWatch {
             `repos/${github.repository}/branches/${encodeURIComponent(pr.base)}`,
           ]),
         );
+
       if (branch.protection.required_status_checks.contexts.length) return true;
+
       const rules = z
         .array(z.array(z.object({ type: z.string() })))
         .parse(
@@ -722,6 +858,7 @@ export class RepositoryWatch {
           ]),
         )
         .flat();
+
       if (
         rules.some(({ type }) =>
           [
@@ -733,19 +870,23 @@ export class RepositoryWatch {
         )
       )
         return true;
+
       const { stdout } = await this.run(
         'gh',
         ['pr', 'view', pr.url, '--json', 'headRefOid,baseRefName'],
         { cwd: this.cwd, timeout: 30_000 },
       );
+
       const current = gitHubPullRequestFields
         .pick({ headRefOid: true, baseRefName: true })
         .parse(JSON.parse(stdout));
+
       return (
         current.headRefOid !== pr.commit || current.baseRefName !== pr.base
       );
     } catch (error) {
       report(error);
+
       return true;
     }
   }
@@ -758,12 +899,15 @@ export class RepositoryWatch {
   ): Promise<{ branch: string; conflict: Conflict } | undefined> {
     if (value.mergeable === 'CONFLICTING') {
       const baseTip = await this.tip(value, report);
+
       return {
         branch,
         conflict: { pullRequest: value, ...(baseTip ? { baseTip } : {}) },
       };
     }
+
     const known = this.conflict;
+
     return value.mergeable === 'UNKNOWN' &&
       known?.branch === branch &&
       value.url === known.conflict.pullRequest.url
@@ -777,7 +921,9 @@ export class RepositoryWatch {
     report: (error: unknown) => void,
   ): Promise<string | undefined> {
     const github = gitHubRepository(url);
+
     if (!github) return;
+
     try {
       const { stdout } = await this.run(
         'gh',
@@ -791,9 +937,11 @@ export class RepositoryWatch {
         ],
         { cwd: this.cwd, timeout: 30_000 },
       );
+
       return stdout.trim() || undefined;
     } catch (error) {
       report(error);
+
       return;
     }
   }
@@ -801,14 +949,19 @@ export class RepositoryWatch {
   /** an unchanged status publishes nothing, so a quiet repository costs no redraws. */
   private publish(repository: Repository | undefined): void {
     if (this.closed) return;
+
     if (repository) {
       repository = { ...repository };
+
       if (this.conflict?.branch === repository.branch)
         repository.conflict = this.conflict.conflict;
       else delete repository.conflict;
     }
+
     if (JSON.stringify(repository) === JSON.stringify(this.snapshot)) return;
+
     this.snapshot = repository;
+
     for (const listener of this.listeners) listener();
   }
 }

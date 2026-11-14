@@ -1,15 +1,22 @@
 import { isFamiliarAction } from '../agents/familiar-report.js';
+
 import type { assignGitHubTask } from './github-assignment.js';
+
 import { recordTaskAssignment } from './github-assignment.js';
+
 import {
   ClaimConflict,
   type CoordinationStore,
   type Ledger,
   type Verify,
 } from '../persistence/coordination.js';
+
 import type { ControlOutcome, ControlRequest } from '../persistence/control.js';
+
 import type { StateStore } from '../persistence/store.js';
+
 import type { Activation, LedgerView, RequestState } from './coordination.js';
+
 import {
   checkTaskRelease,
   conversationSummarySchema,
@@ -20,8 +27,11 @@ import {
   type SelectionScope,
   type TransferTarget,
 } from './coordination-state.js';
+
 import { projectDiscovery, type Discovery } from './discovery.js';
+
 import { checkAnswering, isPeerAction, peerOutcome } from './peer-requests.js';
+
 import {
   isPauseAction,
   pauseRecipients,
@@ -29,8 +39,11 @@ import {
   type Pause,
   type PauseAction,
 } from './pauses.js';
+
 import type { Snapshot } from './snapshot.js';
+
 import type { ProcessIdentity } from './state.js';
+
 import {
   awaitTransfer,
   takeReference,
@@ -43,23 +56,33 @@ export interface DispatchHost {
   readonly process: ProcessIdentity;
   readonly assign: typeof assignGitHubTask;
   state(): Snapshot | undefined;
+
   turn(): SelectionScope | undefined;
+
   presenceFailure(): string | undefined;
+
   /** records a failed cleanup after the action, as the selection failure. */
   failed(error: unknown): void;
+
   admit(request?: ControlRequest): Activation;
+
   readLedger(state?: RequestState): Promise<LedgerView>;
+
   change<T>(
     state: RequestState | undefined,
     work: (verify: Verify) => Promise<T>,
     verify?: Verify,
   ): Promise<T>;
+
   observe(state: RequestState): Promise<Discovery>;
+
   requestSnapshot(
     active: Activation,
     state: RequestState,
   ): Promise<CoordinationSnapshot>;
+
   refreshProject(active: Activation, deadline?: number): Promise<void>;
+
   retireProject(active: Activation, state?: RequestState): Promise<void>;
 }
 
@@ -69,6 +92,7 @@ function selectionScope(
   turn?: string,
 ): SelectionScope {
   const scope = host.turn();
+
   if (
     !scope ||
     scope.activation !== active.binding.activation ||
@@ -76,6 +100,7 @@ function selectionScope(
     (turn !== undefined && scope.turn !== turn)
   )
     throw new Error('This selection turn is no longer current.');
+
   return scope;
 }
 
@@ -87,26 +112,37 @@ export async function dispatchControl(
   state: RequestState = {},
 ): Promise<ControlOutcome> {
   const active = host.admit(request);
+
   state.deadline = request.deadline;
+
   let outcome: ControlOutcome | undefined;
+
   try {
     const action = request.action;
+
     if (isFamiliarAction(action) || action.kind === 'route')
       throw new Error('This action is answered before dispatch.');
+
     checkAnswering(host.state()?.answering, action);
+
     if (action.kind === 'peers') {
       const snapshot = await host.requestSnapshot(active, state);
+
       if (snapshot.error) throw new Error(snapshot.error);
+
       return (outcome = { kind: 'peers', snapshot });
     }
+
     if (action.kind === 'take' && !human)
       throw new Error(
         'Only the user can request an unconditional transfer. Use --claim to request a transfer when the owner is out of usage.',
       );
+
     if (action.kind === 'release') {
       const claim = (await host.readLedger(state)).ledger.claims.find(
         (entry) => entry.id === action.claim,
       );
+
       await host.change(
         state,
         (verify) =>
@@ -121,14 +157,20 @@ export async function dispatchControl(
           ),
         async () => {
           host.admit(request);
+
           checkTaskRelease(host.state(), human);
         },
       );
+
       return { kind: 'released' };
     }
+
     await host.refreshProject(active, request.deadline);
+
     await host.retireProject(active, state);
+
     const owner = activationOwner(active);
+
     if (isPeerAction(action))
       return await peerOutcome(action, {
         registry: host.registry,
@@ -137,6 +179,7 @@ export async function dispatchControl(
         change: (work, verify) => host.change(state, work, verify),
         peers: async (ledger) => {
           host.admit(request);
+
           return projectDiscovery(
             active.conversation.id,
             active.project,
@@ -146,8 +189,10 @@ export async function dispatchControl(
         },
         claims: async () => (await host.readLedger(state)).ledger.claims,
       });
+
     if (isPauseAction(action))
       return await pauseOutcome(host, request, active, owner, state, action);
+
     const scope =
       action.kind === 'claim' || action.kind === 'take'
         ? undefined
@@ -156,28 +201,37 @@ export async function dispatchControl(
             active,
             action.kind === 'select-next' ? action.turn : undefined,
           );
+
     const verify = async (ledger: Ledger) => {
       // a closing session refuses before its project read and discovery spend the request's deadline
       host.admit(request);
+
       await host.refreshProject(active, request.deadline);
+
       const snapshot = projectDiscovery(
         active.conversation.id,
         active.project,
         await host.observe(state),
         ledger,
       );
+
       host.admit(request);
+
       if (owner.project !== active.project)
         throw new Error(
           'The project changed. Query peers before claiming again.',
         );
+
       if (scope && selectionScope(host, active) !== scope)
         throw new Error('This selection turn is no longer current.');
+
       if (host.presenceFailure()) throw new Error(host.presenceFailure());
+
       if (snapshot.unregistered.length)
         throw new Error(
           `Restart or close these unregistered Witch sessions before claiming: ${unregisteredList(snapshot.unregistered)}`,
         );
+
       if (
         snapshot.ownClaim &&
         snapshot.ownClaim.owner.project !== active.project
@@ -185,15 +239,18 @@ export async function dispatchControl(
         throw new Error(
           'Release the existing task in its original project before claiming in this project.',
         );
+
       if (action.kind === 'select-next') {
         const older = snapshot.peers.filter(
           (peer) => !peer.presence.selectionQueue,
         );
+
         if (older.length)
           throw new Error(
             `Restart or close these Witch sessions before selecting: ${sessionList(older.map(({ presence }) => presence))}`,
           );
       }
+
       if (
         action.kind === 'select-next' ||
         action.kind === 'recommend' ||
@@ -201,9 +258,11 @@ export async function dispatchControl(
       )
         checkTaskRelease(host.state(), false);
     };
+
     if (action.kind === 'claim' || action.kind === 'take') {
       const transfer = async (target: TransferTarget) => {
         const { activation } = active.binding;
+
         const { claim, view } = await awaitTransfer({
           conversation: owner.conversation,
           activation,
@@ -228,6 +287,7 @@ export async function dispatchControl(
           read: (deadline) => host.readLedger({ deadline }),
           withdraw: (id) => {
             state.ledger = undefined;
+
             return host.change(state, (check) =>
               host.registry.withdrawTransfer(
                 activation,
@@ -239,12 +299,17 @@ export async function dispatchControl(
             );
           },
         });
+
         state.ledger = view;
+
         return { kind: 'claimed' as const, claim };
       };
+
       if (action.kind === 'take')
         return await transfer({ field: 'transfer', ...action.input });
+
       let claim;
+
       try {
         claim = await host.change(
           state,
@@ -261,11 +326,13 @@ export async function dispatchControl(
       } catch (error) {
         if (!(error instanceof ClaimConflict) || error.claim.suggestion)
           throw error;
+
         return await transfer({
           field: 'automaticTransfer',
           claim: error.claim,
         });
       }
+
       return {
         kind: 'claimed',
         ...(await recordTaskAssignment(
@@ -280,6 +347,7 @@ export async function dispatchControl(
         )),
       };
     }
+
     if (action.kind === 'recommend')
       return {
         kind: 'claimed',
@@ -297,6 +365,7 @@ export async function dispatchControl(
           verify,
         ),
       };
+
     if (action.kind === 'cancel-selection') {
       await host.change(
         state,
@@ -309,8 +378,10 @@ export async function dispatchControl(
           ),
         verify,
       );
+
       return { kind: 'selection-cancelled', selection: action.selection };
     }
+
     const selection = await host.change(
       state,
       (check) =>
@@ -324,6 +395,7 @@ export async function dispatchControl(
             ),
       verify,
     );
+
     return (outcome = {
       kind: 'selection',
       selection,
@@ -336,8 +408,11 @@ export async function dispatchControl(
       error.claim
         ? new ClaimConflict(error.claim)
         : error;
+
     if (!(conflict instanceof ClaimConflict)) throw error;
+
     const owner = await record(host, conflict.claim.owner.conversation);
+
     return {
       kind: 'conflict',
       claim: conflict.claim,
@@ -351,6 +426,7 @@ export async function dispatchControl(
     await host
       .retireProject(active, state)
       .catch((error: unknown) => host.failed(error));
+
     await host.requestSnapshot(active, state).then(
       (snapshot) => {
         if (outcome?.kind === 'peers' || outcome?.kind === 'selection')
@@ -370,13 +446,16 @@ async function pauseOutcome(
   action: PauseAction,
 ): Promise<ControlOutcome> {
   const { registry } = host;
+
   const result = (pause: Pause): ControlOutcome => ({
     kind: 'pause',
     pause,
     statuses: pauseStatuses(pause),
   });
+
   if (action.kind === 'pause-status')
     return result(await registry.pause(owner.conversation, action.pause));
+
   if (action.kind === 'resume')
     return result(
       await registry.resumePause(
@@ -385,17 +464,23 @@ async function pauseOutcome(
         request.deadline,
       ),
     );
+
   const scope = host.turn();
+
   const turn =
     scope?.activation === active.binding.activation ? scope.turn : undefined;
+
   const existing = await registry.existingPause(
     owner.conversation,
     turn,
     action.to,
   );
+
   if (existing) return result(existing);
+
   // refuses early, before the lock; the recipients recorded are chosen again under it
   const admitted = pauseRecipients(action.to, owner, await host.observe(state));
+
   return result(
     await registry.issuePause(
       owner,
@@ -404,15 +489,20 @@ async function pauseOutcome(
       request.deadline,
       async () => {
         host.admit(request);
+
         state.discovery = undefined;
+
         const discovery = await host.observe(state);
+
         const closed = admitted.filter(
           ({ id }) => !discovery.live.get(id)?.pauses,
         );
+
         if (closed.length)
           throw new Error(
             `These sessions closed before the pause was recorded: ${closed.map(({ id }) => id).join(', ')}`,
           );
+
         return pauseRecipients(action.to, owner, discovery).map(
           ({ id, project }) => ({ conversation: id, project }),
         );

@@ -1,6 +1,9 @@
 import { z } from 'zod';
+
 import type { AccountReading, Limit } from '../agents/types.js';
+
 import type { ModelChoice } from './models.js';
+
 import {
   creditCapacity,
   current,
@@ -17,6 +20,7 @@ export const work = z.enum([
   'implementation',
   'investigation',
 ]);
+
 export type Work = z.infer<typeof work>;
 
 /** `same`, `other`, `both`, `<runtime>` or `<runtime>:<model-or-family>`; `same` and `other` are relative to the work's producer for review, and `both` sends work to every installed runtime. */
@@ -29,6 +33,7 @@ export const policySchema = z.object({
   families: z.record(z.string(), z.string()),
   work: z.partialRecord(work, target),
 });
+
 export type Policy = z.infer<typeof policySchema>;
 
 /** chosen defaults; `ruleFor` places work that has no rule, and usage at `shiftAt` still shifts new work that usable credits don't keep. */
@@ -76,6 +81,7 @@ export function comparable(
   to: string,
 ): string | undefined {
   const segments = name.split('-');
+
   return tiers.find((tier) =>
     tier[from]?.some((family) => segments.includes(family)),
   )?.[to]?.[0];
@@ -102,10 +108,13 @@ function version(text: string): number[] {
 
 function newer(a: string, b: string): boolean {
   const [left, right] = [version(a), version(b)];
+
   for (let index = 0; index < Math.max(left.length, right.length); index++) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);
+
     if (difference) return difference > 0;
   }
+
   return false;
 }
 
@@ -116,16 +125,23 @@ function newest(
   catalog: Catalog,
 ): string | undefined {
   const aliases = catalog.latest[runtime];
+
   if (aliases)
     return Object.hasOwn(aliases, family) ? aliases[family] : undefined;
+
   let best: { id: string; version: string } | undefined;
+
   for (const { agent, id } of catalog.models) {
     if (agent !== runtime) continue;
+
     const match = /^[a-z]+-(\d+(?:\.\d+)*)-(.+)$/.exec(id);
+
     if (match?.[2] !== family) continue;
+
     if (!best || newer(match[1]!, best.version))
       best = { id, version: match[1]! };
   }
+
   return best?.id;
 }
 
@@ -137,8 +153,11 @@ export function resolve(
 ): { model: string } | { refused: string } {
   if (name === 'default')
     return { refused: `name a ${runtime} family or model, not default` };
+
   if (exact(runtime, name, catalog)) return { model: name };
+
   const model = newest(runtime, name, catalog);
+
   return model
     ? { model }
     : { refused: `${runtime} lists no ${name} model to run` };
@@ -164,16 +183,21 @@ function standing(
 ): string {
   const parts = limits.map(({ window, percent, resetsAt }) => {
     const left = untilReset(resetsAt, now);
+
     return `${window} ${Math.round(percent)}%${left && `, resets in ${left}`}`;
   });
+
   const { funding } = account;
+
   if (funding) {
     const text =
       funding.kind === 'credits' && funding.balance !== null
         ? `${Number(funding.balance).toFixed(2)} credits`
         : fundingText(funding);
+
     parts.push(current(funding, now) ? text : `${text}, not current`);
   }
+
   return `${runtime} (${parts.join(', ')})`;
 }
 
@@ -184,7 +208,9 @@ function reading(
 ): string {
   if (!account || (!account.limits.length && !account.funding))
     return `${runtime} has no usage reading`;
+
   const stale = account.limits.filter((limit) => !current(limit, now));
+
   return stale.length
     ? `${runtime}'s ${stale.map(({ window }) => window).join(' and ')} reading is not current`
     : standing(runtime, account, now);
@@ -216,16 +242,21 @@ export function route({
 }): Route {
   const evidence = (runtime: string) => {
     const state = reading(runtime, accounts[runtime], now);
+
     return currentLimits(accounts[runtime]?.limits ?? [], now) &&
       !accounts[runtime]!.funding
       ? ''
       : `; ${state}`;
   };
+
   if (named) {
     if (!installed.includes(named.runtime))
       return { refused: `${named.runtime} is not installed` };
+
     const resolved = resolve(named.runtime, named.model, catalog);
+
     if ('refused' in resolved) return resolved;
+
     return {
       routes: [
         {
@@ -236,20 +267,25 @@ export function route({
       ],
     };
   }
+
   const base = work === 'review' && of ? of.runtime : caller;
+
   const subject = `${work}${work === 'review' && of ? ` of ${of.runtime} work` : ''}`;
+
   const place = (
     rule: string,
     why: string,
     mixed = false,
   ): Routed | { refused: string } => {
     const [kind, pinned] = rule.split(/:(.*)/s) as [string, string?];
+
     const runtime =
       kind === 'same'
         ? base
         : kind === 'other'
           ? installed.find((id) => id !== base)
           : kind;
+
     if (!runtime || !installed.includes(runtime))
       return {
         refused:
@@ -257,20 +293,28 @@ export function route({
             ? `no runtime besides ${base} is installed`
             : `${runtime ?? kind} is not installed`,
       };
+
     const choose = (id: string) => {
       if (!pinned)
         return policy.families[id]
           ? family(id, policy.families[id], catalog)
           : { refused: `no family is set for ${id}` };
+
       if (id === runtime) return resolve(id, pinned, catalog);
+
       const match = comparable(runtime, pinned, id);
+
       return match
         ? resolve(id, match, catalog)
         : { refused: `${id} has no model comparable to ${pinned}` };
     };
+
     const chosen = choose(runtime);
+
     if ('refused' in chosen) return chosen;
+
     const { shiftAt } = policy;
+
     if (
       shiftAt === null ||
       !over(accounts[runtime]?.limits ?? [], shiftAt, now)
@@ -280,6 +324,7 @@ export function route({
         model: chosen.model,
         reason: `${why}${evidence(runtime)}`,
       };
+
     const hot = `${standing(
       runtime,
       accounts[runtime]!,
@@ -288,27 +333,35 @@ export function route({
         (limit) => current(limit, now) && limit.percent >= shiftAt,
       ),
     )} is at or over the ${shiftAt}% shift threshold`;
+
     if (creditCapacity(accounts[runtime], now) === 'available')
       return {
         runtime,
         model: chosen.model,
         reason: `${why}; ${hot}, but its usable credits keep the work here`,
       };
+
     // below 100% a runtime still has included usage, so only a spent runtime falls back past headroom and only a spent destination's credits count
     const spent = (id: string) => over(accounts[id]?.limits ?? [], 100, now);
+
     const blocked: string[] = [];
+
     // a review the policy sent away from its producer never shifts back onto it, unless the producer reviews too
     const producer =
       !mixed && work === 'review' && of?.runtime !== runtime
         ? of?.runtime
         : undefined;
+
     for (const fallback of spent(runtime) ? [false, true] : [false]) {
       for (const id of installed) {
         if (id === runtime) continue;
+
         if (id === producer) {
           if (!fallback) blocked.push(`${id} produced the work`);
+
           continue;
         }
+
         if (
           fallback
             ? spent(id)
@@ -317,18 +370,24 @@ export function route({
             : !headroom(accounts[id]?.limits ?? [], shiftAt, now)
         ) {
           if (fallback) continue;
+
           blocked.push(
             currentLimits(accounts[id]?.limits ?? [], now)
               ? `${standing(id, accounts[id]!, now)} is at or over it too`
               : reading(id, accounts[id], now),
           );
+
           continue;
         }
+
         const shifted = choose(id);
+
         if ('refused' in shifted) {
           if (!fallback) blocked.push(shifted.refused);
+
           continue;
         }
+
         return {
           runtime: id,
           model: shifted.model,
@@ -337,38 +396,52 @@ export function route({
         };
       }
     }
+
     return {
       runtime,
       model: chosen.model,
       reason: `${why}; ${hot}, but ${blocked.join(', ') || 'no other runtime is installed'}`,
     };
   };
+
   const rule = ruleFor(policy, work);
+
   if (rule === 'both') {
     const placements: Routed[] = [];
+
     for (const runtime of installed) {
       const placed = place(runtime, `${subject} goes to every runtime`, true);
+
       if ('refused' in placed) return placed;
+
       placements.push(placed);
     }
+
     const routes = placements.filter(({ from }) => !from);
+
     const folded: Routed[] = [];
+
     // a shift can land on a runtime that has its own route; one familiar per model is enough
     for (const placed of placements.filter(({ from }) => from)) {
       const taken = routes.some(
         ({ runtime, model }) =>
           runtime === placed.runtime && model === placed.model,
       );
+
       (taken ? folded : routes).push(placed);
     }
+
     return folded.length ? { routes, folded } : { routes };
   }
+
   const why =
     rule === 'same'
       ? work === 'review' && of
         ? `${work} stays on ${of.runtime}, which produced it`
         : `${work} stays on ${caller}`
       : `the policy sends ${subject} to ${rule}`;
+
   const placed = place(rule, why);
+
   return 'refused' in placed ? placed : { routes: [placed] };
 }

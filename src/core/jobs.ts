@@ -1,10 +1,17 @@
 import { writeFileSync } from 'node:fs';
+
 import { readdir, rm } from 'node:fs/promises';
+
 import { join } from 'node:path';
+
 import { setTimeout as delay } from 'node:timers/promises';
+
 import { z } from 'zod';
+
 import { processArguments, ps } from '../persistence/process.js';
+
 import { quote } from '../shell.js';
+
 import { isEmacsDaemon } from './emacs.js';
 
 const mark = 'WITCH_JOBS';
@@ -53,6 +60,7 @@ interface Detail {
 export function parseProcesses(lines: string[]): Row[] {
   return lines.flatMap((line) => {
     const [pid, ppid, pgid, stat, ...rest] = line.trim().split(/\s+/);
+
     return stat!.startsWith('Z')
       ? []
       : [
@@ -79,6 +87,7 @@ const detail =
 export function parseDetails(lines: string[]): Detail[] {
   return lines.flatMap((line) => {
     const match = detail.exec(line);
+
     return match
       ? [
           {
@@ -105,11 +114,14 @@ async function carrying(
   return new Map(
     (await ps('pid=,command=', pids, { environment: true })).flatMap((line) => {
       const [, pid, rest] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+
       if (!pid || !` ${rest} `.includes(` ${entry} `)) return [];
+
       // use the last value because ps appends the environment after arguments.
       const service = [
         ...rest!.matchAll(/(?:^| )XPC_SERVICE_NAME=([^ ]*)/g),
       ].at(-1)?.[1];
+
       return [[Number(pid), service] as const];
     }),
   );
@@ -120,6 +132,7 @@ async function executables(pids: number[]): Promise<Map<number, string>> {
   return new Map(
     (await ps('pid=,comm=', pids)).flatMap((line) => {
       const [, pid, path] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+
       return pid ? [[Number(pid), path!] as const] : [];
     }),
   );
@@ -197,11 +210,16 @@ export class JobWatch {
     } = {},
   ) {
     const { directory, resume } = options;
+
     this.members = new Map(resume?.members);
+
     this.excluded = new Set(resume?.excluded);
+
     this.environment = directory ? { [mark]: directory } : {};
+
     if (directory) {
       this.script = join(directory, 'env');
+
       // a failed report must not stop commands under errexit; >| also tolerates noclobber.
       // nested Claude sessions must not reuse this report script
       writeFileSync(
@@ -209,10 +227,12 @@ export class JobWatch {
         `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport ${mark}=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
       );
     }
+
     // a failed read leaves the groups as they were, and the next tick reads again unless the watch is paused
     this.timer = setInterval(() => {
       if (!this.paused) void this.poll().catch(() => {});
     }, options.interval ?? 2000);
+
     this.timer.unref();
   }
 
@@ -228,6 +248,7 @@ export class JobWatch {
   /** hears each change of `live`. */
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
+
     return () => {
       this.listeners.delete(listener);
     };
@@ -235,14 +256,18 @@ export class JobWatch {
 
   private announce(): void {
     if (this.live === this.announced) return;
+
     this.announced = this.live;
+
     for (const listener of this.listeners) listener();
   }
 
   /** preserves hidden ordinary members and historical exclusions for the next watcher's identity checks. */
   async checkpoint(): Promise<JobCheckpoint> {
     if (this.polling) await this.polling;
+
     await this.poll();
+
     return {
       version: 1,
       members: [...this.members],
@@ -253,34 +278,47 @@ export class JobWatch {
   /** tracks a group Witch started itself from the next read, even once its leader has exited. */
   track(group: number): void {
     this.handed.add(group);
+
     this.paused = false;
   }
 
   /** whether a turn, familiar or brew is running, any of which can start a job. */
   setActive(active: boolean): void {
     if (active === this.active) return;
+
     this.active = active;
+
     this.activityChanges++;
+
     this.busyAt = performance.now();
+
     if (active) this.paused = false;
+
     if (!active) this.unread = true;
+
     this.announce();
   }
 
   /** the tracked jobs as of a fresh read, oldest first. */
   async list(): Promise<Job[]> {
     const tracked = await this.poll();
+
     // a read during describe replaces the map, so this keeps the generations of the read these rows came from
     const groups = this.groups;
+
     if (!tracked.length) return [];
+
     // ps reports a process's group as it is by then, which can be one the read never tracked
     const details = (
       await (this.options.describe ?? describe)(tracked.map(({ pid }) => pid))
     ).filter(({ pgid }) => groups.has(pgid));
+
     return [...Map.groupBy(details, ({ pgid }) => pgid)]
       .map(([group, members]) => {
         const byStart = members.toSorted((a, b) => a.startedAt - b.startedAt);
+
         const named = byStart.find(({ pid }) => pid !== group) ?? byStart[0]!;
+
         return {
           group,
           generation: groups.get(group)!,
@@ -302,20 +340,26 @@ export class JobWatch {
       ['SIGTERM', this.options.grace ?? 2000],
       ['SIGKILL', 1000],
     ] as const;
+
     for (const [signal, wait] of steps) {
       if (!(await this.running(job))) return;
+
       try {
         process.kill(-job.group, signal);
       } catch (error) {
         // the group can empty between the read and the signal, and a group of only zombies refuses signals
         if (!(await this.running(job))) return;
+
         throw error;
       }
+
       for (const end = Date.now() + wait; Date.now() < end;) {
         await delay(100);
+
         if (!(await this.running(job))) return;
       }
     }
+
     throw new Error(`Job ${job.group} has not stopped.`);
   }
 
@@ -325,6 +369,7 @@ export class JobWatch {
     generation,
   }: Pick<Job, 'group' | 'generation'>): Promise<boolean> {
     await this.poll();
+
     return this.groups.get(group) === generation;
   }
 
@@ -333,36 +378,48 @@ export class JobWatch {
     this.polling ??= this.read().finally(() => {
       this.polling = undefined;
     });
+
     return this.polling;
   }
 
   private async read(): Promise<Row[]> {
     const changes = this.activityChanges;
+
     const began = performance.now();
+
     // a group handed over while this read's ps runs can be missing from its rows, so it waits for the next read
     const handed = [...this.handed];
+
     // a report collected after ps could name a group ps never saw, which this read would drop. one in the copy alone
     // would be lost when its shell still runs now and exits before the next read
     for (const pid of await this.reports()) {
       handed.push(pid);
+
       this.handed.add(pid);
     }
+
     const rows = await (this.options.processes ?? processTable)();
+
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
+
     const excluded = new Set<string>();
+
     const emacs = rows.filter(
       ({ name, identity }) =>
         /^emacs(?:-\d+(?:\.\d+)*)?$/i.test(name) &&
         !this.excluded.has(identity),
     );
+
     const args = emacs.length
       ? await (this.options.arguments ?? processArguments)(
           emacs.map(({ pid }) => pid),
         )
       : new Map<number, string[]>();
+
     const daemons = new Set(
       [...args].filter(([, argv]) => isEmacsDaemon(argv)).map(([pid]) => pid),
     );
+
     const boundaries = rows.filter(
       ({ pid, name, identity }) =>
         name === 'tmux' ||
@@ -370,17 +427,23 @@ export class JobWatch {
         daemons.has(pid) ||
         this.excluded.has(identity),
     );
+
     while (boundaries.length) {
       const row = boundaries.pop()!;
+
       if (row.pid === process.pid || excluded.has(row.identity)) continue;
+
       excluded.add(row.identity);
+
       boundaries.push(...(children.get(row.pid) ?? []));
     }
+
     const excludedGroups = new Set(
       rows
         .filter(({ identity }) => excluded.has(identity))
         .map(({ pgid }) => pgid),
     );
+
     // the agents' commands lead sessions and their MCP servers don't. a server's detached helpers sit a level deeper
     // and are never reached, nor is any command of a Codex from npm, whose Node launcher runs app-server as its child.
     // VS Code's launcher for memory editing starts `open` as a session leader, so it shows as a job until it exits
@@ -394,83 +457,110 @@ export class JobWatch {
         ({ ppid, identity }) => ppid === 1 && this.members.has(identity),
       ),
     ];
+
     const held = new Set(
       rows
         .filter(({ pgid, identity }) => this.members.get(identity) === pgid)
         .map(({ pgid }) => pgid),
     );
+
     const groups = new Set(held);
+
     // stopping Witch's own group would end Witch. Codex's `shell_zsh_fork` and a Claude hook that sources
     // `$CLAUDE_ENV_FILE`, both off by default, put marked processes there, since neither agent is spawned detached
     const own = rows.find(({ pid }) => pid === process.pid)?.pgid;
+
     const walk = () => {
       while (pending.length) {
         const row = pending.pop()!;
+
         if (excluded.has(row.identity)) continue;
+
         if (row.pgid !== own) groups.add(row.pgid);
+
         pending.push(...(children.get(row.pid) ?? []));
       }
     };
+
     walk();
+
     // the first read only records identities so pre-existing processes cannot be adopted by their marks
     const { directory } = this.options;
+
     const { seen } = this;
+
     if (directory && seen) {
       const below = (row: Row): Row[] =>
         excluded.has(row.identity)
           ? []
           : [row, ...(children.get(row.pid) ?? []).flatMap(below)];
+
       const roots = rows.filter(
         ({ ppid, pgid, identity }) =>
           ppid === 1 && !seen.has(identity) && !groups.has(pgid),
       );
+
       const candidates = roots.flatMap(below);
+
       if (candidates.length) {
         const marked = await (
           this.options.marked ??
           ((pids) => carrying(`${mark}=${directory}`, pids))
         )(candidates.map(({ pid }) => pid));
+
         // LaunchServices starts an app in a group of its own, and `open --env` hands it the mark, as VS Code's `code`
         // does. the app, its terminals and its frameworks' helpers, such as its crash handler, are the user's. a
         // command's own run of an executable in Contents/MacOS stays a job unless it leads its own group
         const markedRoots = roots.filter(({ pid }) => marked.has(pid));
+
         const paths = markedRoots.length
           ? await (this.options.executables ?? executables)(
               markedRoots.map(({ pid }) => pid),
             )
           : new Map<number, string>();
+
         for (const candidate of candidates) {
           // exclude app-origin daemons even when they reparent between reads.
           const service = marked.get(candidate.pid);
+
           const application =
             service?.startsWith('application.') &&
             service !== process.env.XPC_SERVICE_NAME;
+
           // only the outermost app outside a framework matches, so Xcode's nested tools and framework-installed Python stay jobs
           const bundle =
             /^(?:(?!\.app\/|\.framework\/).)*\.app\/Contents\/(MacOS|Frameworks)\//.exec(
               paths.get(candidate.pid) ?? '',
             );
+
           if (
             !application &&
             (!bundle ||
               (candidate.pid !== candidate.pgid && bundle[1] === 'MacOS'))
           )
             continue;
+
           // excluded like a multiplexer tree, so a process that joins the app's group later can't bring the app back
           for (const row of below(candidate)) {
             excluded.add(row.identity);
+
             excludedGroups.add(row.pgid);
           }
         }
+
         // an unmarked root can sit above a command's session in a group that isn't the command's
         pending.push(...candidates.filter(({ pid }) => marked.has(pid)));
+
         walk();
       }
     }
+
     const owned = rows.filter(
       ({ identity, pgid }) => groups.has(pgid) && !excluded.has(identity),
     );
+
     for (const group of excludedGroups) groups.delete(group);
+
     // a returning or replaced group must invalidate selections from its earlier listing
     this.groups = new Map(
       [...groups].map((group) => [
@@ -479,15 +569,23 @@ export class JobWatch {
           ++this.generation,
       ]),
     );
+
     const tracked = rows.filter(({ pgid }) => groups.has(pgid));
+
     this.members = new Map(owned.map(({ identity, pgid }) => [identity, pgid]));
+
     this.seen = new Set(rows.map(({ identity }) => identity));
+
     this.excluded = excluded;
+
     for (const group of handed)
       if (!rows.some(({ pgid }) => pgid === group)) this.handed.delete(group);
+
     const tracking =
       this.groups.size > 0 || this.members.size > 0 || this.handed.size > 0;
+
     if (tracking) this.busyAt = performance.now();
+
     // read only while something could start a job, and for `settle` after, so an app opened as a turn ends is seen and excluded
     this.paused =
       !this.active &&
@@ -495,27 +593,37 @@ export class JobWatch {
       !excluded.size &&
       changes === this.activityChanges &&
       began - this.busyAt >= (this.options.settle ?? 5000);
+
     if (changes === this.activityChanges) this.unread = false;
+
     this.announce();
+
     return tracked;
   }
 
   /** takes the pids reported since the last read. */
   private async reports(): Promise<number[]> {
     const { directory } = this.options;
+
     if (!directory) return [];
+
     let names: string[];
+
     try {
       names = await readdir(directory);
     } catch (error) {
       // an agent's command can remove the directory, and /jobs should keep what the other paths reach
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+
       throw error;
     }
+
     const pids = names.filter((name) => /^\d+$/.test(name));
+
     await Promise.all(
       pids.map((name) => rm(join(directory, name), { force: true })),
     );
+
     return pids.map(Number);
   }
 }

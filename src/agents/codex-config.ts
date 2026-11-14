@@ -1,7 +1,9 @@
 import { z } from 'zod';
+
 import type { JsonRpc } from './json-rpc.js';
 
 export const object = z.record(z.string(), z.unknown());
+
 const configuration = z.object({ config: object });
 
 export async function readConfig(
@@ -25,6 +27,7 @@ export function withoutMcp(
       Object.entries(object.parse(source.mcp_servers ?? {})).map(
         ([name, value]) => {
           const server = object.parse(value);
+
           // disabled servers still need a valid transport; config/read's null options are not TOML overrides.
           return [
             name,

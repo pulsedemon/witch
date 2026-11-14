@@ -1,11 +1,16 @@
 import type { Snapshot } from '../core/snapshot.js';
+
 import { accountRows } from './status-rows.js';
+
 import type { Account, Status } from './status-rows.js';
+
 import { wrapLines } from './wrap.js';
 
 /** the text's width; the pentacle centers in it, sized by `rows`, its shorter side. */
 export const columns = 32;
+
 export const rows = 11;
+
 /** the text with the sidebar's border and padding. */
 export const sidebarWidth = columns + 3;
 
@@ -34,11 +39,16 @@ export function usagePlacement(
   const readings = snapshot.agents
     .filter(({ installed }) => installed)
     .map(({ id }) => ({ id, reading: snapshot.accounts[id] }));
+
   const accounts = readings.some(({ reading }) => reading) ? readings : [];
+
   const lines = usageLines(accounts, now);
+
   if (sidebar && height >= rows + 1 + lines.length)
     return { sidebar: lines, status: {} };
+
   const live = snapshot.native?.agent ?? snapshot.conversation?.agent;
+
   return {
     sidebar: [],
     status: {

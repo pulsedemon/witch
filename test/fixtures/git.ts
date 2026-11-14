@@ -1,6 +1,9 @@
 import { execFile } from 'node:child_process';
+
 import { promisify } from 'node:util';
+
 import { runGit } from '../../src/memory/memory.js';
+
 import type {
   GitOptions,
   GitResult,
@@ -37,7 +40,9 @@ export type GitHook = (
 export function hookedGit(hook: { current: GitHook }): GitRunner {
   return (args, options) => {
     let start = 0;
+
     while (args[start] === '-c') start += 2;
+
     return hook.current(
       args.slice(start),
       () => runGit(args, options),

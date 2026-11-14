@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
+
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+
 import { join } from 'node:path';
 
 /**
@@ -8,15 +10,20 @@ import { join } from 'node:path';
  */
 export function instanceDirectory(parent: string): string {
   mkdirSync(parent, { recursive: true });
+
   for (const name of readdirSync(parent))
     if (
       /^\d+$/.test(name) &&
       (Number(name) === process.pid || !processRunning(Number(name)))
     )
       removeDirectory(join(parent, name));
+
   const directory = join(parent, String(process.pid));
+
   mkdirSync(directory, { recursive: true });
+
   process.once('exit', () => removeDirectory(directory));
+
   return directory;
 }
 
@@ -24,6 +31,7 @@ export function instanceDirectory(parent: string): string {
 export function processRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
+
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== 'ESRCH';
@@ -37,6 +45,7 @@ function removeDirectory(directory: string): void {
   } catch {
     // a read-only directory an agent's command left stops rm until it's made writable
     spawnSync('/bin/chmod', ['-R', 'u+rwx', directory]);
+
     try {
       rmSync(directory, { recursive: true, force: true });
     } catch {

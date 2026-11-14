@@ -1,10 +1,13 @@
 import { z } from 'zod';
+
 import type { SlashCommand } from '@anthropic-ai/claude-agent-sdk';
+
 import type { Cast, Skill } from './types.js';
 
 export const acknowledged = z.object({
   user_message_uuids: z.array(z.string()),
 });
+
 const skillUse = z.object({
   type: z.literal('tool_use'),
   id: z.string(),
@@ -16,6 +19,7 @@ const skillUse = z.object({
 export function skillCasts(content: readonly unknown[]): Cast[] {
   return content.flatMap((block) => {
     const use = skillUse.safeParse(block).data;
+
     return use ? [{ id: use.id, name: use.input.skill }] : [];
   });
 }
@@ -36,12 +40,17 @@ export function skillsOf(commands: SlashCommand[]): Skill[] {
       .filter((command) => command.builtin)
       .map((command) => [command.name, command]),
   );
+
   const listed = new Map<string, Skill>();
+
   for (const command of commands) {
     const builtin = builtins.has(command.name);
+
     const { name, description, argumentHint, aliases } =
       builtins.get(command.name) ?? command;
+
     if (listed.has(name) || (builtin && textCommands.has(name))) continue;
+
     listed.set(name, {
       name,
       description,
@@ -50,5 +59,6 @@ export function skillsOf(commands: SlashCommand[]): Skill[] {
       ...(builtin && aliases?.length ? { aliases } : {}),
     });
   }
+
   return [...listed.values()];
 }

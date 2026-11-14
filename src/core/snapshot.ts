@@ -1,4 +1,5 @@
 import type { AgentRegistration } from '../agents/registry.js';
+
 import type {
   BackgroundCommand,
   AccountReading,
@@ -8,7 +9,9 @@ import type {
   Usage,
   UserRequest,
 } from '../agents/types.js';
+
 import type { Conversation, DisplayItem, Phase } from './state.js';
+
 import type { ModelChoice } from './models.js';
 
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */

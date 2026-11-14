@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict';
+
 import { readFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
+
 import { test } from 'vitest';
+
 import { runCommand } from '../src/core/command.js';
+
 import { scratch } from './fixtures/scratch.js';
 
 for (const cancellable of [false, true])
   test(`commands preserve cwd, arguments and environment in returned output (cancellable: ${cancellable})`, async () => {
     const directory = await scratch('witch-command-');
+
     const result = await runCommand(
       process.execPath,
       [
@@ -23,6 +29,7 @@ for (const cancellable of [false, true])
         ...(cancellable ? { signal: new AbortController().signal } : {}),
       },
     );
+
     assert.deepEqual(JSON.parse(result.stdout), {
       cwd: directory,
       args: ['first', 'second'],
@@ -32,7 +39,9 @@ for (const cancellable of [false, true])
 
 test('a cancelled command cannot start another checkout mutation', async () => {
   const cwd = await scratch('witch-command-');
+
   const signal = AbortSignal.abort();
+
   await assert.rejects(
     runCommand(
       process.execPath,
@@ -41,12 +50,14 @@ test('a cancelled command cannot start another checkout mutation', async () => {
     ),
     { name: 'AbortError' },
   );
+
   await assert.rejects(readFile(join(cwd, 'mutation')), { code: 'ENOENT' });
 });
 
 for (const killSignal of [undefined, 'SIGKILL'] as const) {
   test(`native timeout failures retain their output and metadata (${killSignal ?? 'default signal'})`, async () => {
     const cwd = await scratch('witch-command-');
+
     await assert.rejects(
       runCommand(
         process.execPath,
@@ -70,6 +81,7 @@ for (const killSignal of [undefined, 'SIGKILL'] as const) {
 
 test('timeout failures remain labeled when the child handles SIGTERM', async () => {
   const cwd = await scratch('witch-command-');
+
   await assert.rejects(
     runCommand(
       process.execPath,
@@ -93,6 +105,7 @@ test('timeout failures remain labeled when the child handles SIGTERM', async () 
 for (const cancellable of [false, true])
   test(`other command failures keep their native diagnostics (cancellable: ${cancellable})`, async () => {
     const cwd = await scratch('witch-command-');
+
     for (const [command, script, fields] of [
       [
         process.execPath,

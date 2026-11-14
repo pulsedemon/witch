@@ -1,12 +1,19 @@
 import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
+
 import { isCopilot } from './github-reviews.js';
+
 import type { GitHubReviews } from './github-reviews.js';
+
 import { pullRequestSchema } from './repository.js';
 
 const itemIdentity = z.object({ id: z.string(), version: z.string() });
+
 const reason = z.string().trim().min(1);
+
 const replied = { reply: z.string().url(), reason };
+
 const disposition = z.discriminatedUnion('disposition', [
   itemIdentity.extend({
     disposition: z.literal('fixed'),
@@ -65,8 +72,11 @@ export const copilotReviewStateSchema = z.object({
 });
 
 export type CopilotReviewState = z.infer<typeof copilotReviewStateSchema>;
+
 export type ReviewBatch = z.infer<typeof reviewBatchSchema>;
+
 export type ReviewResult = z.infer<typeof reviewResultSchema>;
+
 type Feedback = z.infer<typeof feedbackSchema>;
 
 function version(comments: readonly { id: string; body: string }[]): string {
@@ -99,6 +109,7 @@ function feedback(source: GitHubReviews): Feedback[] {
       const comments = thread.comments.filter(
         ({ author, body }) => isCopilot(author) && body.trim(),
       );
+
       return comments.length
         ? [
             {
@@ -131,6 +142,7 @@ function findingsFree(
   const threaded = new Set(
     current.flatMap(({ kind, reviews }) => (kind === 'thread' ? reviews : [])),
   );
+
   return new Set(
     source.reviews
       .filter(
@@ -148,19 +160,27 @@ export function observeReviews(
   source: GitHubReviews,
 ): CopilotReviewState {
   const current = feedback(source);
+
   const present = new Set(current.map(({ id }) => id));
+
   const previous = new Map(state?.items.map((item) => [item.id, item]));
+
   const clear = findingsFree(source, current);
+
   return {
     ...state,
     pullRequest: source.pullRequest,
     items: [
       ...current.map((item): CopilotReviewState['items'][number] => {
         const old = previous.get(item.id);
+
         if (old?.version === item.version)
           return { ...old, ...item, present: true };
+
         const receipts = old?.receipts ?? [];
+
         const known = receipts.find(({ version }) => version === item.version);
+
         const cleared =
           !known && clear.has(item.id)
             ? {
@@ -171,7 +191,9 @@ export function observeReviews(
                 reason: 'Copilot reported no open issues.',
               }
             : undefined;
+
         const receipt = known ?? cleared;
+
         return {
           ...item,
           present: true,
@@ -202,6 +224,7 @@ export async function reconcileReviews(
   commitPushed: (commit: string) => Promise<boolean>,
 ): Promise<CopilotReviewState> {
   const state = structuredClone(current);
+
   if (
     batch.id !== result.batch ||
     batch.pullRequest.url !== source.pullRequest.url ||
@@ -210,17 +233,24 @@ export async function reconcileReviews(
     throw new Error(
       'The review result belongs to another batch or pull request.',
     );
+
   const seen = new Set<string>();
+
   const admitted = new Map(batch.items.map(({ id, version }) => [id, version]));
+
   for (const entry of result.items) {
     if (seen.has(entry.id) || admitted.get(entry.id) !== entry.version)
       throw new Error(
         'The review result contains a duplicate or unknown finding.',
       );
+
     seen.add(entry.id);
   }
+
   const commits = new Map<string, Promise<boolean>>();
+
   const waiting = new Set<string>();
+
   const items: ReviewResult['items'] = [
     ...result.items,
     ...batch.items
@@ -232,14 +262,19 @@ export async function reconcileReviews(
           'The review turn did not return a disposition for this finding.',
       })),
   ];
+
   items.sort(
     (a, b) =>
       Number(a.disposition === 'covered') - Number(b.disposition === 'covered'),
   );
+
   for (const entry of items) {
     const item = state.items.find(({ id }) => id === entry.id);
+
     if (!item) continue;
+
     let failure: string | undefined;
+
     if (entry.disposition === 'blocked') failure = entry.reason;
     else if (entry.disposition === 'covered') {
       const threads = state.items.filter(
@@ -248,15 +283,19 @@ export async function reconcileReviews(
           (candidate.present || admitted.has(candidate.id)) &&
           candidate.reviews.includes(item.id),
       );
+
       if (
         threads.some(({ id }) => waiting.has(id)) ||
         entry.threads.some((id) => waiting.has(id))
       ) {
         waiting.add(entry.id);
+
         continue;
       }
+
       const verified = (thread: CopilotReviewState['items'][number]) => {
         const expected = admitted.get(thread.id);
+
         return expected
           ? thread.receipts.some(
               (receipt) =>
@@ -265,6 +304,7 @@ export async function reconcileReviews(
             )
           : thread.status === 'handled';
       };
+
       if (
         item.kind !== 'review' ||
         entry.threads.some(
@@ -284,12 +324,14 @@ export async function reconcileReviews(
         item.kind === 'thread'
           ? (source.threads.find(({ id }) => id === item.id)?.comments ?? [])
           : [...source.comments, ...source.reviews];
+
       const reply = replies.find(
         ({ url, author }) =>
           url === entry.reply &&
           author?.__typename === 'User' &&
           author.login === source.viewer,
       );
+
       if (
         !reply &&
         entry.reply.startsWith(`${source.pullRequest.url}#`) &&
@@ -300,14 +342,18 @@ export async function reconcileReviews(
         ].some(({ url }) => url === entry.reply)
       ) {
         waiting.add(entry.id);
+
         continue;
       }
+
       if (!reply || (item.kind !== 'thread' && !reply.body.includes(item.url)))
         failure =
           'The reply was not found on the finding under the signed-in user.';
       else if (entry.disposition === 'fixed') {
         const url = new URL(source.pullRequest.url);
+
         const repository = url.pathname.split('/').slice(1, 3).join('/');
+
         if (
           !reply.body.includes(
             `${url.origin}/${repository}/commit/${entry.commit}`,
@@ -316,16 +362,20 @@ export async function reconcileReviews(
           failure = 'The fix reply does not link the reported commit.';
         else {
           let pushed = commits.get(entry.commit);
+
           if (!pushed) {
             pushed = commitPushed(entry.commit);
+
             commits.set(entry.commit, pushed);
           }
+
           if (!(await pushed))
             failure =
               'The reported fix commit is not on the remote pull request head.';
         }
       }
     }
+
     const receipt = failure
       ? {
           id: entry.id,
@@ -334,23 +384,30 @@ export async function reconcileReviews(
           reason: failure,
         }
       : entry;
+
     item.receipts = [
       ...item.receipts.filter(({ version }) => version !== entry.version),
       receipt,
     ];
+
     if (item.version === entry.version) {
       item.status = failure ? 'blocked' : 'handled';
+
       item.reason = failure;
     }
   }
+
   if (waiting.size) {
     state.batch = { ...batch, verifying: true, reason: undefined };
+
     for (const item of state.items)
       if (waiting.has(item.id) && admitted.get(item.id) === item.version) {
         item.status = 'attempted';
+
         delete item.reason;
       }
   } else delete state.batch;
+
   return state;
 }
 
@@ -359,6 +416,7 @@ export function blockReviewBatch(
   reason: string,
 ): CopilotReviewState {
   reason = reason.trim() || 'Review handling failed without a reported error.';
+
   return {
     ...state,
     ...(state.batch
@@ -366,11 +424,15 @@ export function blockReviewBatch(
       : {}),
     items: state.items.map((item) => {
       const admitted = state.batch?.items.find(({ id }) => id === item.id);
+
       if (!admitted) return item;
+
       const prior = item.receipts.find(
         ({ version }) => version === admitted.version,
       );
+
       if (prior && prior.disposition !== 'blocked') return item;
+
       return {
         ...item,
         ...(item.version === admitted.version

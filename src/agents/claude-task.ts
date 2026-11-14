@@ -1,9 +1,15 @@
 import { z } from 'zod';
+
 import { mergeCasts } from './familiar-report.js';
+
 import type { FamiliarProgress } from './familiar-report.js';
+
 import { errorMessage } from '../errors.js';
+
 import { claudeTitle } from './tool-title.js';
+
 import { skillCasts } from './claude-spells.js';
+
 import type { Cast } from './types.js';
 
 const frame = z.object({
@@ -13,16 +19,19 @@ const frame = z.object({
   parent_tool_use_id: z.string().nullable().optional(),
   agent_id: z.string().optional(),
 });
+
 const init = z.object({
   session_id: z.string().min(1),
   model: z.string().min(1),
 });
+
 const modelChange = z.object({
   direction: z.enum(['retry', 'revert', 'sticky']),
   scope: z.enum(['session', 'local']).optional(),
   original_model: z.string().min(1),
   fallback_model: z.string().min(1),
 });
+
 const assistant = z.object({
   session_id: z.string(),
   message: z.object({
@@ -30,10 +39,13 @@ const assistant = z.object({
     content: z.array(z.object({ type: z.string() }).passthrough()),
   }),
 });
+
 const tool = z.object({ id: z.string(), name: z.string(), input: z.unknown() });
+
 const castContent = z.object({
   message: z.object({ content: z.array(z.unknown()) }),
 });
+
 const result = z.object({
   session_id: z.string(),
   subtype: z.string(),
@@ -73,73 +85,103 @@ export class ClaudeTask {
   message(value: unknown): void {
     try {
       const message = frame.parse(value);
+
       const nested =
         message.parent_tool_use_id != null || message.agent_id !== undefined;
+
       // a nested frame's tool calls aren't this task's, but the spells its own familiars cast are
       if (message.type === 'assistant' && this.addCasts(value) && nested)
         this.emit(this.progress());
+
       if (nested) return;
+
       if (this.identity && message.session_id !== this.identity.session_id)
         return;
+
       if (message.type === 'system' && message.subtype === 'init') {
         const identity = init.parse(value);
+
         const changed = identity.model !== this.identity?.model;
+
         this.identity = identity;
+
         if (changed) this.emit(this.progress());
       } else if (
         message.type === 'system' &&
         message.subtype === 'model_refusal_fallback'
       ) {
         const change = modelChange.parse(value);
+
         if (!this.identity || change.scope === 'local') return;
+
         const model =
           change.direction === 'revert'
             ? change.original_model
             : change.fallback_model;
+
         if (model !== this.identity.model) {
           this.identity = { ...this.identity, model };
+
           this.emit(this.progress());
         }
       } else if (message.type === 'assistant') {
         if (!this.identity)
           throw new Error('Claude activity arrived before initialization.');
+
         const {
           message: { model, content },
         } = assistant.parse(value);
+
         const changed =
           model !== '<synthetic>' && model !== this.identity.model;
+
         if (changed) this.identity = { ...this.identity, model };
+
         const previousTools = this.tools.size;
+
         for (const block of content) {
           if (block.type === 'tool_use') {
             const use = tool.parse(block);
+
             if (this.tools.has(use.id)) continue;
+
             this.tools.add(use.id);
+
             this.activity = claudeTitle(use.name, use.input, this.cwd).title;
+
             this.emit(this.progress());
           }
         }
+
         if (changed && this.tools.size === previousTools)
           this.emit(this.progress());
+
         const text = content
           .filter((block) => block.type === 'text')
           .map((block) => z.string().parse(block.text))
           .join('\n');
+
         if (text) this.draft = text;
       } else if (message.type === 'result') {
         const finished = result.parse(value);
+
         if (finished.subtype === 'success' && finished.result === undefined)
           throw new Error('Claude returned a success result without a report.');
+
         this.receivedResult = true;
+
         this.success = finished.subtype === 'success' && !finished.is_error;
+
         const denials = finished.permission_denials.map(
           (denial) =>
             `Permission denied: ${claudeTitle(denial.tool_name, denial.tool_input, this.cwd).title}`,
         );
+
         this.reports.push(
           finished.result ?? finished.errors?.join('\n') ?? this.draft,
           ...denials,
         );
+
         this.draft = '';
       }
     } catch (error) {
@@ -165,6 +207,7 @@ export class ClaudeTask {
               : !this.success
                 ? 'Claude task failed.'
                 : undefined);
+
     return {
       ...this.progress(),
       status: signal ? 'stopped' : reason ? 'failed' : 'completed',
@@ -187,8 +230,11 @@ export class ClaudeTask {
   /** returns whether the frame cast a spell not seen before. */
   private addCasts(value: unknown): boolean {
     const content = castContent.safeParse(value).data?.message.content ?? [];
+
     const spells = mergeCasts(this.spells, skillCasts(content));
+
     if (spells) this.spells = spells;
+
     return !!spells;
   }
 }

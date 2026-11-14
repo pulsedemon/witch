@@ -1,7 +1,11 @@
 import { Box, Text } from 'ink';
+
 import { sessionStatus, taskActivity } from '../core/coordination-state.js';
+
 import type { Snapshot } from '../core/snapshot.js';
+
 import { plain } from './links.js';
+
 import { piped } from './theme.js';
 
 /** the top row: what the session is doing, its permission mode, and what the user must do to go on. */
@@ -20,8 +24,10 @@ export function PhaseRow({
   exitArmed: boolean;
 }) {
   const { familiars, brews } = taskActivity(state);
+
   const count = (n: number, name: string) =>
     counts && n ? [`${n} ${name}${n === 1 ? '' : 'S'}`] : [];
+
   return (
     <Box height={1}>
       <Text dimColor wrap="truncate-end">

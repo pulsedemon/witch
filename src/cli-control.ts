@@ -1,25 +1,39 @@
 import { dirname, resolve } from 'node:path';
+
 import { parseArgs } from 'node:util';
+
 import { setTimeout as delay } from 'node:timers/promises';
+
 import { aborted, errorMessage } from './errors.js';
+
 import { claudeArguments } from './cli-familiar.js';
+
 import { codexArguments } from './cli-codex-familiar.js';
+
 import {
   coordinationActionSchema,
   selectionStatus,
 } from './core/coordination-state.js';
+
 import { callControl, controlBindingSchema } from './persistence/control.js';
+
 import type { ControlBinding, ControlOutcome } from './persistence/control.js';
+
 import { quote } from './shell.js';
+
 import { oneLine } from './ui/links.js';
+
 import { peerStatus } from './ui/peers.js';
 
 /** `<runtime>:<model>`, splitting at the first colon so a model ID keeps its own. */
 function choice(text: string | undefined) {
   if (text === undefined) return undefined;
+
   const colon = text.indexOf(':');
+
   if (colon <= 0 || colon === text.length - 1)
     throw new Error('Name a runtime and model as <runtime>:<model>.');
+
   return { runtime: text.slice(0, colon), model: text.slice(colon + 1) };
 }
 
@@ -65,6 +79,7 @@ const bindingOptions = [
   'control-conversation',
   'control-activation',
 ] as const;
+
 /** in the order the "choose exactly one" refusal lists them. */
 const actionOptions = [
   'peers',
@@ -94,28 +109,36 @@ function bindingOf(values: {
 
 export function parseCommand(args = process.argv.slice(2)) {
   const separator = args.indexOf('--');
+
   const parsed = parseArgs({
     args,
     options,
     allowPositionals: true,
     strict: true,
   });
+
   const { values, positionals } = parsed;
+
   const reporting =
     values['familiar-claude'] !== undefined ||
     values['familiar-codex'] !== undefined ||
     values['report-file'] !== undefined ||
     values['without-mcp'] !== undefined;
+
   if (reporting) {
     const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
+
     const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
+
     const label = runtime === 'codex' ? 'Codex' : 'Claude';
+
     const allowed = new Set([
       ...bindingOptions,
       option,
       'report-file',
       ...(runtime === 'codex' ? ['without-mcp'] : []),
     ]);
+
     if (
       Object.keys(values).some((key) => !allowed.has(key)) ||
       separator < 0 ||
@@ -124,12 +147,16 @@ export function parseCommand(args = process.argv.slice(2)) {
       throw new Error(
         `${label} familiar mode requires -- before native arguments and cannot include other Witch options or prompts.`,
       );
+
     if (!values[option]?.trim() || !values['report-file'])
       throw new Error(
         `${label} familiar mode requires a task name and --report-file.`,
       );
+
     const binding = bindingOf(values);
+
     (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
+
     return {
       ...parsed,
       control: undefined,
@@ -144,12 +171,15 @@ export function parseCommand(args = process.argv.slice(2)) {
       spawn: undefined,
     };
   }
+
   // the tabs start Witch on the default state directory, so nothing else applies
   if (values.spawn !== undefined) {
     if (!/^[1-9]\d*$/.test(values.spawn))
       throw new Error('--spawn needs a positive number of worktrees.');
+
     if (positionals.length || Object.keys(values).length > 1)
       throw new Error('--spawn cannot include prompts or other options.');
+
     return {
       ...parsed,
       control: undefined,
@@ -157,8 +187,10 @@ export function parseCommand(args = process.argv.slice(2)) {
       spawn: Number(values.spawn),
     };
   }
+
   if (values.apply && values['recover-directory'] === undefined)
     throw new Error('--apply requires --recover-directory.');
+
   if (
     values['recover-directory'] !== undefined &&
     (!values['recover-directory'] ||
@@ -169,6 +201,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error(
       '--recover-directory needs a saved directory and cannot include prompts, --continue or --help.',
     );
+
   const controls = [
     ...bindingOptions,
     ...actionOptions,
@@ -181,6 +214,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     'named',
     'json',
   ] as const;
+
   if (!controls.some((name) => values[name] !== undefined))
     return {
       ...parsed,
@@ -188,17 +222,22 @@ export function parseCommand(args = process.argv.slice(2)) {
       familiar: undefined,
       spawn: undefined,
     };
+
   const flags = actionOptions.map((name) => `--${name}`);
+
   if (actionOptions.filter((name) => values[name] !== undefined).length !== 1)
     throw new Error(
       `Choose exactly one control action: ${flags.slice(0, -1).join(', ')} or ${flags.at(-1)}.`,
     );
+
   if (!values.pause && values.to) throw new Error('--to requires --pause.');
+
   if (
     values.route === undefined &&
     (values.of !== undefined || values.named !== undefined)
   )
     throw new Error('--of and --named require --route.');
+
   if (
     positionals.length ||
     values.continue ||
@@ -209,26 +248,35 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error(
       'Control commands cannot include prompts, --continue, --help, --state-dir or --recover-directory.',
     );
+
   if (bindingOptions.some((name) => !values[name]))
     throw new Error(
       'Use the complete control prefix from the current Witch context.',
     );
+
   if (
     values.claim === undefined &&
     values.recommend === undefined &&
     (values.summary !== undefined || values.alias)
   )
     throw new Error('--summary and --alias require --claim or --recommend.');
+
   if (values.recommend !== undefined && !values.selection)
     throw new Error('--recommend requires --selection.');
+
   if (values.recommend === undefined && values.selection !== undefined)
     throw new Error('--selection requires --recommend.');
+
   const asking = values.ask !== undefined || values.answer !== undefined;
+
   if (asking && values.message === undefined)
     throw new Error('--ask and --answer require --message.');
+
   if (!asking && values.message !== undefined)
     throw new Error('--message requires --ask or --answer.');
+
   const binding = bindingOf(values);
+
   const action = coordinationActionSchema.parse(
     values.peers
       ? { kind: 'peers' }
@@ -274,6 +322,7 @@ export function parseCommand(args = process.argv.slice(2)) {
                             }
                           : { kind: 'release', claim: values.release },
   );
+
   return {
     ...parsed,
     control: { binding, action, json: !!values.json },
@@ -285,6 +334,7 @@ export function parseCommand(args = process.argv.slice(2)) {
 /** source launches need absolute loader and config paths when a tool changes directories. */
 export function controlPrefix(binding: ControlBinding, entry: string): string {
   const source = entry.endsWith('.tsx');
+
   return [
     ...(source
       ? [
@@ -309,25 +359,37 @@ export function controlPrefix(binding: ControlBinding, entry: string): string {
 function describe(outcome: ControlOutcome): string {
   switch (outcome.kind) {
     case 'familiar-registered':
+
     case 'familiar-pending':
+
     case 'familiar-updated':
+
     case 'familiar-request-pending':
+
     case 'familiar-response':
       return outcome.kind;
+
     case 'claimed':
       return `${outcome.claim.suggestion ? 'Suggested' : 'Claimed'}: ${oneLine(outcome.claim.summary)}\nClaim id: ${outcome.claim.id}${outcome.warning ? `\nWarning: ${outcome.warning}` : ''}`;
+
     case 'selection':
       return `Selection ${outcome.selection.ticket.id}: ${outcome.selection.position === 1 ? 'ready' : `queued #${outcome.selection.position}`}`;
+
     case 'selection-cancelled':
       return `Selection ${outcome.selection} cancelled.`;
+
     case 'released':
       return 'Task released.';
+
     case 'conflict':
       return `${outcome.message}${outcome.owner ? `\nCheckout: ${outcome.owner.cwd}` : ''}\nClaim id: ${outcome.claim.id}`;
+
     case 'error':
       return outcome.message;
+
     case 'peer-request': {
       const { request, status } = outcome;
+
       return [
         `Peer request ${request.id} from ${oneLine(request.from)} to ${oneLine(request.to)} about ${oneLine(request.reference)}: ${status}`,
         `Request: ${oneLine(request.message)}`,
@@ -342,6 +404,7 @@ function describe(outcome: ControlOutcome): string {
               : []),
       ].join('\n');
     }
+
     case 'pause':
       return [
         `Pause ${outcome.pause.id} from ${oneLine(outcome.pause.from)}`,
@@ -349,6 +412,7 @@ function describe(outcome: ControlOutcome): string {
           ([conversation, status]) => `${oneLine(conversation)}: ${status}`,
         ),
       ].join('\n');
+
     case 'route':
       return [
         ...outcome.routes.map(
@@ -360,8 +424,10 @@ function describe(outcome: ControlOutcome): string {
             `Passed over: ${from} for ${runtime} ${model}\nReason: ${reason}`,
         ),
       ].join('\n');
+
     case 'peers': {
       const snapshot = outcome.snapshot;
+
       return (
         [
           ...(snapshot.error
@@ -398,8 +464,11 @@ function describe(outcome: ControlOutcome): string {
 export function writeControl(outcome: ControlOutcome, json: boolean): number {
   const code =
     outcome.kind === 'conflict' ? 2 : outcome.kind === 'error' ? 1 : 0;
+
   const stream = json || code === 0 ? process.stdout : process.stderr;
+
   stream.write(`${json ? JSON.stringify(outcome) : describe(outcome)}\n`);
+
   return code;
 }
 
@@ -407,29 +476,43 @@ export async function runControl(
   call: NonNullable<ReturnType<typeof parseCommand>['control']>,
 ): Promise<number> {
   const stopped = new AbortController();
+
   const stop = () => stopped.abort();
+
   const waiting = call.action.kind === 'select-next';
+
   if (waiting) {
     process.once('SIGINT', stop);
+
     process.once('SIGTERM', stop);
   }
+
   try {
     let outcome: ControlOutcome = await callControl(call.binding, call.action);
+
     let position: number | undefined;
+
     let selection: string | undefined;
+
     while (waiting && outcome.kind === 'selection') {
       const { ticket } = outcome.selection;
+
       selection = ticket.id;
+
       if (stopped.signal.aborted || outcome.selection.position === 1) break;
+
       if (position !== outcome.selection.position) {
         position = outcome.selection.position;
+
         process.stderr.write(`Selection ${ticket.id}: queued #${position}\n`);
       }
+
       await delay(1000, undefined, { signal: stopped.signal }).catch(
         (error: unknown) => {
           if (!aborted(error)) throw error;
         },
       );
+
       if (!stopped.signal.aborted)
         outcome = await callControl(call.binding, {
           kind: 'selection-status',
@@ -439,6 +522,7 @@ export async function runControl(
           message: errorMessage(error),
         }));
     }
+
     if (stopped.signal.aborted && selection) {
       writeControl(
         await callControl(call.binding, {
@@ -447,8 +531,10 @@ export async function runControl(
         }),
         call.json,
       );
+
       return 130;
     }
+
     return writeControl(outcome, call.json);
   } catch (error) {
     return writeControl(
@@ -458,6 +544,7 @@ export async function runControl(
   } finally {
     if (waiting) {
       process.off('SIGINT', stop);
+
       process.off('SIGTERM', stop);
     }
   }

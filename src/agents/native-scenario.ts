@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+
 import { writeFile, readFile } from 'node:fs/promises';
+
 import { basename, join } from 'node:path';
+
 import type {
   AgentAdapter,
   AgentEvent,
@@ -10,16 +13,22 @@ import type {
   UserRequest,
   UserResponse,
 } from './types.js';
+
 import { setTimeout as delay } from 'node:timers/promises';
+
 import { familiarMarker } from './familiar-report.js';
+
 import { skillCall } from '../core/prompts.js';
+
 import type { ProcessIdentity } from '../core/state.js';
+
 import {
   identifyProcesses,
   processArguments,
   ps,
   sameProcess,
 } from '../persistence/process.js';
+
 import { errorMessage } from '../errors.js';
 
 export type NativeScenario =
@@ -27,12 +36,15 @@ export type NativeScenario =
 
 export function probeApproval(request: UserRequest): UserResponse {
   assert.equal(request.kind, 'approval', request.detail);
+
   const { command } = JSON.parse(request.detail) as { command?: string };
+
   assert.ok(
     command &&
       ['node probe.mjs', "/bin/zsh -lc 'node probe.mjs'"].includes(command),
     `Unexpected capture command: ${request.detail}`,
   );
+
   return { decision: 'accept' };
 }
 
@@ -44,14 +56,22 @@ export async function nativeScenario(
   live = false,
 ) {
   const events: AgentEvent[] = [];
+
   const writeProbe = (source: string) =>
     writeFile(join(options.cwd, 'probe.mjs'), source);
+
   const probes = new Map<string, ProcessIdentity>();
+
   let nativeProcess: ProcessIdentity | undefined;
+
   const failures: unknown[] = [];
+
   let finished = false;
+
   const abort = new AbortController();
+
   let turnFailure: unknown;
+
   const watchTurn = (turn: Promise<TurnResult>) => {
     void turn.then(
       (result) => {
@@ -63,6 +83,7 @@ export async function nativeScenario(
       },
     );
   };
+
   const waitFor = (
     what: string,
     predicate: () => boolean | Promise<boolean>,
@@ -72,18 +93,26 @@ export async function nativeScenario(
       what,
       () => {
         options.signal?.throwIfAborted();
+
         abort.signal.throwIfAborted();
+
         if (turnFailure) throw turnFailure;
+
         return predicate();
       },
       attempts,
     );
+
   const observeProbes = async () => {
     options.signal?.throwIfAborted();
+
     abort.signal.throwIfAborted();
+
     if (!nativeProcess) return;
+
     const rows = (await ps('pid=,ppid=,lstart=')).flatMap((line) => {
       const match = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
+
       return match
         ? [
             {
@@ -94,6 +123,7 @@ export async function nativeScenario(
           ]
         : [];
     });
+
     if (
       !sameProcess(
         rows.find((row) => row.pid === nativeProcess!.pid),
@@ -101,20 +131,29 @@ export async function nativeScenario(
       )
     )
       return;
+
     const owned = new Set([nativeProcess.pid]);
+
     let added = true;
+
     while (added) {
       added = false;
+
       for (const row of rows)
         if (owned.has(row.parent) && !owned.has(row.pid)) {
           owned.add(row.pid);
+
           added = true;
         }
     }
+
     owned.delete(nativeProcess.pid);
+
     const argumentsByPid = await processArguments([...owned]);
+
     for (const row of rows) {
       const args = argumentsByPid.get(row.pid);
+
       if (
         args &&
         basename(args[0] ?? '') === 'node' &&
@@ -126,20 +165,25 @@ export async function nativeScenario(
         });
     }
   };
+
   const probeStarted = (count: number) =>
     waitFor(
       'native probe process',
       async () => {
         await observeProbes();
+
         return probes.size >= count;
       },
       4500,
     );
 
   let session: AgentSession;
+
   const onEvent = (event: AgentEvent) => {
     events.push(event);
+
     report(event);
+
     if (event.type === 'request') {
       try {
         session.respond(event.request.id, probeApproval(event.request));
@@ -148,12 +192,15 @@ export async function nativeScenario(
       }
     }
   };
+
   const binding = {
     directory: join(options.cwd, 'control'),
     conversation: 'native-protocol',
     activation: '00000000-0000-4000-8000-000000000309',
   };
+
   const run = '00000000-0000-4000-8000-000000000310';
+
   const connect = (resume?: string) =>
     adapter.connect({
       ...options,
@@ -171,25 +218,37 @@ export async function nativeScenario(
       },
       familiarBinding: binding,
     });
+
   session = await connect();
+
   try {
     if (scenario === 'basic') {
       assert.ok(
         (await session.models()).some(({ id }) => id === options.model),
       );
+
       await session.skills();
+
       await session.selectModel(options.model!, 'medium');
+
       assert.equal(session.info.model, options.model);
+
       assert.equal(session.info.effort, 'medium');
+
       const answer = await session.send(
         'Reply with only the marker in the supplied context. Do not use tools, spells or delegation.',
         { context: 'The protocol check marker is WITCH_CONTEXT_309.' },
       );
+
       assert.equal(answer.status, 'completed', answer.error);
+
       assert.equal(answer.text.trim(), 'WITCH_CONTEXT_309');
+
       if (adapter.id === 'codex') {
         const shell = await session.shell('printf WITCH_SHELL_309');
+
         assert.equal(shell.status, 'completed', shell.error);
+
         assert.ok(
           events.some(
             (event) =>
@@ -197,42 +256,62 @@ export async function nativeScenario(
           ),
         );
       }
+
       await writeProbe(
         "import {writeFileSync} from 'node:fs'; writeFileSync('probe-result', 'WITCH_TOOL_309'); console.log('WITCH_TOOL_309');\n",
       );
+
       const tool = await session.send(
         adapter.id === 'codex'
           ? 'Run exactly `node probe.mjs` in this directory once, requesting native permission first if the sandbox is read-only. Do not read other files, load spells or delegate. Then reply only WITCH_TOOL_DONE_309.'
           : 'Run exactly `node probe.mjs` in this directory once. Do not read other files, load spells or delegate. Then reply only WITCH_TOOL_DONE_309.',
       );
+
       assert.equal(tool.status, 'completed', tool.error);
+
       assert.match(tool.text.trim(), /(?:^|\n)WITCH_TOOL_DONE_309$/);
+
       if (live)
         assert.equal(
           await readFile(join(options.cwd, 'probe-result'), 'utf8'),
           'WITCH_TOOL_309',
         );
+
       const compact = await session.compact();
+
       assert.equal(compact.status, 'completed', compact.error);
+
       assert.ok(events.some(({ type }) => type === 'compacted'));
+
       const id = session.info.id;
+
       await session.close();
+
       session = await connect(id);
+
       assert.equal(session.info.id, id);
+
       const resumed = await session.send(
         'Reply only WITCH_RESUMED_309. Do not use tools, spells or delegation.',
       );
+
       assert.equal(resumed.status, 'completed', resumed.error);
+
       assert.equal(resumed.text.trim(), 'WITCH_RESUMED_309');
     } else if (scenario === 'control') {
       await writeProbe(
         "console.log('WITCH_WAIT_309'); setTimeout(() => {}, 15000);\n",
       );
+
       const prompt =
         'Run exactly `node probe.mjs` in the foreground. Do not use other tools, spells or delegation. When it ends reply only WITCH_CONTROL_309.';
+
       const started = events.length;
+
       const sending = session.send(prompt);
+
       watchTurn(sending);
+
       await waitFor(
         'native tool start',
         () =>
@@ -241,17 +320,26 @@ export async function nativeScenario(
             .some((event) => event.type === 'tool' && !event.done),
         4500,
       );
+
       if (live) await probeStarted(1);
+
       assert.equal(
         await session.steer('Also include STEER_309 in the final reply.'),
         true,
       );
+
       const steered = await within(sending, 120000, 'steered native turn');
+
       assert.equal(steered.status, 'completed', steered.error);
+
       assert.match(steered.text, /STEER_309/);
+
       const before = events.length;
+
       const interrupted = session.send(prompt);
+
       watchTurn(interrupted);
+
       await waitFor(
         'interrupt tool start',
         () =>
@@ -260,11 +348,15 @@ export async function nativeScenario(
             .some((event) => event.type === 'tool' && !event.done),
         4500,
       );
+
       if (live) await probeStarted(2);
+
       await session.interrupt();
+
       assert.equal((await interrupted).status, 'interrupted');
     } else if (scenario === 'spell') {
       const skills = await session.skills();
+
       const cast = (from: number) =>
         events
           .slice(from)
@@ -272,18 +364,27 @@ export async function nativeScenario(
             (event) =>
               event.type === 'spell' && event.cast.name === 'probe-spell',
           );
+
       let from = events.length;
+
       const agent = await session.send(
         'Run the probe spell with argument hi. Do not use a subagent.',
       );
+
       assert.equal(agent.status, 'completed', agent.error);
+
       assert.match(agent.text, /PROBE CAST hi/);
+
       assert.ok(cast(from), 'the agent casts the probe spell');
+
       from = events.length;
+
       const familiar = await session.send(
         'Launch exactly one subagent. Its task: run the probe spell with argument fam and report what it said. Wait for it, then repeat its report.',
       );
+
       assert.equal(familiar.status, 'completed', familiar.error);
+
       assert.ok(
         events
           .slice(from)
@@ -294,23 +395,34 @@ export async function nativeScenario(
           ),
         'a familiar casts the probe spell',
       );
+
       from = events.length;
+
       const prompt = '/probe-spell hello';
+
       const call = skillCall(prompt, skills);
+
       assert.ok(call, 'the probe spell is listed');
+
       const user = await session.send(prompt, { skill: call });
+
       assert.equal(user.status, 'completed', user.error);
+
       assert.match(user.text, /PROBE CAST hello/);
+
       assert.ok(cast(from), 'the user casts the probe spell');
     } else if (scenario === 'idle-run') {
       // the second run, started by Claude Code after the brew ends, sleeps so a prompt lands inside it
       await writeProbe(
         "import {existsSync} from 'node:fs'; if (existsSync('emit')) setTimeout(() => console.log('WITCH_SLOW_505'), 8000); else { const timer = setInterval(() => { if (existsSync('emit')) { clearInterval(timer); console.log('WITCH_DONE_505'); } }, 20); }\n",
       );
+
       const started = await session.send(
         'Run exactly `node probe.mjs` with Bash run_in_background=true. Do not read files, load spells or delegate. Reply only WITCH_BACKGROUND_505 after starting it. When it finishes, run exactly `node probe.mjs` once more in the foreground, then reply only WITCH_NATIVE_505.',
       );
+
       assert.equal(started.status, 'completed', started.error);
+
       await waitFor(
         'native background membership',
         () =>
@@ -320,9 +432,13 @@ export async function nativeScenario(
           ),
         1500,
       );
+
       if (live) await probeStarted(1);
+
       const from = events.length;
+
       await writeFile(join(options.cwd, 'emit'), 'emit');
+
       // the approval comes from the run Claude Code starts once the brew ends, and is answered as it arrives, so the
       // prompt follows it on the wire
       await waitFor(
@@ -330,13 +446,18 @@ export async function nativeScenario(
         () => events.slice(from).some((event) => event.type === 'request'),
         3000,
       );
+
       // Claude Code takes the prompt into its own run at the next tool boundary, and that run's result names it
       if (live) await probeStarted(2);
+
       const prompted = await session.send(
         'Reply only WITCH_PROMPT_505. Do not use tools, spells or delegation.',
       );
+
       assert.equal(prompted.status, 'completed', prompted.error);
+
       assert.equal(prompted.text.trim(), 'WITCH_PROMPT_505');
+
       await waitFor(
         'native idle',
         () =>
@@ -348,13 +469,17 @@ export async function nativeScenario(
       await writeProbe(
         `import {existsSync} from 'node:fs'; const timer = setInterval(() => { if (existsSync('emit')) { process.stdout.write(${JSON.stringify(familiarMarker({ version: 1, conversation: binding.conversation, activation: binding.activation, run }))}); clearInterval(timer); } }, 20); setTimeout(() => {}, 120000);\n`,
       );
+
       const result = await session.send(
         adapter.id === 'claude'
           ? 'Run exactly `node probe.mjs` with Bash run_in_background=true. Do not read files, load spells or delegate. Reply only WITCH_BACKGROUND_309 after starting it. Do not wait for it or stop it.'
           : 'Run exactly `node probe.mjs` with exec_command yield_time_ms=1000. Request native permission if needed. Do not read files, load spells or delegate. Reply only WITCH_BACKGROUND_309 after starting it. Do not wait for it or stop it.',
       );
+
       assert.equal(result.status, 'completed', result.error);
+
       assert.match(result.text, /WITCH_BACKGROUND_309/);
+
       await waitFor(
         'native background membership',
         () =>
@@ -364,8 +489,11 @@ export async function nativeScenario(
           ),
         1500,
       );
+
       if (live) await probeStarted(1);
+
       await writeFile(join(options.cwd, 'emit'), 'emit');
+
       await waitFor(
         'native output marker',
         async () =>
@@ -382,6 +510,7 @@ export async function nativeScenario(
           ).kind === 'familiar-registered',
         100,
       );
+
       assert.ok(
         events.some(
           (event) =>
@@ -389,6 +518,7 @@ export async function nativeScenario(
             event.subagent.name === 'protocol probe',
         ),
       );
+
       await session.familiar!.report(
         {
           kind: 'familiar-update',
@@ -398,6 +528,7 @@ export async function nativeScenario(
         },
         Date.now() + 10000,
       );
+
       assert.ok(
         events.some(
           (event) =>
@@ -407,6 +538,7 @@ export async function nativeScenario(
         ),
       );
     }
+
     finished = true;
   } catch (error) {
     // a failed approval aborts the session, so the turn's own failure only says it was aborted
@@ -417,6 +549,7 @@ export async function nativeScenario(
     } catch (error) {
       failures.push(error);
     }
+
     if (live) {
       try {
         if (
@@ -427,15 +560,19 @@ export async function nativeScenario(
             probes.size > 0,
             'Native probe process identity was not observed',
           );
+
         if (probes.size) await confirmProbeExit([...probes.values()]);
       } catch (error) {
         failures.push(error);
       }
     }
   }
+
   if (failures.length === 1) throw failures[0];
+
   if (failures.length)
     throw new AggregateError(failures, failures.map(errorMessage).join('\n'));
+
   return events;
 }
 
@@ -445,6 +582,7 @@ async function within(
   what: string,
 ): Promise<TurnResult> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   try {
     return await Promise.race([
       promise,
@@ -467,8 +605,10 @@ async function until(
 ): Promise<void> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (await predicate()) return;
+
     await delay(20);
   }
+
   throw new Error(`Timed out waiting for ${what}`);
 }
 
@@ -477,15 +617,20 @@ async function confirmProbeExit(processes: ProcessIdentity[]): Promise<void> {
     const actual = await identifyProcesses(
       processes.map((identity) => identity.pid),
     );
+
     return processes.filter((identity) =>
       sameProcess(actual.get(identity.pid), identity),
     );
   };
+
   for (let attempt = 0; attempt < 100; attempt++) {
     if (!(await remaining()).length) return;
+
     await delay(20);
   }
+
   const leaked = await remaining();
+
   for (const identity of leaked) {
     if (
       !sameProcess(
@@ -494,13 +639,16 @@ async function confirmProbeExit(processes: ProcessIdentity[]): Promise<void> {
       )
     )
       continue;
+
     try {
       process.kill(identity.pid, 'SIGKILL');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
     }
   }
+
   await until('probe process cleanup', async () => !(await remaining()).length);
+
   assert.equal(
     leaked.length,
     0,

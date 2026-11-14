@@ -1,17 +1,31 @@
 import { execFile } from 'node:child_process';
+
 import { randomUUID } from 'node:crypto';
+
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
+
 import { promisify } from 'node:util';
+
 import type { AgentSession } from '../../src/agents/types.js';
+
 import { Coordinator } from '../../src/core/coordinator.js';
+
 import type { Conversation, ConversationRecord } from '../../src/core/state.js';
+
 import { ConversationStore, StateStore } from '../../src/persistence/store.js';
+
 import { FixtureAgent } from './agent.js';
+
 import { hookedGit, passThrough } from './git.js';
+
 import { scratch } from './scratch.js';
+
 import { seededMemory } from './seeded-memory.js';
+
 import { EmptyMemory } from './empty-memory.js';
+
 import { ephemeralFiles } from './ephemeral-files.js';
 
 export function record(id: string, cwd: string, agent = 'a'): Conversation {
@@ -38,21 +52,33 @@ export function activity(): ConversationRecord['activity'] {
 /** holds the save after the session's first turn returns, where only Witch's settlement keeps the turn running. */
 export function holdSettlement(session: AgentSession) {
   const entered = Promise.withResolvers<void>();
+
   const held = Promise.withResolvers<void>();
+
   const save = ConversationStore.prototype.save;
+
   let armed: boolean | undefined;
+
   const send = session.send.bind(session);
+
   session.send = async (...args) => {
     const result = await send(...args);
+
     armed ??= true;
+
     return result;
   };
+
   ConversationStore.prototype.save = function (record) {
     if (!armed) return save.call(this, record);
+
     armed = false;
+
     entered.resolve();
+
     return held.promise.then(() => save.call(this, record));
   };
+
   return {
     entered: entered.promise,
     release: () => held.resolve(),
@@ -60,6 +86,7 @@ export function holdSettlement(session: AgentSession) {
     /** releases a pending hold, so close() can't wait on it. */
     restore: () => {
       held.resolve();
+
       ConversationStore.prototype.save = save;
     },
   };
@@ -85,21 +112,34 @@ export async function fixture(
   changes?: ConstructorParameters<typeof Coordinator>[6],
 ) {
   const root = await scratch('witch-coordinator-');
+
   if (unit) ephemeralFiles(root);
+
   const project = join(root, 'project');
+
   await mkdir(project);
+
   const store = await StateStore.open(join(root, 'state'));
+
   const hook = { current: passThrough };
+
   const memoryRoot = join(store.root, 'memory.git');
+
   const memory = unit
     ? new EmptyMemory(memoryRoot)
     : await seededMemory(memoryRoot, hookedGit(hook));
+
   const a = new FixtureAgent('a');
+
   const b = new FixtureAgent('b');
+
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
+
   const tracked: number[] = [];
+
   /** the activity the coordinator reports to the job watch, once per change. */
   const active: boolean[] = [];
+
   const jobs = {
     track: (group: number) => tracked.push(group),
     setActive: (value: boolean) => {
@@ -107,6 +147,7 @@ export async function fixture(
     },
     environment: {},
   };
+
   const coordinator = new Coordinator(
     store,
     memory,
@@ -116,35 +157,51 @@ export async function fixture(
     undefined,
     changes,
   );
+
   prepare?.(a, b);
+
   await coordinator.initialize(project);
+
   const workspace = (id = coordinator.snapshot.conversation!.id) =>
     memory.workspace(join(root, 'state', 'conversations', id), id);
+
   const note = async () =>
     `${(await memory.scopePaths(project)).project}/MEMORY.md`;
+
   const notes = async () =>
     `${(await memory.scopePaths(project)).project}/notes.md`;
+
   const git = (...args: string[]) =>
     promisify(execFile)('git', ['-C', project, ...args]);
+
   /** another conversation's workspace, for publishing to main from outside. */
   const outsider = async (id = randomUUID()) => {
     await mkdir(join(root, 'state', 'conversations', id), { recursive: true });
+
     const other = workspace(id);
+
     await other.ensureWorktree();
+
     await other.scope(project);
+
     return other;
   };
+
   /** a second instance continuing the project's conversation, as `witch -c` does. */
   const reopen = async () => {
     const reopened = new Coordinator(store, memory, agents);
+
     try {
       await reopened.initialize(project, { continue: true });
     } catch (error) {
       await reopened.close();
+
       throw error;
     }
+
     return reopened;
   };
+
   return {
     coordinator,
     store,
@@ -181,16 +238,25 @@ export async function stranded(
   cwd = context.project,
 ) {
   const { store, workspace } = context;
+
   const created = await store.create(record(randomUUID(), cwd));
+
   const id = created.record.id;
+
   await created.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });
+
   const memory = workspace(id);
+
   await memory.ensureWorktree();
+
   for (const [path, text] of Object.entries(files)) {
     await mkdir(join(memory.root, path, '..'), { recursive: true });
+
     await writeFile(join(memory.root, path), text);
   }
+
   await memory.commit(`chore(memory): save notes\n\nconversation: ${id}`);
+
   return { id, files: created, memory };
 }
 

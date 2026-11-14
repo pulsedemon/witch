@@ -1,11 +1,16 @@
 import { spawn } from 'node:child_process';
+
 import { readFile } from 'node:fs/promises';
+
 import { setTimeout as delay } from 'node:timers/promises';
+
 import type {
   FamiliarAction,
   FamiliarOutcome,
 } from '../agents/familiar-report.js';
+
 import { FamiliarRun } from '../agents/familiar-requests.js';
+
 import {
   beforeDeadline,
   graceDeadline,
@@ -14,7 +19,9 @@ import {
   signalGroup,
   stopDeadline,
 } from '../agents/shutdown.js';
+
 import { errorMessage } from '../errors.js';
+
 import type { AgentEvent, TaskStatus } from '../agents/types.js';
 
 export interface Reviewer {
@@ -58,25 +65,35 @@ export class Reviewers {
   report(action: FamiliarAction): FamiliarOutcome | undefined {
     if (action.kind === 'familiar-register') {
       const expected = this.expected.get(action.name);
+
       if (!expected) return;
+
       if (expected.run === action.run) return { kind: 'familiar-registered' };
+
       if (expected.run)
         throw new Error('This reviewer has already registered.');
+
       expected.run = action.run;
+
       this.runs.set(
         action.run,
         new FamiliarRun(action, (event) => {
           if (event.type === 'subagent') this.publish(event);
         }),
       );
+
       return { kind: 'familiar-registered' };
     }
+
     const run = this.runs.get(action.run);
+
     if (!run) return;
+
     if (action.kind !== 'familiar-update')
       throw new Error(
         'A reviewer Witch launched runs read-only and cannot ask for anything.',
       );
+
     return run.report(action);
   }
 
@@ -92,11 +109,16 @@ export class Reviewers {
   }): Promise<ReviewerResult[]> {
     if (signal.aborted)
       return reviewers.map(() => ({ code: null, report: '' }));
+
     for (const { name } of reviewers) this.expected.set(name, {});
+
     const groups: number[] = [];
+
     const diagnostics = reviewers.map(() => '');
+
     // kept apart from stderr, which can still arrive after the exit
     const killed: (NodeJS.Signals | null)[] = reviewers.map(() => null);
+
     const exits = reviewers.map(
       ({ command }, index) =>
         new Promise<number | null>((resolve) => {
@@ -105,24 +127,34 @@ export class Reviewers {
             detached: true,
             stdio: ['ignore', 'ignore', 'pipe'],
           });
+
           if (child.pid) groups.push(child.pid);
+
           child.stderr.setEncoding('utf8');
+
           child.stderr.on('data', (chunk: string) => {
             diagnostics[index] = (diagnostics[index] + chunk).slice(-2000);
           });
+
           child.once('error', (error) => {
             diagnostics[index] = error.message;
+
             resolve(null);
           });
+
           child.once('exit', (code, ended) => {
             killed[index] = ended;
+
             resolve(code);
           });
         }),
     );
+
     let stopping: Promise<void> | undefined;
+
     // a stop that misses its deadline ends the run even while a command still hasn't exited
     const missed = Promise.withResolvers<never>();
+
     const abort = () => {
       stopping ??= stopGroups(
         groups,
@@ -130,35 +162,50 @@ export class Reviewers {
           ? stopDeadline(signal.reason.options.deadline)
           : stopDeadline(),
       );
+
       stopping.catch(missed.reject);
     };
+
     signal.addEventListener('abort', abort, { once: true });
+
     /** ends a reviewer that never reported its own end, so a failed or stopped run leaves none running. */
     const finish = (name: string) => {
       const run = this.runs.get(this.expected.get(name)?.run ?? '');
+
       run?.end(signal.aborted ? 'stopped' : 'failed');
+
       return run;
     };
+
     try {
       const codes = await Promise.race([Promise.all(exits), missed.promise]);
+
       // a wrapper killed outright leaves its native CLI in the group. after an abort the stop owns escalation, since a
       // shell that forked its command exits on SIGTERM while the command still has its grace period
       if (!stopping) {
         for (const group of groups) signalGroup(group, 'SIGKILL');
+
         const deadline = stopDeadline();
+
         await beforeDeadline(gone(groups, deadline, signal), deadline);
       }
+
       if (stopping) await stopping;
+
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
           const run = finish(name);
+
           let unread: string | undefined;
+
           const report = await readFile(reportFile, 'utf8').catch(
             (error: unknown) => {
               unread = errorMessage(error);
+
               return '';
             },
           );
+
           const diagnosis = [
             diagnostics[index]!.trim(),
             killed[index] && `killed by ${killed[index]}`,
@@ -166,6 +213,7 @@ export class Reviewers {
           ]
             .filter(Boolean)
             .join('\n');
+
           return {
             code: codes[index]!,
             ...(diagnosis ? { diagnostics: diagnosis } : {}),
@@ -181,10 +229,14 @@ export class Reviewers {
       );
     } finally {
       signal.removeEventListener('abort', abort);
+
       for (const { name } of reviewers) {
         finish(name);
+
         const run = this.expected.get(name)?.run;
+
         if (run) this.runs.delete(run);
+
         this.expected.delete(name);
       }
     }
@@ -194,13 +246,17 @@ export class Reviewers {
 /** stops the groups the way `terminateChild` stops a native child, rejecting when one outlives the deadline. */
 async function stopGroups(groups: readonly number[], deadline: number) {
   for (const group of groups) signalGroup(group, 'SIGTERM');
+
   try {
     await beforeDeadline(gone(groups, deadline), graceDeadline(deadline));
+
     return;
   } catch (error) {
     if (!(error instanceof NativeStopTimeout)) throw error;
   }
+
   for (const group of groups) signalGroup(group, 'SIGKILL');
+
   await beforeDeadline(gone(groups, deadline), deadline);
 }
 
@@ -212,6 +268,7 @@ async function gone(
 ): Promise<void> {
   while (!signal?.aborted && groups.some((group) => signalGroup(group, 0))) {
     if (performance.now() >= deadline) throw new NativeStopTimeout();
+
     await delay(25);
   }
 }

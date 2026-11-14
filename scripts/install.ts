@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+
 import { constants } from 'node:fs';
+
 import {
   access,
   lstat,
@@ -11,9 +13,13 @@ import {
   rm,
   stat,
 } from 'node:fs/promises';
+
 import { homedir } from 'node:os';
+
 import { dirname, join, resolve } from 'node:path';
+
 import { errorMessage } from '../src/errors.js';
+
 import { quote } from '../src/shell.js';
 
 const marker = '#!/bin/sh\n# Witch launcher\n';
@@ -21,15 +27,21 @@ const marker = '#!/bin/sh\n# Witch launcher\n';
 try {
   if (process.argv.length > 3)
     throw new Error('Usage: pnpm install:cli [destination]');
+
   const entry = await realpath(resolve('dist/cli.js'));
+
   await access(entry, constants.X_OK);
+
   const destination = resolve(
     process.argv[2] ?? join(homedir(), '.local', 'bin', 'witch'),
   );
+
   const existing = await lstat(destination).catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+
     return undefined;
   });
+
   if (
     existing &&
     !existing.isSymbolicLink() &&
@@ -39,11 +51,16 @@ try {
     throw new Error(
       `Refusing to replace a file not installed by Witch: ${destination}`,
     );
+
   await mkdir(dirname(destination), { recursive: true });
+
   const temporary = `${destination}.${randomUUID()}.tmp`;
+
   const file = await open(temporary, 'wx', 0o755);
+
   try {
     const { dev, ino } = await stat(dirname(dirname(entry)), { bigint: true });
+
     await file.writeFile(`${marker}recorded=${quote(entry)}
 entry=$recorded
 # a moved checkout keeps its device and inode, which macOS resolves under /.vol; a path alone could name another checkout
@@ -60,14 +77,19 @@ if [ ! -f "$entry" ]; then
 fi
 exec "$entry" "$@"
 `);
+
     await file.sync();
+
     await rename(temporary, destination);
   } finally {
     await file.close();
+
     await rm(temporary, { force: true });
   }
+
   process.stdout.write(`Installed ${destination}\n`);
 } catch (error) {
   process.stderr.write(`witch: ${errorMessage(error)}\n`);
+
   process.exitCode = 1;
 }

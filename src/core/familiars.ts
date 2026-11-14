@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+
 import type { Subagent } from '../agents/types.js';
+
 import type { TimedSubagent } from './snapshot.js';
 
 export function familiarIdentity(subagent: Subagent): string {
@@ -21,19 +23,25 @@ export function updateFamiliar(
     }
   | undefined {
   if (!previous && subagent.status !== 'running') return;
+
   const running = subagent.status === 'running';
+
   const started =
     running &&
     (previous?.status !== 'running' || previous.run !== subagent.run);
+
   const ended = !running && previous?.status === 'running';
+
   const rows = started
     ? { start: randomUUID() }
     : { ...previous!.rows, ...(ended ? { end: randomUUID() } : {}) };
+
   const renamed =
     !started &&
     (subagent.name !== previous!.name ||
       subagent.kind !== previous!.kind ||
       familiarIdentity(subagent) !== familiarIdentity(previous!));
+
   return {
     entry: {
       ...subagent,

@@ -1,28 +1,41 @@
 import assert from 'node:assert/strict';
+
 import { once } from 'node:events';
+
 import { access, readFile, writeFile } from 'node:fs/promises';
+
 import { homedir } from 'node:os';
+
 import { join } from 'node:path';
+
 import { test } from 'vitest';
+
 import { AbortError } from '@anthropic-ai/claude-agent-sdk';
+
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+
 import type { AgentEvent, Usage, UserRequest } from '../src/agents/types.js';
+
 import {
-  launcher,
-  fixture,
-  working,
-  jsonLines,
   content,
-  frameWriter,
+  fixture,
+  jsonLines,
+  launcher,
+  working,
 } from './fixtures/claude-adapter.js';
+
 import { until, within } from './fixtures/within.js';
+
 import { untimed } from './fixtures/limits.js';
 
 test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {
   const { args, connect } = await launcher();
+
   const session = await connect({ effort: 'high' });
+
   try {
     assert.ok(args[0]!.includes('--effort=high'), JSON.stringify(args[0]));
+
     assert.equal(session.info.effort, 'high');
   } finally {
     await session.close();
@@ -31,18 +44,22 @@ test('a stored effort reaches Claude Code on connect and shows before any model 
 
 test('refresh consumes a fresh native catalog without replacing the default system prompt', async () => {
   const { session, cwd } = await fixture();
+
   try {
     assert.deepEqual(
       (await session.models()).map((model) => model.id),
       ['claude-a'],
     );
+
     assert.deepEqual(
       (await session.models(true)).map((model) => model.id),
       ['claude-b'],
     );
+
     const initialize = JSON.parse(
       await readFile(join(cwd, 'initialize.json'), 'utf8'),
     );
+
     assert.equal(initialize.systemPrompt, undefined);
   } finally {
     await session.close();
@@ -51,13 +68,16 @@ test('refresh consumes a fresh native catalog without replacing the default syst
 
 test('skills list a built-in once with its own row and aliases in place of a row it shadows, and leave out the built-ins Witch sends as text, before and after a native change', async () => {
   const events: AgentEvent[] = [];
+
   const { session } = await fixture((event) => events.push(event));
+
   const nativeCommands = [
     'autocompact',
     'output-style',
     'advisor',
     'auto-mode-setup',
   ].map((name) => ({ name, description: 'Native command', builtin: true }));
+
   try {
     assert.deepEqual(await session.skills(), [
       {
@@ -73,7 +93,9 @@ test('skills list a built-in once with its own row and aliases in place of a row
         argumentHint: '<target>',
       },
     ]);
+
     assert.equal((await session.send('add skill')).status, 'completed');
+
     assert.deepEqual(
       events.filter((event) => event.type === 'skills'),
       [
@@ -93,9 +115,11 @@ test('skills list a built-in once with its own row and aliases in place of a row
 
 test('initial slash prompts go as text unless a native command was selected', async () => {
   const { session, cwd } = await fixture();
+
   try {
     for (const prompt of ['/config autoCompact=false', '  /rename audit'])
       assert.equal((await session.send(prompt)).status, 'completed');
+
     assert.equal(
       (
         await session.send('context', {
@@ -104,6 +128,7 @@ test('initial slash prompts go as text unless a native command was selected', as
       ).status,
       'completed',
     );
+
     assert.deepEqual(
       ((await jsonLines(join(cwd, 'inputs.jsonl'))) as SDKUserMessage[]).map(
         (input) => [input.message.content, input.client_composed],
@@ -127,13 +152,17 @@ test('initial slash prompts go as text unless a native command was selected', as
 
 test('a skill goes last after its context, and a plain prompt stays a string', async () => {
   const { session, cwd } = await fixture();
+
   try {
     await session.send('context', { skill: { name: 'review', args: 'main' } });
+
     assert.deepEqual(await content(cwd), [
       { type: 'text', text: 'context' },
       { type: 'text', text: '/review main' },
     ]);
+
     await session.send('plain');
+
     assert.equal(await content(cwd), 'plain');
   } finally {
     await session.close();
@@ -142,12 +171,18 @@ test('a skill goes last after its context, and a plain prompt stays a string', a
 
 test('invalid effort preserves the displayed and native model', async () => {
   const { session, cwd } = await fixture();
+
   try {
     await session.selectModel('claude-a', 'low');
+
     await assert.rejects(session.selectModel('claude-b', 'invalid'));
+
     assert.equal(session.info.model, 'claude-a');
+
     assert.equal((await session.send('report model')).status, 'completed');
+
     assert.equal(session.info.model, 'claude-a');
+
     assert.deepEqual(
       JSON.parse(await readFile(join(cwd, 'settings.json'), 'utf8')),
       { effortLevel: 'low' },
@@ -159,10 +194,14 @@ test('invalid effort preserves the displayed and native model', async () => {
 
 test('a model chosen without an effort keeps the effort in force and sends none', async () => {
   const { session, cwd } = await fixture();
+
   try {
     await session.selectModel('claude-a', 'high');
+
     await session.selectModel('claude-b');
+
     assert.equal(session.info.effort, 'high');
+
     assert.deepEqual(await jsonLines(join(cwd, 'settings.jsonl')), [
       { effortLevel: 'high' },
     ]);
@@ -173,10 +212,14 @@ test('a model chosen without an effort keeps the effort in force and sends none'
 
 test('a null effort clears the effort in force', async () => {
   const { session, cwd } = await fixture();
+
   try {
     await session.selectModel('claude-a', 'high');
+
     await session.selectModel('claude-b', null);
+
     assert.equal(session.info.effort, undefined);
+
     assert.deepEqual(
       JSON.parse(await readFile(join(cwd, 'settings.json'), 'utf8')),
       { effortLevel: null },
@@ -188,10 +231,14 @@ test('a null effort clears the effort in force', async () => {
 
 test('a new session has history and the native permission mode once its first prompt starts', async () => {
   const { session } = await fixture();
+
   try {
     assert.equal(session.info.hasHistory, false);
+
     await session.send('hello');
+
     assert.equal(session.info.hasHistory, true);
+
     assert.equal(session.info.permissionMode, 'default');
   } finally {
     await session.close();
@@ -200,9 +247,12 @@ test('a new session has history and the native permission mode once its first pr
 
 test('a stored session resumes by its id instead of starting a new one', async () => {
   const { args, connect } = await launcher();
+
   const session = await connect({ resume: 'stored-session' });
+
   try {
     assert.ok(args[0]!.includes('--resume=stored-session'));
+
     assert.ok(!args[0]!.some((arg) => arg.startsWith('--session-id')));
   } finally {
     await session.close();
@@ -219,21 +269,30 @@ test(
         Promise.withResolvers<void>(),
       ]),
     );
+
     const { session, cwd } = await fixture((event) => {
       if (event.type === 'text') progress.get(event.text)?.resolve();
     });
+
     try {
       let completed = false;
+
       const turn = session.send('wait for idle').then((value) => {
         completed = true;
+
         return value;
       });
+
       for (const [state, observed] of progress) {
         await writeFile(join(cwd, `allow-${state}`), 'yes');
+
         await observed.promise;
+
         assert.equal(completed, false, `turn completed at ${state}`);
       }
+
       await writeFile(join(cwd, 'allow-idle'), 'yes');
+
       assert.deepEqual(await turn, { status: 'completed', text: 'Finished.' });
     } finally {
       await session.close();
@@ -247,8 +306,10 @@ for (const decision of ['accept', 'decline'] as const) {
       if (event.type === 'request')
         session.respond(event.request.id, { decision });
     });
+
     try {
       assert.equal((await session.send('approval')).status, 'completed');
+
       if (decision === 'accept')
         assert.equal(
           await readFile(join(cwd, 'approved.txt'), 'utf8'),
@@ -263,17 +324,23 @@ for (const decision of ['accept', 'decline'] as const) {
 
 test('a Claude question lists its choices and returns a multiple choice joined', async () => {
   const requests: UserRequest[] = [];
+
   const { session, cwd } = await fixture((event) => {
     if (event.type !== 'request') return;
+
     requests.push(event.request);
+
     session.respond(event.request.id, {
       decision: 'accept',
       answers: { 'Colors?': ['red', 'green'] },
     });
   });
+
   try {
     assert.equal((await session.send('question')).status, 'completed');
+
     assert.equal(requests[0]?.kind, 'question');
+
     assert.deepEqual(requests[0]?.questions, [
       {
         id: 'Colors?',
@@ -282,10 +349,13 @@ test('a Claude question lists its choices and returns a multiple choice joined',
         multiple: true,
       },
     ]);
+
     const response = JSON.parse(
       await readFile(join(cwd, 'response.json'), 'utf8'),
     );
+
     assert.equal(response.behavior, 'allow');
+
     assert.deepEqual(response.updatedInput.answers, {
       'Colors?': 'red, green',
     });
@@ -296,22 +366,30 @@ test('a Claude question lists its choices and returns a multiple choice joined',
 
 test('a Claude elicitation returns the accepted content', async () => {
   const requests: UserRequest[] = [];
+
   const { session, cwd } = await fixture((event) => {
     if (event.type !== 'request') return;
+
     requests.push(event.request);
+
     session.respond(event.request.id, {
       decision: 'accept',
       content: { project: 'witch' },
     });
   });
+
   try {
     assert.equal((await session.send('elicit')).status, 'completed');
+
     assert.equal(requests[0]?.kind, 'elicitation');
+
     assert.equal(requests[0]?.title, 'Which project?');
+
     assert.deepEqual(requests[0]?.schema, {
       type: 'object',
       properties: { project: { type: 'string' } },
     });
+
     assert.deepEqual(
       JSON.parse(await readFile(join(cwd, 'response.json'), 'utf8')),
       { action: 'accept', content: { project: 'witch' } },
@@ -323,9 +401,12 @@ test('a Claude elicitation returns the accepted content', async () => {
 
 test('a permission prompt the CLI withdraws leaves the queue', async () => {
   const events: AgentEvent[] = [];
+
   const { session } = await fixture((event) => events.push(event));
+
   try {
     assert.equal((await session.send('withdrawn')).status, 'completed');
+
     assert.deepEqual(
       events
         .map((event) => event.type)
@@ -339,11 +420,16 @@ test('a permission prompt the CLI withdraws leaves the queue', async () => {
 
 test('a mid-turn interrupt ends the turn with the native result', async () => {
   const { seen, onEvent } = working();
+
   const { session } = await fixture(onEvent);
+
   try {
     const turn = session.send('wait');
+
     await within(seen, 2000, 'first output');
+
     await within(session.interrupt(), 2000, 'interrupt');
+
     assert.deepEqual(await within(turn, 2000, 'turn'), {
       status: 'interrupted',
       text: 'Finished.',
@@ -355,15 +441,24 @@ test('a mid-turn interrupt ends the turn with the native result', async () => {
 
 test('a connection cancellation keeps its native abort diagnostic', async () => {
   const { connect } = await launcher();
+
   const { seen, onEvent } = working();
+
   const controller = new AbortController();
+
   const session = await connect({ signal: controller.signal, onEvent });
+
   try {
     const turn = session.send('wait');
+
     await within(seen, 2000, 'first output');
+
     controller.abort();
+
     const result = await within(turn, 3000, 'connection cancellation');
+
     assert.equal(result.status, 'failed');
+
     assert.match(
       result.error ?? '',
       /^(Operation aborted|Claude Code process aborted by user)$/,
@@ -375,18 +470,26 @@ test('a connection cancellation keeps its native abort diagnostic', async () => 
 
 test('an interrupt that leaves the prompt queued closes the session', async () => {
   const { seen, onEvent } = working();
+
   const { session, child } = await fixture(onEvent);
+
   try {
     const exited = once(child, 'exit');
+
     const turn = session.send('still queued');
+
     await within(seen, 2000, 'first output');
+
     await within(session.interrupt(), 2000, 'interrupt');
+
     assert.equal(session.closed, true);
+
     assert.deepEqual(await turn, {
       status: 'interrupted',
       text: 'Working.',
       unread: [],
     });
+
     await within(exited, 1000, 'CLI exit');
   } finally {
     await session.close();
@@ -395,30 +498,46 @@ test('an interrupt that leaves the prompt queued closes the session', async () =
 
 test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result with no familiar running', async () => {
   const { seen, onEvent } = working();
+
   // the fixture sends this text after the result, while the turn waits for native idle
   const awaitingIdle = Promise.withResolvers<void>();
+
   const { session, cwd } = await fixture((event) => {
     onEvent(event);
+
     if (event.type === 'text' && event.text === 'running')
       awaitingIdle.resolve();
   });
+
   try {
     assert.equal(await session.steer('too early'), false);
+
     const turn = session.send('steerable');
+
     await within(seen, 2000, 'first output');
+
     assert.equal(await session.steer('also this'), true);
+
     assert.equal(await session.steer('wrap up'), true);
+
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+
     assert.deepEqual(await jsonLines(join(cwd, 'steered.jsonl')), [
       'also this',
       'wrap up',
     ]);
+
     const waiting = session.send('wait for idle');
+
     await writeFile(join(cwd, 'allow-running'), 'yes');
+
     await within(awaitingIdle.promise, 2000, 'the result');
+
     assert.equal(await session.steer('too late'), false);
+
     for (const state of ['requires_action', 'idle'])
       await writeFile(join(cwd, `allow-${state}`), 'yes');
+
     await within(waiting, 2000, 'idle');
   } finally {
     await session.close();
@@ -427,26 +546,42 @@ test('a prompt steered into a turn reaches Claude Code, and none is taken with n
 
 test('without message lifecycle a command steer is refused until the turn has replied', async () => {
   const { seen, onEvent } = working();
+
   const { session, cwd } = await fixture(onEvent);
+
   const steered = join(cwd, 'steered.jsonl');
+
   const skill = { name: 'review', args: 'now' };
+
   try {
     const first = session.send('steerable');
+
     await within(seen, 2000, 'first output');
+
     assert.equal(await session.steer('/review now', { skill }), false);
+
     assert.equal(await session.steer('plain'), true);
+
     assert.equal(await session.steer('wrap up'), true);
+
     assert.equal((await within(first, 2000, 'turn')).status, 'completed');
+
     assert.deepEqual(await jsonLines(steered), ['plain', 'wrap up']);
+
     const second = session.send('reporting familiar');
+
     await until('the reply', () => session.replied);
+
     assert.equal(await session.steer('/review now', { skill }), true);
+
     await until(
       'the steered command',
       async () => (await jsonLines(steered)).at(-1) === '/review now',
     );
+
     for (const file of ['allow-report', 'allow-idle'])
       await writeFile(join(cwd, file), 'yes');
+
     assert.equal((await within(second, 2000, 'turn')).status, 'completed');
   } finally {
     await session.close();
@@ -455,31 +590,47 @@ test('without message lifecycle a command steer is refused until the turn has re
 
 test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
   const texts: string[] = [];
+
   const skills: string[] = [];
+
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'text') texts.push(event.text);
+
     if (event.type === 'skills')
       skills.push(...event.skills.map(({ name }) => name));
   });
+
   try {
     // familiars that finished in an earlier turn stay in the session
     assert.equal((await session.send('familiars')).status, 'completed');
+
     let finished = false;
+
     const turn = session.send('background familiar').then((result) => {
       finished = true;
+
       return result;
     });
+
     await until('the result', () => skills.includes('result-2'));
+
     assert.equal(await session.steer('meanwhile'), true);
+
     await until('the answer', () => texts.includes('Answered.'));
+
     assert.equal(
       await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
       '"meanwhile"\n',
     );
+
     await until('the report', () => skills.includes('result-4'));
+
     assert.equal(finished, false);
+
     assert.equal(await session.steer('after the report'), false);
+
     await writeFile(join(cwd, 'allow-idle'), 'yes');
+
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
   } finally {
     await session.close();
@@ -488,27 +639,42 @@ test("a prompt sent after the turn's result while a familiar runs in the backgro
 
 test("a background workflow holds the turn open for a prompt as a familiar does, until it reports, and isn't a familiar", async () => {
   const texts: string[] = [];
+
   const skills: string[] = [];
+
   const subagents: string[] = [];
+
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'text') texts.push(event.text);
+
     if (event.type === 'skills')
       skills.push(...event.skills.map(({ name }) => name));
+
     if (event.type === 'subagent') subagents.push(event.subagent.id);
   });
+
   try {
     const turn = session.send('background workflow');
+
     await until('the result', () => skills.includes('result-1'));
+
     assert.equal(await session.steer('meanwhile'), true);
+
     await until('the answer', () => texts.includes('Answered.'));
+
     assert.equal(
       await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
       '"meanwhile"\n',
     );
+
     await until('the report', () => skills.includes('result-3'));
+
     assert.equal(await session.steer('after the report'), false);
+
     await writeFile(join(cwd, 'allow-idle'), 'yes');
+
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+
     assert.deepEqual(subagents, []);
   } finally {
     await session.close();
@@ -517,32 +683,46 @@ test("a background workflow holds the turn open for a prompt as a familiar does,
 
 test('a background familiar, workflow or brew that leaves the live set with no notification ends stopped, and the turn no longer holds open for the familiar or workflow, while a foreground familiar the live set never listed keeps running', async () => {
   const subagents: [string, string][] = [];
+
   const commands: [string, string][] = [];
+
   const skills: string[] = [];
+
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'subagent')
       subagents.push([event.subagent.id, event.subagent.status]);
+
     if (event.type === 'command')
       commands.push([event.command.id, event.command.status]);
+
     if (event.type === 'skills')
       skills.push(...event.skills.map(({ name }) => name));
   });
+
   try {
     const turn = session.send('dropped tasks');
+
     await until('the result', () => skills.includes('result-1'));
+
     await writeFile(join(cwd, 'allow-drop'), 'yes');
+
     await until('the drop', () =>
       subagents.some(([id, status]) => id === 'helper' && status === 'stopped'),
     );
+
     assert.equal(await session.steer('after the drop'), false);
+
     await writeFile(join(cwd, 'allow-idle'), 'yes');
+
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+
     assert.deepEqual(subagents, [
       ['fore', 'running'],
       ['helper', 'running'],
       ['fore', 'completed'],
       ['helper', 'stopped'],
     ]);
+
     assert.deepEqual(commands, [
       ['serve', 'running'],
       ['serve', 'stopped'],
@@ -554,18 +734,30 @@ test('a background familiar, workflow or brew that leaves the live set with no n
 
 test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
   const { seen, onEvent } = working();
+
   const { session } = await fixture(onEvent);
+
   try {
     const turn = session.send('steerable');
+
     await within(seen, 2000, 'first output');
+
     const interrupting = session.interrupt();
+
     assert.equal(await session.steer('after the interrupt'), false);
+
     await within(interrupting, 2000, 'interrupt');
+
     assert.equal((await turn).status, 'interrupted');
+
     const next = session.send('wait');
+
     const closing = session.close();
+
     assert.equal(await session.steer('after the close'), false);
+
     await within(closing, 2000, 'close');
+
     assert.equal((await next).status, 'failed');
   } finally {
     await session.close();
@@ -574,30 +766,42 @@ test('no prompt is steered into a turn once it is interrupted or its session clo
 
 test('an interrupt that leaves steered prompts queued closes the session and reports only those unread, one with an image as its text', async () => {
   const { seen, onEvent } = working();
+
   const { session, child, cwd } = await fixture(onEvent);
+
   try {
     const exited = once(child, 'exit');
+
     await writeFile(join(cwd, 'shot.png'), 'png bytes');
+
     const turn = session.send('steerable');
+
     await within(seen, 2000, 'first output');
+
     assert.equal(await session.steer('also this'), true);
+
     assert.equal(
       await session.steer('and this', { images: [join(cwd, 'shot.png')] }),
       true,
     );
+
     await until('the CLI to hold both', () =>
       readFile(join(cwd, 'steered.jsonl'), 'utf8').then(
         (text) => text.trim().split('\n').length === 2,
         () => false,
       ),
     );
+
     await within(session.interrupt(), 2000, 'interrupt');
+
     assert.equal(session.closed, true);
+
     assert.deepEqual(await turn, {
       status: 'interrupted',
       text: 'Working.',
       unread: ['and this'],
     });
+
     await within(exited, 1000, 'CLI exit');
   } finally {
     await session.close();
@@ -606,8 +810,10 @@ test('an interrupt that leaves steered prompts queued closes the session and rep
 
 test('a dispatch failure reports its transport cause', async () => {
   const { session, child } = await fixture();
+
   try {
     assert.equal(child.kill('SIGTERM'), true);
+
     assert.deepEqual(await within(session.send('hello'), 3000, 'dispatch'), {
       status: 'failed',
       text: '',
@@ -621,10 +827,14 @@ test('a dispatch failure reports its transport cause', async () => {
 
 test('prompts steered behind input a dead CLI never wrote come back unread', async () => {
   const { session, child } = await fixture();
+
   try {
     assert.equal(child.kill('SIGTERM'), true);
+
     const turn = session.send('hello');
+
     assert.equal(await session.steer('follow'), true);
+
     assert.deepEqual(await within(turn, 3000, 'dispatch'), {
       status: 'failed',
       text: '',
@@ -639,51 +849,82 @@ test('prompts steered behind input a dead CLI never wrote come back unread', asy
 
 test('a CLI that exits mid-turn ends the turn only once its stderr is complete, and posts no notice', async () => {
   const { seen, onEvent } = working();
+
   const notices: AgentEvent[] = [];
+
   let closures = 0;
+
   const { session, child } = await fixture((event) => {
     onEvent(event);
+
     if (event.type === 'notice') notices.push(event);
+
     if (event.type === 'closed') closures++;
   });
+
   try {
     const exited = once(child, 'exit');
+
     let finished = false;
+
     const turn = session.send('crash').then((result) => {
       finished = true;
+
       return result;
     });
+
     await within(seen, 2000, 'first output');
+
     await within(exited, 2000, 'CLI exit');
+
     const deadline = Date.now() + 1000;
+
     while (!session.closed) {
       assert.ok(Date.now() < deadline, 'the session never closed');
+
       await new Promise((resolve) => setImmediate(resolve));
     }
+
     assert.equal(finished, false);
+
     await assert.rejects(session.send('again'), /closed/);
+
     await within(session.interrupt(), 2000, 'interrupt');
+
     const result = await within(turn, 2000, 'turn');
+
     assert.equal(result.status, 'interrupted');
+
     assert.match(result.error ?? '', /fixture stderr text/);
+
     assert.match(result.error ?? '', /grandchild line/);
+
     assert.deepEqual(notices, []);
+
     await until('closure notification', () => closures === 1);
   } finally {
     await session.close();
   }
+
   assert.equal(closures, 1);
 });
 
 test('an interrupt after the CLI died resolves and the turn ends', async () => {
   const { seen, onEvent } = working();
+
   const { session, child } = await fixture(onEvent);
+
   try {
     const exited = once(child, 'exit');
+
     const turn = session.send('die');
+
     await within(seen, 2000, 'first output');
+
     await within(exited, 2000, 'CLI exit');
+
     await within(session.interrupt(), 2000, 'interrupt');
+
     assert.equal((await within(turn, 2000, 'turn')).status, 'interrupted');
   } finally {
     await session.close();
@@ -699,6 +940,7 @@ for (const [prompt, expected] of [
 ] as const)
   test(`an ${prompt} result fails the turn with its error`, async () => {
     const { session } = await fixture();
+
     try {
       assert.deepEqual(await session.send(prompt), expected);
     } finally {
@@ -708,72 +950,97 @@ for (const [prompt, expected] of [
 
 test('a CLI that exits cleanly before idle fails the turn with its stderr', async () => {
   let closures = 0;
+
   const { session } = await fixture((event) => {
     if (event.type === 'closed') closures++;
   });
+
   try {
     const result = await within(
       session.send('quit early'),
       2000,
       'quit early turn',
     );
+
     assert.equal(result.status, 'failed');
+
     assert.match(result.error ?? '', /exited before reporting idle/);
+
     assert.match(result.error ?? '', /quitting early/);
+
     await until('closure notification', () => closures === 1);
   } finally {
     await session.close();
   }
+
   assert.equal(closures, 1);
 });
 
 test('a CLI that dies while idle posts its stderr as a notice', async () => {
   const notice = Promise.withResolvers<string>();
+
   let closures = 0;
+
   const { session } = await fixture((event) => {
     if (event.type === 'notice') notice.resolve(event.text);
+
     if (event.type === 'closed') closures++;
   }, 'exit-when-idle');
+
   try {
     assert.equal((await session.send('hello')).status, 'completed');
+
     assert.match(
       await within(notice.promise, 2000, 'exit notice'),
       /grandchild line/,
     );
+
     await until('closure notification', () => closures === 1);
   } finally {
     await session.close();
   }
+
   assert.equal(closures, 1);
 });
 
 test('a clean idle EOF reports closure once', async () => {
   let closures = 0;
+
   const { session, child } = await fixture((event) => {
     if (event.type === 'closed') closures++;
   });
+
   try {
     assert.equal((await session.send('hello')).status, 'completed');
+
     const closed = once(child, 'close');
+
     child.stdin.end();
+
     await within(closed, 2000, 'clean idle exit');
+
     await until('closure notification', () => closures === 1);
+
     assert.equal(child.exitCode, 0);
+
     assert.equal(session.closed, true);
   } finally {
     await session.close();
   }
+
   assert.equal(closures, 1);
 });
 
 test('a failed Claude result keeps accumulated text in message order', async () => {
   const { session } = await fixture();
+
   try {
     assert.deepEqual(await session.send('text error'), {
       status: 'failed',
       text: 'alpha final\n\nbravo tail',
       error: 'fixture failure',
     });
+
     assert.deepEqual(await session.send('execution error'), {
       status: 'failed',
       text: '',
@@ -786,12 +1053,15 @@ test('a failed Claude result keeps accumulated text in message order', async () 
 
 test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, with a path field's path named for its link, a spell or familiar call titled by Witch's name with the native one kept for its expanded row, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
+
   const { session, cwd } = await fixture((event) => events.push(event));
+
   try {
     assert.deepEqual(await session.send('tools'), {
       status: 'completed',
       text: 'Finished.',
     });
+
     assert.deepEqual(
       events
         .filter((event) => event.type === 'tool')
@@ -872,7 +1142,9 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
         ],
       ],
     );
+
     const texts = events.filter((event) => event.type === 'text');
+
     assert.deepEqual(
       texts.map(({ text, replace }) => [text, replace]),
       [
@@ -880,6 +1152,7 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
         ['Done.', true],
       ],
     );
+
     assert.equal(texts[0]!.id, texts[1]!.id);
   } finally {
     await session.close();
@@ -888,9 +1161,12 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
 
 test('a Claude edit or write arrives as the diff its result reports, at its path under the session, in place of the result text, while a failed edit, an empty patch or a staged write keeps its text', async () => {
   const events: AgentEvent[] = [];
+
   const { session, cwd } = await fixture((event) => events.push(event));
+
   try {
     assert.equal((await session.send('edits')).status, 'completed');
+
     assert.deepEqual(
       events
         .filter((event) => event.type === 'tool')
@@ -937,9 +1213,12 @@ test('a Claude edit or write arrives as the diff its result reports, at its path
 
 test('Claude edit and write diffs resolve home paths outside the session directory', async () => {
   const events: AgentEvent[] = [];
+
   const { session } = await fixture((event) => events.push(event));
+
   try {
     assert.equal((await session.send('home-edits')).status, 'completed');
+
     assert.deepEqual(
       events.flatMap((event) =>
         event.type === 'tool' && event.done ? (event.diff ?? []) : [],
@@ -970,9 +1249,12 @@ test('Claude edit and write diffs resolve home paths outside the session directo
 
 test('Claude Edit creations keep their reported patch and staged creations keep their text', async () => {
   const events: AgentEvent[] = [];
+
   const { session, cwd } = await fixture((event) => events.push(event));
+
   try {
     assert.equal((await session.send('created-edits')).status, 'completed');
+
     assert.deepEqual(
       events
         .filter((event) => event.type === 'tool')
@@ -1018,306 +1300,11 @@ test('Claude Edit creations keep their reported patch and staged creations keep 
   }
 });
 
-test('native familiar model-only frames preserve task state', async () => {
-  const events: AgentEvent[] = [];
-  const f = await fixture((event) => events.push(event), 'background');
-  const emit = frameWriter(
-    f.cwd,
-    (name) =>
-      events.some(
-        (event) =>
-          event.type === 'skills' &&
-          event.skills.some((skill) => skill.name === name),
-      ),
-    f.child,
-  );
-  const current = () =>
-    events
-      .flatMap((event) =>
-        event.type === 'subagent' && event.subagent.id === 'reader'
-          ? [event.subagent]
-          : [],
-      )
-      .at(-1)!;
-  let sequence = 0;
-  const assistant = (model: string, content: object[], agent = 'reader') => ({
-    type: 'assistant',
-    parent_tool_use_id: 'spawn-tool',
-    agent_id: agent,
-    message: {
-      id: `message-${++sequence}`,
-      type: 'message',
-      role: 'assistant',
-      model,
-      content,
-      stop_reason: null,
-      stop_sequence: null,
-      usage: { input_tokens: 1, output_tokens: 1 },
-    },
-  });
-  const thinking = [
-    { type: 'thinking', thinking: 'Inspecting', signature: 'signature' },
-  ];
-  try {
-    await emit({
-      type: 'system',
-      subtype: 'init',
-      model: 'parent-model',
-      permissionMode: 'default',
-    });
-    await emit({
-      type: 'system',
-      subtype: 'task_started',
-      task_id: 'reader',
-      run_id: 'one',
-      task_type: 'local_agent',
-      description: 'Inspect source',
-    });
-    assert.equal(current().runtime, 'claude');
-    assert.equal(current().model, undefined);
-    await emit(assistant('child-observed', thinking));
-    assert.equal(current().model, 'child-observed');
-    await emit(
-      assistant('child-observed', [
-        {
-          type: 'tool_use',
-          id: 'read-1',
-          name: 'Read',
-          input: { file_path: join(f.cwd, 'source.ts') },
-        },
-      ]),
-      assistant('child-observed', [{ type: 'text', text: 'Read complete.' }]),
-      assistant('changed-model', thinking),
-      assistant('<synthetic>', thinking),
-      assistant('unlisted-model', thinking, 'unlisted'),
-    );
-    assert.equal(current().model, 'changed-model');
-    assert.equal(current().tools, 1);
-    assert.equal(current().activity, 'Read  ./source.ts');
-    assert.equal(current().report, 'Read complete.');
-    await emit(
-      {
-        type: 'system',
-        subtype: 'task_notification',
-        task_id: 'reader',
-        run_id: 'one',
-        status: 'completed',
-      },
-      assistant('late-model', thinking),
-    );
-    assert.equal(current().model, 'late-model');
-    assert.equal(current().status, 'completed');
-    assert.equal(current().report, 'Read complete.');
-    assert.equal(f.session.info.model, 'parent-model');
-    await emit({
-      type: 'system',
-      subtype: 'task_started',
-      task_id: 'reader',
-      run_id: 'two',
-      task_type: 'local_agent',
-      description: 'Inspect source again',
-    });
-    assert.equal(current().model, undefined);
-    await emit(assistant('resumed-model', thinking));
-    assert.equal(current().model, 'resumed-model');
-    assert.equal(current().tools, 0);
-    assert.equal(current().report, undefined);
-  } finally {
-    await f.session.close();
-  }
-});
-
-test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative and a spell under Witch's name, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
-  const events: AgentEvent[] = [];
-  const { session, cwd } = await fixture((event) => events.push(event));
-  try {
-    // without it Claude Code sends a familiar's tool calls but not its text
-    assert.equal(
-      JSON.parse(await readFile(join(cwd, 'initialize.json'), 'utf8'))
-        .forwardSubagentText,
-      true,
-    );
-    assert.equal((await session.send('familiar-work')).status, 'completed');
-    const reader = {
-      id: 'reader',
-      parent: undefined,
-      name: 'Read tests',
-      kind: '',
-      runtime: 'claude',
-      status: 'running',
-      run: undefined,
-    };
-    const observed = { ...reader, model: 'claude-a' };
-    assert.deepEqual(
-      events.flatMap((event) =>
-        event.type === 'subagent' ? [event.subagent] : [],
-      ),
-      [
-        reader,
-        {
-          ...observed,
-          activity: undefined,
-          tools: 0,
-          report: 'Reading the tests.',
-        },
-        {
-          ...observed,
-          activity: 'Read  ./a.test.ts',
-          tools: 1,
-          report: 'Reading the tests.',
-        },
-        {
-          ...observed,
-          activity: 'Bash  Run tests  $ pnpm test',
-          tools: 2,
-          report: 'Reading the tests.',
-        },
-        {
-          ...observed,
-          activity: 'Spell  tdd',
-          spells: [{ id: 'r-3', name: 'tdd' }],
-          tools: 3,
-          report: 'Reading the tests.',
-        },
-        // a later message's text replaces the report
-        {
-          ...observed,
-          activity: 'Spell  tdd',
-          spells: [{ id: 'r-3', name: 'tdd' }],
-          tools: 3,
-          report: 'All tests pass.',
-        },
-        // the report's second block arrives as its own frame of the same message
-        {
-          ...observed,
-          activity: 'Spell  tdd',
-          spells: [{ id: 'r-3', name: 'tdd' }],
-          tools: 3,
-          report: 'All tests pass.\nSee a.test.ts.',
-        },
-        {
-          ...observed,
-          activity: 'Spell  tdd',
-          spells: [{ id: 'r-3', name: 'tdd' }],
-          tools: 3,
-          report: 'All tests pass.\nSee a.test.ts.',
-          status: 'completed',
-        },
-      ],
-    );
-  } finally {
-    await session.close();
-  }
-});
-
-test("Claude's subagent tasks report their parent, run and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
-  const events: AgentEvent[] = [];
-  const { session } = await fixture((event) => events.push(event));
-  try {
-    assert.equal((await session.send('familiars')).status, 'completed');
-    const resumed = {
-      id: 'resumed',
-      parent: undefined,
-      name: 'Fix lint',
-      kind: '',
-      runtime: 'claude',
-      status: 'running',
-      run: '2',
-    };
-    assert.deepEqual(
-      events.flatMap((event) =>
-        event.type === 'subagent' ? [event.subagent] : [],
-      ),
-      [
-        {
-          id: 'outer',
-          parent: undefined,
-          name: 'Map the code',
-          kind: 'Explore',
-          runtime: 'claude',
-          status: 'running',
-          run: undefined,
-        },
-        {
-          id: 'inner',
-          parent: 'outer',
-          name: 'Read tests',
-          kind: '',
-          runtime: 'claude',
-          status: 'running',
-          run: undefined,
-        },
-        // one per run
-        { ...resumed, run: '1' },
-        resumed,
-        { ...resumed, status: 'completed' },
-        {
-          id: 'inner',
-          parent: 'outer',
-          name: 'Read tests',
-          kind: '',
-          runtime: 'claude',
-          status: 'completed',
-          run: undefined,
-        },
-        {
-          id: 'outer',
-          parent: undefined,
-          name: 'Map the code',
-          kind: 'Explore',
-          runtime: 'claude',
-          status: 'failed',
-          run: undefined,
-        },
-      ],
-    );
-  } finally {
-    await session.close();
-  }
-});
-
-test("Claude's background shells are commands from when the live set lists them, whether started there or moved there, until their notification, and neither foreground shells nor agents are", async () => {
-  const events: AgentEvent[] = [];
-  const { session } = await fixture((event) => events.push(event));
-  try {
-    assert.equal((await session.send('brews')).status, 'completed');
-    assert.deepEqual(
-      events.flatMap((event) =>
-        event.type === 'command' ? [event.command] : [],
-      ),
-      [
-        { id: 'serve', description: 'Start the server', status: 'running' },
-        { id: 'moved', description: 'Run tests', status: 'running' },
-        { id: 'serve', description: 'Start the server', status: 'failed' },
-        { id: 'moved', description: 'Run tests', status: 'stopped' },
-      ],
-    );
-    const outer = {
-      id: 'outer',
-      parent: undefined,
-      name: 'Map the code',
-      kind: '',
-      runtime: 'claude',
-      run: undefined,
-    };
-    // the live set's agent entries don't start a familiar, and one it drops after its notification has already ended
-    assert.deepEqual(
-      events.flatMap((event) =>
-        event.type === 'subagent' ? [event.subagent] : [],
-      ),
-      [
-        { ...outer, status: 'running' },
-        { ...outer, status: 'completed' },
-      ],
-    );
-  } finally {
-    await session.close();
-  }
-});
-
 test('a CLI that exits during initialize fails the connect without a notice', async () => {
   const events: AgentEvent[] = [];
+
   const { connect } = await launcher('exit-on-init');
+
   await assert.rejects(
     within(
       connect({ onEvent: (event) => events.push(event) }),
@@ -1326,22 +1313,31 @@ test('a CLI that exits during initialize fails the connect without a notice', as
     ),
     /init exit text/,
   );
+
   assert.deepEqual(events, []);
 });
 
 test('an aborted connect rejects', async () => {
   const { children, connect } = await launcher('hang-on-init');
+
   const controller = new AbortController();
+
   const connecting = connect({ signal: controller.signal });
+
   controller.abort();
+
   try {
     await assert.rejects(
       within(connecting, 3000, 'connect'),
       (error: unknown) => {
         assert.ok(error instanceof Error);
+
         assert.equal(error.name, 'AbortError');
+
         assert.match(error.message, /aborted/);
+
         assert.ok(error.cause instanceof AbortError);
+
         return true;
       },
     );
@@ -1352,6 +1348,7 @@ test('an aborted connect rejects', async () => {
 
 test('a failed initialize reports the CLI stderr even while the CLI lives', async () => {
   const { children, connect } = await launcher('init-error');
+
   try {
     await assert.rejects(within(connect(), 3000, 'connect'), {
       name: 'Error',
@@ -1364,10 +1361,14 @@ test('a failed initialize reports the CLI stderr even while the CLI lives', asyn
 
 test('a process report that rejects fails the connect without an unhandled rejection', async () => {
   const unhandled: unknown[] = [];
+
   const record = (reason: unknown) => unhandled.push(reason);
+
   process.on('unhandledRejection', record);
+
   try {
     const { connect } = await launcher();
+
     await assert.rejects(
       connect({
         onProcess: async (pid) => {
@@ -1376,7 +1377,9 @@ test('a process report that rejects fails the connect without an unhandled rejec
       }),
       /no process record/,
     );
+
     await new Promise((resolve) => setTimeout(resolve, 50));
+
     assert.deepEqual(unhandled, []);
   } finally {
     process.off('unhandledRejection', record);
@@ -1385,16 +1388,21 @@ test('a process report that rejects fails the connect without an unhandled rejec
 
 test('reports context, the 5H and 7D limits and lines once the session is idle', async () => {
   const reported: Usage[] = [];
+
   const { session } = await fixture((event) => {
     if (event.type === 'usage') reported.push(event.usage);
   });
+
   try {
     await until('the usage at connect', () => !!session.usage.account?.limits);
+
     assert.equal((await session.send('hello')).status, 'completed');
+
     await until(
       'the usage after the turn',
       () => session.usage.lines?.added === 4,
     );
+
     assert.deepEqual(
       {
         ...session.usage,
@@ -1413,8 +1421,11 @@ test('reports context, the 5H and 7D limits and lines once the session is idle',
         },
       },
     );
+
     assert.deepEqual(reported.at(-1), session.usage);
+
     assert.equal((await session.send('again')).status, 'completed');
+
     await until(
       'the usage after the second turn',
       () => session.usage.lines?.added === 8,
@@ -1426,11 +1437,16 @@ test('reports context, the 5H and 7D limits and lines once the session is idle',
 
 test('reports the effort Claude Code says it will send', async () => {
   const { session } = await fixture(() => {}, 'init-effort');
+
   try {
     assert.equal(session.info.nativeEffort, undefined);
+
     await session.send('hello');
+
     assert.equal(session.info.nativeEffort, 'max');
+
     await session.selectModel('claude-a', 'low');
+
     assert.equal(session.info.nativeEffort, 'low');
   } finally {
     await session.close();

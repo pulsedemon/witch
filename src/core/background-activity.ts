@@ -1,11 +1,17 @@
 import { randomUUID } from 'node:crypto';
+
 import type { AgentEvent } from '../agents/types.js';
+
 import type { Snapshot } from './snapshot.js';
+
 import { updateFamiliar } from './familiars.js';
+
 import { castRow } from './spells.js';
+
 import type { DisplayUpdate } from './state.js';
 
 type BackgroundState = Pick<Snapshot, 'subagents' | 'backgroundCommands'>;
+
 type BackgroundEvent = Extract<AgentEvent, { type: 'subagent' | 'command' }>;
 
 /** the events that mark every running familiar and brew stopped once their session closes; `owned` familiars belong to Witch, not the session. */
@@ -36,10 +42,15 @@ export function updateBackgroundActivity(
     const index = state.subagents.findIndex(
       ({ id }) => id === event.subagent.id,
     );
+
     const update = updateFamiliar(state.subagents[index], event.subagent);
+
     if (!update) return;
+
     const subagents = [...state.subagents];
+
     subagents[index < 0 ? subagents.length : index] = update.entry;
+
     return {
       state: { subagents },
       rows: [
@@ -58,10 +69,14 @@ export function updateBackgroundActivity(
       ],
     };
   }
+
   const { command } = event;
+
   const listed = state.backgroundCommands.some(({ id }) => id === command.id);
+
   if (command.familiar) {
     if (!listed) return;
+
     return {
       state: {
         backgroundCommands: state.backgroundCommands.filter(
@@ -76,8 +91,11 @@ export function updateBackgroundActivity(
       ],
     };
   }
+
   const running = command.status === 'running';
+
   if (running === listed) return;
+
   return {
     state: {
       backgroundCommands: running

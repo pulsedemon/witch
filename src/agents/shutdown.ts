@@ -2,11 +2,15 @@ import type {
   ChildProcess,
   ChildProcessWithoutNullStreams,
 } from 'node:child_process';
+
 import type { AgentStopOptions } from './types.js';
 
 const nativeStopTimeoutMs = 8000;
+
 export const terminateGraceMs = 2000;
+
 const killWaitMs = 1000;
+
 export const terminationReserveMs = terminateGraceMs + killWaitMs;
 
 /** carries shutdown policy through startup cancellation before a session exists. */
@@ -29,6 +33,7 @@ export function stopOptions(
   signal: AbortSignal | undefined,
 ): AgentStopOptions | undefined {
   const reason: unknown = signal?.reason;
+
   return reason instanceof NativeStop ? reason.options : undefined;
 }
 
@@ -40,7 +45,9 @@ export async function closeFailedStart(
 ): Promise<never> {
   // read before close, so a stop that lands while it waits doesn't replace the startup error
   const reason: unknown = signal?.reason;
+
   await close();
+
   throw reason instanceof NativeStop ? reason : error;
 }
 
@@ -55,6 +62,7 @@ export async function beforeDeadline<T>(
   deadline: number,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   try {
     return await Promise.race([
       operation,
@@ -90,12 +98,16 @@ export function signalGroup(
 ): boolean {
   try {
     process.kill(-group, signal);
+
     return true;
   } catch (error) {
     const { code } = error as NodeJS.ErrnoException;
+
     // macOS answers EPERM while the group's last members are still exiting, or only an unreaped shell holds it, so they count until ESRCH
     if (code === 'EPERM') return true;
+
     if (code === 'ESRCH') return false;
+
     throw error;
   }
 }
@@ -107,14 +119,20 @@ export async function terminateChild(
   deadline: number,
 ): Promise<boolean> {
   if (running(child)) child.kill('SIGTERM');
+
   try {
     await beforeDeadline(closed, graceDeadline(deadline));
+
     return false;
   } catch (error) {
     if (!(error instanceof NativeStopTimeout)) throw error;
   }
+
   const escalated = running(child);
+
   if (escalated) child.kill('SIGKILL');
+
   await beforeDeadline(closed, deadline);
+
   return escalated;
 }
