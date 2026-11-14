@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import {
+  lstat,
   mkdir,
   readFile,
   readdir,
   rm,
   stat,
+  symlink,
   utimes,
   writeFile,
 } from 'node:fs/promises';
@@ -1103,3 +1105,90 @@ test('SHA-256 snapshots absorb exact paths and reclaim obsolete loose and packed
 
   assert.equal((await local('cat-file', '-s', live)).stdout.trim(), '2048');
 });
+
+test('an untracked repository first commit is discovered with unchanged directory metadata', async () => {
+  const { work, changes } = await repository({ 'a.txt': 'base\n' });
+  const nested = join(work, 'nested');
+
+  await mkdir(nested);
+
+  const inner = (...args: string[]) =>
+    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: nested,
+      timeout: 10_000,
+    });
+
+  await inner('init', '-q');
+
+  await changes.watch(work);
+
+  assert.deepEqual((await changes.read(work)).files, []);
+
+  const before = await lstat(nested, { bigint: true });
+
+  await inner('commit', '--allow-empty', '-qm', 'first');
+
+  const after = await lstat(nested, { bigint: true });
+
+  assert.equal(after.mtimeNs, before.mtimeNs);
+
+  assert.equal(after.ctimeNs, before.ctimeNs);
+
+  assert.deepEqual((await changes.read(work)).files, [
+    {
+      path: nested,
+      kind: 'add',
+      hunks: [],
+      unshown: { added: 1, removed: 0 },
+    },
+  ]);
+});
+
+for (const ignored of [false, true])
+  test(`a directory replaced by ${ignored ? 'an ignored' : 'a visible'} symlink reports only checkout entries`, async () => {
+    const { root, work, git, changes } = await repository({
+      '.gitignore': ignored ? 'folder\n' : '',
+    });
+
+    await mkdir(join(work, 'folder'));
+
+    await writeFile(join(work, 'folder', 'a.txt'), 'base\n');
+
+    await git('add', '-f', 'folder/a.txt');
+
+    await git('commit', '-qm', 'tracked child');
+
+    await changes.watch(work);
+
+    await mkdir(join(root, 'copy'));
+
+    await writeFile(join(root, 'copy', 'a.txt'), 'outside\n');
+
+    await rm(join(work, 'folder'), { recursive: true });
+
+    await symlink('../copy', join(work, 'folder'));
+
+    assert.deepEqual(
+      (await changes.read(work)).files.map((file) => ({
+        path: file.path,
+        kind: file.kind,
+        lines: file.hunks.flatMap((hunk) => hunk.lines),
+      })),
+      [
+        ...(ignored
+          ? []
+          : [{ path: join(work, 'folder'), kind: 'add', lines: ['+../copy'] }]),
+        {
+          path: join(work, 'folder', 'a.txt'),
+          kind: 'delete',
+          lines: ['-base'],
+        },
+      ],
+    );
+
+    assert.deepEqual(await changes.read(work), {
+      files: [],
+      withHead: 0,
+      more: 0,
+    });
+  });

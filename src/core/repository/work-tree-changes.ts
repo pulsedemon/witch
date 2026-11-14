@@ -9,7 +9,7 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises';
-import { delimiter, join, relative, sep } from 'node:path';
+import { delimiter, dirname, join, relative, sep } from 'node:path';
 import { hunks, wholeFile } from '../../agents/file-diff.js';
 import { errorMessage } from '../../errors.js';
 import type { FileDiff } from '../../agents/types.js';
@@ -715,11 +715,38 @@ export class WorkTreeChanges {
 
     const metadata = new Map<string, FileState | undefined>();
     const selected = new Set<string>();
+    const parents = new Map<string, boolean>();
 
     for (const path of paths) {
       this.closing.signal.throwIfAborted();
 
-      const current = await this.fileState(join(checkout.top, path));
+      let contained = true;
+
+      for (
+        let parent = dirname(path);
+        parent !== '.';
+        parent = dirname(parent)
+      ) {
+        let directory = parents.get(parent);
+
+        if (directory === undefined) {
+          directory =
+            (await this.fileState(join(checkout.top, parent)))?.directory ??
+            false;
+
+          parents.set(parent, directory);
+        }
+
+        if (!directory) {
+          contained = false;
+
+          break;
+        }
+      }
+
+      const current = contained
+        ? await this.fileState(join(checkout.top, path))
+        : undefined;
 
       metadata.set(path, current);
 
@@ -807,12 +834,16 @@ export class WorkTreeChanges {
     if (tree !== state.latest?.tree)
       state.entries = await this.treeEntries(checkout, tree);
 
-    for (const path of selected)
+    for (const path of selected) {
+      const before = metadata.get(path);
+
       if (
-        metadata.get(path)?.signature !==
-        (await this.fileState(join(checkout.top, path)))?.signature
+        before &&
+        before.signature !==
+          (await this.fileState(join(checkout.top, path)))?.signature
       )
         metadata.delete(path);
+    }
 
     state.source = source;
     state.configuration = configuration;
