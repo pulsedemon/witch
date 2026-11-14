@@ -5,6 +5,7 @@ import { test } from 'vitest';
 import { applyDisplayUpdate } from '../../src/core/state.js';
 import type { DisplayItem } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
+import { sidebarWidth } from '../../src/ui/status/sidebar-layout.js';
 import { approval, ENTER, fake, show } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
 
@@ -43,7 +44,7 @@ for (const [columns, rows] of [
   [30, 24],
   [100, 40],
   [140, 40],
-]) {
+] as const) {
   test(`the command window holds its four rows with zero, one and many calls at ${columns} by ${rows}`, async () => {
     const { app, coordinator } = fake({ phase: 'running' });
 
@@ -60,6 +61,9 @@ for (const [columns, rows] of [
 
       const top = windowTop(ui),
         composer = composerRow(ui);
+
+      const mainWidth =
+        columns - sidebarWidth >= 80 ? columns - sidebarWidth : columns;
 
       for (const count of [1, 6, 0]) {
         coordinator.publish({
@@ -80,7 +84,9 @@ for (const [columns, rows] of [
 
         assert.equal(lines(ui).length, rows);
 
-        assert.match(lines(ui)[top + 4]!, /[A-Z]+ \| \d+S/);
+        assert.equal(lines(ui)[top + 4]!.slice(0, mainWidth).trim(), '');
+
+        assert.match(lines(ui)[top + 5]!, /[A-Z]+ \| \d+S/);
 
         if (count === 6) {
           assert.match(windowText(ui), /3 OLDER/);

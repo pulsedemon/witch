@@ -1110,9 +1110,6 @@ export function App({
           </Box>
         )}
         <CommandWindow items={state.items} height={fitted.commands} />
-        <Box height={fitted.activity} overflow="hidden" flexShrink={0}>
-          {working && <Activity />}
-        </Box>
         <Box
           height={fitted.gap}
           overflow="hidden"
@@ -1126,6 +1123,9 @@ export function App({
               </Text>
             </Box>
           )}
+        </Box>
+        <Box height={fitted.activity} overflow="hidden" flexShrink={0}>
+          {working && <Activity />}
         </Box>
         <Box
           borderStyle={fitted.border ? 'bold' : undefined}
