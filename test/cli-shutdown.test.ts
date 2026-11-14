@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { scratch } from './fixtures/scratch.js';
 import { compiledCli } from './fixtures/compiled-cli.js';
 import { readRecord } from './fixtures/coordinator.js';
-import { until, within } from './fixtures/within.js';
+import { exists, until, within } from './fixtures/within.js';
 import { promisify, stripVTControlCharacters } from 'node:util';
 import { StateStore } from '../src/persistence/store.js';
 import { identifyProcess, sameProcess } from '../src/persistence/process.js';
@@ -29,6 +29,7 @@ async function check(
   const cli = await compiledCli();
   const project = join(root, 'project');
   const bin = join(root, 'bin');
+  const restartGate = join(root, 'restart');
   await mkdir(project, { recursive: true });
   await mkdir(bin);
   await symlink(git, join(bin, 'git'));
@@ -71,6 +72,7 @@ async function check(
         WITCH_JOBS_RESUME: undefined,
         WITCH_JOBS: undefined,
         WITCH_CODEX_FAMILIAR_FIXTURE: undefined,
+        WITCH_TEST_RESTART_GATE: action === 'restart' ? restartGate : undefined,
         NODE_TEST_CONTEXT: undefined,
         NO_COLOR: undefined,
         FORCE_COLOR: '3',
@@ -154,10 +156,7 @@ async function check(
       assert.equal(child.exitCode, 0, stderr);
       assert.deepEqual(await readdir(join(store.root, 'changes')), []);
     } else if (action === 'restart') {
-      await wait('replacement native connection', async () => {
-        const current = await record();
-        return !!current.process && !sameProcess(current.process, native);
-      });
+      await wait('restart handoff', () => exists(restartGate));
     } else {
       await wait('interrupted turn', async () => {
         const current = await record();
@@ -172,6 +171,13 @@ async function check(
       'utf8',
     );
     assert.match(history, /did not stop in time/);
+    if (action === 'restart') {
+      await writeFile(`${restartGate}.release`, '');
+      await wait('replacement native connection', async () => {
+        const current = await record();
+        return !!current.process && !sameProcess(current.process, native);
+      });
+    }
     if (action !== 'exit') {
       const next = `shutdown-next-${randomUUID()}`;
       await submit(next);
@@ -236,5 +242,5 @@ for (const [runtime, action] of [
   ['claude', 'exit'],
   ['claude', 'restart'],
 ] as const)
-  test(`the compiled CLI completes ${runtime} ${action} within ten seconds after a stalled interrupt`, () =>
+  test(`the compiled CLI completes ${runtime} ${action === 'restart' ? 'restart handoff' : action} within ten seconds after a stalled interrupt`, () =>
     check(runtime, action));
