@@ -122,6 +122,9 @@ test('a checks or base tip read that fails unexpectedly keeps its fallback and s
       throw rejection('spawn gh EMFILE', 'EMFILE');
     };
     assert.deepEqual(await read(), { ...fallback, failure: 'spawn gh EMFILE' });
+    checks = () => '{';
+    assert.match((await read()).failure ?? '', / in JSON .*; spawn gh EMFILE$/);
+    checks = refused;
     tip = () => 'f00\n';
     assert.deepEqual(await read(), {
       ...fallback,
