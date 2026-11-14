@@ -105,7 +105,7 @@ export function Request({
 
   const choices =
     wrapLines(labels, width).length > 1
-      ? width < 3
+      ? width < 4
         ? wrapLines(options[selection] ?? '', width)[0]
         : `› ${options[selection] ?? ''}`
       : labels;
@@ -128,6 +128,41 @@ export function Request({
       ...wrap(fields),
     ];
   }, [request, detail, fields, question, width, cwd, full]);
+
+  const previousLayout = useRef({ width, lines, bodyHeight, questionIndex });
+
+  useEffect(() => {
+    const previous = previousLayout.current;
+    previousLayout.current = { width, lines, bodyHeight, questionIndex };
+
+    if (
+      !question ||
+      previous.width === width ||
+      previous.questionIndex !== questionIndex
+    )
+      return;
+
+    setScroll((current) => {
+      const top = Math.min(
+        current,
+        Math.max(0, previous.lines.length - previous.bodyHeight),
+      );
+
+      let offset = previous.lines
+        .slice(0, top)
+        .reduce((sum, line) => sum + plain(line).length, 0);
+
+      for (const [row, line] of lines.entries()) {
+        const length = plain(line).length;
+
+        if (offset < length) return row;
+
+        offset -= length;
+      }
+
+      return Math.max(0, lines.length - 1);
+    });
+  }, [width, lines, bodyHeight, questionIndex, question]);
 
   const selectedRow =
     question && options[selection] !== undefined
@@ -326,7 +361,9 @@ export function Request({
         />
       )}
       <Box height={errorRows} flexShrink={0} overflow="hidden">
-        <Text color="red">{errorLines.slice(0, errorRows).join('\n')}</Text>
+        <Text color="red">
+          {errorLines.slice(errorLines.length - errorRows).join('\n')}
+        </Text>
       </Box>
     </Box>
   );

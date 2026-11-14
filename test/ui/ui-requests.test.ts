@@ -128,7 +128,11 @@ test('a question preserves manual scrolling across resize and follows a changed 
           {
             id: 'choice',
             title: 'Pick one',
-            options: Array.from({ length: 90 }, (_, i) => `option ${i + 1}`),
+            options: Array.from(
+              { length: 90 },
+              (_, i) =>
+                `option ${i + 1} with a description that wraps in a narrow window`,
+            ),
           },
         ],
       },
@@ -147,12 +151,19 @@ test('a question preserves manual scrolling across resize and follows a changed 
 
     await until('next page', () => firstOption() === '29. option 29');
 
-    for (const height of [35, 40]) {
-      ui.resize(100, height);
+    for (const [width, height] of [
+      [100, 35],
+      [20, 40],
+      [100, 40],
+    ] as const) {
+      ui.resize(width, height);
 
       await until(
         'resized question',
-        () => ui.text().split('\n').length === height,
+        () =>
+          ui.text().split('\n').length === height &&
+          ui.text().includes('option 29 with a description') ===
+            (width === 100),
       );
 
       assert.equal(firstOption(), '29. option 29');
@@ -166,28 +177,38 @@ test('a question preserves manual scrolling across resize and follows a changed 
   }
 });
 
-test('a one-cell approval distinguishes the selected decision', async () => {
-  const { app, calls } = fake({ requests: [approval] });
-  const ui = show(createElement(App, { coordinator: app, onExit() {} }), 1, 1);
+for (const [width, allow, decline] of [
+  [1, 'A', 'D'],
+  [3, 'All', 'Dec'],
+] as const) {
+  test(`an approval distinguishes the selected decision at ${width} columns`, async () => {
+    const { app, calls } = fake({ requests: [approval] });
 
-  try {
-    await until('allow selection', () => ui.text() === 'A');
+    const ui = show(
+      createElement(App, { coordinator: app, onExit() {} }),
+      width,
+      1,
+    );
 
-    await delay(550);
+    try {
+      await until('allow selection', () => ui.text() === allow);
 
-    ui.stdin.write(DOWN);
+      await delay(550);
 
-    await until('decline selection', () => ui.text() === 'D');
+      ui.stdin.write(DOWN);
 
-    ui.stdin.write(ENTER);
+      await until('decline selection', () => ui.text() === decline);
 
-    await until('declined', () => calls.length > 0);
+      ui.stdin.write(ENTER);
 
-    assert.deepEqual(calls, [['respond', 'r1', { decision: 'decline' }]]);
-  } finally {
-    ui.unmount();
-  }
-});
+      await until('declined', () => calls.length > 0);
+
+      assert.deepEqual(calls, [['respond', 'r1', { decision: 'decline' }]]);
+    } finally {
+      ui.unmount();
+    }
+  });
+}
 
 test('approval diffs scroll and expand without responding', async () => {
   const request = fileApproval('file-approval', 'proposal');

@@ -638,54 +638,58 @@ test('MCP form submissions validate required fields, types and constraints befor
   }
 });
 
-test('a long validation error keeps the reason visible and the rejected answer editable', async () => {
-  const property =
-    'customerBillingAddressInternationalShippingDetailsContactInformationPrimaryTelephoneNumber';
+for (const [width, height] of [
+  [98, 37],
+  [18, 7],
+] as const)
+  test(`a long validation error stays actionable and editable at ${width} by ${height}`, async () => {
+    const property =
+      'customerBillingAddressInternationalShippingDetailsContactInformationPrimaryTelephoneNumber';
 
-  const sent: UserResponse[] = [];
+    const sent: UserResponse[] = [];
 
-  const ui = await mountRequest(
-    {
-      id: 'form',
-      kind: 'elicitation',
-      title: 'Contact',
-      detail: '',
-      schema: {
-        type: 'object',
-        properties: { [property]: { type: 'string' } },
+    const ui = await mountRequest(
+      {
+        id: 'form',
+        kind: 'elicitation',
+        title: 'Contact',
+        detail: '',
+        schema: {
+          type: 'object',
+          properties: { [property]: { type: 'string' } },
+        },
       },
-    },
-    (response) => sent.push(response),
-    98,
-    37,
-  );
+      (response) => sent.push(response),
+      width,
+      height,
+    );
 
-  try {
-    await ready();
+    try {
+      await ready();
 
-    const invalid = JSON.stringify({ [property]: 123 });
+      const invalid = JSON.stringify({ [property]: 123 });
 
-    await press(ui.stdin, `\u001b[200~${invalid}\u001b[201~`);
+      await press(ui.stdin, `\u001b[200~${invalid}\u001b[201~`);
 
-    await press(ui.stdin, '\r');
+      await press(ui.stdin, '\r');
 
-    assert.deepEqual(sent, []);
+      assert.deepEqual(sent, []);
 
-    assert.match(ui.lastFrame() ?? '', /must be string/);
+      assert.match(ui.lastFrame() ?? '', /must be\s+string/);
 
-    await press(ui.stdin, '\u007f'.repeat(invalid.length));
+      await press(ui.stdin, '\u007f'.repeat(invalid.length));
 
-    const content = { [property]: '123' };
+      const content = { [property]: '123' };
 
-    await press(ui.stdin, `\u001b[200~${JSON.stringify(content)}\u001b[201~`);
+      await press(ui.stdin, `\u001b[200~${JSON.stringify(content)}\u001b[201~`);
 
-    await press(ui.stdin, '\r');
+      await press(ui.stdin, '\r');
 
-    assert.deepEqual(sent, [{ decision: 'accept', content }]);
-  } finally {
-    await unmount(ui);
-  }
-});
+      assert.deepEqual(sent, [{ decision: 'accept', content }]);
+    } finally {
+      await unmount(ui);
+    }
+  });
 
 test('an MCP form whose schema cannot be compiled says so instead of blaming the answer', async () => {
   const sent: UserResponse[] = [];

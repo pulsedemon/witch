@@ -297,7 +297,7 @@ export function Input({
 
   return (
     <Box width={width} height={height}>
-      {drawn.mark && width > 2 && <Text>{`${drawn.mark} `}</Text>}
+      {drawn.mark && drawn.width < width && <Text>{`${drawn.mark} `}</Text>}
       <Box
         ref={reference}
         width={drawn.width}

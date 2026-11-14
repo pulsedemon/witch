@@ -8,15 +8,15 @@ import { App } from '../../src/ui/App.js';
 import { ENTER, LEFT, fake, show } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
 
-for (const [columns, rows] of [
-  [100, 23],
-  [29, 24],
-  [30, 12],
-  [20, 8],
-  [8, 4],
-  [1, 1],
-  [1, 40],
-  [4, 40],
+for (const [columns, rows, visibleDraft] of [
+  [100, 23, 'helloZ'],
+  [29, 24, 'helloZ'],
+  [30, 12, 'helloZ'],
+  [20, 8, 'helloZ'],
+  [8, 4, 'helloZ'],
+  [1, 1, 'Z'],
+  [1, 40, 'Z'],
+  [4, 40, 'oZ'],
 ] as const) {
   test(`the composer stays editable inside ${columns} by ${rows}`, async () => {
     const { app, calls } = fake({
@@ -34,9 +34,14 @@ for (const [columns, rows] of [
     try {
       await until('rendered app', () => ui.frame().length > 0);
 
-      ui.stdin.write('hello' + LEFT);
+      ui.stdin.write('helloZ' + LEFT);
 
-      await until('visible cursor character', () => ui.text().includes('o'));
+      await until('visible draft row', () =>
+        ui
+          .text()
+          .split('\n')
+          .some((line) => line.replaceAll('┃', '').trim() === visibleDraft),
+      );
 
       const frame = ui.text().split('\n');
 
@@ -50,11 +55,50 @@ for (const [columns, rows] of [
 
       await until('submitted text', () => calls.length > 0);
 
-      assert.deepEqual(calls, [['send', 'hello', { composer: true }]]);
+      assert.deepEqual(calls, [['send', 'helloZ', { composer: true }]]);
 
       ui.resize(100, 40);
 
       await until('restored composer', () => ui.text().includes('┏'));
+    } finally {
+      ui.unmount();
+    }
+  });
+}
+
+for (const [columns, draft] of [
+  [5, '界'],
+  [7, '界'],
+  [3, '!界'],
+] as const) {
+  test(`wide input stays visible at ${columns} columns`, async () => {
+    const { app, calls } = fake({});
+
+    const ui = show(
+      createElement(App, { coordinator: app, onExit() {} }),
+      columns,
+      8,
+    );
+
+    try {
+      await until('rendered app', () => ui.frame().length > 0);
+
+      ui.stdin.write(draft + LEFT);
+
+      await until('visible wide character', () => ui.text().includes('界'));
+
+      assert.ok(
+        ui
+          .text()
+          .split('\n')
+          .every((line) => stringWidth(line) <= columns),
+      );
+
+      ui.stdin.write(ENTER);
+
+      await until('submitted draft', () => calls.length > 0);
+
+      assert.deepEqual(calls, [['send', draft, { composer: true }]]);
     } finally {
       ui.unmount();
     }

@@ -20,7 +20,7 @@ export function chatLayout(
 
   const activity = take(Number(controls.working));
   const pending = take(Number(controls.pending));
-  const border = width >= 5 && remaining >= 2;
+  const border = width >= 6 && remaining >= 2;
   const borderRows = take(border ? 2 : 0);
   const minimumList = controls.list ? 1 : controls.hints;
   const hints = take(minimumList);
