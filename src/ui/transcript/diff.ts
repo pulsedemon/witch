@@ -1,11 +1,13 @@
 import { diffArrays } from 'diff';
 import stringWidth from 'string-width';
+import stripAnsi from 'strip-ansi';
 import { shortPath } from '../../agents/tool-title.js';
 import type { FileDiff } from '../../agents/types.js';
 import { hyperlink, oneLine, plain } from '../links.js';
 import type { Span } from './syntax.js';
 import { languageOf, syntaxSpans } from './syntax.js';
-import { wrapLines } from '../wrap.js';
+import { normalizeText, wrapLines, wrapSourceLines } from '../wrap.js';
+import type { WrappedRow } from '../wrap.js';
 import {
   colors,
   diffAdded,
@@ -206,7 +208,7 @@ function prepareFile(
   file: FileDiff,
   cwd: string,
   full: boolean,
-): (width: number) => string[][] {
+): (width: number) => WrappedRow[][] {
   // undefined separates hunks
   const rows: (Row | undefined)[] = [];
   const whole = file.kind !== 'update';
@@ -314,7 +316,8 @@ function prepareFile(
     const number = String(row.number).padStart(digits);
 
     return {
-      code: paint(row.spans, row.words, change?.word),
+      // tabs stay relative to the code even when narrow rows wrap its gutter.
+      code: normalizeText(paint(row.spans, row.words, change?.word)),
       prefix: change
         ? colors.hex(change.marker)(`${number} ${row.marker}`)
         : `${colors.dim(number)}  `,
@@ -323,62 +326,69 @@ function prepareFile(
   });
 
   return (width) => {
-    const lines = [wrapLines(header, width, true)];
+    const lines = wrapSourceLines(header, width, true);
 
     for (const row of painted) {
       if (!row) {
-        lines.push([colors.dim('...')]);
+        lines.push(...wrapSourceLines(colors.dim('...'), width));
 
         continue;
       }
 
-      // wrapping the code on its own expands its tabs from its first column
-      const code = wrapLines(row.code, width - digits - 2);
+      const numbered = width >= digits + 4;
+
+      const code = numbered
+        ? wrapLines(row.code, width - digits - 2)
+        : wrapLines(row.prefix + row.code, width);
+
+      let offset = numbered ? 0 : -stripAnsi(row.prefix).length;
 
       lines.push(
         code.map((part, index) => {
-          const text = (index ? gutter : row.prefix) + part;
+          const start = offset;
 
-          return row.background
-            ? colors.bgHex(row.background)(
-                text + ' '.repeat(Math.max(0, width - stringWidth(text))),
-              )
-            : text;
+          offset += stripAnsi(part).length;
+
+          const text = (numbered ? (index ? gutter : row.prefix) : '') + part;
+
+          return {
+            offset: start,
+            text: row.background
+              ? colors.bgHex(row.background)(
+                  text + ' '.repeat(Math.max(0, width - stringWidth(text))),
+                )
+              : text,
+          };
         }),
       );
     }
 
-    if (hidden) lines.push([colors.dim(`… +${hidden} lines`)]);
+    if (hidden)
+      lines.push(...wrapSourceLines(colors.dim(`… +${hidden} lines`), width));
 
     if (file.unshown)
-      lines.push([
-        colors.dim(file.unshown === 'binary' ? '… binary' : '… not shown'),
-      ]);
+      lines.push(
+        ...wrapSourceLines(
+          colors.dim(file.unshown === 'binary' ? '… binary' : '… not shown'),
+          width,
+        ),
+      );
 
     return lines;
   };
 }
 
+/** each source line retains its wrapped rows and offsets independently of display decorations. */
 export function prepareDiff(
   files: readonly FileDiff[],
   cwd: string,
   full = false,
-): (width: number) => string[][] {
+): (width: number) => WrappedRow[][] {
   const prepared = files.map((file) => prepareFile(file, cwd, full));
 
   return (width) =>
     prepared.flatMap((render, index) => [
-      ...(index ? [['']] : []),
+      ...(index ? [[{ text: '', offset: 0 }]] : []),
       ...render(width),
     ]);
-}
-
-/** each file's header and numbered lines, a blank line apart, as the rows each line wraps into. every row fits `width` while it leaves the code two cells, the widest a character takes. */
-export function diffRows(
-  files: readonly FileDiff[],
-  width: number,
-  cwd: string,
-  full = false,
-): string[][] {
-  return prepareDiff(files, cwd, full)(width);
 }

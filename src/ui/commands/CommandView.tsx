@@ -28,9 +28,11 @@ import { markdown } from '../transcript/markdown.js';
 import { chooseModel } from './model-choice.js';
 import { coordinationText } from './peers.js';
 import { ScrollPage } from '../ScrollPage.js';
+import { pageStart } from '../scroll-page-layout.js';
+import type { PagePosition } from '../scroll-page-layout.js';
 import { piped } from '../theme.js';
 import { showUpdates, updatesText } from './updates.js';
-import { wrapLines } from '../wrap.js';
+import { wrapSourceLines } from '../wrap.js';
 
 export function useCommandViews({
   coordinator,
@@ -78,10 +80,10 @@ export function useCommandViews({
 
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
-  const [pageScroll, setPageScroll] = useState(0);
+  const [pageScroll, setPageScroll] = useState<PagePosition>(pageStart);
 
   const openPage = (next: View) => {
-    setPageScroll(0);
+    setPageScroll(pageStart);
 
     setView(next);
   };
@@ -525,7 +527,6 @@ export function CommandView({
   coordination,
   updates,
   agents,
-  active,
 }: {
   views: ReturnType<typeof useCommandViews>;
   width: number;
@@ -534,7 +535,6 @@ export function CommandView({
   coordination: CoordinationSnapshot | undefined;
   updates: RuntimeUpdateSnapshot;
   agents: Snapshot['agents'];
-  active: boolean;
 }) {
   const {
     view,
@@ -570,29 +570,46 @@ export function CommandView({
               ? updatesText(updates, agents)
               : '';
 
-    return wrapLines(pageText, bodyWidth);
+    return wrapSourceLines(pageText, bodyWidth);
   }, [view, cwd, pageCoordination, updates, agents, bodyWidth]);
+
+  const pageHeading = Number(bodyHeight >= 3);
+  const pageHint = Number(bodyHeight >= 2);
+
+  const pageRows =
+    bodyHeight - pageHeading - pageHint - Number(bodyHeight >= 4);
 
   const page = (
     <ScrollPage
       lines={pageLines}
-      height={Math.max(1, bodyHeight - 3)}
+      height={pageRows}
       scroll={pageScroll}
       setScroll={setPageScroll}
       arrows
-      active={active}
     />
   );
 
   if (view.kind === 'picker') {
-    const count = Math.max(1, bodyHeight - 4 - (view.caption ? 1 : 0));
+    const heading = Number(bodyHeight >= 4);
+    const caption = Number(!!view.caption && bodyHeight >= 5);
+    const hint = Number(bodyHeight >= 3);
+
+    const count = Math.max(
+      0,
+      bodyHeight - 1 - heading - caption - hint - Number(bodyHeight >= 5),
+    );
+
     const first = Math.max(0, selected - count + 1);
 
     return (
       <Box flexDirection="column" height={bodyHeight}>
-        <Text bold>{plain(view.title)}</Text>
-        {view.caption && (
-          <Text wrap="truncate-middle">{plain(view.caption)}</Text>
+        <Box height={heading} flexShrink={0} overflow="hidden">
+          <Text bold wrap="truncate-end">
+            {plain(view.title)}
+          </Text>
+        </Box>
+        {caption > 0 && (
+          <Text wrap="truncate-middle">{plain(view.caption ?? '')}</Text>
         )}
         <Box height={count} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => {
@@ -615,15 +632,17 @@ export function CommandView({
           key={view.title}
           width={bodyWidth}
           height={1}
-          active={active}
+          active
           multiline={false}
           placeholder="Filter, then Enter"
           onChange={changeQuery}
           onSubmit={choose}
         />
-        <Text dimColor>
-          {piped(['↑/↓ CHOOSE', 'ENTER SELECT', 'ESC BACK'])}
-        </Text>
+        <Box height={hint} flexShrink={0} overflow="hidden">
+          <Text dimColor wrap="truncate-end">
+            {piped(['↑/↓ CHOOSE', 'ENTER SELECT', 'ESC BACK'])}
+          </Text>
+        </Box>
       </Box>
     );
   } else if (
@@ -643,21 +662,25 @@ export function CommandView({
 
     return (
       <Box flexDirection="column" height={bodyHeight}>
-        <Text bold>
-          {view.kind === 'page' && view.link
-            ? hyperlink(title, view.link, cwd)
-            : title}
-        </Text>
+        {pageHeading > 0 && (
+          <Text bold wrap="truncate-end">
+            {view.kind === 'page' && view.link
+              ? hyperlink(title, view.link, cwd)
+              : title}
+          </Text>
+        )}
         {page}
-        <Text dimColor>
-          {piped([
-            ...(view.kind === 'page' && view.note
-              ? ['e EDIT', 'h HISTORY']
-              : []),
-            '↑/↓ SCROLL',
-            'ESC BACK',
-          ])}
-        </Text>
+        {pageHint > 0 && (
+          <Text dimColor wrap="truncate-end">
+            {piped([
+              ...(view.kind === 'page' && view.note
+                ? ['e EDIT', 'h HISTORY']
+                : []),
+              '↑/↓ SCROLL',
+              'ESC BACK',
+            ])}
+          </Text>
+        )}
       </Box>
     );
   }

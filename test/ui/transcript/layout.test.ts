@@ -856,6 +856,49 @@ test('explicit expansion choices survive a project diff arriving', () => {
   }
 });
 
+test('one-column diff rows keep copy breaks and widen prefix anchors onto their source line', () => {
+  const item: DisplayItem = {
+    id: 'diff',
+    kind: 'tool',
+    title: 'Edit',
+    text: '',
+    cwd: '/work',
+    done: true,
+    diff: [
+      {
+        path: '/work/a.ts',
+        kind: 'add',
+        hunks: [{ oldStart: 0, newStart: 1, lines: ['+abcdef'] }],
+      },
+    ],
+  };
+
+  const layout = new TranscriptLayout();
+  const narrow = layout.render([item], 1, new Map());
+
+  const changed = narrow.lines
+    .slice()
+    .flatMap((text, row) =>
+      text.includes('\u001b[48;2;34;92;43m') ? [row] : [],
+    );
+
+  assert.ok(changed.length > 1);
+
+  for (const row of changed.slice(1))
+    assert.equal(narrow.joinBefore(row), '\n');
+
+  const prefix = changed.find((row) => narrow.anchorAt(row)!.offset < 0);
+
+  assert.notEqual(prefix, undefined);
+
+  const wide = layout.render([item], 80, new Map());
+
+  assert.match(
+    stripAnsi(wide.lines.at(wide.rowOf(narrow.anchorAt(prefix!)!))!),
+    /1 \+abcdef/,
+  );
+});
+
 test('a scroll anchor on a diff line stays on that line when a resize rewraps the lines above it', () => {
   const item: DisplayItem = {
     id: 't',

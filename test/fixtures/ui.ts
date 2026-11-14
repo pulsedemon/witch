@@ -80,7 +80,7 @@ export function show(element: ReactElement, columns = 100, rows = 40) {
   };
 }
 
-/** sidebar overflow is independent of App's minimum terminal size. */
+/** renders sidebar overflow independently of the main column. */
 export function SidebarView({
   coordinator,
   height,

@@ -7,7 +7,6 @@ import {
 } from 'react';
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
-import stripAnsi from 'strip-ansi';
 import { textCommands } from '../agents/claude/spells.js';
 import type { CompletionList } from './input/completion.js';
 import type { Coordinator } from '../core/coordinator.js';
@@ -24,12 +23,7 @@ import {
 } from './commands/commands.js';
 import { CommandView, useCommandViews } from './commands/CommandView.js';
 import { CommandWindow } from './commands/CommandWindow.js';
-import {
-  commandWindowRows,
-  minimumColumns,
-  minimumRows,
-  toolHintLines,
-} from './chat-layout.js';
+import { chatLayout, toolHintLines } from './chat-layout.js';
 import { Input } from './input/Input.js';
 import { inputRows } from './input/input-layout.js';
 import type { InputHandle } from './input/Input.js';
@@ -41,6 +35,8 @@ import {
   tokenKey,
 } from './input/completion.js';
 import { Request } from './Request.js';
+import { Recovery } from './Recovery.js';
+import { pageStart } from './scroll-page-layout.js';
 import { canExpandDiff, diffExpansionHint } from './transcript/diff.js';
 import type { Graphics } from './transcript/images.js';
 import { TranscriptLayout } from './transcript/transcript-layout.js';
@@ -60,12 +56,11 @@ import { sidebarWidth, usagePlacement } from './status/sidebar-layout.js';
 import type { delegation } from './commands/delegation.js';
 import { StatusLine, useStatusTime } from './status/StatusLine.js';
 import { statusFooter } from './status/status-rows.js';
-import { ScrollPage } from './ScrollPage.js';
 import { PhaseRow } from './status/PhaseRow.js';
 import { useToolFocus } from './transcript/tool-focus.js';
 import { useExitConfirm } from './exit-confirm.js';
-import { accent, colors, piped, potion } from './theme.js';
-import { wrapLines } from './wrap.js';
+import { accent, colors, potion } from './theme.js';
+import { wrapSourceLines } from './wrap.js';
 import type { RuntimeUpdates } from '../core/runtime/runtime-updates.js';
 import { useRuntimeUpdates } from './commands/updates.js';
 
@@ -155,15 +150,13 @@ export function App({
   );
 
   const size = useWindowSize();
-  const undersized = size.columns < minimumColumns || size.rows < minimumRows;
-  const columns = Math.max(minimumColumns, size.columns);
+  const columns = Math.max(1, size.columns);
   const sidebar = columns - sidebarWidth >= 80;
   const width = sidebar ? columns - sidebarWidth : columns;
-  /** inside the body's paddingX. */
-  const bodyWidth = width - 2;
-  /** inside the composer's border and paddingX. */
-  const composerWidth = bodyWidth - 4;
-  const height = Math.max(minimumRows, size.rows);
+  const padding = width >= 7 ? 1 : 0;
+  const bodyWidth = width - padding * 2;
+  const height = Math.max(1, size.rows);
+  const phaseRows = Number(height > 2);
   const statusTime = useStatusTime();
   const usage = usagePlacement(state, sidebar, height, statusTime);
   // the compiler needs the native fallback's string type to memoize its consumers.
@@ -295,26 +288,6 @@ export function App({
       pressedAt.current = undefined;
   });
 
-  /** what joins a row to the one above: a line break, or for a wrapped row the spaces its wrap trimmed. */
-  const joint = (row: number) => {
-    const here = transcript.anchorAt(row);
-    const above = transcript.anchorAt(row - 1);
-
-    if (!here || !above || here.item !== above.item || here.line !== above.line)
-      return '\n';
-
-    // a row its wrap changed beyond trimming is not found in its line and has offset -1, so take the break as a space
-    if (here.offset < 0 || above.offset < 0) return ' ';
-
-    const trimmed =
-      here.offset -
-      above.offset -
-      stripAnsi(transcript.lines.at(row - 1)!).length;
-
-    // a diff row's offset counts rows, not characters, so it leaves no room for the row above
-    return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
-  };
-
   const liveAgent = state.native?.agent ?? state.conversation?.agent;
 
   /** a draft belongs to its conversation, so typing waits for the load or a switch to open one. */
@@ -424,12 +397,16 @@ export function App({
   const request = state.requests[0];
   const recovering = state.phase === 'recovery';
   const chat = view.kind === 'chat' && !request && !recovering;
-  const minimumTranscriptRows = 2;
   const toolHint = toolFocus.focused ? toolHintLines(bodyWidth, diffHint) : [];
-  const minimumListRows = list ? 1 : toolHint.length;
 
-  const fixedControlsRows =
-    3 + commandWindowRows + Number(working) + Number(state.pendingCompaction);
+  const controls = {
+    working,
+    pending: state.pendingCompaction,
+    list: list?.items.length ?? 0,
+    hints: toolHint.length,
+  };
+
+  const desired = chatLayout(height - phaseRows, bodyWidth, controls);
 
   const { lines: status, errors: errorRows } = statusFooter(
     {
@@ -446,41 +423,27 @@ export function App({
     },
     statusTime,
     {
-      width: width - 2,
+      width: Math.max(1, width - 2),
       height,
+      headerRows: phaseRows,
       error: state.error,
-      bodyRows: chat
-        ? minimumTranscriptRows + 1 + fixedControlsRows + minimumListRows
-        : 6 + Number(working) + Number(state.pendingCompaction),
+      bodyRows: Math.min(height - phaseRows, chat ? desired.minimumRows : 6),
     },
   );
 
-  const bodyHeight = height - 1 - status.length - errorRows.length;
+  const bodyHeight = height - phaseRows - status.length - errorRows.length;
+  const fitted = chatLayout(bodyHeight, bodyWidth, controls);
+  const { list: listRows, transcript: minimumTranscriptRows } = fitted;
+  const composerWidth = bodyWidth - (fitted.border ? 4 : 0);
 
-  const listRows = list
-    ? Math.min(
-        8,
-        list.items.length,
-        Math.max(1, bodyHeight - fixedControlsRows - minimumTranscriptRows - 1),
-      )
-    : minimumListRows;
-
-  const listFirst = Math.max(0, listSelected - listRows + 1);
-  const controlsRows = fixedControlsRows + listRows;
-
-  // leave the transcript's minimum height intact when the footer squeezes the body.
-  const composerRows = Math.min(
-    Math.max(
-      1,
-      Math.min(
-        Math.floor(bodyHeight / 2),
-        bodyHeight - controlsRows - minimumTranscriptRows,
-      ),
-    ),
-    inputRows(buffer.value, composerWidth, true),
+  const wrappedInputRows = useMemo(
+    () => inputRows(buffer.value, composerWidth, true),
+    [buffer.value, composerWidth],
   );
 
-  const freeRows = bodyHeight - composerRows - controlsRows;
+  const composerRows = Math.min(fitted.composer, wrappedInputRows);
+  const freeRows = fitted.content - composerRows;
+  const listFirst = Math.max(0, listSelected - listRows + 1);
 
   // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
   const queued = useMemo(
@@ -511,7 +474,9 @@ export function App({
       Math.max(0, transcript.lines.length - availableRows),
     );
 
-    const pinned = clearedAt !== undefined && unpinnedTop < clearedAt;
+    const pinned =
+      availableRows > 1 && clearedAt !== undefined && unpinnedTop < clearedAt;
+
     const height = availableRows - Number(pinned);
     const maxTop = Math.max(0, transcript.lines.length - height);
 
@@ -815,7 +780,7 @@ export function App({
   const recoveryReady = useKeysReady(state.phase === 'recovery');
 
   useEffect(() => {
-    if (state.phase === 'recovery') setPageScroll(0);
+    if (state.phase === 'recovery') setPageScroll(pageStart);
   }, [state.phase]);
 
   const recovery = recovering ? state.recovery : undefined;
@@ -829,23 +794,10 @@ export function App({
       recovery?.root ?? cwd,
     );
 
-    return wrapLines(text, bodyWidth);
+    return wrapSourceLines(text, bodyWidth);
   }, [recovery, conflict, cwd, bodyWidth]);
 
-  const page = (
-    <ScrollPage
-      lines={pageLines}
-      height={Math.max(1, bodyHeight - 5)}
-      scroll={pageScroll}
-      setScroll={setPageScroll}
-      arrows
-      active={!undersized}
-    />
-  );
-
   usePointer((pointer, { column, row }) => {
-    if (undersized) return;
-
     // a press or release ends the drag even while another view covers the transcript
     if (pointer !== 'drag') {
       pressedAt.current = undefined;
@@ -909,8 +861,6 @@ export function App({
   });
 
   useClick(() => {
-    if (undersized) return;
-
     if (
       pressedNewMessages.current &&
       newMessagesBox.current &&
@@ -935,8 +885,7 @@ export function App({
   });
 
   useWheel((rows) => {
-    if (!undersized && !request && !recovering && view.kind === 'chat')
-      scrollBy(rows);
+    if (!request && !recovering && view.kind === 'chat') scrollBy(rows);
   });
 
   useInput((input, key) => {
@@ -952,7 +901,6 @@ export function App({
 
         dismissPicker(false);
       } else if (
-        !undersized &&
         viewRef.current.kind === 'chat' &&
         !toolFocus.focusedRef.current &&
         composerOpen(state, leavingRef.current) &&
@@ -964,8 +912,6 @@ export function App({
       return;
     }
 
-    if (undersized) return;
-
     if (key.super && input === 'c') {
       // nothing copies while another view covers the transcript, and blank rows or images hold no text to replace the clipboard with
       const selected = endsOf(rangeRef.current);
@@ -973,7 +919,7 @@ export function App({
       const text =
         transcriptBox.current &&
         selected &&
-        selectedText(transcript.lines, ...selected, joint);
+        selectedText(transcript.lines, ...selected, transcript.joinBefore);
 
       if (text?.trim()) copy?.(text);
 
@@ -1059,7 +1005,6 @@ export function App({
       <Request
         key={request.id}
         request={request}
-        active={!undersized}
         width={bodyWidth}
         height={bodyHeight}
         cwd={cwd}
@@ -1068,31 +1013,14 @@ export function App({
     );
   else if (state.phase === 'recovery') {
     body = (
-      <Box flexDirection="column" height={bodyHeight}>
-        <Text color="yellow" bold>
-          {conflict
-            ? 'Memory conflicts with another conversation'
-            : 'Unfinished memory changes'}
-        </Text>
-        <Text>
-          {conflict
-            ? 'Another conversation published changes to the same notes. Keep mine merges your current changes.'
-            : 'Accept these changes with their original attribution, or discard them.'}
-        </Text>
-        {page}
-        <Text bold>
-          {piped([
-            ...(conflict
-              ? [
-                  'k KEEP MINE (YOUR SIDE OF EACH CONFLICTING CHANGE WINS)',
-                  'd DISCARD MINE',
-                ]
-              : ['a ACCEPT', 'd DISCARD']),
-            '↑/↓ SCROLL',
-            'CTRL+C QUIT',
-          ])}
-        </Text>
-      </Box>
+      <Recovery
+        conflict={conflict}
+        lines={pageLines}
+        height={bodyHeight}
+        width={bodyWidth}
+        scroll={pageScroll}
+        setScroll={setPageScroll}
+      />
     );
   } else if (view.kind !== 'chat') {
     body = (
@@ -1104,7 +1032,6 @@ export function App({
         coordination={coordination}
         updates={updateSnapshot}
         agents={state.agents}
-        active={!undersized}
       />
     );
   } else {
@@ -1168,7 +1095,11 @@ export function App({
                 )}
           </Text>
         </Box>
-        {state.pendingCompaction && <Text dimColor>Pending: /compact</Text>}
+        {fitted.pending > 0 && (
+          <Text dimColor wrap="truncate-end">
+            Pending: /compact
+          </Text>
+        )}
         {queueRows > 0 && (
           <Box height={queueRows} flexDirection="column" overflow="hidden">
             {queued.slice(0, queueRows).map((prompt, index) => (
@@ -1178,9 +1109,16 @@ export function App({
             ))}
           </Box>
         )}
-        <CommandWindow items={state.items} />
-        {working && <Activity />}
-        <Box height={1} flexShrink={0} justifyContent="center">
+        <CommandWindow items={state.items} height={fitted.commands} />
+        <Box height={fitted.activity} overflow="hidden" flexShrink={0}>
+          {working && <Activity />}
+        </Box>
+        <Box
+          height={fitted.gap}
+          overflow="hidden"
+          flexShrink={0}
+          justifyContent="center"
+        >
           {newMessages && (
             <Box ref={newMessagesBox}>
               <Text color={accent} inverse>
@@ -1190,7 +1128,7 @@ export function App({
           )}
         </Box>
         <Box
-          borderStyle="bold"
+          borderStyle={fitted.border ? 'bold' : undefined}
           borderColor={
             toolFocus.focused
               ? 'gray'
@@ -1198,15 +1136,16 @@ export function App({
                 ? potion
                 : accent
           }
-          height={composerRows + 2}
-          paddingX={1}
+          height={composerRows + (fitted.border ? 2 : 0)}
+          paddingX={fitted.border ? 1 : 0}
+          flexShrink={0}
         >
           <Input
             key={state.conversation?.id ?? 'initial'}
             width={composerWidth}
             height={composerRows}
             shell
-            active={!undersized && !toolFocus.focused && composerPhase}
+            active={!toolFocus.focused && composerPhase}
             ref={composer}
             initialValue={draftOf(drafts, state) ?? ''}
             placeholder={
@@ -1246,7 +1185,11 @@ export function App({
               ))}
           </Box>
         ) : (
-          toolFocus.focused && <Text dimColor>{toolHint.join('\n')}</Text>
+          toolFocus.focused && (
+            <Box height={listRows} overflow="hidden">
+              <Text dimColor>{toolHint.slice(0, listRows).join('\n')}</Text>
+            </Box>
+          )
         )}
       </Box>
     );
@@ -1254,26 +1197,23 @@ export function App({
 
   return (
     <Box width={size.columns} height={size.rows} overflow="hidden">
-      {undersized && (
-        <Text>
-          {exit.armed
-            ? 'Press Ctrl+C again to quit.'
-            : `Resize terminal to at least ${minimumColumns} columns × ${minimumRows} rows.`}
-        </Text>
-      )}
-      <Box
-        display={undersized ? 'none' : 'flex'}
-        width={columns}
-        height={height}
-      >
+      <Box width={columns} height={height}>
         <Box flexDirection="column" width={width} height={height}>
-          <PhaseRow
-            state={state}
-            reading={top !== null && view.kind === 'chat'}
-            counts={!sidebar}
-            exitArmed={exit.armed}
-          />
-          <Box flexDirection="column" paddingX={1}>
+          <Box height={phaseRows} flexShrink={0} overflow="hidden">
+            <PhaseRow
+              state={state}
+              reading={top !== null && view.kind === 'chat'}
+              counts={!sidebar}
+              exitArmed={exit.armed}
+            />
+          </Box>
+          <Box
+            flexDirection="column"
+            height={bodyHeight}
+            flexShrink={0}
+            paddingX={padding}
+            overflow="hidden"
+          >
             {body}
           </Box>
           {errorRows.length > 0 && (

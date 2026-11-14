@@ -3,15 +3,18 @@ import { test } from 'vitest';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../../../src/agents/types.js';
-import {
-  canExpandDiff,
-  diffRows,
-  prepareDiff,
-} from '../../../src/ui/transcript/diff.js';
+import { canExpandDiff, prepareDiff } from '../../../src/ui/transcript/diff.js';
 import { syntaxSpans } from '../../../src/ui/transcript/syntax.js';
 
+const prepareText = (...args: Parameters<typeof prepareDiff>) => {
+  const render = prepareDiff(...args);
+
+  return (width: number) =>
+    render(width).map((rows) => rows.map(({ text }) => text));
+};
+
 const rows = (files: FileDiff[], width = 30) =>
-  diffRows(files, width, '/work').flat();
+  prepareText(files, '/work')(width).flat();
 
 const plainRows = (files: FileDiff[], width = 30) =>
   rows(files, width).map((row) => stripAnsi(row).trimEnd());
@@ -20,6 +23,78 @@ const green = '\u001b[48;2;34;92;43m';
 const red = '\u001b[48;2;122;41;54m';
 const addedWord = '\u001b[48;2;56;166;96m';
 const removedWord = '\u001b[48;2;179;89;107m';
+
+test('diffs wrap line numbers and notices when the gutter cannot fit', () => {
+  const files: FileDiff[] = [
+    {
+      path: '/work/narrow.ts',
+      kind: 'update',
+      hunks: [
+        { oldStart: 10000, newStart: 10000, lines: ['-old', '+replacement'] },
+        { oldStart: 20000, newStart: 20000, lines: [' unchanged'] },
+      ],
+    },
+    {
+      path: '/work/preview.ts',
+      kind: 'add',
+      hunks: [
+        {
+          oldStart: 0,
+          newStart: 1,
+          lines: Array.from({ length: 12 }, (_, i) => `+line${i}`),
+        },
+      ],
+    },
+    {
+      path: '/work/binary.dat',
+      kind: 'update',
+      hunks: [],
+      unshown: 'binary',
+    },
+    {
+      path: '/work/omitted.ts',
+      kind: 'update',
+      hunks: [],
+      unshown: { added: 200, removed: 300 },
+    },
+  ];
+
+  for (const width of [1, 2, 4, 7]) {
+    const lines = rows(files, width);
+
+    assert.ok(lines.every((line) => stringWidth(line) <= width));
+
+    const text = stripAnsi(lines.join('')).replaceAll(' ', '');
+
+    assert.ok(text.includes('10000-old'));
+
+    assert.ok(text.includes('10000+replacement'));
+
+    assert.ok(text.includes('...'));
+
+    assert.ok(text.includes('…+2lines'));
+
+    assert.ok(text.includes('…binary'));
+
+    assert.ok(text.includes('…notshown'));
+  }
+});
+
+test('a narrow diff leaves room for wide characters beside line numbers', () => {
+  const files: FileDiff[] = [
+    {
+      path: '/work/a.txt',
+      kind: 'add',
+      hunks: [{ oldStart: 0, newStart: 1, lines: ['+界'] }],
+    },
+  ];
+
+  const lines = rows(files, 4);
+
+  assert.ok(lines.every((line) => stringWidth(line) <= 4));
+
+  assert.ok(stripAnsi(lines.join('')).includes('界'));
+});
 
 test('a prepared diff preserves earlier rows while rendering new widths', () => {
   const files: FileDiff[] = [
@@ -45,7 +120,7 @@ test('a prepared diff preserves earlier rows while rendering new widths', () => 
   const original = structuredClone(files);
 
   for (const full of [false, true]) {
-    const render = prepareDiff(files, '/work', full);
+    const render = prepareText(files, '/work', full);
     const earlier = render(78);
     const saved = structuredClone(earlier);
 
@@ -62,8 +137,6 @@ test('a prepared diff preserves earlier rows while rendering new widths', () => 
       assert.equal(plain.includes('… +2 lines'), !full);
 
       assert.ok(drawn.flat().every((line) => stringWidth(line) <= width));
-
-      assert.deepEqual(drawn, diffRows(files, width, '/work', full));
 
       assert.deepEqual(earlier, saved);
     }
@@ -102,7 +175,7 @@ test('whole-file expansion exposes every supplied line without changing updates 
     assert.equal(canExpandDiff([file]), true);
 
     const full = stripAnsi(
-      diffRows([file], 30, '/work', true).flat().join('\n'),
+      prepareText([file], '/work', true)(30).flat().join('\n'),
     );
 
     assert.match(full, /line_11[\s\S]*line_12/);
@@ -116,8 +189,8 @@ test('whole-file expansion exposes every supplied line without changing updates 
     assert.equal(canExpandDiff([update]), false);
 
     assert.deepEqual(
-      diffRows([update], 30, '/work', true),
-      diffRows([update], 30, '/work'),
+      prepareText([update], '/work', true)(30),
+      prepareText([update], '/work')(30),
     );
 
     const short: FileDiff = {
@@ -303,7 +376,9 @@ test(
         },
       ],
       4,
-    ).join('\n');
+    )
+      .join('')
+      .replaceAll(' ', '');
 
     assert.ok(shown.includes('99998') && shown.includes('99999'), shown);
   },
@@ -754,7 +829,7 @@ test("a long line past the highlighting budget draws plain while shorter lines k
   const long = (name: string) =>
     `+const ${name} = [` + 'a, '.repeat(1000) + '];';
 
-  const [, first, second, short, , later, , , next, , , indented] = diffRows(
+  const [, first, second, short, , later, , , next, , , indented] = prepareText(
     [
       {
         path: '/work/a.ts',
@@ -795,9 +870,8 @@ test("a long line past the highlighting budget draws plain while shorter lines k
         ],
       },
     ],
-    100,
     '/work',
-  );
+  )(100);
 
   const colored = (drawn: readonly string[]) =>
     drawn.some((row) => syntaxOf(row).includes('\u001b[38;'));

@@ -278,8 +278,19 @@ export function statusFooter(
     height,
     error,
     bodyRows,
-  }: { width: number; height: number; error?: string; bodyRows: number },
+    headerRows = 1,
+  }: {
+    width: number;
+    height: number;
+    error?: string;
+    bodyRows: number;
+    headerRows?: number;
+  },
 ): { lines: string[]; errors: string[] } {
+  const available = Math.max(0, height - headerRows - bodyRows);
+
+  if (!available) return { lines: [], errors: [] };
+
   const funded = hasFunding(status);
 
   const minimumStatusRows = funded
@@ -288,7 +299,7 @@ export function statusFooter(
 
   const errorLimit = Math.max(
     0,
-    Math.min(Math.floor(height / 3), height - 1 - minimumStatusRows - bodyRows),
+    Math.min(Math.floor(height / 3), available - minimumStatusRows),
   );
 
   const errorLines = error
@@ -305,13 +316,15 @@ export function statusFooter(
           ]
         : errorLines;
 
+  const lines = statusLines(
+    status,
+    now,
+    width,
+    Math.max(2, available - errors.length),
+  );
+
   return {
     errors,
-    lines: statusLines(
-      status,
-      now,
-      width,
-      Math.max(2, height - 1 - errors.length - bodyRows),
-    ),
+    lines: lines.length <= available - errors.length ? lines : [],
   };
 }

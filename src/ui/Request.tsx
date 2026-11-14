@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -13,10 +13,12 @@ import { piped } from './theme.js';
 import {
   canExpandDiff,
   diffExpansionHint,
-  diffRows,
+  prepareDiff,
 } from './transcript/diff.js';
-import { wrapLines } from './wrap.js';
+import { wrapLines, wrapSourceLines } from './wrap.js';
 import { ScrollPage } from './ScrollPage.js';
+import { pageAnchorAt, pageRowOf, pageStart } from './scroll-page-layout.js';
+import type { PagePosition } from './scroll-page-layout.js';
 
 interface Props {
   request: UserRequest;
@@ -45,32 +47,133 @@ export function Request({
   const [questionIndex, questionIndexRef, setQuestionIndex] = useLiveState(0);
   // never rendered, so a ref alone carries answers between keys
   const answers = useRef<Record<string, string[]>>({});
-  const [scroll, setScroll] = useState(0);
+  const [scroll, setScroll] = useState<PagePosition>(pageStart);
+  const followedSelection = useRef({ question: -1, option: -1 });
   const [error, setError] = useState('');
   const [full, setFull] = useState(false);
   const ready = useKeysReady(active);
   const question = request.questions?.[questionIndex];
   const options = question?.options ?? approvals.map(({ label }) => label);
   const expandable = !!request.diff && canExpandDiff(request.diff);
-  const bodyHeight = Math.max(2, height - 7 - Number(expandable));
+  const approval = request.kind === 'approval';
+
+  const inputHeight = approval
+    ? 0
+    : Math.min(3, Math.max(1, Math.floor(height / 4)));
+
+  const controlRows = approval ? 1 : inputHeight;
+  const headingRows = Number(height >= controlRows + 2);
+  const errorLines = error ? wrapLines(error, width) : [];
+
+  const errorRows = Math.min(
+    errorLines.length,
+    Math.max(0, height - controlRows - headingRows),
+  );
+
+  const hints = [
+    ...(expandable ? [diffExpansionHint(full)] : []),
+    approval
+      ? piped([
+          '↑/↓ CHOOSE',
+          'ENTER CONFIRM',
+          'y ALLOW',
+          'n DECLINE',
+          'ESC DECLINE',
+          'CTRL+C STOP TURN',
+        ])
+      : question
+        ? question.multiple
+          ? 'Type an answer or option numbers separated by commas.'
+          : 'Type an answer or option number.'
+        : request.url
+          ? 'Click the URL, then press Enter when finished.'
+          : 'Enter a JSON object with the requested fields.',
+    ...(!approval ? [piped(['ESC DECLINE', 'CTRL+C STOP TURN'])] : []),
+  ].flatMap((line) => wrapLines(line, width));
+
+  const hintRows = Math.min(
+    hints.length,
+    Math.max(0, height - controlRows - headingRows - errorRows - 2),
+  );
+
+  const bodyHeight = Math.min(
+    height - controlRows - headingRows - errorRows - hintRows,
+    Math.max(2, height - 7 - Number(expandable)),
+  );
+
+  const labels = options
+    .map((label, index) => `${index === selection ? '› ' : '  '}${label}`)
+    .join('   ');
+
+  const choices =
+    wrapLines(labels, width).length > 1
+      ? width < 4
+        ? wrapLines(options[selection] ?? '', width)[0]
+        : `› ${options[selection] ?? ''}`
+      : labels;
+
   const fields = `${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
 
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
     : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
 
-  const lines = useMemo(() => {
-    const wrap = (text: string) => wrapLines(linkify(text, cwd), width);
+  const differences = request.diff;
 
-    if (question || !request.diff?.length) return wrap(detail);
+  const renderDiff = useMemo(
+    () =>
+      differences?.length ? prepareDiff(differences, cwd, full) : undefined,
+    [differences, cwd, full],
+  );
+
+  const lines = useMemo(() => {
+    const wrap = (text: string) => wrapSourceLines(linkify(text, cwd), width);
+
+    if (question || !renderDiff) return wrap(detail);
 
     return [
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
-      ...diffRows(request.diff, width, cwd, full).flat(),
-      '',
+      ...renderDiff(width),
+      [{ text: '', offset: 0 }],
       ...wrap(fields),
     ];
-  }, [request, detail, fields, question, width, cwd, full]);
+  }, [request, detail, fields, question, width, cwd, renderDiff]);
+
+  const selectedRow =
+    question && options[selection] !== undefined
+      ? wrapLines(question.title, width).length +
+        1 +
+        options
+          .slice(0, selection)
+          .reduce(
+            (rows, option, index) =>
+              rows + wrapLines(`  ${index + 1}. ${option}`, width).length,
+            0,
+          )
+      : undefined;
+
+  useEffect(() => {
+    if (
+      selectedRow === undefined ||
+      bodyHeight <= 0 ||
+      (followedSelection.current.question === questionIndex &&
+        followedSelection.current.option === selection)
+    )
+      return;
+
+    followedSelection.current = { question: questionIndex, option: selection };
+
+    setScroll((current) => {
+      const row = pageRowOf(lines, current);
+
+      const next = Math.max(
+        0,
+        Math.min(selectedRow, Math.max(row, selectedRow - bodyHeight + 1)),
+      );
+
+      return next === row ? current : pageAnchorAt(lines, next);
+    });
+  }, [selectedRow, bodyHeight, questionIndex, selection, lines]);
 
   useInput((input, key) => {
     if (!active || key.eventType === 'release') return;
@@ -78,7 +181,7 @@ export function Request({
     if (key.ctrl && input === 'o' && expandable) {
       setFull((previous) => !previous);
 
-      setScroll(0);
+      setScroll(pageStart);
 
       return;
     }
@@ -146,7 +249,7 @@ export function Request({
 
         setSelection(0);
 
-        setScroll(0);
+        setScroll(pageStart);
       }
 
       return true;
@@ -200,14 +303,16 @@ export function Request({
   };
 
   return (
-    <Box flexDirection="column" height={height}>
-      <Text bold color="yellow">
-        {question
-          ? `Question ${questionIndex + 1}/${request.questions!.length}`
-          : request.kind === 'approval'
-            ? 'Approval required'
-            : 'Input requested'}
-      </Text>
+    <Box flexDirection="column" height={height} overflow="hidden">
+      <Box height={headingRows} flexShrink={0} overflow="hidden">
+        <Text bold color="yellow" wrap="truncate-end">
+          {question
+            ? `Question ${questionIndex + 1}/${request.questions!.length}`
+            : approval
+              ? 'Approval required'
+              : 'Input requested'}
+        </Text>
+      </Box>
       <ScrollPage
         lines={lines}
         active={active}
@@ -215,53 +320,30 @@ export function Request({
         scroll={scroll}
         setScroll={setScroll}
       />
-      {expandable && <Text dimColor>{diffExpansionHint(full)}</Text>}
-      {request.kind === 'approval' ? (
-        <Box flexDirection="column">
-          <Text>
-            {options
-              .map(
-                (label, index) =>
-                  `${index === selection ? '› ' : '  '}${label}`,
-              )
-              .join('   ')}
-          </Text>
-          <Text dimColor>
-            {piped([
-              '↑/↓ CHOOSE',
-              'ENTER CONFIRM',
-              'y ALLOW',
-              'n DECLINE',
-              'ESC DECLINE',
-              'CTRL+C STOP TURN',
-            ])}
-          </Text>
+      <Box height={hintRows} flexShrink={0} overflow="hidden">
+        <Text dimColor>{hints.slice(0, hintRows).join('\n')}</Text>
+      </Box>
+      {approval ? (
+        <Box height={1} flexShrink={0}>
+          <Text wrap="truncate-end">{choices}</Text>
         </Box>
       ) : (
-        <Box flexDirection="column">
-          <Text dimColor>
-            {question
-              ? question.multiple
-                ? 'Type an answer or option numbers separated by commas.'
-                : 'Type an answer or option number.'
-              : request.url
-                ? 'Click the URL, then press Enter when finished.'
-                : 'Enter a JSON object with the requested fields.'}
-          </Text>
-          <Input
-            key={questionIndex}
-            width={width}
-            height={3}
-            active={active && ready}
-            secret={question?.secret}
-            multiline={!question}
-            placeholder={question ? 'Your answer' : '{}'}
-            onSubmit={submit}
-          />
-          <Text dimColor>{piped(['ESC DECLINE', 'CTRL+C STOP TURN'])}</Text>
-        </Box>
+        <Input
+          key={questionIndex}
+          width={width}
+          height={inputHeight}
+          active={active && ready}
+          secret={question?.secret}
+          multiline={!question}
+          placeholder={question ? 'Your answer' : '{}'}
+          onSubmit={submit}
+        />
       )}
-      {error && <Text color="red">{error}</Text>}
+      <Box height={errorRows} flexShrink={0} overflow="hidden">
+        <Text color="red">
+          {errorLines.slice(errorLines.length - errorRows).join('\n')}
+        </Text>
+      </Box>
     </Box>
   );
 }
