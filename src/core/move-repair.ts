@@ -6,6 +6,7 @@ import type { Memory } from '../memory/memory.js';
 import { projectKey } from '../memory/memory.js';
 import {
   adoptIdentity,
+  caseDestination,
   findMoves,
   identify,
   sameIdentity,
@@ -420,13 +421,27 @@ async function record(
     return (await adoptIdentity(entry, identity)) ? entry : undefined;
   };
   const paths = new Set([cwd, ...seeds, ...records.map(({ cwd }) => cwd)]);
+  const spellings = new Map<string, string>();
+  const spelling = async (path: string, identity?: Identity) => {
+    const known = spellings.get(path);
+    if (known !== undefined) return known;
+    const found = identity ?? (await identify(path).catch(() => undefined));
+    const actual =
+      (found && (await caseDestination(path, found).catch(() => undefined))) ??
+      path;
+    spellings.set(path, actual);
+    return actual;
+  };
   const lists = new Map<string, string[]>();
   // every worktree of a repository lists the same registrations
   const listing = new Map<string, string[]>();
-  for (const path of paths) {
-    const identity = await identify(path).catch(() => undefined);
+  for (const original of paths) {
+    const identity = await identify(original).catch(() => undefined);
     if (!identity) continue;
-    const list = listing.get(path) ?? (await worktreeList(run, path));
+    const path = await spelling(original, identity);
+    const read = listing.get(path) ?? (await worktreeList(run, path));
+    const list =
+      read && (await Promise.all(read.map((path) => spelling(path))));
     const main = list?.[0];
     if (main && !lists.has(main)) {
       lists.set(main, list);
@@ -435,7 +450,7 @@ async function record(
     // a recorded main that Git no longer reaches means this directory's Git now belongs to another repository
     const known = byPath.get(path);
     if (
-      path === cwd &&
+      original === cwd &&
       known?.main &&
       main &&
       known.main !== main &&
@@ -450,7 +465,9 @@ async function record(
     }
     if (!list?.includes(path)) await upsert(path, identity);
   }
-  const holding = new Set(records.flatMap(({ cwd }) => [...prefixes(cwd)]));
+  const holding = new Set(
+    records.flatMap(({ cwd }) => [...prefixes(spellings.get(cwd) ?? cwd)]),
+  );
   for (const [main, list] of lists) {
     for (const path of list) {
       // one that can't be looked at keeps its entry as it was

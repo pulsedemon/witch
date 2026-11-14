@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
+import { lstat, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
@@ -83,6 +83,25 @@ export async function identify(path: string): Promise<Identity | undefined> {
   );
 }
 
+/** accept a case change only while its identity survives and no symlink redirects the path. */
+export async function caseDestination(
+  path: string,
+  expected: Identity,
+): Promise<string | undefined> {
+  const destination = await realpath(path);
+  if (destination === path || destination.toLowerCase() !== path.toLowerCase())
+    return undefined;
+  for (
+    let from = path, to = destination;
+    from !== to;
+    from = dirname(from), to = dirname(to)
+  )
+    if ((await lstat(from)).isSymbolicLink()) return undefined;
+  return sameIdentity(expected, await identify(destination))
+    ? destination
+    : undefined;
+}
+
 /**
  * takes in what's at an entry's path now, unless the directory it records still exists elsewhere: that one moved, and
  * the next repair records the move rather than this taking its stand-in. says whether it did.
@@ -160,9 +179,14 @@ type Source = 'gone' | 'back' | 'reused';
 
 /** what a move's source holds now. a lookup failure counts as the moved directory, so the chain stops there. */
 async function sourceOf(move: LedgerMove): Promise<Source> {
-  const found = await identify(move.from).catch(() => move);
-  if (!found) return 'gone';
-  return sameIdentity(move, found) ? 'back' : 'reused';
+  try {
+    const found = await identify(move.from);
+    if (!found) return 'gone';
+    if (!sameIdentity(move, found)) return 'reused';
+    return (await caseDestination(move.from, move)) ? 'gone' : 'back';
+  } catch {
+    return 'back';
+  }
 }
 
 /** a ledger's moves, read against the filesystem as it was when `mapper` built this. */
@@ -354,15 +378,30 @@ export async function findMoves(
 ): Promise<Array<Move & Identity>> {
   // an entry that can't be looked at stays put, and so do its records, which report why
   const missing: DirectoryEntry[] = [];
-  for (const entry of entries)
+  const cases = new Map<DirectoryEntry, string>();
+  for (const entry of entries) {
     if (!sameIdentity(entry, await identify(entry.path).catch(() => entry)))
       missing.push(entry);
+    else {
+      const destination = await caseDestination(entry.path, entry).catch(
+        () => undefined,
+      );
+      if (destination) {
+        cases.set(entry, destination);
+        missing.push(entry);
+      }
+    }
+  }
   const look = (path: string) => identify(path).catch(() => undefined);
   const moves: Array<Move & Identity> = [];
   const carried = async (entry: DirectoryEntry) => {
     for (const move of moves) {
       if (!within(entry.path, move.from) || entry.path === move.from) continue;
-      if (sameIdentity(entry, await look(through(entry.path, move))))
+      const target = through(entry.path, move);
+      if (
+        sameIdentity(entry, await look(target)) &&
+        !(await caseDestination(target, entry).catch(() => true))
+      )
         return true;
     }
     return false;
@@ -404,9 +443,19 @@ export async function findMoves(
     return undefined;
   };
   const seeded = await Promise.all(
-    seeds.map(async (seed) => ({ seed, identity: await look(seed) })),
+    seeds.map(async (seed) => {
+      const identity = await look(seed);
+      return {
+        seed: identity
+          ? ((await caseDestination(seed, identity).catch(() => undefined)) ??
+            seed)
+          : seed,
+        identity,
+      };
+    }),
   );
   for (const entry of [...missing]) {
+    if (cases.has(entry)) continue;
     const seed = seeded.find(({ identity }) => sameIdentity(entry, identity));
     if (seed && seed.seed !== entry.path) settle(entry, seed.seed);
   }
@@ -419,6 +468,7 @@ export async function findMoves(
     }
     // a sibling settles with a stat, saving locate's shell for the first entry under each moved parent
     const found =
+      cases.get(entry) ??
       (await sibling(entry)) ??
       (await locate(entry).catch((error: unknown) => {
         unreachable(entry, error);
@@ -600,7 +650,10 @@ export async function resolve(
     const carried: Array<[DirectoryEntry, string]> = [];
     for (const entry of entries.under(move.from)) {
       const target = through(entry.path, move);
-      if (sameIdentity(entry, await identify(target).catch(() => undefined)))
+      if (
+        sameIdentity(entry, await identify(target).catch(() => undefined)) &&
+        !(await caseDestination(target, entry).catch(() => true))
+      )
         carried.push([entry, target]);
     }
     entries.relocate(carried);

@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import {
   chmod,
   mkdir,
+  realpath,
   rename,
   rm,
   stat,
@@ -164,6 +165,45 @@ test('mapper follows a directory moved back and forth', async () => {
   await resolve(ledger, [{ ...there, from: f.at('a'), to: f.at('b') }], 0);
   assert.equal(ledger.moves.length, 3);
   assert.equal((await mapper(ledger)).map(f.at('a/x')), f.at('b/x'));
+});
+
+for (const seeded of [false, true])
+  test(`a case-only parent move carries a child and detects its return, seeded=${seeded}`, async (t) => {
+    const f = await directories('main/sub');
+    const parent = await f.entry('main');
+    const child = await f.entry('main/sub');
+    await rename(f.at('main'), f.at('Main'));
+    if (!(await identify(f.at('main'))))
+      t.skip('requires case-insensitive paths');
+    assert.equal(await realpath(f.at('main')), f.at('Main'));
+    const ledger: Ledger = { entries: [child, parent], moves: [] };
+    const moves = await findMoves(
+      ledger.entries,
+      seeded ? [f.at('Main/sub')] : [],
+    );
+    assert.deepEqual(f.moved(moves), [[f.at('main'), f.at('Main')]]);
+    await resolve(ledger, moves, 0);
+    const mapping = await mapper(ledger);
+    assert.equal(mapping.map(f.at('main/sub')), f.at('Main/sub'));
+    await rename(f.at('Main'), f.at('main'));
+    assert.equal(await mapping.unchanged(f.at('main/sub')), false);
+    await resolve(ledger, await findMoves(ledger.entries, []), 0);
+    assert.equal(
+      (await mapper(ledger)).map(f.at('Main/sub')),
+      f.at('main/sub'),
+    );
+    assert.deepEqual(await findMoves(ledger.entries, []), []);
+  });
+
+test('existing symlink aliases are not recorded as case moves', async () => {
+  const f = await directories('main/sub');
+  await symlink(f.at('main'), f.at('alias'));
+  const entries = [await f.entry('alias'), await f.entry('alias/sub')];
+  if (!(await identify(f.at('MAIN')))) {
+    await symlink(f.at('main'), f.at('MAIN'));
+    entries.push(await f.entry('MAIN'), await f.entry('MAIN/sub'));
+  }
+  assert.deepEqual(await findMoves(entries, []), []);
 });
 
 test('a move recorded while the clock reads behind the last one is dated after it', async () => {

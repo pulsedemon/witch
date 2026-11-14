@@ -1,9 +1,21 @@
 import { readFile, readdir } from 'node:fs/promises';
-import { basename, dirname, join, resolve as resolvePath } from 'node:path';
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve as resolvePath,
+} from 'node:path';
 import { errorMessage } from '../errors.js';
-import { present } from '../persistence/directories.js';
+import {
+  caseDestination,
+  identify,
+  present,
+  sameIdentity,
+} from '../persistence/directories.js';
 import type { Ledger } from '../persistence/directories.js';
-import { unlessGone } from '../persistence/json.js';
+import { replaceFile, unlessGone } from '../persistence/json.js';
 import type { MoveReport } from './move-repair.js';
 import { statusArgs, statusEnv } from './repository.js';
 import type { Run } from './repository.js';
@@ -70,6 +82,45 @@ async function namedAdmin(
     : undefined;
 }
 
+async function actualCase(path: string): Promise<string> {
+  const identity = await identify(path);
+  return (identity && (await caseDestination(path, identity))) ?? path;
+}
+
+/** defer link repairs until every registration passes ownership checks; Git accepts these stale aliases unchanged. */
+async function linkRepair(
+  file: string,
+  prefix: string,
+  base: string,
+  target: string,
+) {
+  const before = await readFile(file, 'utf8');
+  if (!before.startsWith(prefix)) return undefined;
+  const value = before.slice(prefix.length).trim();
+  const named = resolvePath(base, value);
+  // Git 2.45 lists a relative reverse link literally and marks its worktree prunable
+  const absoluteReverse = prefix === '' && !isAbsolute(value);
+  if (named === target && !absoluteReverse) return undefined;
+  const identity = await identify(target);
+  if (
+    !identity ||
+    !sameIdentity(identity, await identify(named)) ||
+    (named !== target && (await caseDestination(named, identity)) !== target)
+  )
+    return undefined;
+  const after = `${prefix}${absoluteReverse || isAbsolute(value) ? target : relative(base, target)}\n`;
+  return async () => {
+    if (
+      (await readFile(file, 'utf8')) !== before ||
+      !sameIdentity(identity, await identify(target)) ||
+      !sameIdentity(identity, await identify(named)) ||
+      (named !== target && (await caseDestination(named, identity)) !== target)
+    )
+      throw new Error(`${file} changed while its link repair was waiting`);
+    await replaceFile(file, after);
+  };
+}
+
 /** whether a worktree of a main checkout that can't be found is still there, broken until its main is recovered. */
 async function leftWorktree(
   ledger: Ledger,
@@ -93,21 +144,25 @@ async function repairWorktrees(
   run: Run,
   preview: boolean,
 ) {
-  const common = (
-    await run(
-      'git',
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      { cwd: main, timeout: 60_000 },
-    )
-  ).stdout.trim();
+  const common = await actualCase(
+    (
+      await run(
+        'git',
+        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        { cwd: main, timeout: 60_000 },
+      )
+    ).stdout.trim(),
+  );
   const moved: string[] = [];
   const checked: string[] = [];
+  const linkRepairs: Array<() => Promise<void>> = [];
   let needed = false;
   const problems: Array<{ path: string; reason: string }> = [];
   for (const { name, registered } of await registrations(common)) {
     const destination = map(registered);
-    const target = (await present(registered))
-      ? registered
+    const existing = await present(registered);
+    const target = existing
+      ? await actualCase(registered)
       : destination && (await present(destination))
         ? destination
         : undefined;
@@ -119,7 +174,7 @@ async function repairWorktrees(
       });
       continue;
     }
-    if (target !== registered) {
+    if (target !== registered && !existing) {
       moved.push(target);
       needed = true;
     }
@@ -129,6 +184,14 @@ async function repairWorktrees(
     // a .git naming the old common directory is this repository's only while nothing else sits there
     const ours = async (named: string | undefined) => {
       if (named === expected) return true;
+      const identity = await identify(expected);
+      if (
+        named &&
+        identity &&
+        (await present(named)) &&
+        (await caseDestination(named, identity)) === expected
+      )
+        return true;
       const old = named && dirname(dirname(named));
       if (
         !named ||
@@ -141,25 +204,41 @@ async function repairWorktrees(
       needed = true;
       return true;
     };
-    if (await ours(admin)) continue;
     // a link Git wrote relative still names its admin from where the worktree was registered
     if (
-      target !== registered &&
-      (await ours(await namedAdmin(target, registered)))
-    )
+      !(await ours(admin)) &&
+      !(
+        target !== registered &&
+        (await ours(await namedAdmin(target, registered)))
+      )
+    ) {
+      problems.push({
+        path: target,
+        reason: `its .git names ${admin ?? 'no repository'}, not ${expected}`,
+      });
       continue;
-    problems.push({
-      path: target,
-      reason: `its .git names ${admin ?? 'no repository'}, not ${expected}`,
-    });
+    }
+    // the reverse link's target is the .git file; check it before replacing that file's inode
+    for (const repair of [
+      await linkRepair(
+        join(expected, 'gitdir'),
+        '',
+        expected,
+        join(target, '.git'),
+      ),
+      await linkRepair(join(target, '.git'), 'gitdir: ', target, expected),
+    ])
+      if (repair) linkRepairs.push(repair);
   }
   for (const problem of problems)
     report.blocked.push({ ...problem, repository: main });
-  if (problems.length || !needed || preview) return;
-  await run('git', ['worktree', 'repair', ...moved], {
-    cwd: main,
-    timeout: 60_000,
-  });
+  if (problems.length || (!needed && !linkRepairs.length) || preview) return;
+  for (const repair of linkRepairs) await repair();
+  if (needed)
+    await run('git', ['worktree', 'repair', ...moved], {
+      cwd: main,
+      timeout: 60_000,
+    });
   for (const path of checked)
     await (async () =>
       run('git', [...statusArgs, '--ignore-submodules=dirty'], {
@@ -193,8 +272,12 @@ export async function repairRepositories(
     const known = entry.main && map(entry.main);
     if (known) mains.add(known);
   }
-  for (const repository of mains)
+  const visited = new Set<string>();
+  for (let repository of mains)
     await (async () => {
+      repository = await actualCase(repository);
+      if (visited.has(repository)) return;
+      visited.add(repository);
       if (await present(repository))
         await repairWorktrees(repository, map, report, run, preview);
       else if (await leftWorktree(ledger, repository, map))
