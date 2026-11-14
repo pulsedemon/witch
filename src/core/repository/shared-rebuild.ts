@@ -6,14 +6,16 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { errorMessage } from '../../errors.js';
-import { readJson, writeJson } from '../../persistence/json.js';
-import { tryOpenLocked } from '../../persistence/lock.js';
-import { identifyProcess, runs } from '../../persistence/process.js';
-import { processIdentity } from '../state.js';
+import {
+  gone,
+  readJson,
+  unlessGone,
+  writeJson,
+} from '../../persistence/json.js';
+import { openLocked, tryOpenLocked } from '../../persistence/lock.js';
 
 const attemptSchema = z.object({
   id: z.uuid(),
-  owner: processIdentity,
 });
 
 const resultSchema = z.object({ text: z.string(), built: z.boolean() });
@@ -48,10 +50,29 @@ async function admission(directory: string, signal?: AbortSignal) {
   }
 }
 
+/** shared probes cannot mistake one another for the builder's exclusive lifetime lock. */
+async function rebuilding(path: string): Promise<boolean> {
+  try {
+    const probe = await tryOpenLocked(path, constants.O_RDONLY, {
+      shared: true,
+    });
+
+    if (!probe) return true;
+
+    await probe.close();
+
+    return false;
+  } catch (error) {
+    if (gone(error)) return false;
+
+    throw error;
+  }
+}
+
 /** readers retain this attempt's inode after completion unlinks it and a later attempt starts. */
 async function waitForResult(
   receipt: FileHandle,
-  attempt: Attempt,
+  path: string,
   signal?: AbortSignal,
 ): Promise<RebuildResult> {
   let ended = false;
@@ -83,7 +104,7 @@ async function waitForResult(
         'Another Witch stopped rebuilding without reporting a result; the rebuild outcome is unconfirmed.',
       );
 
-    ended = nlink === 0 || !(await runs(attempt.owner));
+    ended = nlink === 0 || !(await rebuilding(path));
 
     if (!ended) await pause(signal);
   }
@@ -106,56 +127,83 @@ export async function sharedRebuild(
   const state = join(directory, 'witch-rebuild.json');
   const pathFor = (id: string) => join(directory, `witch-rebuild-${id}.json`);
 
-  const lock = await admission(directory, signal).catch((error: unknown) => {
-    throw failure(error);
-  });
-
+  let lock: FileHandle | undefined;
   let receipt: FileHandle | undefined;
+  let lifetime: FileHandle | undefined;
   let created: string | undefined;
-  let attempt: Attempt;
-  let joined = false;
 
-  try {
-    const active = await readJson(state, attemptSchema);
+  const completion = await perform().then(
+    (result) => ({ result }),
+    (error: unknown) => ({ error }),
+  );
 
-    if (active && (await runs(active.owner))) {
-      attempt = active;
-      receipt = await open(pathFor(active.id), 'r');
-      joined = true;
-    } else {
-      if (active) {
-        await rm(pathFor(active.id), { force: true });
+  const errors: unknown[] = [];
 
-        await rm(state);
+  if (created)
+    for (const path of [state, created])
+      await rm(path, { force: true }).catch((error: unknown) => {
+        errors.push(error);
+      });
+
+  for (const handle of [receipt, lifetime, lock])
+    await handle?.close().catch((error: unknown) => {
+      errors.push(error);
+    });
+
+  if ('error' in completion) throw completion.error;
+
+  if (errors.length) throw errors[0];
+
+  return completion.result;
+
+  async function perform(): Promise<RebuildResult> {
+    let attempt: Attempt;
+    let joined = false;
+
+    lock = await admission(directory, signal).catch((error: unknown) => {
+      throw failure(error);
+    });
+
+    try {
+      const active = await readJson(state, attemptSchema);
+
+      if (active) receipt = await unlessGone(open(pathFor(active.id), 'r'));
+
+      if (active && receipt && (await rebuilding(pathFor(active.id)))) {
+        attempt = active;
+        joined = true;
+      } else {
+        await receipt?.close();
+
+        receipt = undefined;
+
+        if (active) {
+          await rm(pathFor(active.id), { force: true });
+
+          await rm(state, { force: true });
+        }
+
+        attempt = { id: randomUUID() };
+
+        const path = pathFor(attempt.id);
+        receipt = await open(path, 'wx+', 0o600);
+        created = path;
+        lifetime = await openLocked(path, constants.O_RDWR);
+
+        await writeJson(state, attempt);
       }
-
-      const owner = await identifyProcess(process.pid);
-
-      if (!owner) throw new Error('Could not identify the rebuild process');
-
-      attempt = { id: randomUUID(), owner };
-
-      const path = pathFor(attempt.id);
-      receipt = await open(path, 'wx+', 0o600);
-      created = path;
-
-      await writeJson(state, attempt);
+    } catch (error) {
+      throw failure(error);
     }
-  } catch (error) {
-    await receipt?.close();
 
-    if (created) await rm(created, { force: true }).catch(() => {});
-
-    throw failure(error);
-  } finally {
     await lock.close();
-  }
 
-  try {
+    lock = undefined;
+
     if (joined) {
       waiting();
 
-      return await waitForResult(receipt, attempt, signal);
+      return await waitForResult(receipt, pathFor(attempt.id), signal);
     }
 
     let outcome: z.infer<typeof receiptSchema>;
@@ -174,29 +222,17 @@ export async function sharedRebuild(
       };
     }
 
-    let completion: FileHandle | undefined;
-
     try {
-      try {
-        completion = await admission(directory);
+      lock = await admission(directory);
 
-        // the final newline publishes a complete receipt; already-open readers survive its unlink.
-        await receipt.writeFile(`${JSON.stringify(outcome)}\n`);
-      } finally {
-        await rm(state);
-
-        await rm(pathFor(attempt.id));
-      }
+      // the final newline publishes a complete receipt; already-open readers survive its unlink.
+      await receipt.writeFile(`${JSON.stringify(outcome)}\n`);
     } catch (cause) {
       throw 'error' in outcome ? error : cause;
-    } finally {
-      await completion?.close();
     }
 
     if ('error' in outcome) throw error;
 
     return outcome.result;
-  } finally {
-    await receipt.close();
   }
 }

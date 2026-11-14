@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
+import { constants, promises as files } from 'node:fs';
 import { chmod, open, readdir } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
 import { onTestFinished, test, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { refreshInstall } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import { sharedRebuild } from '../../../src/core/repository/shared-rebuild.js';
+import { openLocked } from '../../../src/persistence/lock.js';
 import { git } from '../../fixtures/git.js';
 import { merged } from '../../fixtures/merged.js';
 import { configureGitEnvironment } from '../../fixtures/merged-environment.js';
@@ -152,11 +156,19 @@ test('cancelling a waiter leaves the builder running and reports the original re
 
   assert.equal(builder.child.exitCode, null);
 
+  const later = worker(install);
+
+  await later.stage('waiting');
+
   builder.child.send('finish');
 
   const result = await builder.result;
 
   assert.equal(result.text, rebuilt);
+
+  assert.equal((await later.result).text, rebuilt);
+
+  assert.deepEqual((await later.result).calls, []);
 
   assert.deepEqual(result.calls, [['install', '--frozen-lockfile'], ['build']]);
 });
@@ -394,7 +406,7 @@ test('failed attempt setup removes its receipt and permits another rebuild', asy
   const publish = vi
     .spyOn(prototype, 'writeFile')
     .mockImplementation(async function (this: FileHandle, data, options) {
-      if (typeof data === 'string' && data.includes('"owner":')) throw failure;
+      if (typeof data === 'string' && /^\{\s*"id":/.test(data)) throw failure;
 
       return write.call(this, data, options);
     });
@@ -431,3 +443,398 @@ test('failed attempt setup removes its receipt and permits another rebuild', asy
     { text: 'later rebuild', built: true },
   );
 });
+
+for (const mode of ['state', 'all', 'unpublished', 'all-unpublished'])
+  test(`a ${mode} removal failure releases waiters and permits a fresh attempt after recovery`, async () => {
+    const root = await scratch('witch-rebuild-removal-');
+    const state = join(root, 'witch-rebuild.json');
+    const sample = await open(join(root, 'sample'), 'w');
+    const prototype = Object.getPrototypeOf(sample) as FileHandle;
+    const write = prototype.writeFile;
+    const remove = files.rm;
+    const removalError = new Error('EACCES: state removal failed');
+    const publicationError = new Error('ENOSPC: publication failed');
+    let blocked = false;
+
+    await sample.close();
+
+    const removing = vi
+      .spyOn(files, 'rm')
+      .mockImplementation(async (path, options) => {
+        if (
+          blocked &&
+          (String(path) === state ||
+            ((mode === 'all' || mode === 'all-unpublished') &&
+              String(path).startsWith(join(root, 'witch-rebuild-'))))
+        )
+          throw removalError;
+
+        return remove(path, options);
+      });
+
+    syncBuiltinESMExports();
+
+    const publishing = vi
+      .spyOn(prototype, 'writeFile')
+      .mockImplementation(async function (this: FileHandle, data, options) {
+        if (
+          blocked &&
+          (mode === 'unpublished' || mode === 'all-unpublished') &&
+          typeof data === 'string' &&
+          data.startsWith('{"')
+        )
+          throw publicationError;
+
+        return write.call(this, data, options);
+      });
+
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const waiting = Promise.withResolvers<void>();
+    const abort = new AbortController();
+
+    const options = {
+      signal: abort.signal,
+      waiting: () => waiting.resolve(),
+      failure: (error: unknown) => error as Error,
+    };
+
+    const builder = sharedRebuild(
+      root,
+      async () => {
+        entered.resolve();
+
+        await release.promise;
+
+        return { text: 'first rebuild', built: true };
+      },
+      options,
+    );
+
+    void builder.catch(() => {});
+
+    await entered.promise;
+
+    const waiter = sharedRebuild(
+      root,
+      async () => assert.fail('the waiter must not rebuild'),
+      options,
+    );
+
+    void waiter.catch(() => {});
+
+    let second: typeof waiter | undefined;
+    let probe: FileHandle | undefined;
+
+    try {
+      await waiting.promise;
+
+      if (mode === 'all-unpublished') {
+        const joined = Promise.withResolvers<void>();
+
+        second = sharedRebuild(
+          root,
+          async () => assert.fail('the second waiter must not rebuild'),
+          { ...options, waiting: () => joined.resolve() },
+        );
+
+        void second.catch(() => {});
+
+        await within(joined.promise, 5000, 'the second waiter');
+      }
+
+      blocked = true;
+
+      release.resolve();
+
+      await assert.rejects(
+        builder,
+        (error) =>
+          error ===
+          (mode.includes('unpublished') ? publicationError : removalError),
+      );
+
+      if (mode.includes('unpublished'))
+        await assert.rejects(
+          within(waiter, 5000, 'the unpublished receipt'),
+          /without reporting a result.*unconfirmed/,
+        );
+      else
+        assert.deepEqual(await within(waiter, 5000, 'the published receipt'), {
+          text: 'first rebuild',
+          built: true,
+        });
+
+      if (second)
+        await assert.rejects(
+          within(second, 5000, 'the second unpublished receipt'),
+          /without reporting a result.*unconfirmed/,
+        );
+
+      assert.equal((await readdir(root)).includes('witch-rebuild.json'), true);
+
+      if (mode !== 'all' && mode !== 'all-unpublished')
+        assert.deepEqual(
+          (await readdir(root)).filter((name) =>
+            name.startsWith('witch-rebuild-'),
+          ),
+          [],
+        );
+
+      blocked = false;
+
+      if (mode === 'all' || mode === 'all-unpublished') {
+        const name = (await readdir(root)).find((name) =>
+          name.startsWith('witch-rebuild-'),
+        );
+
+        assert.ok(name);
+
+        probe = await openLocked(join(root, name), constants.O_RDONLY, {
+          shared: true,
+        });
+      }
+
+      assert.deepEqual(
+        await sharedRebuild(
+          root,
+          async () => ({ text: 'later rebuild', built: true }),
+          options,
+        ),
+        { text: 'later rebuild', built: true },
+      );
+
+      assert.deepEqual((await readdir(root)).sort(), [
+        'sample',
+        'witch-rebuild.lock',
+      ]);
+    } finally {
+      await probe?.close();
+
+      removing.mockRestore();
+
+      publishing.mockRestore();
+
+      syncBuiltinESMExports();
+
+      release.resolve();
+
+      abort.abort();
+
+      await Promise.allSettled([builder, waiter, second]);
+    }
+  });
+
+for (const point of ['initial', 'completion', 'receipt', 'lifetime'])
+  test(`a ${point} close failure preserves the operation error and releases every descriptor`, async () => {
+    const root = await scratch('witch-rebuild-close-');
+    const actual = files.open;
+    const handles: FileHandle[] = [];
+    const closing: MockInstance<FileHandle['close']>[] = [];
+    const order: string[] = [];
+    const fault = new Error('close failed');
+
+    const reason = new Error(
+      point === 'completion'
+        ? 'build failed\ncompiler diagnostic'
+        : 'cancelled',
+    );
+
+    const abort = new AbortController();
+    let admissions = 0;
+    let injected = false;
+    let built = false;
+
+    const opening = vi
+      .spyOn(files, 'open')
+      .mockImplementation(async (...args) => {
+        const handle = await actual(...args);
+        const path = String(args[0]);
+
+        if (!path.startsWith(root)) return handle;
+
+        handles.push(handle);
+
+        const receipt = path.startsWith(join(root, 'witch-rebuild-'));
+
+        const label =
+          path === join(root, 'witch-rebuild.lock')
+            ? `admission-${++admissions}`
+            : receipt
+              ? typeof args[1] === 'string'
+                ? 'receipt'
+                : 'lifetime'
+              : 'state';
+
+        const close = handle.close.bind(handle);
+
+        closing.push(
+          vi.spyOn(handle, 'close').mockImplementation(async () => {
+            await close();
+
+            order.push(label);
+
+            const target =
+              point === 'initial'
+                ? label === 'admission-1'
+                : point === 'completion'
+                  ? label === 'admission-2'
+                  : point === label;
+
+            if (target && !injected) {
+              injected = true;
+
+              throw fault;
+            }
+          }),
+        );
+
+        return handle;
+      });
+
+    syncBuiltinESMExports();
+
+    const options = {
+      signal: abort.signal,
+      waiting: () => assert.fail('the request must start fresh'),
+      failure: (error: unknown) => error as Error,
+    };
+
+    try {
+      await assert.rejects(
+        sharedRebuild(
+          root,
+          async () => {
+            built = true;
+
+            if (point === 'completion') throw reason;
+
+            if (point === 'lifetime') {
+              abort.abort(reason);
+
+              abort.signal.throwIfAborted();
+            }
+
+            return { text: 'first rebuild', built: true };
+          },
+          options,
+        ),
+        (error) =>
+          error ===
+          (point === 'completion' || point === 'lifetime' ? reason : fault),
+      );
+
+      assert.equal(injected, true);
+
+      assert.equal(built, point !== 'initial');
+
+      assert.ok(handles.every((handle) => handle.fd === -1));
+
+      if (point === 'completion')
+        assert.ok(order.indexOf('lifetime') < order.indexOf('admission-2'));
+
+      assert.deepEqual(await readdir(root), ['witch-rebuild.lock']);
+    } finally {
+      opening.mockRestore();
+
+      for (const close of closing) close.mockRestore();
+
+      syncBuiltinESMExports();
+    }
+
+    assert.deepEqual(
+      await sharedRebuild(
+        root,
+        async () => ({ text: 'later rebuild', built: true }),
+        { ...options, signal: undefined },
+      ),
+      { text: 'later rebuild', built: true },
+    );
+  });
+
+for (const mode of ['acquisition', 'collision'])
+  test(`receipt ${mode} failure removes only exclusively owned artifacts`, async () => {
+    const root = await scratch('witch-rebuild-create-');
+    const actual = files.open;
+    const handles: FileHandle[] = [];
+    const fault = new Error('ENOLCK: lifetime lock failed');
+    let injected = false;
+    let collision = '';
+
+    const opening = vi
+      .spyOn(files, 'open')
+      .mockImplementation(async (...args) => {
+        const path = String(args[0]);
+        const receipt = path.startsWith(join(root, 'witch-rebuild-'));
+
+        if (!injected && receipt) {
+          if (mode === 'acquisition' && typeof args[1] === 'number') {
+            injected = true;
+
+            throw fault;
+          }
+
+          if (mode === 'collision' && args[1] === 'wx+') {
+            injected = true;
+            collision = path;
+
+            const existing = await actual(...args);
+
+            await existing.writeFile('must stay');
+
+            await existing.close();
+          }
+        }
+
+        const handle = await actual(...args);
+
+        if (path.startsWith(root)) handles.push(handle);
+
+        return handle;
+      });
+
+    syncBuiltinESMExports();
+
+    const options = {
+      waiting: () => assert.fail('the request must start fresh'),
+      failure: (error: unknown) => error as Error,
+    };
+
+    try {
+      await assert.rejects(
+        sharedRebuild(
+          root,
+          async () => assert.fail('setup must complete before building'),
+          options,
+        ),
+        (error) =>
+          mode === 'collision'
+            ? (error as NodeJS.ErrnoException).code === 'EEXIST'
+            : error === fault,
+      );
+
+      assert.equal(injected, true);
+
+      assert.ok(handles.every((handle) => handle.fd === -1));
+
+      if (mode === 'collision')
+        assert.equal(await files.readFile(collision, 'utf8'), 'must stay');
+      else assert.deepEqual(await readdir(root), ['witch-rebuild.lock']);
+    } finally {
+      opening.mockRestore();
+
+      syncBuiltinESMExports();
+    }
+
+    assert.deepEqual(
+      await sharedRebuild(
+        root,
+        async () => ({ text: 'later rebuild', built: true }),
+        options,
+      ),
+      { text: 'later rebuild', built: true },
+    );
+
+    if (collision)
+      assert.equal(await files.readFile(collision, 'utf8'), 'must stay');
+  });
