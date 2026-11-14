@@ -255,9 +255,7 @@ export class WorkTreeChanges {
         );
 
         const changed = entries.length;
-
         entries = entries.filter(({ path }) => dirty.has(path));
-
         withHead = changed - entries.length;
       }
 

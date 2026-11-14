@@ -29,9 +29,7 @@ test('a peer joining and leaving updates ongoing work without adding user input'
   const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const sending = a.coordinator.send('Inspect current exports');
 
   try {
@@ -106,9 +104,7 @@ test('a peer arriving during prompt construction reaches the newly started turn'
   });
 
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const sending = a.coordinator.send('Original request');
 
   try {
@@ -142,14 +138,10 @@ test('a refused policy steer waits for fresh context on the next user turn', asy
   const cleanup = orderedCleanup(t.onTestFinished);
   const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
-
   a.a.refuseSteer = true;
-
   const steer = vi.spyOn(a.a.sessions[0]!.session, 'steer');
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const sending = a.coordinator.send('Current task');
 
   try {
@@ -218,9 +210,7 @@ for (const finishFirst of [false, true]) {
     };
 
     const gate = new TurnGate();
-
     a.a.gate = gate;
-
     const sending = a.coordinator.send('Solo request');
 
     try {
@@ -279,13 +269,9 @@ test('unread coordination context never becomes queued user work', async (t) => 
   const cleanup = orderedCleanup(t.onTestFinished);
   const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
-
   a.a.unreadOnInterrupt = true;
-
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const sending = a.coordinator.send('Current task');
 
   try {
@@ -325,9 +311,7 @@ test('a compaction inside a turn keeps claim policy current', async (t) => {
   const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const sending = a.coordinator.send('Current task');
 
   const compact = async () => {
@@ -388,9 +372,7 @@ test('clear preserves the same exclusive claim while the native runtime reconnec
 
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-
   owner.a.beforeConnect = holdConnect(entered, release);
-
   const clearing = owner.coordinator.clear();
 
   try {
@@ -489,7 +471,6 @@ for (const stage of ['close', 'reconnect'] as const) {
     );
 
     owner.a.failClose = false;
-
     const current = await owner.binding();
 
     assert.notEqual(current.activation, bound.activation);
@@ -513,7 +494,6 @@ test('a clear whose close and reactivation both fail reports both', async (t) =>
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await unitCoordinationFixture(cleanup);
   const owner = await f.start('A');
-
   owner.a.failClose = true;
 
   vi.spyOn(owner.coordination, 'activate').mockRejectedValueOnce(
@@ -891,9 +871,7 @@ test('coordination context stays before the exact user request and raw steered s
   });
 
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const sending = a.coordinator.send('Start');
 
   try {

@@ -19,11 +19,8 @@ for (const restart of [false, true])
   for (const failInterrupt of [false, true])
     test(`shutdown shares its deadline and restart=${restart} through ${failInterrupt ? 'failed' : 'successful'} interruption`, async () => {
       const { coordinator, a } = await unitFixture();
-
       a.stops.length = 0;
-
       a.gate = new TurnGate();
-
       a.failInterrupt = failInterrupt;
 
       try {
@@ -102,7 +99,6 @@ for (const discovery of [false, true])
       await appears(join(project, 'initializing.json'));
 
       closing = coordinator.close({ restart: true });
-
       const closed = settled(closing);
 
       await delay(2500);

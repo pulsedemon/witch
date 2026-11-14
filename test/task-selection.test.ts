@@ -571,7 +571,6 @@ test('restart recovers a departed claim release while preserving other open conv
   assert.equal((await f.registry.claims()).length, 2);
 
   failing = false;
-
   const reopened = await f.start('A', { conversation: next });
 
   assert.deepEqual(await f.registry.claims(), [other.claim]);
@@ -845,7 +844,6 @@ test('a recommendation survives final cleanup failure and advances the next wait
       ...args: Parameters<typeof recommend>
     ) {
       const claim = await recommend.apply(this, args);
-
       pending = a.coordination.endTurn().catch(() => {});
 
       return claim;

@@ -75,7 +75,6 @@ export class Compaction {
 
   beginActivity(): void {
     this.busy = undefined;
-
     this.failure = undefined;
   }
 
@@ -180,7 +179,6 @@ export class Compaction {
           });
 
         success = (await this.busy).status === 'completed';
-
         const next = this.owner.state();
 
         if (!success || (next.replied && !request.cancelled && !next.halted))

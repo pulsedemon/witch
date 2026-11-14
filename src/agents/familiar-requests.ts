@@ -131,7 +131,6 @@ export class FamiliarRun {
     this.checkRunning();
 
     this.sequence = action.sequence;
-
     this.subagent = { ...this.subagent, ...action.progress };
 
     if (this.subagent.status !== 'running') this.requests.resolveAll();

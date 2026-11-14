@@ -62,7 +62,6 @@ for await (const line of createInterface({ input: process.stdin })) {
       ['thread/start', 'thread/resume', 'thread/fork'].includes(request.method)
     ) {
       restricted = request.params.ephemeral === true;
-
       threadId = restricted ? 'answer' : 'owner';
 
       reply({

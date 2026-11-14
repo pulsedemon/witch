@@ -479,7 +479,6 @@ export async function runControl(
 
     while (waiting && outcome.kind === 'selection') {
       const { ticket } = outcome.selection;
-
       selection = ticket.id;
 
       if (stopped.signal.aborted || outcome.selection.position === 1) break;

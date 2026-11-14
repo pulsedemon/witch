@@ -241,11 +241,8 @@ test('submitted feedback survives removal of the request and preserves source re
 
 test('a completed check does not hide a review that arrives on the next read', async () => {
   const f = fixture();
-
   f.first.reviews = page([]);
-
   f.first.reviewThreads = page([]);
-
   const before = await f.read();
 
   assert.equal(before.checks[0]!.status, 'completed');
@@ -262,13 +259,9 @@ test('a completed check does not hide a review that arrives on the next read', a
 
 test('every root page and nested thread-comment page reaches the snapshot', async () => {
   const f = fixture();
-
   f.first.closingIssuesReferences.pageInfo = page([], 'issues-next').pageInfo;
-
   f.first.reviewRequests.pageInfo = page([], 'requests-next').pageInfo;
-
   f.first.reviews.pageInfo = page([], 'reviews-next').pageInfo;
-
   f.first.comments.pageInfo = page([], 'comments-next').pageInfo;
 
   f.first.reviewThreads = page(

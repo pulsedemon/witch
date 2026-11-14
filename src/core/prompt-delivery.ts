@@ -119,7 +119,6 @@ export class PromptDelivery {
 
     // one sent during an operation runs after it only as drainAfter would, even when its steer is refused once it has ended
     const during = this.host.snapshot().phase !== 'idle';
-
     this.automaticHeld = false;
 
     this.copilot.resume();
@@ -171,9 +170,7 @@ export class PromptDelivery {
       });
 
     this.admitting = admitted.catch(() => {});
-
     const steered = await admitted;
-
     this.restoredQueue = false;
 
     if (!steered && !(during && this.host.halted())) await this.drain();

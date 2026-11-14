@@ -126,9 +126,7 @@ test('a turn that ends with a prompt queued runs that prompt before the merge cl
 
   try {
     a.gate = gate;
-
     a.refuseSteer = true;
-
     const sending = coordinator.send('first');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -179,7 +177,6 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
     await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
 
     agent.gate = gate;
-
     const sending = other.send('Start');
 
     await within(gate.entered, 2000, 'the other turn');
@@ -205,7 +202,6 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
       left.push(files);
 
       files.record.activity = activity();
-
       files.record.process = owner;
 
       await files.save(files.record);
@@ -273,7 +269,6 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
     await peer.initialize(project);
 
     agent.gate = gate;
-
     sending = peer.send('Read without changing the checkout');
 
     await within(gate.entered, 3000, 'the peer turn');
@@ -372,7 +367,6 @@ test("a merge cleanup waits for another Witch's turn anywhere in its checkout, b
       left.push(files);
 
       files.record.activity = activity();
-
       files.record.process = live;
 
       await files.save(files.record);
@@ -498,7 +492,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     );
 
     process.env.PATH = `${bin}:${previousPath}`;
-
     let rejected: Error | undefined;
 
     await assert.rejects(
@@ -713,7 +706,6 @@ exec '${realGit}' "$@"
     );
 
     process.env.PATH = `${bin}:${previousPath}`;
-
     const cleanup = coordinator.cleanUpMerge(pullRequest(tip));
 
     await until('the fetch', () =>
@@ -724,7 +716,6 @@ exec '${realGit}' "$@"
     );
 
     agent.gate = gate;
-
     sending = other.send('Start');
 
     await within(gate.entered, 2000, 'the other turn');
@@ -846,7 +837,6 @@ else {
     );
 
   process.env.PATH = `${bin}:${previousPath}`;
-
   let pids: number[] = [];
 
   register(async () => {

@@ -851,9 +851,7 @@ for (const failure of ['open', 'error'] as const)
     vi.useFakeTimers({ toFake: [...timers] });
 
     const spy = spyWatch();
-
     spy.failing = failure === 'open';
-
     const bound = await binding();
     const failures: unknown[] = [];
 

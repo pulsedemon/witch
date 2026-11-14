@@ -57,7 +57,6 @@ export class MouseInput extends EventEmitter {
 
   read(): string | null {
     const text = this.text;
-
     this.text = '';
 
     return text || null;
@@ -71,7 +70,6 @@ export class MouseInput extends EventEmitter {
       clearTimeout(this.escapeTimer);
 
       this.escapeTimer = undefined;
-
       this.pending = '';
     }
 
@@ -90,17 +88,13 @@ export class MouseInput extends EventEmitter {
     clearTimeout(this.escapeTimer);
 
     this.escapeTimer = undefined;
-
     let data = this.pending + chunk;
-
     this.pending = partial.exec(data)?.[0] ?? '';
 
     if (this.pending && !this.pending.includes('<')) {
       this.escapeTimer = setTimeout(() => {
         this.escapeTimer = undefined;
-
         this.text += this.pending;
-
         this.pending = '';
 
         this.emit('readable');
@@ -110,12 +104,10 @@ export class MouseInput extends EventEmitter {
     }
 
     data = data.slice(0, data.length - this.pending.length);
-
     let end = 0;
 
     for (const match of data.matchAll(report)) {
       this.text += data.slice(end, match.index);
-
       end = match.index + match[0].length;
 
       // the keys before a report reach Ink first, so a Cmd+C after a drag in the same read copies what it selected

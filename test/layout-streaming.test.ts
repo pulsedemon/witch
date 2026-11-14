@@ -55,9 +55,7 @@ test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail
     const expanded = new Map([['tool', true]]);
     const before = layout.render(items, 100, expanded);
     const saved = before.lines.slice();
-
     items = applyDisplayUpdate(items, tool(';https://x.test/\u0007one\ntwo'));
-
     const frame = layout.render(items, 100, expanded);
 
     assert.deepEqual(
@@ -116,7 +114,6 @@ for (const [name, prefix, suffix, body, target] of [
     layout.render(items, 2200, expanded);
 
     items = applyDisplayUpdate(items, tool(suffix));
-
     const frame = layout.render(items, 2200, expanded);
 
     assert.deepEqual(frame.lines.slice(1, -1).map(stripAnsi), body);
@@ -479,9 +476,7 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
   };
 
   let items = applyDisplayUpdate([], tool('first\npart'));
-
   items = applyDisplayUpdate(items, following);
-
   const layout = new TranscriptLayout();
   const expanded = new Map([['tool', true]]);
   const before = layout.render(items, 80, expanded);
@@ -528,7 +523,6 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
   );
 
   const page = after.lines.slice(0, 2);
-
   page[0] = 'highlighted';
 
   assert.notEqual(after.lines.at(0), 'highlighted');
@@ -554,7 +548,6 @@ test('warm tool appends and a fixed page do not scale with completed prefix rows
 
     const append = () => {
       items = applyDisplayUpdate(items, tool('appended row\n'));
-
       const frame = layout.render(items, 100, expanded);
 
       assert.equal(frame.lines.slice(-30).length, 30);
@@ -742,7 +735,6 @@ test('earlier assistant frames survive appends and a reference that changes comp
     ['\nLast.', 40],
   ] as const) {
     items = applyDisplayUpdate(items, assistant(text));
-
     const frame = layout.render(items, width, new Map());
     const fresh = new TranscriptLayout().render(items, width, new Map());
 
@@ -809,11 +801,8 @@ test('completed assistant blocks have bounded parsing and wrapping work', () => 
 
     const layout = new TranscriptLayout();
     let items: DisplayItem[] = [];
-
     parsed = 0;
-
     wrapped = 0;
-
     measure = true;
 
     for (let offset = 0; offset < text.length; offset += 1024) {
@@ -826,9 +815,7 @@ test('completed assistant blocks have bounded parsing and wrapping work', () => 
     }
 
     items = applyDisplayUpdate(items, { ...assistant(text), replace: true });
-
     const final = layout.render(items, 80, new Map());
-
     measure = false;
 
     assert.ok(parsed <= 4 * size, `parsed ${parsed} characters for ${size}`);
@@ -871,9 +858,7 @@ test('a late setext underline reinterprets every preceding thematic line', () =>
     let items = applyDisplayUpdate([], assistant(prefix + source));
     const before = layout.render(items, 80, new Map());
     const saved = before.lines.slice();
-
     items = applyDisplayUpdate(items, assistant('-'));
-
     const frame = layout.render(items, 80, new Map());
 
     const expected = [

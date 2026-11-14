@@ -113,9 +113,7 @@ export class ModelCatalog {
     refresh = false,
   ): Promise<ModelChoice[]> {
     const discovery = new AbortController();
-
     this.discovery = discovery;
-
     const installed = this.registrations.filter(({ executable }) => executable);
 
     try {

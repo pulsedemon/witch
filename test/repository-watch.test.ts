@@ -71,7 +71,6 @@ async function settled(status: { started: number }, window = 300) {
   await until('status reads to stop', () => {
     if (status.started !== reads) {
       reads = status.started;
-
       since = performance.now();
     }
 

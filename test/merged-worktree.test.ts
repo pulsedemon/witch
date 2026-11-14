@@ -17,7 +17,6 @@ import { exists, until } from './fixtures/within.js';
 
 // a developer's own git config would take part in the fixtures' switches and fetches
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 
 const detached = {

@@ -80,9 +80,7 @@ test('unit files remain readable while sibling files and restored files retain t
       await restore();
 
       restore = () => {};
-
       entered = Promise.withResolvers<void>();
-
       release = Promise.withResolvers<void>();
     }
   } finally {

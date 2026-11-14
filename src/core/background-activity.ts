@@ -43,7 +43,6 @@ export function updateBackgroundActivity(
     if (!update) return;
 
     const subagents = [...state.subagents];
-
     subagents[index < 0 ? subagents.length : index] = update.entry;
 
     return {

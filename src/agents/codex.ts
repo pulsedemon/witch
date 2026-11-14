@@ -384,7 +384,6 @@ class CodexSession implements AgentSession {
 
   async models(): Promise<Model[]> {
     this.listed = [];
-
     this.listed = await readModels(this.rpc);
 
     return this.listed;
@@ -403,9 +402,7 @@ class CodexSession implements AgentSession {
       .filter((skill) => skill.enabled);
 
     this.spellIndex = enabled;
-
     this.castIndex = castIndex(enabled);
-
     const skills: Skill[] = [];
 
     for (const skill of enabled) {
@@ -601,7 +598,6 @@ class CodexSession implements AgentSession {
 
   async compact(): Promise<TurnResult> {
     const turn = this.beginTurn();
-
     turn.compaction = { completed: false };
 
     try {
@@ -620,7 +616,6 @@ class CodexSession implements AgentSession {
   /** Codex records the command and its output in the thread, and its turn ends without a reply. */
   async shell(command: string): Promise<TurnResult> {
     const turn = this.beginTurn();
-
     turn.command = command;
 
     try {
@@ -687,7 +682,6 @@ class CodexSession implements AgentSession {
     if (this.interrupting) return this.interrupting;
 
     turn.interrupted = true;
-
     this.stopUntil ??= stopDeadline(options.deadline);
 
     return (this.interrupting = this.interruptTurn(turn, {
@@ -810,7 +804,6 @@ class CodexSession implements AgentSession {
 
   close(options: AgentStopOptions = {}): Promise<void> {
     this.closing = true;
-
     this.stopUntil ??= stopDeadline(options.deadline);
 
     return (this.closeTask ??= this.closeSession({
@@ -1386,7 +1379,6 @@ class CodexSession implements AgentSession {
       !turn.compaction.completed
     ) {
       status = 'failed';
-
       error = 'Codex ended compaction without confirming history replacement';
     }
 

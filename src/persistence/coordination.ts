@@ -131,7 +131,6 @@ function reserve(
       ];
 
       existing.summary = input.summary;
-
       existing.process = process;
 
       delete existing.suggestion;
@@ -880,9 +879,7 @@ export class CoordinationStore {
       );
 
       claim.owner = to;
-
       claim.process = transfer.process;
-
       claim.movedFrom = owner;
 
       delete claim.transfer;
@@ -989,7 +986,6 @@ export class CoordinationStore {
         throw new Error('Wait for first position before recommending a task.');
 
       const claim = reserve(ledger, scope.owner, normalized, process);
-
       claim.suggestion = { selection: id };
 
       ledger.selections = ledger.selections.filter(

@@ -30,13 +30,9 @@ async function exhaustWithQueue(
   claude: FixtureAgent,
 ) {
   const gate = new TurnGate();
-
   claude.gate = gate;
-
   claude.refuseSteer = true;
-
   claude.exhaust = (prompt) => prompt.includes('First');
-
   const sending = coordinator.send('First');
 
   await within(gate.entered, 2000, 'the exhausted turn');
@@ -53,7 +49,6 @@ test('an exhausted turn continues in the same drain step on the newest comparabl
 
   try {
     const id = coordinator.snapshot.conversation!.id;
-
     claude.exhaust = (prompt) => prompt.includes('Migrate the store');
 
     await coordinator.send('Migrate the store');
@@ -148,9 +143,7 @@ test("the continuation after an exhausted turn sends the saved images of that tu
     });
 
     claude.gate = gate;
-
     claude.exhaust = (prompt) => prompt.includes('Describe');
-
     const sending = coordinator.send(`Describe ${await paste('prompt')}`);
 
     await within(gate.entered, 2000, 'the exhausted turn');
@@ -344,9 +337,7 @@ test('a steered prompt the exhausted turn left unread reaches the destination on
     });
 
     claude.gate = gate;
-
     claude.exhaust = (prompt) => prompt.includes('First');
-
     const sending = coordinator.send('First');
 
     await within(gate.entered, 2000, 'the exhausted turn');
@@ -392,7 +383,6 @@ test('a /model switch whose summary fails leaves out a steered prompt the failed
     }));
 
     claude.gate = gate;
-
     const sending = coordinator.send('First');
 
     await within(gate.entered, 2000, 'the failing turn');
@@ -498,7 +488,6 @@ test('a destination at 100% with verified credits qualifies once a forced refres
   try {
     // the connect read left a due reading whose attempt is under 10 minutes old
     funded = true;
-
     claude.exhaust = (prompt) => prompt.includes('First');
 
     await coordinator.send('First');
@@ -650,7 +639,6 @@ test('with memory pending, the switch runs once recovery settles, and a prompt s
     assert.equal(codex.sessions.length, 0);
 
     codex.gate = gate;
-
     const recovering = coordinator.recoverMemory('accept');
 
     await within(gate.entered, 2000, 'the continuation');
@@ -791,9 +779,7 @@ test('pending commands make the switch yield with a notice', async () => {
 
   try {
     claude.gate = gate;
-
     claude.exhaust = (prompt) => prompt.includes('First');
-
     const sending = coordinator.send('First');
 
     await within(gate.entered, 2000, 'the exhausted turn');
@@ -944,7 +930,6 @@ test('after a restart before activation, the next exhausted prompt switches once
     });
 
     claude.exhaust = (prompt) => /First|Second/.test(prompt);
-
     const sending = coordinator.send('First');
 
     await within(connecting.promise, 2000, 'the destination connect');
@@ -954,7 +939,6 @@ test('after a restart before activation, the next exhausted prompt switches once
     await sending;
 
     codex.beforeConnect = undefined;
-
     restarted = await reopen();
 
     assert.equal(restarted.snapshot.conversation!.agent, 'claude');
@@ -987,7 +971,6 @@ test('the destination running out during the continuation stops at one hop, and 
 
   try {
     claude.exhaust = (prompt) => prompt.includes('First');
-
     codex.exhaust = (prompt) => /Continue the task|Later/.test(prompt);
 
     await coordinator.send('First');
@@ -1023,7 +1006,6 @@ test('the destination running out during a continuation started by recovery stop
 
   try {
     claude.exhaust = (prompt) => prompt.includes('remember-port');
-
     codex.exhaust = (prompt) => prompt.includes('Continue the task');
 
     await coordinator.send('remember-port');
@@ -1085,7 +1067,6 @@ test('an exhausted answer turn does not switch', async (t) => {
 test('an exhausted Copilot review turn does not switch', async (t) => {
   const { a: client, source } = await setup(t);
   const { coordinator, a, b } = client;
-
   a.exhaust = () => true;
 
   await coordinator.copilot.observe(structuredClone(source));

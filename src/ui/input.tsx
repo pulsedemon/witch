@@ -159,7 +159,6 @@ export function Input({
         index === wrapped.length - 1
       ) {
         row = index;
-
         column = stringWidth(plain.slice(0, cursor - consumed));
 
         break;

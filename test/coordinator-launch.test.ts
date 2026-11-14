@@ -531,7 +531,6 @@ test('the launch sweep skips a conversation another instance holds', async () =>
 
   try {
     held.record.activity = activity();
-
     held.record.process = await identifyProcess(sleeper.pid!);
 
     await held.save(held.record);
@@ -801,7 +800,6 @@ test('continue into a held conversation shows the lock error with the launch rep
   await mkdir(elsewhere);
 
   const dirty = await stranded(context, {}, elsewhere);
-
   dirty.files.record.activity = activity();
 
   await dirty.files.save(dirty.files.record);
@@ -848,7 +846,6 @@ test('a publish failure while settling the launch is added to its report', async
   await mkdir(elsewhere);
 
   const dirty = await stranded(context, {}, elsewhere);
-
   dirty.files.record.activity = activity();
 
   await dirty.files.save(dirty.files.record);
@@ -920,7 +917,6 @@ test('a connect failure at launch joins the launch report and leaves the convers
   await writeFile(join(directory('broken'), 'state.json'), '{"id":');
 
   a.failConnect = true;
-
   const coordinator = await launch();
 
   try {
@@ -1121,9 +1117,7 @@ test('an interrupt while a chosen model connects keeps the stored one', async ()
 
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-
     a.beforeConnect = holdConnect(entered, release);
-
     const selecting = coordinator.selectModel({ agent: 'a', id: 'a-new' });
 
     await within(entered.promise, 3000, 'the connect');

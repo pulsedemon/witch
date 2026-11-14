@@ -59,7 +59,6 @@ export async function exhaustion(
   );
 
   claude.accountRead = reading(10);
-
   codex.accountRead = reading(40);
 
   prepare?.(claude, codex);

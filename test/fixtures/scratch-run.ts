@@ -30,7 +30,6 @@ if (mode === 'hang') {
 
   await test('makes two directories at once', async () => {
     const made = await Promise.all([scratch('witch-a-'), scratch('witch-b-')]);
-
     first = made[0];
 
     for (const directory of made) report(directory);

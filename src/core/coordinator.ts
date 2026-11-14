@@ -343,7 +343,6 @@ export class Coordinator {
   }
   async initialize(directory: string, options: Launch = {}): Promise<void> {
     this.link.retryInitialization = () => this.load(directory, options);
-
     this.task = this.load(directory, options);
 
     try {
@@ -457,9 +456,7 @@ export class Coordinator {
       if (!this.record) items.push(...this.snapshot.items);
 
       this.files = files;
-
       this.record = files.record;
-
       this.delivery.automaticHeld = false;
 
       this.copilot.activate();
@@ -597,7 +594,6 @@ export class Coordinator {
     try {
       await this.operate('starting', async () => {
         this.modelRefresh = refresh;
-
         const { cwd, agent } = this.current();
 
         try {
@@ -813,7 +809,6 @@ export class Coordinator {
 
     const release = this.holdPromptDelivery();
     const abort = new AbortController();
-
     this.nativeUpdateCancellation = abort;
 
     this.operations++;
@@ -823,14 +818,12 @@ export class Coordinator {
     this.publish({ phase: 'updating', error: undefined });
 
     const operation = this.link.maintain(runtime, () => run(abort.signal));
-
     this.task = operation;
 
     try {
       await operation;
     } finally {
       this.task = undefined;
-
       this.nativeUpdateCancellation = undefined;
 
       release();
@@ -1204,7 +1197,6 @@ export class Coordinator {
     }
 
     this.cancelled = false;
-
     this.turnEnded = false;
 
     this.operations++;

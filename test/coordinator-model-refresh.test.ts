@@ -10,7 +10,6 @@ import { settled, until, within } from './fixtures/within.js';
 test('interrupting inactive model discovery keeps the connected session', async () => {
   const { coordinator, a, b, root } = await unitFixture(undefined, (a) => {
     a.connectUsage = { context: 0.75 };
-
     a.skills = [{ name: 'spell', description: 'Current spell' }];
   });
 
@@ -60,7 +59,6 @@ test('interrupting inactive model discovery keeps the connected session', async 
     };
 
     refreshing = coordinator.refreshModels();
-
     const isSettled = settled(refreshing);
     const signal = await within(entered.promise, 2000, 'inactive discovery');
 
@@ -172,7 +170,6 @@ test('interrupting an active model read discards its result', async () => {
     };
 
     refreshing = coordinator.refreshModels();
-
     const isSettled = settled(refreshing);
 
     await within(entered.promise, 2000, 'active model read');
@@ -229,7 +226,6 @@ test('a queued turn cannot turn a canceled refresh into a successful result', as
     };
 
     a.gate = gate;
-
     refreshing = coordinator.refreshModels();
 
     void refreshing.catch(() => {});

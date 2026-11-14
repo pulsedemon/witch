@@ -19,7 +19,6 @@ test('an agent is installed when a later PATH directory holds an executable of i
   await writeFile(join(bin, 'claude'), '');
 
   const path = process.env.PATH;
-
   process.env.PATH = [empty, bin].join(delimiter);
 
   try {

@@ -37,7 +37,6 @@ export class PresencePublisher {
 
   publish(active: Activation): Promise<void> {
     const presence = this.record(active);
-
     this.projected = presence;
 
     return this.write(presence);
@@ -61,16 +60,13 @@ export class PresencePublisher {
       return;
 
     this.projected = presence;
-
     this.pending = presence;
 
     if (this.scheduled) return;
 
     this.scheduled = setTimeout(() => {
       this.scheduled = undefined;
-
       const pending = this.pending;
-
       this.pending = undefined;
 
       if (pending && active.publishing && this.host.active() === active)
@@ -114,7 +110,6 @@ export class PresencePublisher {
     clearTimeout(this.scheduled);
 
     this.scheduled = undefined;
-
     this.pending = undefined;
   }
 

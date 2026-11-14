@@ -82,9 +82,7 @@ export function changes(
 
   for (const file of new Set([...Object.keys(before), ...Object.keys(after)])) {
     const text = after[file] ?? '';
-
     total += text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
-
     const patch = structuredPatch(file, file, before[file] ?? '', text);
 
     if (!patch.hunks.length) continue;

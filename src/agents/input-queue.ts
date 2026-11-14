@@ -8,7 +8,6 @@ export class InputQueue<T> implements AsyncIterable<T> {
     if (this.ended) throw new Error('Agent input is closed');
 
     const consumed = Promise.withResolvers<void>();
-
     this.flushed = consumed.promise;
 
     this.items.push({ value: item, consumed: consumed.resolve });

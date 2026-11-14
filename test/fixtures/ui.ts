@@ -22,7 +22,6 @@ class Terminal extends EventEmitter {
   }
   resize(columns: number, rows = this.rows) {
     this.columns = columns;
-
     this.rows = rows;
 
     this.emit('resize');
@@ -46,7 +45,6 @@ class Keys extends EventEmitter {
   }
   read = () => {
     const data = this.data;
-
     this.data = null;
 
     return data;

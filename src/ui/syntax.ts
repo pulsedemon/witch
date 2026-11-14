@@ -158,7 +158,6 @@ export function syntaxSpans(
 
   return lines.map((line) => {
     const cost = line.length > 256 ? line.length ** 2 : 0;
-
     spent += cost;
 
     return !language || (cost && spent > 16_000_000)

@@ -509,7 +509,6 @@ for (const active of [false, true])
     assert.deepEqual(await f.store.claims(), [suggestion]);
 
     const bytes = JSON.parse(await readFile(f.file, 'utf8'));
-
     bytes.claims[0].process.started = 'previous incarnation';
 
     await writeFile(f.file, JSON.stringify(bytes));

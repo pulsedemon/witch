@@ -50,9 +50,7 @@ async function start(register: Parameters<typeof orderedCleanup>[0]) {
 test('a route answers during a running turn with no selection turn, and shows its choice in the transcript', async (t) => {
   const f = await start(t.onTestFinished);
   const gate = new TurnGate();
-
   f.a.gate = gate;
-
   const sending = f.coordinator.send('Work');
 
   await gate.entered;
@@ -139,7 +137,6 @@ test('a runtime over the level shifts work to one with room, and a stale reading
   });
 
   f.b.accountReading = { limits: [window(40, now)] };
-
   const reply = await f.route();
 
   vi.restoreAllMocks();

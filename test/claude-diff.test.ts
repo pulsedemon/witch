@@ -511,7 +511,6 @@ test('a previewed approval passes the original decision and input', async () => 
   try {
     for (const decision of ['accept', 'decline'] as const) {
       events.length = 0;
-
       const turn = session.send('preview');
 
       await until('previewed request', () =>

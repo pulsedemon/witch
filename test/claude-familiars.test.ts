@@ -551,9 +551,7 @@ test('a task end or expired deadline during an output read prevents admission', 
     f.start();
 
     const output = Promise.withResolvers<unknown>();
-
     f.control.getTaskOutput = () => output.promise;
-
     const deadline = Date.now() + 10_000;
 
     const registering = f.owner.report(

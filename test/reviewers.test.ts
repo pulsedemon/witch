@@ -23,9 +23,7 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
   const { start } = await unitCoordinationFixture(orderedCleanup(register));
   const session = await start();
   const { coordinator, coordination, a } = session;
-
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
-
   const root = await scratch('witch-reviewers-');
   const bin = join(root, 'bin');
 

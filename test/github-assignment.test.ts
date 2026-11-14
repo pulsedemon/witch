@@ -55,7 +55,6 @@ if (policy.hold === endpoint) {
   );
 
   const previous = process.env.PATH;
-
   process.env.PATH = `${bin}:${previous}`;
 
   register(() => {

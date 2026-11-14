@@ -112,7 +112,6 @@ test('a partial installer failure is reconciled and recovered', async () => {
 
 test('installer success without selecting the target never produces a verified update', async () => {
   const f = await runtimeUpdateFixture();
-
   f.native.install = async () => {};
 
   await assert.rejects(
@@ -393,7 +392,6 @@ test('a build change during qualification restores the old runtime', async () =>
 
   f.native.verify = async (...args) => {
     const result = await verify(...args);
-
     f.build.current = 'changed';
 
     return result;
@@ -496,9 +494,7 @@ test('confirmation rechecks native policy in the initiating conversation directo
 
 test('a cached release keeps freshly inspected installation policy through apply', async () => {
   const f = await runtimeUpdateFixture();
-
   f.policy.blocked = 'Old native update policy';
-
   f.policy.automatic = true;
 
   await f.updates.check(true);
@@ -548,7 +544,6 @@ test('recovery refuses the previous version when its artifact bytes differ', asy
   };
 
   f.native.startup = async () => {};
-
   const install = f.native.install;
 
   f.native.install = async (...args) => {
@@ -685,7 +680,6 @@ test('qualifying the installed version records it verified without installing or
   assert.equal(f.updates.snapshot.entries[0]!.earlier, '1.0.0');
 
   const lease = holdRuntime(f.root, f.store.directory);
-
   f.native.users = async () => [{ pid: 1, reason: 'active session' }];
 
   const admitted = async () => {
@@ -754,7 +748,6 @@ test('qualifying the installed version records it verified without installing or
 
 test('a blocked check restricts installing, not qualifying the installed version', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   f.policy.blocked = 'Native policy blocks installs';
 
   await f.updates.check(true);
@@ -1115,7 +1108,6 @@ for (const [name, tamper] of [
   test(`a qualification report that ${name} records nothing`, async () => {
     const f = await runtimeUpdateFixture(undefined, '2.0.0');
     const verify = f.native.verify;
-
     f.native.verify = async (...args) => tamper(await verify(...args));
 
     await assert.rejects(

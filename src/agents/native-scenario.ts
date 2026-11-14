@@ -380,7 +380,6 @@ export async function nativeScenario(
       );
 
       from = events.length;
-
       const prompt = '/probe-spell hello';
       const call = skillCall(prompt, skills);
 

@@ -272,9 +272,7 @@ class ClaudeSession implements AgentSession {
         },
         spawnClaudeCodeProcess: (settings) => {
           const child = start(settings);
-
           this.process = child;
-
           const write = child.stdin.write;
 
           child.stdin.write = (...args) => {
@@ -291,7 +289,6 @@ class ClaudeSession implements AgentSession {
           };
 
           this.child = watchChild(child);
-
           this.registered = options.onProcess(child.pid);
 
           // initialize() awaits it, but may fail before it does
@@ -418,9 +415,7 @@ class ClaudeSession implements AgentSession {
     if (!Array.isArray(blocks)) return blocks;
 
     const turn = this.beginTurn();
-
     this.backgroundEligible = purpose === 'user';
-
     const stopped = this.process?.killed || this.child?.exited;
 
     if (this.options.automaticCompaction && !stopped) {
@@ -456,7 +451,6 @@ class ClaudeSession implements AgentSession {
     );
 
     turn.initialInput = uuid;
-
     turn.idle = false;
 
     turn.started.resolve(true);
@@ -474,9 +468,7 @@ class ClaudeSession implements AgentSession {
     if (this.command) throw new Error('This agent is already running');
 
     const turn = this.beginTurn();
-
     turn.compaction = true;
-
     this.compaction = new ClaudeCompaction(this.push('/compact'), true);
 
     return turn.finished.promise;
@@ -522,7 +514,6 @@ class ClaudeSession implements AgentSession {
     if (!this.nativeRunning) this.backgroundRun = undefined;
 
     const turn = createTurn();
-
     this.turn = turn;
 
     return turn;
@@ -541,7 +532,6 @@ class ClaudeSession implements AgentSession {
   private async run(command: string): Promise<TurnResult> {
     const abort = new AbortController();
     const finished = Promise.withResolvers<void>();
-
     this.command = { controller: abort, finished: finished.promise };
 
     try {
@@ -716,14 +706,11 @@ class ClaudeSession implements AgentSession {
 
   private release(turn: Turn): void {
     const answer = turn.answer;
-
     turn.held = false;
-
     turn.answer = undefined;
 
     if (answer !== undefined && !turn.interrupted && !this.closed) {
       turn.idle = false;
-
       const records = this.takeUnreadContext();
       const uuid = this.push(content(records, answer, []));
 
@@ -762,9 +749,7 @@ class ClaudeSession implements AgentSession {
     if (this.interrupting) return this.interrupting;
 
     turn.interrupted = true;
-
     this.stopUntil ??= stopDeadline(options.deadline);
-
     const deadline = this.stopUntil;
 
     return (this.interrupting = beforeDeadline(
@@ -955,7 +940,6 @@ class ClaudeSession implements AgentSession {
 
   takeUnreadContext(): string[] {
     const records = this.records;
-
     this.records = [];
 
     return records;
@@ -1109,7 +1093,6 @@ class ClaudeSession implements AgentSession {
         });
       } else if (message.subtype === 'session_state_changed') {
         this.sessionLifecycle = true;
-
         const running = message.state !== 'idle';
 
         if (running && !this.nativeRunning && !this.turn)
@@ -1197,7 +1180,6 @@ class ClaudeSession implements AgentSession {
 
   private async recoverBackgroundInput(turn: Turn): Promise<void> {
     turn.exhausting = true;
-
     const result = await recoverInput(turn, this.input, this.query);
 
     if (this.turn === turn) {

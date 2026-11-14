@@ -80,13 +80,9 @@ for (const [source, expectedError] of [
       await a.sessions.at(-1)!.session.close();
 
       a.failModels = source === 'model list';
-
       a.failSkills = source === 'spell discovery';
-
       a.refuseSteer = true;
-
       a.gate = gate;
-
       const before = coordinator.snapshot.items.length;
       const sending = coordinator.send('first after reconnect');
 
@@ -144,7 +140,6 @@ for (const [name, prompt] of [
 
     try {
       a.gate = gate;
-
       const sending = coordinator.send('Start');
 
       await within(gate.entered, 2000, 'the gated turn');
@@ -182,9 +177,7 @@ test('a prompt sent behind a spell the turn refused steers past it, and the spel
 
   try {
     a.gate = gate;
-
     a.refuseSkillSteer = true;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -227,9 +220,7 @@ test('a spell an interrupt leaves unread goes alone next with its skill call', a
 
   try {
     a.gate = gate;
-
     a.unreadOnInterrupt = true;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -269,9 +260,7 @@ test('prompts queued behind a queued prompt steer into the turn it starts, and a
 
   try {
     a.gate = first;
-
     a.refuseSteer = true;
-
     const sending = coordinator.send('Start');
 
     await within(first.entered, 2000, 'the gated turn');
@@ -280,7 +269,6 @@ test('prompts queued behind a queued prompt steer into the turn it starts, and a
       await coordinator.send(prompt);
 
     a.gate = second;
-
     a.refuseSteer = false;
 
     // a replied turn would take a `!` command, so only the queue's rule holds it back
@@ -327,9 +315,7 @@ test('a spell refused behind a queued turn stays queued while the prompts after 
 
   try {
     a.gate = first;
-
     a.refuseSteer = true;
-
     const sending = coordinator.send('Start');
 
     await within(first.entered, 2000, 'the gated turn');
@@ -338,9 +324,7 @@ test('a spell refused behind a queued turn stays queued while the prompts after 
       await coordinator.send(prompt);
 
     a.refuseSteer = false;
-
     a.refuseSkillSteer = true;
-
     a.gate = second;
 
     first.open();
@@ -381,9 +365,7 @@ test('an ordinary prompt refused behind a queued turn keeps the prompts after it
 
   try {
     a.gate = first;
-
     a.refuseSteer = true;
-
     const sending = coordinator.send('Start');
 
     await within(first.entered, 2000, 'the gated turn');
@@ -402,7 +384,6 @@ test('an ordinary prompt refused behind a queued turn keeps the prompts after it
     };
 
     a.gate = second;
-
     a.refuseSteer = false;
 
     first.open();
@@ -439,7 +420,6 @@ test('a prompt sent behind a prompt the turn refused waits behind it', async () 
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -477,9 +457,7 @@ test('a queued prompt that starts with a path joins the prompts after it in one 
 
   try {
     a.gate = gate;
-
     a.refuseSteer = true;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -524,7 +502,6 @@ test('a turn whose input was never written puts its steered prompts back between
     };
 
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -580,11 +557,8 @@ test('a queued batch sends the images of each of its prompts in order', async ()
   try {
     const first = await paste(f, 'first');
     const second = await paste(f, 'second');
-
     f.a.gate = gate;
-
     f.a.refuseSteer = true;
-
     const sending = f.coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -627,9 +601,7 @@ test('a prompt or spell steered with a pasted image passes it, and its row appea
     const plain = await paste(f, 'plain');
     const spell = await paste(f, 'spell');
     const refused = await paste(f, 'refused');
-
     f.a.gate = gate;
-
     const sending = f.coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -692,11 +664,8 @@ test('a steered image prompt an interrupt leaves unread goes next with its image
 
   try {
     const { marker } = await paste(f, 'shot');
-
     f.a.gate = gate;
-
     f.a.unreadOnInterrupt = true;
-
     const sending = f.coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -896,9 +865,7 @@ test('a delivery hold that starts while a steer saves its image refuses the stee
 
   try {
     const { marker } = await paste(f, 'shot');
-
     f.a.gate = gate;
-
     const sending = f.coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -947,9 +914,7 @@ test('a turn that settles while a steer saves its image refuses the steer, and t
 
   try {
     const { marker } = await paste(f, 'shot');
-
     f.a.gate = gate;
-
     const sending = f.coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -990,9 +955,7 @@ test("a steer whose image fails to save leaves its prompt queued without an erro
 
   try {
     const { marker, data } = await paste(f, 'shot');
-
     f.a.gate = gate;
-
     const sending = f.coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');

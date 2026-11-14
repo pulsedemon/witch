@@ -66,7 +66,6 @@ if (values.scenario === 'spell') {
 }
 
 process.env.CLAUDE_CODE_TMPDIR = root;
-
 const captures: ReturnType<typeof observeWire>[] = [];
 const launches: { command: string; args: string[] }[] = [];
 

@@ -87,7 +87,6 @@ test('a ! prompt sent during a turn waits in the queue and runs alone before the
 
   try {
     a.gate = gate;
-
     const first = coordinator.send('first');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -150,9 +149,7 @@ test('an interrupt that lands as a ! command finishes sends no turn', async () =
 
   try {
     a.gate = gate;
-
     a.finishShellOnInterrupt = true;
-
     const sending = coordinator.send('!x');
 
     await within(gate.entered, 2000, 'the gated command');
@@ -183,7 +180,6 @@ test('after the reply, while a familiar holds the turn, a ! prompt runs at once 
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -233,7 +229,6 @@ test('after the reply, a listed spell steers trimmed with its call, and an unlis
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -268,7 +263,6 @@ test("a model change runs during a replied turn without waiting, and is refused 
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -337,13 +331,11 @@ test('a model change during a replied turn refuses another until it finishes, an
     };
 
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
 
     a.replied = true;
-
     const before = a.selections.length;
 
     first = coordinator.selectModel({
@@ -453,7 +445,6 @@ for (const rejected of [false, true])
         };
 
         a.gate = gate;
-
         sending = coordinator.send('Start');
 
         await within(gate.entered, 2000, 'the first turn');
@@ -547,15 +538,12 @@ test('a replied turn opens the model list from its connect without refreshing', 
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
 
     a.replied = true;
-
     const { models } = coordinator.snapshot;
-
     a.failModels = true;
 
     assert.equal(await coordinator.refreshModels(), true);
@@ -580,7 +568,6 @@ test('commands that need idle say familiars or workflows hold the turn, and the 
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');

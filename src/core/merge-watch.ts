@@ -26,7 +26,6 @@ export function watchMerges(
 
   const check = () => {
     pending = undefined;
-
     const status = repository.snapshot;
     const owner = coordinator.snapshot.conversation?.id;
 
@@ -50,16 +49,13 @@ export function watchMerges(
     clearTimeout(retryTimer);
 
     retryTimer = undefined;
-
     attempted = pullRequest.commit;
-
     const work = continuation ?? { request: pullRequest, progress: {}, owner };
 
     void coordinator.cleanUpMerge(pullRequest, install, work.progress).then(
       (acted) => {
         if (acted === 'interrupted') {
           continuation = work;
-
           attempted = undefined;
 
           schedule();
@@ -98,7 +94,6 @@ export function watchMerges(
     clearTimeout(retryTimer);
 
     retryTimer = undefined;
-
     attempted = undefined;
 
     schedule();

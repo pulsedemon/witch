@@ -155,7 +155,6 @@ async function sweep(
 
       try {
         lock = await lockDirectory(directory);
-
         const record = await readRecord(directory);
 
         if (JSON.stringify(record) !== JSON.stringify(previous)) continue;
@@ -266,7 +265,6 @@ export class ScratchSpace {
     } = {},
   ): Promise<ScratchSpace> {
     parent = resolve(parent);
-
     const resumed = options.resume !== undefined;
 
     const directory = resumed
@@ -347,7 +345,6 @@ export class ScratchSpace {
     clearInterval(this.timer);
 
     const lock = this.lock;
-
     this.lock = undefined;
 
     await this.polling;

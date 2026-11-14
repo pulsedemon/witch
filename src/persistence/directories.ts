@@ -133,9 +133,7 @@ export async function adoptIdentity(
   }
 
   entry.device = identity.device;
-
   entry.inode = identity.inode;
-
   entry.birthtimeNs = identity.birthtimeNs;
 
   return true;
@@ -324,7 +322,6 @@ export async function mapper(ledger: Ledger): Promise<Mapping> {
       }
 
       last = chosen;
-
       current = move.to + current.slice(move.from.length);
     }
 

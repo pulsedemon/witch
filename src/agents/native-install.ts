@@ -128,7 +128,6 @@ export async function installNative(
         );
 
       source = await response.text();
-
       const digest = createHash('sha256').update(source).digest('hex');
 
       await writeFile(join(directory, `codex-install-${digest}.sh`), source, {

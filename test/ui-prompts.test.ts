@@ -116,11 +116,8 @@ test('queued prompts show above the command window with a hint, and ↑ on the f
 test('a queued prompt with an image marker, taken back with ↑ and sent again, is delivered with its image', async () => {
   const { coordinator, a, project } = await fixture();
   const gate = new TurnGate();
-
   a.gate = gate;
-
   a.refuseSteer = true;
-
   const { bytes, paste } = await image(project);
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   const sending = coordinator.send('held turn');
@@ -193,11 +190,8 @@ for (const [command, message] of [
   test(`${command} leaves queued prompts runnable`, async () => {
     const { coordinator, a } = await fixture();
     const gate = new TurnGate();
-
     a.gate = gate;
-
     a.refuseSteer = true;
-
     const ui = show(createElement(App, { coordinator, onExit: () => {} }));
     const sending = coordinator.send('held turn');
 
@@ -263,11 +257,8 @@ test('a /sessions choice refused during a turn leaves queued prompts runnable', 
 
   const { id } = coordinator.snapshot.conversation!;
   const gate = new TurnGate();
-
   a.gate = gate;
-
   a.refuseSteer = true;
-
   const sending = coordinator.send('held turn');
 
   try {
@@ -332,11 +323,8 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
     await until('the composer', () => ui.text().includes('┃ Ask the agent'));
 
     a.gate = gate;
-
     a.failNext = true;
-
     a.refuseSteer = true;
-
     const sending = coordinator.send('remember-port');
 
     await within(gate.entered, 3000, 'the gated turn');

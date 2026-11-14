@@ -728,7 +728,6 @@ test('a git or OS that fails reading a checkout or its origin fails the project 
   await mkdir(plain);
 
   const locale = process.env.LC_ALL;
-
   process.env.LC_ALL = 'de_DE.UTF-8';
 
   try {

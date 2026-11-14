@@ -159,7 +159,6 @@ export class ClaudeUsage {
     clearTimeout(this.timer);
 
     this.timer = undefined;
-
     this.requested = true;
 
     if (!this.busy) void this.read('main');
@@ -171,7 +170,6 @@ export class ClaudeUsage {
     clearTimeout(this.timer);
 
     this.timer = undefined;
-
     this.requested = false;
 
     return (this.closing ??= this.helper
@@ -244,7 +242,6 @@ export class ClaudeUsage {
           helper.abort,
           (child) => {
             helper.process = child;
-
             helper.child = watchChild(child);
 
             if (child.pid !== undefined) {

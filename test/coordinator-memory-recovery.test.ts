@@ -161,7 +161,6 @@ test('keep mine publishes with the attribution of the conversation that kept its
     await coordinator.send('Start');
 
     a.gate = gate;
-
     const sending = coordinator.send('remember:mine');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -439,11 +438,8 @@ for (const kind of ['pending', 'conflict'] as const) {
       await f.coordinator.send('Initial task');
 
       const id = f.coordinator.snapshot.conversation!.id;
-
       f.a.failNext = kind === 'pending';
-
       f.a.gate = gate;
-
       const sending = f.coordinator.send('remember:mine');
 
       await within(gate.entered, 3000, 'the writing turn');
@@ -522,7 +518,6 @@ test('the launch sweep publishes what it can and reports the rest in one message
   await unpublished.files.close();
 
   const dirty = await stranded(context, {});
-
   dirty.files.record.activity = activity();
 
   await dirty.files.save(dirty.files.record);
@@ -600,7 +595,6 @@ test('a sweep failure after the claim is reported and releases the claim', async
   await context.coordinator.close();
 
   const broken = await stranded(context, { 'global/x.md': 'X.' });
-
   broken.files.record.activity = activity();
 
   await broken.files.save(broken.files.record);

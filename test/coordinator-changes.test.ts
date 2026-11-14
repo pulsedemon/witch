@@ -135,9 +135,7 @@ test("a finished shell command's row gains what changed, keeps its output and su
 test("the native session starts only once its checkout's baseline has settled", async () => {
   const watcher = new Watcher();
   const baseline = Promise.withResolvers<void>();
-
   watcher.watching = () => baseline.promise;
-
   let agent: FixtureAgent | undefined;
 
   const opening = fixture(
@@ -174,7 +172,6 @@ test('an interrupt during the baseline wait starts no native session', async () 
 
   try {
     watcher.watching = () => baseline.promise;
-
     clearing = coordinator.clear();
 
     await until('the baseline request', () => watcher.calls.length === 2);
@@ -308,9 +305,7 @@ test("a tool's own diff moves the baseline past its files, unless the tool faile
 
 test('a failure posts one notice until its text changes, and a failed baseline leaves the turn running', async () => {
   const watcher = new Watcher();
-
   watcher.watching = () => Promise.reject(new Error("Couldn't read: baseline"));
-
   const { coordinator, a } = await fixture(undefined, undefined, true, watcher);
 
   try {
@@ -322,7 +317,6 @@ test('a failure posts one notice until its text changes, and a failed baseline l
 
     const { onEvent } = a.sessions.at(-1)!.options;
     const failure = () => Promise.reject(new Error("Couldn't read: twice"));
-
     watcher.reads = [failure(), failure()];
 
     command(onEvent, 'one');
@@ -365,7 +359,6 @@ test('a failure that comes back after a success posts again', async () => {
 
     const { onEvent } = a.sessions.at(-1)!.options;
     const failure = () => Promise.reject(new Error("Couldn't read: again"));
-
     watcher.reads = [failure()];
 
     command(onEvent, 'one');
@@ -393,9 +386,7 @@ test('a failure that comes back after a success posts again', async () => {
 
 test('a new conversation posts a failure the one before it already saw', async () => {
   const watcher = new Watcher();
-
   watcher.watching = () => Promise.reject(new Error("Couldn't read: baseline"));
-
   const { coordinator } = await fixture(undefined, undefined, true, watcher);
 
   try {
@@ -430,7 +421,6 @@ test('a read that settles after its conversation closed shows and posts nothing'
     const { onEvent } = a.sessions.at(-1)!.options;
     const shown = Promise.withResolvers<Changes>();
     const failed = Promise.withResolvers<Changes>();
-
     watcher.reads = [shown.promise, failed.promise];
 
     command(onEvent, 'late');

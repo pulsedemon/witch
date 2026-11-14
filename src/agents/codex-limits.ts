@@ -216,9 +216,7 @@ export class CodexAccount {
 
     if (identity && identity !== this.reading.identity) {
       this.windows = {};
-
       this.limitId = update.limitId ?? defaultLimit;
-
       this.reading = { limits: [], identity };
     }
 

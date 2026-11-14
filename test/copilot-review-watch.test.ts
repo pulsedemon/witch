@@ -39,9 +39,7 @@ test('polling speeds up for requests and outstanding feedback, then returns to q
   await vi.advanceTimersByTimeAsync(0);
 
   const start = reads[0]!;
-
   source.requested = [];
-
   pending = true;
 
   await vi.advanceTimersByTimeAsync(30_000);
@@ -69,9 +67,7 @@ test('a newly completed check triggers another read for delayed review publicati
   vi.useFakeTimers();
 
   const source = reviewSource();
-
   source.reviews = [];
-
   source.threads = [];
 
   source.checks = [

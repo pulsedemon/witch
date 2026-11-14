@@ -107,7 +107,6 @@ test('embedded commands finish compaction and model application before queued pr
     await delay(70);
 
     f.a.gate = gate;
-
     const parent = c.send('original parent');
 
     await gate.entered;
@@ -302,7 +301,6 @@ for (const [draft, between] of [
       await delay(70);
 
       f.a.gate = gate;
-
       const parent = c.send('ordinary parent');
 
       await gate.entered;
@@ -490,7 +488,6 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
     await delay(70);
 
     f.a.gate = gate;
-
     const parent = c.send('original');
 
     await gate.entered;
@@ -530,7 +527,6 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
     assert.deepEqual(c.snapshot.queue, ['queued prose', '! printf /compact']);
 
     f.a.gate = undefined;
-
     f.a.refuseSteer = true;
 
     await submit(ui, 'explicit continuation');

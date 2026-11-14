@@ -187,7 +187,6 @@ test('a resize starts a new grid of the new size, and a terminal that reports no
   screen.write(link('ab', docs));
 
   size.columns = 10;
-
   size.rows = 4;
 
   screen.write(`\u001b[4;8H${link('c', docs)}`);

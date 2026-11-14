@@ -141,7 +141,6 @@ test('fresh scratch waits for a competing sweep and records its owner', async (t
     syncBuiltinESMExports();
 
     opening = ScratchSpace.open(parent, firstBoot);
-
     const isSettled = settled(opening);
     const directory = await within(created.promise, 5000, 'competing sweep');
 
@@ -154,7 +153,6 @@ test('fresh scratch waits for a competing sweep and records its owner', async (t
     await holder!.release();
 
     holder = undefined;
-
     const space = await within(opening, 5000, 'fresh scratch acquisition');
 
     assert.equal(space.directory, directory);

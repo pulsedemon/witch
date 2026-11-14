@@ -77,7 +77,6 @@ let command;
 
 try {
   command = parseCommand();
-
   const { values, control, familiar, spawn } = command;
 
   // parseArgs accepts an empty value, which would put state in the project
@@ -128,7 +127,6 @@ if (familiar) {
   process.stdout.write(usage);
 } else if (spawn !== undefined) {
   const { runSpawn } = await import('./spawn.js');
-
   process.exitCode = await runSpawn(process.cwd(), spawn, defaultState);
 } else {
   // React picks its slower development build when loaded without this, and agents inherit the environment, so it lasts only the load

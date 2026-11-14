@@ -597,7 +597,6 @@ export function App({
 
     // a prompt sent while the load connects would otherwise run ahead of the one Witch started with
     const initial = pendingPrompt.current;
-
     pendingPrompt.current = undefined;
 
     if (initial !== undefined) submit(initial);
@@ -850,7 +849,6 @@ export function App({
     // a press or release ends the drag even while another view covers the transcript
     if (pointer !== 'drag') {
       pressedAt.current = undefined;
-
       pressedNewMessages.current = false;
     }
 

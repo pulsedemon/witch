@@ -268,9 +268,7 @@ test('pending requests to one owner coalesce into one answer turn', async (t) =>
     });
 
   const gate = new TurnGate();
-
   b.a.gate = gate;
-
   const working = b.coordinator.send('working');
 
   await gate.entered;
@@ -314,11 +312,8 @@ test('pending requests to one owner coalesce into one answer turn', async (t) =>
 test('busy owner answers after queued prompts', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
   const gate = new TurnGate();
-
   b.a.gate = gate;
-
   b.a.refuseSteer = true;
-
   const sends = [b.coordinator.send('one')];
 
   await gate.entered;
@@ -387,7 +382,6 @@ test('recovery, pending questions and failed turns hold answer turns until resol
   );
 
   seen.answering = false;
-
   b.a.failNext = true;
 
   await b.coordinator.send('fails');
@@ -458,9 +452,7 @@ test('released claim is never admitted, and a prompt sent meanwhile still runs',
 test('interrupted answer turn is not retried, and Escape holds answer turns', async (t) => {
   const { f, a, b, claim, seen } = await owners(t.onTestFinished);
   const gate = new TurnGate();
-
   b.a.gate = gate;
-
   const working = b.coordinator.send('working');
 
   await gate.entered;
@@ -488,9 +480,7 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
   assert.deepEqual(prompts(b), ['working', 'continue', 'answer']);
 
   const answering = new TurnGate();
-
   b.a.gate = answering;
-
   const interrupted = await ask(a, claim, 'Interrupted?');
 
   await refreshed(b);
@@ -506,7 +496,6 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
   });
 
   b.a.gate = undefined;
-
   seen.answering = false;
 
   await holds(f, b, await ask(a, claim, 'Later?'), seen);
@@ -537,9 +526,7 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
 test('a restart clears the hold but not the attempt', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   const gate = new TurnGate();
-
   b.a.gate = gate;
-
   const first = await ask(a, claim, 'First?');
 
   await refreshed(b);
@@ -574,11 +561,8 @@ test('a restart clears the hold but not the attempt', async (t) => {
 test('a restored queue holds answer turns until the composer takes it, which wakes them', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   const gate = new TurnGate();
-
   b.a.gate = gate;
-
   b.a.refuseSteer = true;
-
   const sending = b.coordinator.send('Start');
 
   sending.catch(() => {});
@@ -626,7 +610,6 @@ test('a closing Witch stamps nothing', async (t) => {
     'attemptPeerRequests',
   ).mockImplementation(function (this: CoordinationStore, ...args) {
     closing ??= b.coordinator.close();
-
     const result = attempt.apply(this, args);
 
     admitted = result.then(
@@ -770,7 +753,6 @@ test('a prompt sent during an answer turn runs as its own turn after it', async 
   assert.deepEqual(prompts(b), ['answer', 'sent during admission']);
 
   const gate = new TurnGate();
-
   b.a.gate = gate;
 
   await ask(a, claim, 'During the turn?');
@@ -803,9 +785,7 @@ test('a prompt sent during an answer turn runs as its own turn after it', async 
   assert.equal(completed.size, 2);
 
   const base = new TurnGate();
-
   b.a.gate = base;
-
   const working = b.coordinator.send('base');
 
   await base.entered;
@@ -845,9 +825,7 @@ test('a prompt sent during an answer turn runs as its own turn after it', async 
   assert.deepEqual(b.coordinator.snapshot.queue, []);
 
   const failing = new TurnGate();
-
   b.a.gate = failing;
-
   b.a.failNext = true;
 
   await ask(a, claim, 'Fails?');

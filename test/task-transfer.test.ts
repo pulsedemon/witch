@@ -52,7 +52,6 @@ async function transfer(
 
 test('an idle owner hands over its task without a model turn, and its next context names the move', async (t) => {
   const { a, b, answer, registry } = await transfer(t);
-
   a.a.failNext = true;
 
   await a.coordinator.send('turn that fails');
@@ -120,9 +119,7 @@ test('a running turn, a native run, a running brew and memory recovery each refu
   };
 
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const sending = a.coordinator.send('Held work');
 
   await within(gate.entered, 5000, 'held turn');
@@ -302,7 +299,6 @@ test('a successful withdrawal clears a failed ledger poll', async (t) => {
     .spyOn(local, 'requestTransfer')
     .mockImplementation(async (...args) => {
       const claim = await request(...args);
-
       pending = true;
 
       return claim;
@@ -495,7 +491,6 @@ for (const ids of [
 ])
   test(`an exhausted ${ids[0]} owner transfers to ${ids[1]} on claim without a model turn`, async (t) => {
     const f = await automatic(t, ids);
-
     f.nativeOwner.failNext = true;
 
     await f.owner.coordinator.send('turn that fails');
@@ -699,9 +694,7 @@ test('automatic transfer keeps running turns, familiars, brews and recovery with
   };
 
   const gate = new TurnGate();
-
   f.nativeOwner.gate = gate;
-
   const sending = f.owner.coordinator.send('Held work');
 
   await within(gate.entered, 5000, 'held owner');

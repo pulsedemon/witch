@@ -9,9 +9,7 @@ import { seededMemory } from './seeded-memory.js';
 
 // a developer's `url.<base>.insteadOf` would rewrite the origins these tests key
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-
 process.env.GIT_CONFIG_NOSYSTEM = '1';
-
 const execute = promisify(execFile);
 
 export async function fixture() {

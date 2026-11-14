@@ -172,9 +172,7 @@ export class RuntimeSwitch {
     if (!this.backgroundPending) return false;
 
     const request = this.pending!;
-
     request.waiting = false;
-
     request.revision = this.activityRevision;
 
     try {
@@ -216,7 +214,6 @@ export class RuntimeSwitch {
 
   private clearPending(): void {
     const request = this.pending;
-
     this.pending = undefined;
 
     request?.finished.resolve();
@@ -240,7 +237,6 @@ export class RuntimeSwitch {
 
   async applyModel(session: AgentSession, selection: ModelSelection) {
     const { agent, id } = selection;
-
     this.selecting = true;
 
     try {
@@ -271,7 +267,6 @@ export class RuntimeSwitch {
     if (notice === undefined) this.clearPending();
 
     const host = this.host;
-
     this.continuation = undefined;
 
     return handoff(
@@ -342,7 +337,6 @@ export class RuntimeSwitch {
       // the switch's own operation clears the stop, so one pressed while recovery applied is read here
       if (pending && succeeded && !this.host.cancelled()) {
         this.hopped = false;
-
         request.recovering = false;
 
         if (request.background) this.host.changed();
@@ -390,7 +384,6 @@ export class RuntimeSwitch {
           await this.move(stopping.promise, request);
         } finally {
           this.stopping = undefined;
-
           request.moving = false;
 
           if (!request.waiting && host.conversation().agent === agent)

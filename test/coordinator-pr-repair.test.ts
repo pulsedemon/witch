@@ -21,7 +21,6 @@ test("every turn carries the branch's pull request conflict until it clears", as
 
   try {
     const pullRequest = openPullRequest({ mergeable: 'CONFLICTING' });
-
     f.coordinator.conflict = { pullRequest, baseTip: 'f00' };
 
     await f.coordinator.send('First');
@@ -194,9 +193,7 @@ test('a conflict kept through an uncomputed read, or on an unclaimed pull reques
 test('a repair waits for the running and queued user turns, and a prompt sent during it queues', async (t) => {
   const s = await setup(t);
   const gate = new TurnGate();
-
   s.x.a.gate = gate;
-
   const first = s.c.send('long user turn');
 
   await within(gate.entered, 5000, 'user turn');
@@ -227,7 +224,6 @@ test('a repair waits for the running and queued user turns, and a prompt sent du
   await s.idle();
 
   const second = new TurnGate();
-
   s.x.a.gate = second;
 
   s.observe(s.read({ commit: head(2) }));
@@ -252,7 +248,6 @@ test('a repair waits for the running and queued user turns, and a prompt sent du
 test('a stopped repair holds automatic turns until the next prompt and is never repeated', async (t) => {
   const s = await setup(t);
   const gate = new TurnGate();
-
   s.x.a.gate = gate;
 
   s.observe(s.read());
@@ -291,9 +286,7 @@ test('a stopped repair holds automatic turns until the next prompt and is never 
 test('a failed repair keeps the queue for the composer and its head attempted', async (t) => {
   const s = await setup(t);
   const gate = new TurnGate();
-
   s.x.a.gate = gate;
-
   s.x.a.failNext = true;
 
   s.observe(s.read());
@@ -324,7 +317,6 @@ test('a failed repair keeps the queue for the composer and its head attempted', 
 test('a restart during the repair keeps its head attempted, and a new head still repairs', async (t) => {
   const s = await setup(t);
   const gate = new TurnGate();
-
   s.x.a.gate = gate;
 
   s.observe(s.read());
@@ -435,7 +427,6 @@ test('losing the claim or the base during a repair stops it once', async (t) => 
   for (const kind of ['claim', 'base'] as const) {
     const s = await setup(t, kind === 'claim' ? 'A' : 'B');
     const gate = new TurnGate();
-
     s.x.a.gate = gate;
 
     s.observe(s.read());
@@ -728,11 +719,8 @@ test('a restart while the final ownership check runs keeps the head attempted', 
 test('a conflict observed while a Copilot admission reads GitHub repairs in the same drain', async (t) => {
   const s = await setup(t);
   const source = reviewSource();
-
   source.pullRequest = { ...s.pullRequest(), mergeable: undefined };
-
   source.closingIssues = [];
-
   const kept = s.pullRequest();
 
   vi.spyOn(github, 'readGitHubReviews').mockImplementation(async () => {
@@ -804,11 +792,8 @@ test('the wired conflict watch survives a conversation switch and a restart with
 test('a new conflict does not steer prompts a replied turn refused', async (t) => {
   const s = await setup(t);
   const gate = new TurnGate();
-
   s.x.a.gate = gate;
-
   s.x.a.replied = true;
-
   s.x.a.refuseSteer = true;
 
   void s.c.send('long turn');
@@ -830,7 +815,6 @@ test('a new conflict does not steer prompts a replied turn refused', async (t) =
   gate.open();
 
   s.x.a.gate = undefined;
-
   s.x.a.replied = false;
 });
 
@@ -936,9 +920,7 @@ test('failed checks on the claimed pull request start one repair turn per head a
 test('a check repair waits for the running and queued user turns', async (t) => {
   const s = await setup(t);
   const gate = new TurnGate();
-
   s.x.a.gate = gate;
-
   const first = s.c.send('long user turn');
 
   await within(gate.entered, 5000, 'user turn');

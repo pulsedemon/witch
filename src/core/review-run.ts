@@ -227,16 +227,12 @@ async function runReview(
         return stopped(incomplete);
 
       texts = await read();
-
       failures = await checkTargets(cwd, files);
     }
 
     known = failures;
-
     const current = identities(failures, texts);
-
     sent = new Set(current.filter((identity) => sent.has(identity)));
-
     const reported = failures.filter((_, index) => sent.has(current[index]!));
     const delta = reviewed ? changes(reviewed, texts) : undefined;
     const scope = scopeFor(next, delta?.ratio ?? 0);
@@ -395,9 +391,7 @@ async function runReview(
     }
 
     reviewed = texts;
-
     next = after.next;
-
     sittingOut = after.sittingOut;
   }
 }

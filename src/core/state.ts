@@ -386,7 +386,6 @@ export function applyDisplayUpdate(
   if (index < 0) return [...items, merge(undefined, update)];
 
   const next = [...items];
-
   next[index] = merge(items[index], update);
 
   return next;

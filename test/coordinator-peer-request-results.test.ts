@@ -107,9 +107,7 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
   await b.coordinator.send('seed');
 
   session.send = send;
-
   const usage = session.contextUsage;
-
   session.contextUsage = async () => 90;
 
   await ask(a, claim, 'Answer now?');
@@ -160,9 +158,7 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
     });
 
   const gate = new TurnGate();
-
   b.a.gate = gate;
-
   const request = await ask(a, claim, 'Hold on?');
   const second = await ask(a, claim, 'Second question');
 
@@ -228,9 +224,7 @@ test('answers follow native session receipts', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   const first = await ask(a, claim, 'First?');
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const working = a.coordinator.send('working');
 
   await gate.entered;
@@ -423,9 +417,7 @@ test('peer notices escape peer text', async (t) => {
 
 test('invalid native answers publish nothing and consume their one automatic attempt', async (t) => {
   const { a, b, claim, f } = await owners(t.onTestFinished);
-
   b.a.peerReply = () => '{"answers":[]}';
-
   const request = await ask(a, claim, 'Malformed?');
 
   await refreshed(b);
@@ -624,9 +616,7 @@ test("an answer turn keeps a user turn's completion notice on time", async (t) =
   t.onTestFinished(stop);
 
   const user = new TurnGate();
-
   b.a.gate = user;
-
   const working = b.coordinator.send('user work');
 
   await user.entered;
@@ -636,7 +626,6 @@ test("an answer turn keeps a user turn's completion notice on time", async (t) =
   await refreshed(b);
 
   const answering = new TurnGate();
-
   b.a.gate = answering;
 
   user.open();

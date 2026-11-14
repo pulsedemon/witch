@@ -1199,7 +1199,6 @@ const mark = { environment: { WITCH_JOBS: '/x/jobs' }, script: '/x/jobs/env' };
 /** runs `body` with another instance's mark in Witch's environment, as when Witch runs inside an agent's command. */
 async function insideAnotherWitch(body: () => Promise<void>) {
   const outer = process.env.WITCH_JOBS;
-
   process.env.WITCH_JOBS = '/outer/jobs/1';
 
   try {

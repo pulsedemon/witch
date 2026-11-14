@@ -162,7 +162,6 @@ export async function runWitch(
   });
 
   process.env.TMPDIR = scratch.directory;
-
   const memory = new Memory(memoryRepository(store.root));
 
   const coordination = await SessionCoordination.open(
@@ -219,9 +218,7 @@ export async function runWitch(
 
   const stopWake = keepAwake(coordinator, jobs, warn);
   const policy = await DelegationStore.open(join(store.root, 'delegation'));
-
   coordination.router = router(coordinator, policy);
-
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
 
   // straight to the terminal, since the link screen would read image data as printed text

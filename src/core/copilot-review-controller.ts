@@ -73,19 +73,12 @@ export class CopilotReviewController {
     this.abort.abort();
 
     this.abort = new AbortController();
-
     this.source = undefined;
-
     this.sourceOwner = undefined;
-
     this.retry = undefined;
-
     this.unmatched = undefined;
-
     this.noticeState = undefined;
-
     this.revoked = undefined;
-
     this.head = undefined;
   }
 
@@ -128,7 +121,6 @@ export class CopilotReviewController {
 
   private serial<T>(work: () => Promise<T>): Promise<T> {
     const result = this.updating.then(work);
-
     this.updating = result.catch(() => {});
 
     return result;
@@ -257,7 +249,6 @@ export class CopilotReviewController {
       );
 
       state.claim = bound.claim.id;
-
       state = await this.recover(state, source, record.cwd);
 
       if (!this.matches(record, source)) return false;
@@ -265,7 +256,6 @@ export class CopilotReviewController {
       this.setState(record, state);
 
       this.source = source;
-
       this.sourceOwner = record.id;
 
       await this.host.save();
@@ -479,9 +469,7 @@ export class CopilotReviewController {
       }
 
       this.executing = batch;
-
       const result = await this.host.run(batch);
-
       this.executing = undefined;
 
       if (this.host.record() !== record) return true;

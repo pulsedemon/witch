@@ -64,7 +64,6 @@ async function harness(
   createFixture = unitCoordinationFixture,
 ) {
   const previous = process.env.TMPDIR;
-
   process.env.TMPDIR = await scratch('witch-review-tmp-');
 
   t.onTestFinished(() => {
@@ -347,7 +346,6 @@ test("each round's reviewers use the familiar prefix current when it starts", as
   const h = await harness(t);
   const prefixes = h.coordination.commandPrefixes.bind(h.coordination);
   let familiar = '/before';
-
   h.coordination.commandPrefixes = () => ({ ...prefixes(), familiar });
 
   h.state.outcome = (round, { runtime }) =>
@@ -745,7 +743,6 @@ test('a refused route stops the review', async (t) => {
 
 test('targets changed while reviewers ran stop the review', async (t) => {
   const h = await harness(t);
-
   h.state.during = () => h.setLines({ 3: 'edited meanwhile' });
 
   assert.equal(await h.coordinator.review('plan.md'), false);
@@ -836,9 +833,7 @@ test('a failure the mechanical correction introduces gets its own correction', a
 test('Escape while reviewers run aborts them with the native stop deadline', async (t) => {
   const h = await harness(t);
   const held = Promise.withResolvers<void>();
-
   h.state.hold = held.promise;
-
   const reviewing = h.coordinator.review('plan.md');
 
   await until('the reviewers', () => h.rounds.length === 1, 500);
@@ -867,9 +862,7 @@ test('Escape while reviewers run aborts them with the native stop deadline', asy
 test('a review refused while another runs leaves Escape able to stop the first', async (t) => {
   const h = await harness(t);
   const held = Promise.withResolvers<void>();
-
   h.state.hold = held.promise;
-
   const reviewing = h.coordinator.review('plan.md');
 
   await until('the reviewers', () => h.rounds.length === 1, 500);
@@ -923,9 +916,7 @@ test('Escape while a review settles fails it without a finished notice', async (
 test('closing Witch during a review aborts its reviewers', async (t) => {
   const h = await harness(t);
   const held = Promise.withResolvers<void>();
-
   h.state.hold = held.promise;
-
   const reviewing = h.coordinator.review('plan.md');
 
   await until('the reviewers', () => h.rounds.length === 1, 500);
@@ -1031,9 +1022,7 @@ async function cancelHeldRoute(
 ) {
   const route = router(h.coordinator, { read });
   let routed: ReturnType<typeof route> | undefined;
-
   h.coordination.router = (action, signal) => (routed = route(action, signal));
-
   const reviewing = h.coordinator.review('plan.md');
 
   await until('the held route', held.waiting, 500);
@@ -1131,9 +1120,7 @@ test('a publication conflict after a correction stops the review', async (t) => 
   h.corrections.push(() => h.setLines({ 5: 'fixed five' }));
 
   const gate = new TurnGate();
-
   h.claude.gate = gate;
-
   const reviewing = h.coordinator.review('plan.md');
 
   await within(gate.entered, 3000, 'the correction turn');
@@ -1193,9 +1180,7 @@ test('prompts typed during a review wait for it', async (t) => {
   h.corrections.push(() => h.setLines({ 5: 'fixed five' }));
 
   const gate = new TurnGate();
-
   h.claude.gate = gate;
-
   const runs = batches(h);
 
   runs.submit([{ name: 'review', argument: 'plan.md' }]);

@@ -346,13 +346,9 @@ async function checkNativeApprovals(
   try {
     for (const allowed of [false, true]) {
       accept = allowed;
-
       expected = allowed ? 'approved-result' : 'declined-result';
-
       requests = 0;
-
       approvalTool = undefined;
-
       const from = events.length;
 
       await writeFile(
@@ -544,7 +540,6 @@ export async function verifyNativeUpdate(
     report.passed = true;
   } catch (error) {
     report.error = errorMessage(error);
-
     report.diagnostic = error instanceof Error ? error.stack : String(error);
 
     throw error;

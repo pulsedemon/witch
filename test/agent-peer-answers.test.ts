@@ -96,7 +96,6 @@ for (const runtime of ['codex', 'claude']) {
     assert.equal((await session.send('normal')).status, 'completed');
 
     const id = session.info.id;
-
     requests.length = 0;
 
     assert.equal(
@@ -164,7 +163,6 @@ for (const history of [false, true]) {
     if (history) await session.send('normal');
 
     const before = { ...session.info };
-
     events.length = 0;
 
     await writeFile(
@@ -266,7 +264,6 @@ for (const history of [false, true]) {
     if (history) await session.send('normal');
 
     const before = { ...session.info };
-
     events.length = 0;
 
     await answer(session, f.cwd);

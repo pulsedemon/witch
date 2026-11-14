@@ -436,7 +436,6 @@ test('a failed Codex reload leaves the prompt unsent and retries the policy befo
     await assert.rejects(f.session.selectModel('model-b'), /resume refused/);
 
     f.calls.length = 0;
-
     const failed = await f.session.send('keep this prompt');
 
     assert.equal(failed.status, 'failed');
@@ -451,7 +450,6 @@ test('a failed Codex reload leaves the prompt unsent and retries the policy befo
     await rm(join(f.cwd, 'resume-fail'));
 
     f.calls.length = 0;
-
     const pending = f.session.send('keep this prompt');
 
     await until('retried prompt approval', () =>
@@ -722,7 +720,6 @@ test('a fresh Codex model change starts a replacement thread and sends the first
 
   try {
     const originalId = f.session.info.id;
-
     calls.length = 0;
 
     await f.session.selectModel('model-b', 'high');

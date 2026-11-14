@@ -78,7 +78,6 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
 
       try {
         f.a.interruptNext = status === 'interrupted';
-
         f.a.failNext = status === 'failed';
 
         await coordinator.send('Source task');
@@ -676,7 +675,6 @@ for (const stage of [
     const activated = ['activated', 'continuing', 'completed'].includes(stage);
     const files = await store.claim(id);
     const conversation = files.record;
-
     conversation.agent = activated ? 'b' : 'a';
 
     conversation.sessions.a = {
@@ -777,7 +775,6 @@ test('undelivered handoff context survives visiting another conversation and cle
 
   const files = await store.claim(id);
   const conversation = files.record;
-
   conversation.agent = 'b';
 
   conversation.handoff = {
@@ -1079,7 +1076,6 @@ test('a handoff cancelled during the summary keeps the source', async () => {
   const context = await handoffFixture();
   const { coordinator, a } = context;
   const gate = new TurnGate();
-
   a.gate = gate;
 
   try {
@@ -1103,9 +1099,7 @@ test('a handoff cancelled while the summary is saved never connects the destinat
   const context = await handoffFixture();
   const { coordinator, a, b } = context;
   const gate = new TurnGate();
-
   a.gate = gate;
-
   const save = ConversationStore.prototype.save;
   const held = Promise.withResolvers<void>();
   const holding = Promise.withResolvers<void>();
@@ -1246,7 +1240,6 @@ test('a handoff cancelled during the continuation stays with the destination', a
   const context = await handoffFixture();
   const { coordinator, a, b } = context;
   const gate = new TurnGate();
-
   b.gate = gate;
 
   try {
@@ -1285,7 +1278,6 @@ test('a handoff cancelled during the continuation stays with the destination', a
 test('a prompt sent during a handoff waits and goes to the destination', async () => {
   const { coordinator, a, b } = await handoffFixture();
   const gate = new TurnGate();
-
   a.gate = gate;
 
   try {
@@ -1328,12 +1320,10 @@ test('a prompt sent during a handoff waits and goes to the destination', async (
 test('a /model switch whose summary fails activates with transcript context and delivers a prompt sent during it', async () => {
   const { coordinator, a, b } = await handoffFixture();
   const gate = new TurnGate();
-
   a.gate = gate;
 
   try {
     a.failNext = true;
-
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
 
     await within(gate.entered, 2000, 'the summary turn');

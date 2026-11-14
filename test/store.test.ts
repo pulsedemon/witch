@@ -261,11 +261,8 @@ BEGIN {
   };
 
   process.env.PERL5LIB = root;
-
   process.env.PERL5OPT = '-MPauseLock';
-
   process.env.WITCH_LOCK_PROBE = root;
-
   const observing = store.openConversations(['current']);
 
   try {
@@ -728,7 +725,6 @@ test('a failed main stop retains the recovery lock until the usage helper stop s
     );
 
     recovering = assert.rejects(store.claim('usage-stop'), /Main stop failed/);
-
     const isSettled = settled(recovering);
 
     await signalled;
@@ -792,9 +788,7 @@ test('a claim stops the recorded process after a time zone and locale change', a
 
   try {
     process.env.TZ = 'Asia/Tokyo';
-
     process.env.LC_ALL = 'de_DE.UTF-8';
-
     const files = await store.create(conversation('moved'));
 
     await files.save({
@@ -937,7 +931,6 @@ test('a save writes the record as it was when called', async () => {
   const files = await store.create(conversation('snapshot'));
   const record = { ...files.record, title: 'saved' };
   const saving = files.save(record);
-
   record.title = 'changed';
 
   await saving;

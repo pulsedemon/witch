@@ -63,9 +63,7 @@ function holdSteer(session: AgentSession) {
 /** a turn held open, with what is sent meanwhile queued behind it. */
 async function queueBehind(f: Context, gate: TurnGate, prompts: string[]) {
   f.a.gate = gate;
-
   f.a.refuseSteer = true;
-
   const sending = f.coordinator.send('Start');
 
   sending.catch(() => {});
@@ -125,7 +123,6 @@ test('a prompt waiting on a steer is saved until the steer is accepted', async (
 
   try {
     f.a.gate = gate;
-
     const sending = f.coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -213,9 +210,7 @@ test('a batch is saved until its row is, through pre-turn compaction, and comes 
 
   try {
     const { sending } = await queueBehind(f, start, ['A']);
-
     f.a.sessions.at(-1)!.session.contextUsage = async () => 80;
-
     f.a.gate = compaction;
 
     start.open();
@@ -292,7 +287,6 @@ for (const unread of [['follow'], undefined])
       };
 
       f.a.gate = gate;
-
       const sending = f.coordinator.send('Start');
 
       await within(gate.entered, 2000, 'the gated turn');
@@ -374,11 +368,8 @@ for (const outcome of ['accepted', 'refused'] as const)
 
     try {
       const { sending } = await queueBehind(f, first, ['/review now', 'B']);
-
       f.a.refuseSteer = false;
-
       f.a.gate = second;
-
       const steer = holdSteer(f.a.sessions.at(-1)!.session);
 
       first.open();

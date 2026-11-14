@@ -152,7 +152,6 @@ export class TurnRunner {
     refused: (error: string) => void,
   ): Promise<TurnResult | undefined> {
     let result: TurnResult | undefined;
-
     this.repairing = true;
 
     try {
@@ -177,7 +176,6 @@ export class TurnRunner {
     await this.host
       .operate(async () => {
         const requests = await this.coordination!.beginAnswer();
-
         ran = requests.length > 0;
 
         if (ran) await this.run(answerInstruction, 'answer', { requests });
@@ -536,9 +534,7 @@ export class TurnRunner {
       if (result.status === 'completed' && !answer) {
         if (generation === this.link.generation) {
           const reference = conversation.sessions[activity.agent]!;
-
           reference.deliveredRevision = activity.baseRevision;
-
           reference.deliveredInstructionsRevision = input.instructionsRevision;
 
           recordDelivery(reference, input);

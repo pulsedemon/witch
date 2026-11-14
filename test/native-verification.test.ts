@@ -57,9 +57,7 @@ for (const [mode, expected] of [
 
     try {
       const prepared = await prepareNativeUpdate(await f.inspect(), options);
-
       preparing = false;
-
       const candidate = f.artifacts.get('2.0.0')!;
       const verified = verifyNativeUpdate(prepared, candidate, options);
       const refused = assert.rejects(verified, expected);
@@ -155,7 +153,6 @@ test('controlled Claude launches keep hooks and user MCP out while preserving is
 test('a failed control turn reports its native diagnostic without waiting for a nonexistent tool', async () => {
   const f = await runtimeUpdateFixture();
   const adapter = new FixtureAgent('codex');
-
   adapter.failNext = true;
 
   try {

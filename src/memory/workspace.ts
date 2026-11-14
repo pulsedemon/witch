@@ -92,7 +92,6 @@ export function repointText(
   const nextOf = (character: keyof typeof next, from: number) => {
     if (next[character] < from) {
       const found = text.indexOf(character, from);
-
       next[character] = found < 0 ? Infinity : found;
     }
 
@@ -111,7 +110,6 @@ export function repointText(
 
       if (character === '\n') {
         ticks = false;
-
         opened = closed = -1;
       } else if (character === '`') ticks = !ticks;
       else if (character === '<') opened = scanned;
@@ -122,7 +120,6 @@ export function repointText(
 
     if (lineEnd < start) {
       const newline = text.indexOf('\n', start);
-
       lineEnd = newline < 0 ? text.length : newline;
     }
 
@@ -188,7 +185,6 @@ export function repointText(
       replacement = `<${replacement}>`;
 
     result += text.slice(cursor, start) + replacement;
-
     cursor = end;
   }
 
@@ -460,7 +456,6 @@ export class Workspace {
 
         for (let again = 0; again < 5; again++) {
           const more = await this.tryRepoint(ledger);
-
           notice ??= more.notice;
 
           if (!more.repointed) break;
@@ -664,9 +659,7 @@ export class Workspace {
                 if (!directories.has(next)) break;
 
                 directory = next;
-
                 start = slash + 1;
-
                 split = target.slice(start).search(/[?#]/);
 
                 if (split >= 0) split += start;

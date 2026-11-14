@@ -61,7 +61,6 @@ export async function recoverConversations(
 
     try {
       files = await store.claim(record.id);
-
       const workspace = memory.workspace(files.directory, record.id);
       let pending = false;
 

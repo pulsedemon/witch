@@ -177,7 +177,6 @@ export async function coordinationFixture(
 
     const a = new FixtureAgent('a');
     const b = new FixtureAgent('b');
-
     a.skills = [{ name: 'review', description: 'Review changes' }];
 
     const coordinator = new Coordinator(

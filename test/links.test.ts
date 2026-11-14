@@ -757,15 +757,12 @@ test('streaming links retain their targets and unresolved controls across chunks
 
       for (const chunk of chunks) {
         text += chunk;
-
         const next = linkifyAppend(pending + chunk, '/work', carried);
 
         complete.push(...next.complete);
 
         pending = next.pending;
-
         carried = next.target;
-
         actual = [...complete, next.tail].join('\n');
 
         assert.equal(

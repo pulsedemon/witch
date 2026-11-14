@@ -366,7 +366,6 @@ export class SessionLink {
       });
 
       this.connected = session;
-
       this.sessionProject = scope.project;
 
       recordSession(conversation, agent, session.info);
@@ -414,11 +413,8 @@ export class SessionLink {
 
     const conversationId = this.host.record()?.id;
     const session = this.connected;
-
     this.connection = undefined;
-
     this.connected = undefined;
-
     const owned = this.reviewers.owns;
 
     for (const event of stoppedActivity(this.host.snapshot(), owned))

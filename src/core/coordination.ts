@@ -379,9 +379,7 @@ export class SessionCoordination {
     };
 
     this.active = active;
-
     this.view = undefined;
-
     this.ledger = undefined;
 
     this.publish(emptySnapshot);
@@ -456,7 +454,6 @@ export class SessionCoordination {
     if (!active) return;
 
     const quiescing = Promise.all([this.endTurn(), this.quiesce()]);
-
     active.publishing = false;
 
     this.presence.cancel();
@@ -856,7 +853,6 @@ export class SessionCoordination {
 
   async close(options: { restart?: boolean } = {}): Promise<void> {
     this.ending = true;
-
     this.closed = true;
 
     clearInterval(this.timer);
@@ -1185,7 +1181,6 @@ export class SessionCoordination {
     });
 
     const pending = { promise: settled.catch(() => {}), cancel };
-
     this.projecting = pending;
 
     return settled;
@@ -1207,7 +1202,6 @@ export class SessionCoordination {
       if (this.active !== active || !active.publishing || this.closed) return;
 
       const changed = active.project !== project;
-
       active.project = project;
 
       if (this.turn && this.turn.owner.project !== project) this.revokeTurn();
@@ -1257,7 +1251,6 @@ export class SessionCoordination {
     if (stamp === active.configured && !this.failures.has('project')) return;
 
     active.configured = stamp;
-
     active.rescoping = true;
 
     void this.refreshProject(active)
@@ -1293,9 +1286,7 @@ export class SessionCoordination {
       return;
 
     active.observed = signature;
-
     active.rereadAt = now;
-
     const published = this.published;
 
     void this.refresh().then(() => {

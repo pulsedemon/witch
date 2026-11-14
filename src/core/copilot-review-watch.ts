@@ -49,11 +49,8 @@ export class CopilotReviewWatch {
     if (this.timer) clearTimeout(this.timer);
 
     this.timer = undefined;
-
     this.active = false;
-
     this.failure = undefined;
-
     this.requested = !!pr;
 
     if (pr) this.refresh();
@@ -90,9 +87,7 @@ export class CopilotReviewWatch {
 
     const generation = this.generation;
     const abort = new AbortController();
-
     this.running = abort;
-
     this.requested = false;
 
     const current = () =>
@@ -111,7 +106,6 @@ export class CopilotReviewWatch {
         this.notice(`Copilot review watching resumed for #${pr.number}.`);
 
       this.failure = undefined;
-
       const checks = copilotChecks(source);
 
       this.active =
@@ -130,7 +124,6 @@ export class CopilotReviewWatch {
 
       if (source.pullRequest.state !== 'OPEN') {
         this.pr = undefined;
-
         this.requested = false;
       }
     } catch (error) {
@@ -231,7 +224,6 @@ export function watchCopilotReviews(
         watch.refresh();
 
       conversation = next;
-
       reviewing = !!coordinator.snapshot.reviewing;
     }),
     ...(coordinator.coordination

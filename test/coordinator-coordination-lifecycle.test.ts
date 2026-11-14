@@ -223,9 +223,7 @@ test('an interrupted handoff summary restores registration before source resume'
     source = a.a.sessions.at(-1)!.session.info.id;
 
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const switching = a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
   const rejected = assert.rejects(switching, /interrupted/);
 
@@ -310,9 +308,7 @@ test('closing during a handoff summary does not restore registration', async (t)
 
   const bound = await a.binding();
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const switching = a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
   const rejected = assert.rejects(switching, /interrupted/);
 
@@ -663,9 +659,7 @@ test('compaction publishes a running presence and defers behind a held native tu
   await a.coordinator.send('seed');
 
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   const compact = a.coordinator.compact();
 
   try {
@@ -684,14 +678,12 @@ test('compaction publishes a running presence and defers behind a held native tu
   }
 
   a.a.gate = new TurnGate();
-
   const sending = a.coordinator.send('held turn');
 
   try {
     await within(a.a.gate.entered, 3000, 'held native turn');
 
     a.a.replied = true;
-
     const compacting = a.coordinator.compact();
 
     assert.equal(a.coordinator.snapshot.pendingCompaction, true);
@@ -778,7 +770,6 @@ test("an idle origin change still compacts from the old session's usage before r
   await a.coordinator.send('Seed');
 
   const seeded = a.a.sessions.at(-1)!.session;
-
   seeded.contextUsage = async () => 80;
 
   await git(

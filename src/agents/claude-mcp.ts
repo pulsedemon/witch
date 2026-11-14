@@ -20,7 +20,6 @@ export class ClaudeMcp {
     clearTimeout(this.mcpTimer);
 
     this.mcpTimer = undefined;
-
     this.mcpRequested = true;
 
     if (!this.mcpReading) void this.readMcpStatus();
@@ -80,7 +79,6 @@ export class ClaudeMcp {
     clearTimeout(this.mcpTimer);
 
     this.mcpTimer = undefined;
-
     this.mcpRequested = false;
   }
 }

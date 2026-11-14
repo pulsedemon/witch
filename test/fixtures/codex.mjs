@@ -702,7 +702,6 @@ for await (const line of lines) {
       mainThreadId = `native-thread-${threadStarts}`;
 
     answering = request.params.ephemeral === true;
-
     effort = request.params.config?.model_reasoning_effort ?? effort;
 
     record(answering ? 'answer-connect.json' : 'connect.json', request);
@@ -727,7 +726,6 @@ for await (const line of lines) {
     if (request.params.model === 'exit') process.exit(1);
 
     const previous = `${model}/${effort}`;
-
     model = request.params.model;
 
     // the server can't clear effort, so an omitted one stays in force

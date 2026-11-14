@@ -107,7 +107,6 @@ test('known orphan ownership survives repeated checkpoints', async (t) => {
   assert.deepEqual(await groups(original), [100010]);
 
   rows = [{ ...worker, ppid: 1 }, unrelated];
-
   const saved = await checkpoint(original);
   const restored = watcher(cleanup, () => rows, saved);
 
@@ -136,7 +135,6 @@ test('restored jobs stop only their current generation', async (t) => {
   await original.list();
 
   rows = [{ ...worker, ppid: 1 }, unrelated];
-
   const saved = await checkpoint(original);
   const restored = watcher(cleanup, () => rows, saved);
   const [job] = await restored.list();
@@ -164,14 +162,12 @@ test('restored jobs stop only their current generation', async (t) => {
   assert.deepEqual(await watcher(cleanup, () => rows, saved).list(), []);
 
   rows = [{ ...worker, ppid: 1 }, unrelated];
-
   const selected = watcher(cleanup, () => rows, saved);
   const [oldSelection] = await selected.list();
 
   assert.ok(oldSelection);
 
   rows = [{ ...worker, ppid: 1, identity: '100011 replacement' }, unrelated];
-
   signals.length = 0;
 
   await selected.stop(oldSelection);
@@ -264,7 +260,6 @@ test('restoration does not adopt pre-existing marked or foreign workers', async 
   await original.list();
 
   rows = [{ ...worker, ppid: 1 }];
-
   const saved = await checkpoint(original);
 
   const own = {

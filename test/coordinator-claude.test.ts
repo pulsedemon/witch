@@ -139,7 +139,6 @@ for (const [entry, route, failures] of [
 
         const child = children[index]!;
         const write = child.stdin.write.bind(child.stdin);
-
         writes[index] = [];
 
         child.stdin.write = (...args) => {
@@ -311,7 +310,6 @@ for (const dispatch of [true, false])
 
       adapter.connect = async (options) => {
         session = await connect(options);
-
         const send = session.send.bind(session);
 
         session.send = async (prompt, options) => {
@@ -638,16 +636,13 @@ test('a Claude model choice made as a familiar-held turn settles applies once', 
 
   const connect = adapter.connect.bind(adapter);
   let session: AgentSession | undefined;
-
   adapter.connect = async (options) => (session = await connect(options));
-
   let settlement: ReturnType<typeof holdSettlement> | undefined;
 
   try {
     await coordinator.initialize(cwd);
 
     settlement = holdSettlement(session!);
-
     const turn = coordinator.send('reporting familiar');
 
     await until('replied turn', () => session?.replied === true);

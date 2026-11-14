@@ -31,9 +31,7 @@ process.on('message', (message: { kind: string; issue?: number }) => {
 
     if (message.kind === 'begin') {
       const state = await store.beginSelection(scope, deadline, verify);
-
       ticket = state.ticket.id;
-
       value = state;
     } else if (message.kind === 'status') {
       value = await store.selection(scope, ticket, deadline, verify);

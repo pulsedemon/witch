@@ -18,7 +18,6 @@ test('the launch sweep says when it cannot look at a directory and still reports
 
   const unfinished = async (cwd: string) => {
     const dirty = await stranded(context, {}, cwd);
-
     dirty.files.record.activity = activity();
 
     await dirty.files.save(dirty.files.record);

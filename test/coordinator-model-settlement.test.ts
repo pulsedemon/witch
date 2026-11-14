@@ -26,7 +26,6 @@ test('a same-runtime model choice made while a finished turn settles waits and a
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -117,9 +116,7 @@ for (const outcome of [
 
     try {
       const id = coordinator.snapshot.conversation!.id;
-
       a.gate = gate;
-
       const sending = coordinator.send('Start');
 
       await within(gate.entered, 2000, 'the gated turn');
@@ -201,7 +198,6 @@ test('a model picker opened while a finished turn settles waits and refreshes on
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -263,7 +259,6 @@ for (const outcome of ['interrupt', 'close', 'failure'] as const)
 
     try {
       a.gate = gate;
-
       const sending = coordinator.send('Start');
 
       await within(gate.entered, 2000, 'the gated turn');
@@ -317,7 +312,6 @@ test('a close that starts while a finished turn settles keeps the closing phase'
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');

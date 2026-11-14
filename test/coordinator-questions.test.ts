@@ -567,7 +567,6 @@ for (const { failure, failConnect, id, error } of [
       original.options.onEvent({ type: 'closed' });
 
       b.failConnect = failConnect;
-
       b.invalidModel = 'b-typo';
 
       await assert.rejects(coordinator.selectModel({ agent: 'b', id }), error);
@@ -634,7 +633,6 @@ test('an async question survives turn completion and its answer starts one norma
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the question turn');
@@ -701,9 +699,7 @@ for (const refuseSteer of [false, true])
 
     try {
       a.gate = gate;
-
       a.refuseSteer = refuseSteer;
-
       const sending = coordinator.send('Start');
 
       await within(gate.entered, 2000, 'the active turn');
@@ -759,7 +755,6 @@ test('declining an async question leaves other questions open and cancelling int
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the active turn');
@@ -835,7 +830,6 @@ test('async questions arriving during cancellation are ignored until the next tu
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the active turn');
@@ -860,7 +854,6 @@ test('async questions arriving during cancellation are ignored until the next tu
     assert.deepEqual(coordinator.snapshot.requests, []);
 
     a.gate = gate = new TurnGate();
-
     const next = coordinator.send('Next');
 
     await within(gate.entered, 2000, 'the next turn');

@@ -203,11 +203,8 @@ export class JobWatch {
     } = {},
   ) {
     const { directory, resume } = options;
-
     this.members = new Map(resume?.members);
-
     this.excluded = new Set(resume?.excluded);
-
     this.environment = directory ? { [mark]: directory } : {};
 
     if (directory) {
@@ -556,11 +553,8 @@ export class JobWatch {
     );
 
     const tracked = rows.filter(({ pgid }) => groups.has(pgid));
-
     this.members = new Map(owned.map(({ identity, pgid }) => [identity, pgid]));
-
     this.seen = new Set(rows.map(({ identity }) => identity));
-
     this.excluded = excluded;
 
     for (const group of handed)

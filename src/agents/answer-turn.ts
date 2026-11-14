@@ -54,7 +54,6 @@ export class AnswerTurn {
     };
 
     this.active = active;
-
     let result: TurnResult = { status: 'interrupted', text: '' };
     const hidden = new Set<string>();
 
@@ -109,7 +108,6 @@ export class AnswerTurn {
     if (!active) return;
 
     active.cancelled = true;
-
     active.stop = options;
 
     try {

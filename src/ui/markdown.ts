@@ -56,9 +56,7 @@ function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
     link(`[${plain(decodeHTMLStrict(text) || 'Image')}]`, href);
 
   renderer.br = () => '\n';
-
   renderer.hr = () => '────────\n';
-
   renderer.html = ({ text }) => linkify(text, cwd);
 
   renderer.blockquote = ({ tokens }) =>

@@ -11,9 +11,7 @@ type Client = Awaited<
 
 export async function selectionTurn(register: RegisterCleanup, client: Client) {
   const gate = new TurnGate();
-
   client.a.gate = gate;
-
   const sending = client.coordinator.send('Choose the next task');
 
   register(async () => {

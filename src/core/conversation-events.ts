@@ -206,9 +206,7 @@ export class ConversationEvents {
 
         if (events.status === 'fulfilled') {
           const merges = { ...scope, events: events.value };
-
           changed = JSON.stringify(merges) !== JSON.stringify(this.merges);
-
           this.merges = merges;
 
           read.push('merge-events');
@@ -216,9 +214,7 @@ export class ConversationEvents {
 
         if (requests.status === 'fulfilled') {
           const asks = { ...scope, requests: requests.value };
-
           changed ||= JSON.stringify(asks) !== JSON.stringify(this.asks);
-
           this.asks = asks;
 
           read.push('peer-requests');
@@ -226,9 +222,7 @@ export class ConversationEvents {
 
         if (pauses.status === 'fulfilled') {
           const halts = { ...scope, pauses: pauses.value };
-
           changed ||= JSON.stringify(halts) !== JSON.stringify(this.halts);
-
           this.halts = halts;
 
           read.push('pauses');

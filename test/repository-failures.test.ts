@@ -78,7 +78,6 @@ test('a gh that says no, runs out of time or is not installed leaves no failure 
       rejection('spawn gh ENOENT', 'ENOENT'),
     ]) {
       failure = next;
-
       const before = reads();
 
       await watch.readPullRequest();
@@ -187,7 +186,6 @@ test('a checks or base tip read that fails unexpectedly keeps its fallback and s
     assert.deepEqual(await read(), { ...fallback, failure: undefined });
 
     checks = () => '{"data":{}}';
-
     const { failure, ...rest } = await read();
 
     assert.match(failure ?? '', /^data\.repository: /);
@@ -207,7 +205,6 @@ test('a checks or base tip read that fails unexpectedly keeps its fallback and s
     assert.match((await read()).failure ?? '', / in JSON .*; spawn gh EMFILE$/);
 
     checks = refused;
-
     tip = () => 'f00\n';
 
     assert.deepEqual(await read(), {

@@ -160,9 +160,7 @@ test('the narrow confirmation retains both its version and paid-check disclosure
 test('busy work refuses installation without interrupting the active turn', async () => {
   const f = await unitFixture();
   const gate = new TurnGate();
-
   f.a.gate = gate;
-
   const running = f.coordinator.send('current work');
 
   await gate.entered;
@@ -507,7 +505,6 @@ test('a current unverified installation is offered qualification even when updat
   );
 
   update.policy.automatic = true;
-
   update.policy.blocked = 'Native Codex automatic updates are enabled.';
 
   const ui = show(

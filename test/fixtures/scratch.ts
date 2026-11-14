@@ -16,7 +16,6 @@ export function cleanScratch(): void {
   if (made) rmSync(made, { recursive: true, force: true });
 
   made = undefined;
-
   parent = undefined;
 }
 

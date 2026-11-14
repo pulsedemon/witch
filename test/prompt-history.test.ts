@@ -27,7 +27,6 @@ vi.mock('../src/persistence/directories.js', async (importOriginal) => {
       });
 
       counts.reads = 0;
-
       counts.filtered = 0;
 
       return {
@@ -119,7 +118,6 @@ test('prompt history from every stop of a long move chain maps each stop once', 
 
   for (const [index, path] of paths.entries()) {
     content += `${JSON.stringify({ cwd: path, text: String(index) })}\n`;
-
     const to = paths[index + 1];
 
     if (to)

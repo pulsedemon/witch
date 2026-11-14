@@ -110,9 +110,7 @@ test('preserves Unicode separators across fragmented UTF-8 messages', async () =
   const child = server();
   const rpc = new JsonRpc(child);
   const messages: RpcMessage[] = [];
-
   rpc.onMessage = (message) => messages.push(message);
-
   const text = String.fromCodePoint(0x2028, 0x2029, 0x1f600);
 
   const frames = Buffer.from(

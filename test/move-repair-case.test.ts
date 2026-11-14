@@ -91,7 +91,6 @@ for (const [shape, from, to, main, worktree] of [
           t.skip('requires case-insensitive paths');
 
         f.runs.length = 0;
-
         const report = await f.repair(start === 'main' ? main : worktree);
 
         assert.deepEqual(report.blocked, [], JSON.stringify(report));

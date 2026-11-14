@@ -137,7 +137,6 @@ export function useCommandViews({
 
   const dismissPicker = (success = true) => {
     const waiting = pickerWait.current;
-
     pickerWait.current = undefined;
 
     waiting?.resolve(success);
@@ -151,7 +150,6 @@ export function useCommandViews({
     pickerWait.current?.resolve(true);
 
     const waiting = Promise.withResolvers<boolean>();
-
     pickerWait.current = waiting;
 
     pickerInput.current?.set({ value: '', cursor: 0 });

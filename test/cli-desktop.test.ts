@@ -150,7 +150,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
 
   child.stdout!.on('data', (chunk) => {
     output += chunk.toString();
-
     const text = transmission + chunk.toString();
     const open = text.lastIndexOf('\u001b_G');
 

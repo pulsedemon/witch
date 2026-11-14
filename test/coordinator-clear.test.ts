@@ -197,7 +197,6 @@ test('clear survives reopening and discards both runtime histories and unfinishe
     await c.close();
 
     const stored = await readRecord(f.root, id);
-
     stored.lastTurn = { id: 'failed-before-clear', status: 'failed' };
 
     stored.handoff = {
@@ -339,9 +338,7 @@ for (const replied of [false, true]) {
 
     try {
       f.a.gate = gate;
-
       f.a.replied = replied;
-
       sending = f.coordinator.send('held');
 
       await within(gate.entered, 3000, 'the held turn');
@@ -405,11 +402,8 @@ test('clear refuses already queued input after a failed turn', async () => {
 
   try {
     f.a.gate = gate;
-
     f.a.failNext = true;
-
     f.a.refuseSteer = true;
-
     sending = f.coordinator.send('fail');
 
     await within(gate.entered, 3000, 'the failing turn');
@@ -447,9 +441,7 @@ test('input sent during a clear reconnect runs once in the new session', async (
 
   try {
     const previous = f.coordinator.snapshot.native!.id;
-
     f.a.beforeConnect = holdConnect(entered, release);
-
     clearing = f.coordinator.clear();
 
     await within(entered.promise, 3000, 'the clear reconnect');
@@ -497,7 +489,6 @@ for (const stage of ['close', 'connect'] as const) {
       ];
 
       f.a.failClose = stage === 'close';
-
       f.a.failConnect = stage === 'connect';
 
       await assert.rejects(
@@ -515,7 +506,6 @@ for (const stage of ['close', 'connect'] as const) {
       );
 
       f.a.failClose = false;
-
       f.a.failConnect = false;
 
       await c.send('retry');
@@ -531,7 +521,6 @@ for (const stage of ['close', 'connect'] as const) {
       );
     } finally {
       f.a.failClose = false;
-
       f.a.failConnect = false;
 
       await c.close();

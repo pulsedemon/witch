@@ -312,11 +312,8 @@ test('holds scratch until released', async () => {
 
   try {
     dying = killed.run();
-
     const dead = await owner(killed, dying);
-
     surviving = live.run();
-
     const survivor = await owner(live, surviving);
 
     process.kill(dead.pid, 'SIGKILL');

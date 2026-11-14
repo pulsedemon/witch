@@ -288,7 +288,6 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
       [3, 'queued #3'],
     ] as const) {
       selection.position = position;
-
       const text = await run(`${prefix} --peers`);
 
       assert.equal(text.code, 0);

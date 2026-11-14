@@ -541,7 +541,6 @@ test('a descendant retaining stdout cannot hold the wrapper open after the revie
     assert.equal(await within(f.closed, 3000, 'bounded pipe drain'), 0);
 
     const pid = Number(await readFile(join(f.root, 'descendant.pid'), 'utf8'));
-
     descendant = await identifyProcess(pid);
 
     assert.ok(

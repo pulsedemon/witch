@@ -305,9 +305,7 @@ test('replacing a parent after open cannot redirect the request being read', asy
   const bound = await binding();
   const target = await scratch('witch-control-open-target-');
   const request = envelope(bound);
-
   request.action = { kind: 'release', claim: randomUUID() };
-
   const name = `${request.id}.json`;
   const inbox = join(bound.directory, 'inbox');
   const outside = { ...request, action: { kind: 'peers' } };

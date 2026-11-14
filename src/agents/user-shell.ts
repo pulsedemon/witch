@@ -54,11 +54,8 @@ export function runShell(
       if (cut) return;
 
       const room = keptLength - output.length;
-
       cut = text.length > room;
-
       const kept = cut ? text.slice(0, room) + cutNote : text;
-
       output += kept;
 
       options.onOutput(kept);

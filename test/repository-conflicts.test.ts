@@ -214,7 +214,6 @@ test('another local branch leaves a conflict out of the snapshot, and a read for
     assert.ok(watch.snapshot?.conflict);
 
     project = 'b';
-
     answer = { mergeable: 'MERGEABLE' };
 
     watch.refreshPullRequest();
@@ -226,9 +225,7 @@ test('another local branch leaves a conflict out of the snapshot, and a read for
     assert.ok(watch.snapshot?.conflict);
 
     project = 'a';
-
     answer = new Error('no pull requests found');
-
     branch = 'feat/y';
 
     vi.advanceTimersByTime(5000);
@@ -471,7 +468,6 @@ test('head and upstream status changes refresh the pull request, while file edit
   assert.equal(reads, 1);
 
   commit = 'd4e5f6';
-
   ahead = 1;
 
   await step();
@@ -556,7 +552,6 @@ test('an awaited refresh retains a confirmed conflict on failure or UNKNOWN with
 
   const conflict = watch.snapshot!.conflict;
   const current = () => watch.snapshot?.pullRequest;
-
   answer = new Error('network unavailable');
 
   await watch.readPullRequest();
@@ -755,7 +750,6 @@ for (const change of ['head', 'upstream status'] as const) {
     else ahead = 0;
 
     mergeable = 'MERGEABLE';
-
     fail = false;
 
     vi.advanceTimersByTime(5000);

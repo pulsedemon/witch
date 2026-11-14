@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint';
 
 const singleLineVariable = {
   selector:
-    ':matches(VariableDeclaration, ExportNamedDeclaration[declaration.type="VariableDeclaration"])',
+    ':matches(VariableDeclaration, ExportNamedDeclaration[declaration.type="VariableDeclaration"], ExpressionStatement[expression.type="AssignmentExpression"])',
   lineMode: 'singleline',
 };
 

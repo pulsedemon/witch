@@ -59,7 +59,6 @@ test('notification intervals follow the last actual write across schedule instan
     assert.equal((await stat(join(directory, name))).mode & 0o777, 0o600);
 
   const second = await NotificationSchedule.open(directory);
-
   now += 1_199_000_000n;
 
   assert.equal(await second.attempt(() => 'second', write), 1);

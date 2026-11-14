@@ -223,9 +223,7 @@ test('latest models are read once per process, again on a refresh or after a fai
   assert.equal(reads.length, 3);
 
   let release!: () => void;
-
   gate.hold = new Promise((resolve) => (release = resolve));
-
   const reading = catalog.read(cwd, undefined, true);
 
   await setImmediate();

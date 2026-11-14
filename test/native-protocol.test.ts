@@ -621,7 +621,6 @@ test('a recorded Claude result stays pending until its recorded native idle arri
 
   const adapter = new ClaudeAdapter(() => {
     const child = replay.launch();
-
     capture = observeWire(child);
 
     return child;

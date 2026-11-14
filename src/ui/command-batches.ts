@@ -49,7 +49,6 @@ export class CommandBatches {
 
   cancel(notice = true): void {
     const batches = this.batches;
-
     this.batches = [];
 
     const commands = batches.flatMap((batch) =>

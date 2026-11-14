@@ -70,7 +70,6 @@ test('busy and dirty observers publish once to open project peers without starti
   const b = await f.start('B');
   const unrelated = await f.start('C');
   const gate = new TurnGate();
-
   a.a.gate = gate;
 
   t.onTestFinished(() => gate.open());
@@ -193,7 +192,6 @@ test('a merge arriving during a turn remains pending after that turn completes',
   await until('first merge', () => notices(b.coordinator).length === 1);
 
   const gate = new TurnGate();
-
   b.a.gate = gate;
 
   t.onTestFinished(() => gate.open());
@@ -425,7 +423,6 @@ test('idle origin changes use the current project for recipients and notices', a
 test('merge notices leave memory recovery and queued user input intact', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
   const a = await f.start('A');
-
   a.a.interruptNext = true;
 
   await a.coordinator.send('remember-port');

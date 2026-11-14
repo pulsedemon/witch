@@ -642,7 +642,6 @@ test('a steering image prepared across exhaustion stays queued for the destinati
 
   try {
     claude.gate = gate;
-
     const active = coordinator.send('Continue working');
 
     await gate.entered;
@@ -713,7 +712,6 @@ test('background rejection during transcript flush keeps dirty memory for recove
   vi.spyOn(claude.sessions.at(-1)!.session, 'send').mockImplementation(
     async (...args) => {
       const result = await send(...args);
-
       armed = true;
 
       return result;

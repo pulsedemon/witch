@@ -301,7 +301,6 @@ test('rechecking a mapping looks only at the known directories holding its path'
   };
 
   const mapping = await mapper(ledger);
-
   reads.n = 0;
 
   for (let index = 0; index < 200; index++)

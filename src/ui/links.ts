@@ -278,7 +278,6 @@ function linked(text: string, cwd: string, target?: string) {
 
       const separator = token.code.indexOf(';', 4);
       const terminator = token.code.endsWith('\u001b\\') ? 2 : 1;
-
       target = token.code.slice(separator + 1, -terminator) || undefined;
     } else if (token.type === 'char' && !controls.test(token.value))
       buffer += token.value;
@@ -351,7 +350,6 @@ export function linkifyAppend(
 
   if (end) {
     const prefix = linked(text.slice(0, end), cwd, target);
-
     complete = prefix.text.split('\n');
 
     complete.pop();

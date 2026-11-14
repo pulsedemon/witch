@@ -132,7 +132,6 @@ test('a pause stops and holds the sessions live when issued, and no session open
     ['b', b],
   ] as const) {
     client.a.gate = new TurnGate();
-
     client.a.refuseSteer = true;
 
     sends.push(client.coordinator.send(`${name} working`));
@@ -458,11 +457,8 @@ test('a recipient confirms only after its stopped turn settles, and retries a fa
   cleanup(() => settlement.restore());
 
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   a.a.failInterrupt = true;
-
   const working = a.coordinator.send('working');
 
   await gate.entered;
@@ -543,11 +539,8 @@ test('a resume cancels a scheduled stop retry, which never interrupts the next t
   const i = await f.start('I');
   const a = await f.start('A');
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   a.a.failInterrupt = true;
-
   const working = a.coordinator.send('working');
 
   await gate.entered;
@@ -807,9 +800,7 @@ test('an issuer resume while a stopped, undelivered turn settles still runs the 
   cleanup(() => settlement.restore());
 
   a.a.gate = new TurnGate();
-
   a.a.refuseSteer = true;
-
   const working = a.coordinator.send('working');
 
   await a.a.gate.entered;
@@ -887,7 +878,6 @@ test('a pause arriving during an operation started while held stops it before co
   await confirmed(f, a, await pause(i));
 
   a.a.gate = new TurnGate();
-
   let compacted = false;
 
   const compacting = a.coordinator.compact().finally(() => {
@@ -1069,7 +1059,6 @@ test('a prompt sent before a failed pause read resumes the pauses issued before 
   assert.deepEqual(prompts(restarted), ['after restart']);
 
   failing = false;
-
   const later = await pause(i);
 
   await refreshed(restarted);
@@ -1126,7 +1115,6 @@ test('a pause arriving during an in-flight stop gets its own stop before confirm
 
   // an operation the user starts while the first stop is still in flight
   a.a.gate = new TurnGate();
-
   let compacted = false;
 
   const compacting = a.coordinator.compact().finally(() => {

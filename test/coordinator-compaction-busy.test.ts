@@ -20,7 +20,6 @@ test('a direct busy compact coalesces callers and holds later input until the or
 
   try {
     f.a.gate = gate;
-
     const native = f.a.sessions[0]!.session;
     const order: string[] = [];
 
@@ -93,7 +92,6 @@ for (const success of [true, false]) {
       await c.send('remember-port');
 
       f.a.gate = gate;
-
       const parent = c.send('parent result');
 
       await gate.entered;
@@ -104,7 +102,6 @@ for (const success of [true, false]) {
         completed = Promise.withResolvers<TurnResult>();
 
       native.session.compactDuringTurn = () => completed.promise;
-
       const release = c.holdPromptDelivery();
       const compact = c.compact();
 
@@ -190,7 +187,6 @@ test('busy foreground compact waits for parent settlement before admitting model
 
   try {
     f.a.gate = gate;
-
     const parent = c.send('foreground');
 
     await gate.entered;
@@ -199,7 +195,6 @@ test('busy foreground compact waits for parent settlement before admitting model
       completed = Promise.withResolvers<TurnResult>();
 
     native.session.compactDuringTurn = () => completed.promise;
-
     const compact = c.compact();
     const isSettled = settled(compact);
 
@@ -239,7 +234,6 @@ test('a model choice after a busy compaction waits for the finished turn to sett
 
   try {
     f.a.gate = gate;
-
     const parent = c.send('foreground');
 
     await gate.entered;
@@ -292,11 +286,8 @@ test('manual compact joins an automatic compact and restores the removed batch b
     await c.send('seed');
 
     const native = f.a.sessions.at(-1)!.session;
-
     native.contextUsage = async () => 80;
-
     f.a.gate = gate;
-
     const sending = c.send('dequeued original');
 
     await gate.entered;
@@ -352,7 +343,6 @@ for (const outcome of ['interrupt', 'failure', 'close'] as const) {
 
     try {
       f.a.gate = gate;
-
       const parent = c.send('ordinary');
 
       await gate.entered;
@@ -455,7 +445,6 @@ for (const closed of [false, true])
       await reading.promise;
 
       const release = c.holdPromptDelivery();
-
       armed = true;
 
       read.resolve(0);

@@ -494,7 +494,6 @@ test('a time zone change keeps a job and its generation', async () => {
 
     // as a laptop's automatic time zone does mid-session
     process.env.TZ = 'Pacific/Kiritimati';
-
     const after = (await jobs.list()).find(({ group }) => group === running);
 
     assert.deepEqual(after, { ...before, cpu: after?.cpu });
@@ -640,7 +639,6 @@ test('a failed background read keeps the jobs it had', async () => {
 
   try {
     const before = await jobs.list();
-
     rows = undefined;
 
     // the timer reads again after a failed read

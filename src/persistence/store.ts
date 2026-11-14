@@ -434,7 +434,6 @@ export class StateStore {
     options: { timeout?: number } = {},
   ): Promise<Map<string, { coordinated: boolean }>> {
     ids ??= await readdir(conversationsPath(this.root));
-
     const paths = ids.map((id) => join(this.directory(id), 'lock'));
     const locked = await lockedFiles(paths, options);
     const open = new Map<string, { coordinated: boolean }>();
@@ -679,7 +678,6 @@ export class ConversationStore {
         }
 
         end = start;
-
         length = Math.min(buffer.length, end);
 
         if (!end) await file.truncate(0);

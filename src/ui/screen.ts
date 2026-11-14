@@ -47,22 +47,15 @@ export class Screen {
 
     if (columns !== this.columns || rows !== this.rows) {
       this.columns = columns;
-
       this.rows = rows;
-
       this.cells = Array.from({ length: this.rows }, () => this.row());
-
       this.x = Math.min(this.x, this.columns - 1);
-
       this.y = Math.min(this.y, this.rows - 1);
     }
 
     data = this.pending + data;
-
     this.pending = unfinished.exec(data)?.[0] ?? '';
-
     data = data.slice(0, data.length - this.pending.length);
-
     let text = 0;
 
     for (let index = 0; index < data.length;) {
@@ -75,18 +68,15 @@ export class Screen {
       this.print(data.slice(text, index));
 
       escape.lastIndex = index;
-
       const match = escape.exec(data);
 
       // a lone escape prints nothing
       index = match ? escape.lastIndex : index + 1;
-
       text = index;
 
       if (match?.[2] && match[2] !== 'm') this.control(match[1]!, match[2]);
       else if (match?.[3]?.startsWith('8;')) {
         const target = match[3].slice(match[3].indexOf(';', 2) + 1);
-
         this.link = openable(target) ? target : undefined;
       }
     }
@@ -138,7 +128,6 @@ export class Screen {
           this.cells[this.y]!.fill(this.link, this.x, this.x + count);
 
           this.x += count;
-
           start += count;
         }
 
@@ -226,7 +215,6 @@ export class Screen {
 
       case 'F':
         this.y = row(this.y + (final === 'E' ? count : -count));
-
         this.x = 0;
 
         break;
@@ -245,7 +233,6 @@ export class Screen {
 
       case 'f':
         this.y = row(count - 1);
-
         this.x = column((second || 1) - 1);
 
         break;

@@ -95,7 +95,6 @@ export class ClaudeTask {
       if (message.type === 'system' && message.subtype === 'init') {
         const identity = init.parse(value);
         const changed = identity.model !== this.identity?.model;
-
         this.identity = identity;
 
         if (changed) this.emit(this.progress());
@@ -162,7 +161,6 @@ export class ClaudeTask {
           throw new Error('Claude returned a success result without a report.');
 
         this.receivedResult = true;
-
         this.success = finished.subtype === 'success' && !finished.is_error;
 
         const denials = finished.permission_denials.map(

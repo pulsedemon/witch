@@ -1036,9 +1036,7 @@ for (const [key, label] of [
     await f.coordinator.send('existing transcript');
 
     const gate = new TurnGate();
-
     f.a.gate = gate;
-
     let exited = false;
 
     const ui = show(

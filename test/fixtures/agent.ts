@@ -260,9 +260,7 @@ export class FixtureAgent implements AgentAdapter {
         this.compactions.push(info.id);
 
         turn = Promise.withResolvers<TurnResult>();
-
         const held = this.gate ? await this.gate.hold(turn.promise) : undefined;
-
         turn = undefined;
 
         if (held) return held;
@@ -467,18 +465,13 @@ export class FixtureAgent implements AgentAdapter {
         }
 
         turn = Promise.withResolvers<TurnResult>();
-
         steered = [];
-
         const held = this.gate ? await this.gate.hold(turn.promise) : undefined;
-
         turn = undefined;
-
         let result = held;
 
         if (!result && this.failNext) {
           this.failNext = false;
-
           result = { status: 'failed', text: '', error: 'Overloaded' };
         }
 

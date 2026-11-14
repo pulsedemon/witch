@@ -379,7 +379,6 @@ export async function reconcileReviews(
 
     if (item.version === entry.version) {
       item.status = failure ? 'blocked' : 'handled';
-
       item.reason = failure;
     }
   }

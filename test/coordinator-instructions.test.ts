@@ -297,7 +297,6 @@ for (const revision of [undefined, '0'.repeat(64)]) {
       await f.coordinator.close();
 
       const record = await readRecord(f.root, id);
-
       record.sessions.a!.deliveredInstructionsRevision = revision;
 
       await writeFile(

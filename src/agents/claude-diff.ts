@@ -165,9 +165,7 @@ function replacementText(
         spellings.set(code, hex);
 
         upper += hex.match(/[A-F]/g)?.length ?? 0;
-
         lower += hex.match(/[a-f]/g)?.length ?? 0;
-
         offset += 6;
       } else offset++;
     }
@@ -252,7 +250,6 @@ export async function proposedDiff(
         if (content.trim()) return;
 
         next = preserveBom(content, replacement);
-
         kind = 'add';
       } else {
         const matched = matchedText(content, old);

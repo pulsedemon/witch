@@ -177,7 +177,6 @@ export function watchTerminal(
 
     if (conversation?.id !== conversationId) {
       conversationId = conversation?.id;
-
       delivered = snapshot.completedTurn;
 
       clearImmediate(pending);
@@ -207,7 +206,6 @@ export function watchTerminal(
       clearInterval(timer);
 
       timer = undefined;
-
       active = wait?.key;
 
       if (wait) {
@@ -243,7 +241,6 @@ export function watchTerminal(
 
       pending = setImmediate(() => {
         pending = undefined;
-
         const current = coordinator.snapshot;
 
         if (

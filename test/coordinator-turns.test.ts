@@ -77,7 +77,6 @@ test('an unfinished tool keeps its original row through idle and later turns', a
 
   try {
     a.gate = first;
-
     const firstTurn = coordinator.send('first');
 
     await within(first.entered, 2000, 'the first turn');
@@ -101,7 +100,6 @@ test('an unfinished tool keeps its original row through idle and later turns', a
     assert.equal(rows()[0]!.done, false);
 
     a.gate = second;
-
     const secondTurn = coordinator.send('second');
 
     await within(second.entered, 2000, 'the second turn');
@@ -174,9 +172,7 @@ test('completed tool IDs and new native connections get their own rows', async (
 
   try {
     const conversation = coordinator.snapshot.conversation!.id;
-
     a.gate = gates[0]!;
-
     const first = coordinator.send('first');
 
     await within(gates[0]!.entered, 2000, 'the first turn');
@@ -192,7 +188,6 @@ test('completed tool IDs and new native connections get their own rows', async (
     await first;
 
     a.gate = gates[1]!;
-
     const second = coordinator.send('second');
 
     await within(gates[1]!.entered, 2000, 'the second turn');
@@ -222,7 +217,6 @@ test('completed tool IDs and new native connections get their own rows', async (
     await coordinator.selectConversation(conversation);
 
     a.gate = gates[2]!;
-
     const third = coordinator.send('third');
 
     await within(gates[2]!.entered, 2000, 'the reconnected turn');
@@ -283,9 +277,7 @@ async function recoverCommandContext(
 
   if (via === 'disconnect') {
     const pending = [savedCommand];
-
     session.takeUnreadContext = () => pending.splice(0);
-
     const id = coordinator.snapshot.conversation!.id;
 
     await coordinator.newConversation();
@@ -350,9 +342,7 @@ for (const identical of [false, true]) {
       await recoverCommandContext(coordinator, a);
 
       const pending = [localCommand];
-
       a.sessions.at(-1)!.session.takeUnreadContext = () => pending.splice(0);
-
       const id = coordinator.snapshot.conversation!.id;
 
       await coordinator.newConversation();
@@ -391,11 +381,8 @@ test('a failed close preserves outgoing command context', async () => {
 
   try {
     const pending = [savedCommand];
-
     a.sessions.at(-1)!.session.takeUnreadContext = () => pending.splice(0);
-
     const id = coordinator.snapshot.conversation!.id;
-
     a.failClose = true;
 
     await coordinator.newConversation();
@@ -611,9 +598,7 @@ describe('an unrelated initial reconnect failure remains visible', () => {
 
         try {
           a.failConnect = false;
-
           a.beforeConnect = holdConnect(connecting, release, { failure });
-
           const sending = coordinator.send('Queued');
 
           await within(connecting.promise, 2000, 'the reconnect');
@@ -711,13 +696,11 @@ test('Ctrl+C during the save before sending reaches the agent', async () => {
     await coordinator.send('remember-port');
 
     a.gate = gate;
-
     let armed = false;
 
     hook.current = async (command, run) => {
       if (command[0] === 'ls-tree' && command[1] === '-r') {
         hook.current = passThrough;
-
         armed = true;
       }
 
@@ -786,7 +769,6 @@ test('a spell, a native command and prompts sent during a turn join it in order 
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -830,7 +812,6 @@ test('a queued prompt taken back never runs', async () => {
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -864,11 +845,8 @@ test('steered prompts an interrupt leaves unread go as the next turn, ahead of w
 
   try {
     a.gate = gate;
-
     a.unreadOnInterrupt = true;
-
     a.refuseSkillSteer = true;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -923,7 +901,6 @@ for (const [name, prompt, prepare] of [
 
     try {
       a.gate = gate;
-
       const sending = coordinator.send('Start');
 
       await within(gate.entered, 2000, 'the gated turn');
@@ -964,9 +941,7 @@ test('with steers refused, prompts queued ahead of a spell go as one turn, then 
 
   try {
     a.gate = gate;
-
     a.refuseSteer = true;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -1000,7 +975,6 @@ test('a report after a queued turn stays on screen, and the prompts after it wai
 
   try {
     a.gate = gate;
-
     a.refuseSteer = true;
 
     hook.current = async (command, run) => {
@@ -1050,7 +1024,6 @@ test('prompts sent together steer or queue in the order sent', async () => {
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -1095,7 +1068,6 @@ test('prompts sent together steer or queue in the order sent', async () => {
 test('a spell a failed connect leaves queued still goes alone once the agent connects, ahead of what was queued behind it', async () => {
   const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
-
     a.failConnect = true;
   });
 
@@ -1167,7 +1139,6 @@ test('a prompt sent while the launch connects goes once the load ends', async ()
 
   const connecting = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-
   a.beforeConnect = holdConnect(connecting, release);
 
   try {
@@ -1219,11 +1190,8 @@ test('a failed turn leaves what was queued behind it for the composer instead of
 
   try {
     a.gate = gate;
-
     a.failNext = true;
-
     a.refuseSteer = true;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -1257,9 +1225,7 @@ test('a prompt whose steer is refused after a failed turn has ended stays for th
 
   try {
     a.gate = gate;
-
     a.failNext = true;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -1313,9 +1279,7 @@ test('a failed handoff continuation leaves what was queued during the switch for
     await coordinator.send('Start');
 
     b.gate = gate;
-
     b.failNext = true;
-
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
 
     await within(gate.entered, 2000, 'the continuation');
@@ -1374,7 +1338,6 @@ test('a conversation switch is refused while prompts are queued, which wait with
     await coordinator.send('Start');
 
     const { id } = coordinator.snapshot.conversation!;
-
     a.failConnect = false;
 
     await assert.rejects(coordinator.newConversation(), /still queued/);

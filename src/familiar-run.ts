@@ -54,9 +54,7 @@ export class FamiliarReports {
   private async send(): Promise<void> {
     while (this.pending) {
       const progress = this.pending;
-
       this.pending = undefined;
-
       let outcome: ControlResult;
 
       try {

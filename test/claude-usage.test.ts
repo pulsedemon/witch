@@ -468,9 +468,7 @@ test(
     await helper.reply();
 
     const next = report(true);
-
     next.session.total_lines_added = 17;
-
     next.session.total_lines_removed = 3;
 
     await f.main.reply(next);
@@ -1166,7 +1164,6 @@ test(
       await until('initial snapshot', () => !!session?.usage.account?.limits);
 
       ui = show(createElement(App, { coordinator, onExit: () => {} }));
-
       const main = endpoint(f.children[0]!, f.cwd);
       let finished = false;
 
@@ -1268,9 +1265,7 @@ test(
       assert.equal(coordinator.snapshot.phase, 'idle');
 
       const unavailable = report();
-
       unavailable.rate_limits_available = false;
-
       unavailable.rate_limits = null;
 
       vi.advanceTimersByTime(60_000);

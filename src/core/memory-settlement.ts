@@ -12,7 +12,6 @@ export async function settleMemory(
 
   if (await workspace.exists()) {
     const status = await workspace.status();
-
     dirty = status.dirty;
 
     // main already holds a clean worktree's commits

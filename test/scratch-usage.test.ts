@@ -53,13 +53,9 @@ function add(
   name = 'node',
 ) {
   const line = row(pid, ppid, start, name);
-
   seen.before = [...seen.before, line];
-
   seen.after = [...seen.after, line];
-
   seen.commands = [...seen.commands, `${pid} ${name}`];
-
   seen.files += reference(pid, 'cwd', '/fixture/project');
 }
 
@@ -115,9 +111,7 @@ const cases: {
     expected: 'unused',
     change(seen) {
       const system = row(900002, 1, late, 'dhcp6d', -2);
-
       seen.before = [...seen.before, system];
-
       seen.after = [...seen.after, system];
     },
   },
@@ -250,7 +244,6 @@ const cases: {
     expected: 'unused',
     change(seen) {
       seen.files += reference(current, '8', `${directory}-other`);
-
       seen.commands = [`${current} node TMPDIR=${directory}-other`];
     },
   },

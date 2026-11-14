@@ -88,7 +88,6 @@ for (const exit of [
 
 test('a summary with no open issues is handled without a review turn', async (t) => {
   const x = await setup(t);
-
   x.source.threads = [];
 
   x.source.reviews[0]!.body =

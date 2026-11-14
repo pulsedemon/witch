@@ -37,7 +37,6 @@ for (const directory of [project, join(root, 'jobs'), join(root, 'tmp')])
   await mkdir(directory, { recursive: true });
 
 process.env.TMPDIR = join(root, 'tmp');
-
 process.env.CLAUDE_CODE_TMPDIR = join(root, 'tmp');
 
 await execute('git', ['init', '-b', 'main'], { cwd: project });
@@ -150,7 +149,6 @@ async function until(
       if (request.id === observed) continue;
 
       observed = request.id;
-
       const fields = JSON.parse(request.detail) as { command?: string };
 
       assert.ok(
@@ -310,7 +308,6 @@ try {
 
   for (const mode of ['child-stop', 'wrapper-loss', 'job-stop'] as const) {
     const review = command(mode);
-
     approved = new Set([review]);
 
     send(

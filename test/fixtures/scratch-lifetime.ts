@@ -59,7 +59,6 @@ try {
     });
 
     process.env.TMPDIR = directory;
-
     const marker = join(directory, 'marker');
     let worker = Number(process.argv[6]);
     let group = Number(process.argv[7]);

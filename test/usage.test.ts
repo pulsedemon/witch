@@ -144,9 +144,7 @@ function pending() {
 test('a reading is read once while due, and a read in flight is joined', async () => {
   const { b, usage, published } = readings();
   const read = pending();
-
   b.accountRead = () => read.promise;
-
   const first = usage.refresh('b', '/w');
   let joined = false;
   const second = usage.refresh('b', '/w').then(() => (joined = true));
@@ -203,7 +201,6 @@ for (const outcome of ['empty', 'failed'] as const)
 
 test('force rereads a due reading inside the attempt throttle, joins a read in flight, and leaves a reading that is not due', async () => {
   const { b, usage, published } = readings();
-
   b.accountRead = async () => ({ limits: [] });
 
   await usage.refresh('b', '/w');
@@ -213,9 +210,7 @@ test('force rereads a due reading inside the attempt throttle, joins a read in f
   assert.equal(b.accountReads.length, 1);
 
   const read = Promise.withResolvers<AccountReading>();
-
   b.accountRead = () => read.promise;
-
   const forced = usage.refresh('b', '/w', { force: true });
   const joined = usage.refresh('b', '/w', { force: true });
 
@@ -271,9 +266,7 @@ test('after rereads a current reading observed before it, and leaves one observe
 test('a report that arrives during a probe keeps its value when the probe finishes', async () => {
   const { b, usage, published } = readings();
   const read = pending();
-
   b.accountRead = () => read.promise;
-
   const probing = usage.refresh('b', '/w');
   const reported = [window('7D', 95, { observedAt: Date.now() })];
 
@@ -559,9 +552,7 @@ test('stale funding admits one read beside current windows, and the attempt thro
     usage.report('b', { limits: windows, funding });
 
     const pending = Promise.withResolvers<AccountReading>();
-
     b.accountRead = () => pending.promise;
-
     const first = usage.refresh('b', '/w');
     const joined = usage.refresh('b', '/w');
     const updated = { ...funding, balance: '27.123400', observedAt: now };
@@ -598,9 +589,7 @@ test('a newer window does not discard a probe credit update, but newer credits d
   usage.report('b', { limits: [window('7D', 50)], funding: before });
 
   const pending = Promise.withResolvers<AccountReading>();
-
   b.accountRead = () => pending.promise;
-
   const probe = usage.refresh('b', '/w');
   const newerWindow = window('7D', 99);
 
@@ -620,9 +609,7 @@ test('a newer window does not discard a probe credit update, but newer credits d
 
   try {
     const later = Promise.withResolvers<AccountReading>();
-
     b.accountRead = () => later.promise;
-
     const reading = usage.refresh('b', '/w');
 
     const zero = {
@@ -681,9 +668,7 @@ test('an empty probe clears unchanged windows while retaining concurrent credit 
     usage.report('b', { limits: [before, five] });
 
     const pending = Promise.withResolvers<AccountReading>();
-
     b.accountRead = () => pending.promise;
-
     const reading = usage.refresh('b', '/w');
     const newer = window('5H', 50, { observedAt: Date.now() });
 

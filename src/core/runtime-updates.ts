@@ -235,7 +235,6 @@ export class RuntimeUpdates {
     if (this.closed) return;
 
     const checking = this.read(force);
-
     this.checking = checking;
 
     try {
@@ -380,7 +379,6 @@ export class RuntimeUpdates {
         );
 
       transaction = await this.store.transaction(installed.root);
-
       let exclusive: FileHandle | undefined;
 
       const journal: UpdateJournal = {
@@ -436,7 +434,6 @@ export class RuntimeUpdates {
           await this.record(journal);
 
           recorded = true;
-
           exclusive = await this.store.exclusive(installed.root, signal);
 
           const users = await this.native.users(
@@ -525,7 +522,6 @@ export class RuntimeUpdates {
           );
 
           candidate = await this.native.inspect(registration, signal, cwd);
-
           journal.selected = candidate;
 
           if (
@@ -572,7 +568,6 @@ export class RuntimeUpdates {
               await this.restore(journal);
             } catch (recovery) {
               journal.phase = 'failed';
-
               journal.error += `\nRecovery failed: ${errorMessage(recovery)}`;
 
               await this.record(journal);
@@ -602,7 +597,6 @@ export class RuntimeUpdates {
         // a qualified installed version has nothing to recover to, so its record stands
         if (qualified && installing) {
           qualified.phase = 'failed';
-
           qualified.error = `Qualification passed, but reconnect failed: ${errorMessage(error)}`;
 
           await this.record(qualified);
@@ -714,7 +708,6 @@ export class RuntimeUpdates {
           await this.restore(current);
         } catch (error) {
           current.phase = 'failed';
-
           current.error = errorMessage(error);
 
           await this.record(current);

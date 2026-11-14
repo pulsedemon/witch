@@ -474,7 +474,6 @@ test('a main checkout that left its worktree behind is reported with its recover
 
 test('a start with nothing moved runs no repair', async () => {
   const f = await setup();
-
   f.runs.length = 0;
 
   await f.repair('w/main');
@@ -922,7 +921,6 @@ test('a reused directory inode cannot redirect a saved conversation', async () =
 
     // reproduce inode reuse without depending on the filesystem's allocator
     original.device = String(replacement.dev);
-
     original.inode = String(replacement.ino);
   });
 

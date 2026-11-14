@@ -184,7 +184,6 @@ test('a compaction inside a turn steers memory and the fixed instructions back i
     await c.send('latest revision');
 
     f.a.gate = gate;
-
     const turn = c.send('long turn');
 
     await within(gate.entered, 3000, 'turn start');
@@ -228,7 +227,6 @@ test('a compaction inside a turn resends once a refused steer is admitted after 
     await c.send('remember-port');
 
     f.a.gate = gate;
-
     const parent = c.send('parent result');
 
     await within(gate.entered, 3000, 'turn start');
@@ -239,7 +237,6 @@ test('a compaction inside a turn resends once a refused steer is admitted after 
       completed = Promise.withResolvers<TurnResult>();
 
     native.session.compactDuringTurn = () => completed.promise;
-
     let refused = 0;
     const steer = native.session.steer.bind(native.session);
 
@@ -251,7 +248,6 @@ test('a compaction inside a turn resends once a refused steer is admitted after 
 
     // Claude refuses steering while its manual compaction runs
     f.a.refuseSteer = true;
-
     const compact = c.compact();
 
     native.options.onEvent({ type: 'compacted' });
@@ -309,7 +305,6 @@ for (const outcome of [
       }
 
       f.a.gate = gate;
-
       const compacting = f.coordinator.compact();
 
       await within(gate.entered, 3000, 'native compaction');
@@ -386,7 +381,6 @@ for (const outcome of ['cancelled', 'failed'] as const) {
       };
 
       f.a.gate = gate;
-
       const compacting = f.coordinator.compact();
 
       await within(gate.entered, 3000, 'hook write');
@@ -485,7 +479,6 @@ test('an interrupt from the no-history notice keeps hook memory pending for reco
     await f.coordinator.send('seed');
 
     f.a.sessions.at(-1)!.session.info.hasHistory = false;
-
     const begin = Workspace.prototype.begin;
 
     vi.spyOn(Workspace.prototype, 'begin').mockImplementation(async function (
@@ -646,11 +639,8 @@ for (const [window, usage, compacted] of [
       await f.coordinator.send('seed');
 
       const session = f.a.sessions[0]!.session;
-
       session.usage.contextWindow = window;
-
       session.contextUsage = async () => usage;
-
       const order: string[] = [];
 
       const compact = session.compact.bind(session),
@@ -736,9 +726,7 @@ for (const outcome of ['cancelled', 'failed', 'completed'] as const) {
       await f.coordinator.send('seed');
 
       f.a.sessions[0]!.session.contextUsage = async () => 80;
-
       f.a.gate = gate;
-
       const sending = f.coordinator.send('original');
 
       await within(gate.entered, 3000, 'automatic compaction');
@@ -792,7 +780,6 @@ test('automatic compaction does not deliver its batch over a memory publication 
       native = f.a.sessions[0]!.session;
 
     native.contextUsage = async () => 80;
-
     const compact = native.compact.bind(native);
 
     native.compact = async () => {
@@ -829,7 +816,6 @@ for (const prompt of ['/review exact target', '!printf exact-command']) {
       await f.coordinator.send('seed');
 
       const native = f.a.sessions[0]!.session;
-
       native.contextUsage = async () => 80;
 
       const compact = native.compact.bind(native),
@@ -891,7 +877,6 @@ test('a resumed native context sample schedules compaction and a model with no s
     await f.coordinator.close();
 
     f.a.connectUsage = { context: 80 };
-
     const reopened = await f.reopen();
 
     try {

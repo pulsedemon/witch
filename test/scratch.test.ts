@@ -31,7 +31,6 @@ function launch(cwd: string, tmp: string, ...args: string[]) {
 
   child.stdout.on('data', (chunk: Buffer) => {
     const lines = (partial + chunk.toString()).split('\n');
-
     partial = lines.pop()!;
 
     for (const line of lines)

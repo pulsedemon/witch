@@ -202,7 +202,6 @@ test('query failure never reports an unlocked file', async () => {
 
   try {
     process.env.PERL5LIB = root;
-
     process.env.PERL5OPT = '-MFailLockQuery';
 
     await assert.rejects(lockedFiles([file]), /injected lock query failure/);

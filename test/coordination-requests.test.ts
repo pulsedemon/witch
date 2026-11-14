@@ -48,7 +48,6 @@ for (const kind of [
     switch (kind) {
       case 'peers':
         action = { kind };
-
         expected = 'peers';
 
         break;
@@ -69,7 +68,6 @@ for (const kind of [
         if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
 
         action = { kind, claim: claimed.claim.id };
-
         expected = 'released';
 
         break;
@@ -77,7 +75,6 @@ for (const kind of [
 
       case 'select-next':
         action = { kind, turn: turn.turn };
-
         expected = 'selection';
 
         break;
@@ -95,7 +92,6 @@ for (const kind of [
 
       case 'ask':
         action = { kind, claim: peer.claim.id, message: 'Which port?' };
-
         expected = 'peer-request';
 
         break;
@@ -114,7 +110,6 @@ for (const kind of [
         if (asked.kind !== 'peer-request') assert.fail(JSON.stringify(asked));
 
         action = { kind, request: asked.request.id, message: '4000' };
-
         expected = 'peer-request';
 
         break;
@@ -130,7 +125,6 @@ for (const kind of [
         if (asked.kind !== 'peer-request') assert.fail(JSON.stringify(asked));
 
         action = { kind, request: asked.request.id };
-
         expected = 'peer-request';
 
         break;
@@ -264,7 +258,6 @@ for (const stage of ['acquisition', 'completion'] as const)
         ...args: Parameters<typeof state>
       ) {
         const background = first;
-
         first = false;
 
         if (background && stage === 'acquisition') {
@@ -547,7 +540,6 @@ test('an older ledger failure cannot replace a later successful observation', as
     .spyOn(local, 'state')
     .mockImplementation(async (...args: Parameters<typeof state>) => {
       const background = first;
-
       first = false;
 
       try {

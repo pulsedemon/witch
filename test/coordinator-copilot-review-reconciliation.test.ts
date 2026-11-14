@@ -15,7 +15,6 @@ import { until, within } from './fixtures/within.js';
 test('a missing result after restart stays blocked until a user prompt reconciles the existing reply', async (t) => {
   const x = await setup(t);
   const gate = new TurnGate();
-
   x.a.a.gate = gate;
 
   autoReply(x.f, x.a, x.source);
@@ -190,7 +189,6 @@ for (const outcome of ['handled', 'uncertain']) {
     };
 
     other.reviews = [];
-
     other.threads = [];
 
     await git(
@@ -276,7 +274,6 @@ test('absent feedback retains pending history without entering a packet until it
   await x.observe();
 
   const body = x.source.reviews[0]!.body;
-
   x.source.reviews[0]!.body = '';
 
   await x.observe();
@@ -490,7 +487,6 @@ for (const revoke of ['branch', 'CLOSED', 'MERGED'] as const) {
     await b.claim('task:asker');
 
     const gate = new TurnGate();
-
     x.a.a.gate = gate;
 
     await x.observe();
@@ -622,11 +618,8 @@ test('ordinary prompts show present review counts only while the PR is bound', a
 test('a head GitHub never asks Copilot to review reports that no review is pending until one arrives', async (t) => {
   const x = await setup(t);
   const review = x.source.reviews;
-
   x.source.reviews = [];
-
   x.source.threads = [];
-
   const missing = "GitHub hasn't asked Copilot to review the latest push";
 
   const noticed = () =>
@@ -649,9 +642,7 @@ test('a head GitHub never asks Copilot to review reports that no review is pendi
   assert.equal(x.c.copilot.context()!.unrequested, false);
 
   x.source.draft = false;
-
   const rules = x.source.copilotRules;
-
   x.source.copilotRules = [];
 
   await x.observe();

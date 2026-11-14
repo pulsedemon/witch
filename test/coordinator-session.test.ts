@@ -55,7 +55,6 @@ test('the pentacle follows foreground work and every running local task', async 
     assert.equal(activity.active, false);
 
     a.gate = gate;
-
     const turn = coordinator.send('hello');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -125,9 +124,7 @@ test('the pentacle follows foreground work and every running local task', async 
 test("a session's usage at connect and while it lists its models reaches the snapshot, a closed session's later usage does not, and a failed handoff clears it", async () => {
   const { coordinator, a } = await fixture(undefined, (a, b) => {
     a.connectUsage = { context: 1 };
-
     b.connectUsage = { context: 2 };
-
     b.modelsUsage = { context: 3 };
   });
 
@@ -693,7 +690,6 @@ test("a brew still running when its session closes ends stopped, and the closed 
 test('a skills change while a session lists its models reaches the snapshot', async () => {
   const { coordinator } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'older', description: '' }];
-
     a.modelsSkills = [{ name: 'newer', description: '' }];
   });
 
@@ -718,7 +714,6 @@ test("the live session's usage reaches the snapshot, and a new conversation star
     assert.deepEqual(coordinator.snapshot.usage, { context: 10 });
 
     b.failConnect = true;
-
     const before = Date.now();
 
     await coordinator.newConversation('b').catch(() => {});
@@ -776,7 +771,6 @@ test('close ends a held turn when its interrupt throws', async () => {
     await coordinator.send('Start');
 
     a.gate = gate;
-
     let sent = false;
 
     const sending = coordinator.send('Held').finally(() => {
@@ -786,7 +780,6 @@ test('close ends a held turn when its interrupt throws', async () => {
     await within(gate.entered, 2000, 'the gated turn');
 
     a.failInterrupt = true;
-
     a.failClose = true;
 
     await within(
@@ -804,7 +797,6 @@ test('close ends a held turn when its interrupt throws', async () => {
     gate.open();
 
     a.failInterrupt = false;
-
     a.failClose = false;
   }
 });
@@ -838,7 +830,6 @@ test('close releases the conversation when its disconnect throws', async () => {
 
 test('close rejects with a publish failure and still closes the session and the conversation', async () => {
   const { coordinator, a, hook, store } = await integrationFixture();
-
   a.interruptNext = true;
 
   await coordinator.send('remember-port');
@@ -1062,7 +1053,6 @@ test('a git failure in settle tells the user to restart before continuing', asyn
     await coordinator.send('Start');
 
     a.gate = gate;
-
     const sending = coordinator.send('Next');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -1279,7 +1269,6 @@ test('answers reach the agent and only a cancel interrupts the turn, a resolved 
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -1341,7 +1330,6 @@ test('an answered question stays in the transcript as the reply with each questi
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('Start');
 
     await within(gate.entered, 2000, 'the gated turn');

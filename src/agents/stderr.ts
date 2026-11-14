@@ -21,9 +21,7 @@ export function readLines(
 
   stream.on('data', (chunk: string) => {
     const lines = chunk.split('\n');
-
     lines[0] = pending + lines[0];
-
     pending = lines.pop()!;
 
     for (const text of lines) line(text);

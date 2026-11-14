@@ -230,7 +230,6 @@ export async function runCodexFamiliar(
     reports.push(progress);
 
     heartbeat = setInterval(() => reports.push(progress), 2000);
-
     let prompt = '';
 
     process.stdin.setEncoding('utf8');
@@ -290,9 +289,7 @@ export async function runCodexFamiliar(
 
     for (;;) {
       const result = await session.send(prompt);
-
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
-
       status = result.status === 'interrupted' ? 'stopped' : result.status;
 
       await save();
@@ -356,7 +353,6 @@ export async function runCodexFamiliar(
         await reports.finish({ ...progress, status, report });
       } catch (error) {
         status = stopped ? 'stopped' : 'failed';
-
         report = [report, errorMessage(error)].filter(Boolean).join('\n\n');
 
         await save();

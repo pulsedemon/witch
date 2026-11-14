@@ -45,7 +45,6 @@ export function holdSettlement(session: AgentSession) {
 
   session.send = async (...args) => {
     const result = await send(...args);
-
     armed ??= true;
 
     return result;

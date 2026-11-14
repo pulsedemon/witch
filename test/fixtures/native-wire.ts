@@ -167,11 +167,8 @@ export function observeWire(child: ChildProcessWithoutNullStreams): {
     chunk: string | Uint8Array,
   ) => {
     const reader = readers.get(direction)!;
-
     reader.pending += reader.decoder.write(Buffer.from(chunk));
-
     const lines = reader.pending.split('\n');
-
     reader.pending = lines.pop()!;
 
     for (const line of lines) {

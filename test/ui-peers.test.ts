@@ -210,11 +210,8 @@ for (const [height, expected] of [
 
 test('peer labels cannot insert extra rows or forged terminal links', async () => {
   const changed = peer(2);
-
   changed.claim!.summary = forgedLink('x-evil:task', 'Title') + '\nnext';
-
   changed.presence.agent = 'agent\nname';
-
   const fixture = peersApp(snapshot([changed]));
 
   const ui = show(
@@ -393,11 +390,8 @@ test('task release refuses running or background work in chat without changing p
   );
 
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   a.a.refuseSteer = true;
-
   const sending = a.coordinator.send('Held work');
 
   try {
@@ -484,11 +478,8 @@ test('a refused /task take stays in chat and leaves queued prompts runnable', as
   );
 
   const gate = new TurnGate();
-
   a.a.gate = gate;
-
   a.a.refuseSteer = true;
-
   const sending = a.coordinator.send('Held work');
 
   try {
@@ -559,13 +550,9 @@ test('queue and suggestion rows preserve task links and detailed activity status
   }
 
   suggested.presence.requests = 0;
-
   suggested.presence.brews = 1;
-
   suggested.claim!.process = suggested.presence.process;
-
   suggested.claim!.suggestion = { selection: randomUUID() };
-
   const fixture = peersApp(snapshot([choosing, queued, suggested]));
 
   const ui = show(

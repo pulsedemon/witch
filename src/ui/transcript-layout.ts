@@ -555,7 +555,6 @@ export class TranscriptLayout {
     }
 
     this.cache = cache;
-
     const positions = [...starts];
 
     /** where an id that no longer shows leads: a collapsed member to its group, a former group to the one holding its first tool. */

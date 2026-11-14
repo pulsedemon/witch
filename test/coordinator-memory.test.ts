@@ -20,7 +20,6 @@ test('a fresh conversation receives committed memory without a handoff', async (
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('remember-port');
 
     await within(gate.entered, 3000, 'the memory-writing turn');
@@ -242,11 +241,8 @@ test('pending discard after a failed turn corrects memory on persisted resume', 
 
     const native = f.a.inputs.at(-1)!.session;
     const accepted = await f.memory.resolve(main);
-
     f.a.failNext = true;
-
     f.a.gate = gate;
-
     const sending = f.coordinator.send('Write local notes');
 
     await within(gate.entered, 3000, 'the writing turn');
@@ -318,11 +314,8 @@ for (const decision of ['accept', 'discard'] as const) {
 
     try {
       a.gate = gate;
-
       a.failNext = true;
-
       a.refuseSteer = true;
-
       const sending = coordinator.send('remember-port');
 
       await within(gate.entered, 3000, 'the gated turn');
@@ -905,7 +898,6 @@ test('opening Witch on memory that conflicts with main leaves the move to recove
     await coordinator.send('Start');
 
     a.gate = gate;
-
     const sending = coordinator.send('remember:mine');
 
     await within(gate.entered, 2000, 'the gated turn');
@@ -1050,7 +1042,6 @@ describe('an unrelated reconnect failure after interrupt remains visible', () =>
           );
 
           a.beforeConnect = holdConnect(entered, release, { failure });
-
           const sending = coordinator.send('Moved');
 
           await within(entered.promise, 2000, 'the reconnect');
@@ -1079,7 +1070,6 @@ describe('an unrelated reconnect failure after interrupt remains visible', () =>
 
 test('recovery has one owner and shutdown waits for its accepted commit', async () => {
   const { coordinator, memory, a, workspace, note } = await fixture();
-
   a.interruptNext = true;
 
   await coordinator.send('remember-port');

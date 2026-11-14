@@ -120,7 +120,6 @@ async function filterless(
 
   const set = (key: string, value: string) => {
     env[`GIT_CONFIG_KEY_${count}`] = key;
-
     env[`GIT_CONFIG_VALUE_${count++}`] = value;
   };
 
@@ -158,7 +157,6 @@ export function parseStatus(text: string): Repository {
       repository.upstream = value;
     else if (kind === '#' && field === 'branch.ab') {
       repository.ahead = Number(value);
-
       repository.behind = -Number(other);
     } else if (kind === '1' || kind === '2') {
       if (field![0] !== '.') repository.staged++;
@@ -493,7 +491,6 @@ export class RepositoryWatch {
   /** widens the watch to the work tree and the Git dirs outside it, all of which `git status` reads. */
   private async locate(): Promise<void> {
     this.located = true;
-
     let paths: string[];
 
     try {
@@ -560,9 +557,7 @@ export class RepositoryWatch {
     clearTimeout(this.scheduled);
 
     this.scheduled = undefined;
-
     this.startedAt = performance.now();
-
     let repository: Repository | undefined;
     let failure: unknown;
 
@@ -636,7 +631,6 @@ export class RepositoryWatch {
 
   private async fetch(branch: string): Promise<void> {
     this.requested = false;
-
     const started = Date.now();
     const commit = this.snapshot?.commit;
     let value: PullRequest | undefined;

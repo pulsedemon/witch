@@ -46,7 +46,6 @@ export function keepAwake(
 
   const release = () => {
     const retiring = holder;
-
     holder = undefined;
 
     // a child whose spawn failed has no pid until its error arrives, so a kill before then has no valid target

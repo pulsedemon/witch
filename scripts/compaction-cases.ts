@@ -139,7 +139,6 @@ async function* lines(file: string): AsyncGenerator<Row> {
       pieces.push(text.slice(start, end));
 
       const row = parsed.parse(pieces.join(''));
-
       pieces = [];
 
       if (row) yield row;
@@ -225,19 +224,14 @@ async function codexCompactions(): Promise<NativeCompaction[]> {
       ) {
         // the next prompt's input is written before its task_started
         turn = [];
-
         output = false;
       } else if (payload.type === 'task_started') {
         turn = [];
-
         output = false;
-
         start = tokens;
-
         window = payload.model_context_window ?? window;
       } else if (payload.type === 'token_count') {
         tokens = payload.info?.last_token_usage?.total_tokens ?? tokens;
-
         window = payload.info?.model_context_window ?? window;
       } else if (
         row.type === 'response_item' &&

@@ -195,7 +195,6 @@ function proseLines(lines: readonly string[]): (string | undefined)[] {
       }
 
       comment = false;
-
       text = ' '.repeat(close + 3) + line.slice(close + 3);
     } else {
       // a fence can sit in a blockquote, and ends when its quote does
@@ -275,7 +274,6 @@ function segments(line: string): Segment[] {
   while (index < line.length) {
     // an HTML comment or tag that starts first keeps its backticks
     html.lastIndex = index;
-
     const raw = line[index] === '<' ? html.exec(line) : null;
 
     if (raw) {
@@ -323,7 +321,6 @@ function segments(line: string): Segment[] {
 
     if (found === -1) {
       text += line.slice(index, index + run);
-
       index += run;
 
       continue;
@@ -567,7 +564,6 @@ function openBlock(
       if (state !== 'block' && state !== '`') state = 'code';
 
       klass = false;
-
       gap = true;
 
       line++;
@@ -593,7 +589,6 @@ function openBlock(
       else if (char === ']') klass = false;
       else if (char === '/' && !klass) {
         state = 'code';
-
         previous = 'x';
       }
 
@@ -604,7 +599,6 @@ function openBlock(
       if (char === '\\') index++;
       else if (char === state) {
         state = 'code';
-
         previous = 'x';
       }
 
@@ -641,7 +635,6 @@ function openBlock(
         word === 'return')
     ) {
       state = 'regex';
-
       klass = false;
 
       continue;
@@ -660,7 +653,6 @@ function openBlock(
       : '';
 
     gap = false;
-
     previous = char;
 
     if (line < start) continue;

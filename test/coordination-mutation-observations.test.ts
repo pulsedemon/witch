@@ -128,7 +128,6 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
     await within(readEntered.promise, 5000, 'old refresh read');
 
     claiming = a.claim('task:chosen');
-
     const reserved = await within(committed.promise, 5000, 'claim committed');
 
     assert.deepEqual(
@@ -1002,9 +1001,7 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
       ...args: Parameters<typeof state>
     ) {
       const waiting = finalizing;
-
       finalizing = false;
-
       const result = await state.apply(this, args);
 
       if (waiting) {

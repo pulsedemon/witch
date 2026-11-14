@@ -142,11 +142,8 @@ test('feedback arriving during work waits behind queued user prompts', async (t)
   autoReply(x.f, x.a, x.source);
 
   const gate = new TurnGate();
-
   x.a.a.gate = gate;
-
   x.a.a.refuseSteer = true;
-
   const first = x.c.send('first user task');
 
   await gate.entered;
@@ -174,7 +171,6 @@ test('feedback arriving during work waits behind queued user prompts', async (t)
 test('a user prompt during a review queues without steering it', async (t) => {
   const x = await setup(t);
   const gate = new TurnGate();
-
   x.a.a.gate = gate;
 
   autoReply(x.f, x.a, x.source);
@@ -217,7 +213,6 @@ test('Escape holds unknown outcomes through rereads and the next user prompt res
   autoReply(x.f, x.a, x.source, () => respond);
 
   const gate = new TurnGate();
-
   x.a.a.gate = gate;
 
   await x.observe();
@@ -308,7 +303,6 @@ for (const mode of ['edited', 'interrupted']) {
 
         if (mode === 'edited') {
           x.source.reviews[0]!.body = 'Updated summary.';
-
           x.source.threads[0]!.comments[0]!.body = 'Updated finding.';
         }
 
@@ -363,9 +357,7 @@ for (const mode of ['edited', 'interrupted']) {
 
 test('an uncertain content version stays blocked after a newer version is handled', async (t) => {
   const x = await setup(t);
-
   x.source.reviews = [];
-
   const original = x.source.threads[0]!.comments[0]!.body;
   const session = x.a.a.sessions.at(-1)!.session;
   const send = session.send;
@@ -442,7 +434,6 @@ for (const state of ['CLOSED', 'MERGED'] as const) {
   test(`a ${state} GitHub observation stops an active review despite stale repository metadata`, async (t) => {
     const x = await setup(t);
     const gate = new TurnGate();
-
     x.a.a.gate = gate;
 
     await x.observe();
@@ -493,7 +484,6 @@ for (const kind of ['branch', 'claim', 'project']) {
   test(`confirmed ${kind} loss interrupts a running review and retains its uncertain receipt`, async (t) => {
     const x = await setup(t);
     const gate = new TurnGate();
-
     x.a.a.gate = gate;
 
     await x.observe();
@@ -556,7 +546,6 @@ for (const kind of ['branch', 'claim', 'project']) {
 test('new feedback observed during execution waits for its own later batch', async (t) => {
   const x = await setup(t);
   const gate = new TurnGate();
-
   x.a.a.gate = gate;
 
   autoReply(x.f, x.a, x.source);
@@ -606,7 +595,6 @@ test('new feedback observed during execution waits for its own later batch', asy
 test('reopening reconciles a reply saved before interruption without another automatic turn', async (t) => {
   const x = await setup(t);
   const gate = new TurnGate();
-
   x.a.a.gate = gate;
 
   autoReply(x.f, x.a, x.source);
@@ -795,7 +783,6 @@ test('a prompt in another conversation cannot resume an uncertain review on retu
   const x = await setup(t);
   const original = x.c.snapshot.conversation!.id;
   const gate = new TurnGate();
-
   x.a.a.gate = gate;
 
   await x.observe();
@@ -1039,7 +1026,6 @@ test('a peer arriving during the review read retains priority without losing the
 test('an uncertain batch with new feedback does not cause admission reads before a user prompt', async (t) => {
   const x = await setup(t);
   const gate = new TurnGate();
-
   x.a.a.gate = gate;
 
   await x.observe();

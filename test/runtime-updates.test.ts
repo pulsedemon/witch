@@ -110,7 +110,6 @@ test('Codex checks parse the native release source and preserve unsupported-inst
 test('inventory follows the selected launcher and changes artifact identity after an external update', async () => {
   const root = await scratch('witch-runtime-inventory-');
   const previous = process.env.CODEX_HOME;
-
   process.env.CODEX_HOME = root;
 
   try {
@@ -174,7 +173,6 @@ test('inventory follows the selected launcher and changes artifact identity afte
     assert.match(automatic.blocked!, /would disable them/);
 
     process.env.CODEX_HOME = join(root, 'another-home');
-
     const foreign = await inspectRuntime(registration);
 
     assert.equal(foreign.root, after.root);

@@ -23,7 +23,6 @@ export function png(width: number, height: number): Buffer {
   header.writeUInt32BE(height, 4);
 
   header[8] = 8;
-
   const pixels = randomBytes((width + 1) * height);
 
   // each row starts with filter type 0

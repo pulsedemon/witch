@@ -328,9 +328,7 @@ test('only a supporting session receives familiar instructions and the exact use
   // a Claude session launches its familiar with Bash
   client.a.connect = async (options) => {
     const session = await connect(options);
-
     session.familiar = familiar;
-
     const info = Object.getOwnPropertyDescriptor(session, 'info')!.get!;
 
     Object.defineProperty(session, 'info', {

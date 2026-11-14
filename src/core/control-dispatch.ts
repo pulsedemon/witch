@@ -99,9 +99,7 @@ export async function dispatchControl(
   state: RequestState = {},
 ): Promise<ControlOutcome> {
   const active = host.admit(request);
-
   state.deadline = request.deadline;
-
   let outcome: ControlOutcome | undefined;
 
   try {
@@ -478,7 +476,6 @@ async function pauseOutcome(
         host.admit(request);
 
         state.discovery = undefined;
-
         const discovery = await host.observe(state);
 
         const closed = admitted.filter(

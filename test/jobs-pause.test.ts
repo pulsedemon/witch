@@ -113,9 +113,7 @@ test('an inactive watch keeps reading for settle after activity or its last job 
     assert.ok(reads.at(-1)! - ended >= 150);
 
     const job = orphanRow(100951);
-
     rows = [job];
-
     const before = reads.length;
 
     jobs.track(job.pgid);
@@ -123,7 +121,6 @@ test('an inactive watch keeps reading for settle after activity or its last job 
     await until('a read that finds the job', () => reads.length > before);
 
     rows = [];
-
     const gone = reads.length;
 
     await stopped(() => reads.length);
@@ -219,7 +216,6 @@ test('a job list while paused finds an orphan and resumes the reads', async () =
     jobs.setActive(false);
 
     const count = await stopped(() => reads);
-
     rows = [orphanRow(100971)];
 
     assert.deepEqual(
@@ -295,9 +291,7 @@ test('a watch is live while a group is tracked and from the end of activity unti
     jobs.setActive(true);
 
     const release = Promise.withResolvers<void>();
-
     held = release.promise;
-
     const reading = jobs.list();
 
     jobs.setActive(false);

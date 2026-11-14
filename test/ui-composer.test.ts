@@ -575,9 +575,7 @@ const VIOLET = '38;2;168;85;247';
 test('a draft starting with ! draws the border potion green and opens no file list, and Backspace over the ! brings violet and the list back', async () => {
   // Ink colors borders through the default chalk, which has no color under the test runner
   const level = chalk.level;
-
   chalk.level = 3;
-
   const { ui } = await launched({}, ['src/a.ts']);
   const listed = () => /^ *@src\/a\.ts *$/m.test(ui.text());
 

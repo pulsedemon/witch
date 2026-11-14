@@ -82,9 +82,7 @@ export async function handoff(
     }
 
     replaced = conversation.handoff;
-
     overwritten = true;
-
     conversation.handoff = { from, to: agent, summary, activated: false };
 
     await host.save();
@@ -109,9 +107,7 @@ export async function handoff(
     if (host.cancelled()) throw new Error('Handoff was interrupted');
 
     conversation.agent = agent;
-
     conversation.sessions[agent] = selected;
-
     conversation.handoff.activated = true;
 
     await host.save();
@@ -206,7 +202,6 @@ export function transcriptContext(items: readonly DisplayItem[]): string {
 
     for (const part of parts) {
       text += part.slice(0, remaining);
-
       remaining -= Math.min(part.length, remaining);
 
       if (!remaining) break;

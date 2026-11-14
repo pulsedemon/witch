@@ -106,9 +106,7 @@ test('repointing follows a chain and never maps into a reused directory', async 
   ];
 
   const ledger = await moves([a, c], [join(b, 'x'), c]);
-
   ledger.moves[0] = { ...ledger.moves[0]!, to: b };
-
   const note = `${a}/x/f`;
 
   assert.equal(
@@ -152,7 +150,6 @@ test('repointing a suspended chain stays linear in the number of references', as
   ];
 
   const ledger = await moves([a, c], [join(b, 'x'), c]);
-
   ledger.moves[0] = { ...ledger.moves[0]!, to: b };
 
   await mkdir(join(s, 'spare'));

@@ -196,7 +196,6 @@ export class CodexCommands {
 
         if (entry.partial.length > 4096) {
           entry.partial = '';
-
           entry.discarding = true;
         } else if (ends) {
           const marker = boundMarker(entry.partial.trimEnd(), this.binding);
@@ -207,7 +206,6 @@ export class CodexCommands {
 
       if (ends) {
         entry.partial = '';
-
         entry.discarding = false;
       }
     }

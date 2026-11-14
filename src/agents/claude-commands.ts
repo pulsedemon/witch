@@ -140,7 +140,6 @@ export class ClaudeCommands {
       (!input.run || !previous.run || input.run === previous.run)
     ) {
       previous.run ??= input.run;
-
       previous.parent ??= input.parent;
 
       if (!previous.background && input.background) {

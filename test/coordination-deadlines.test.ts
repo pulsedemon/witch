@@ -48,7 +48,6 @@ function pauseProbe(matches: (child: ChildProcess) => boolean, nth = 1) {
 
     // stop inside the child so a fast probe cannot exit before the parent handles spawn.
     options.file = '/bin/sh';
-
     options.args = ['/bin/sh', '-c', 'kill -STOP $$'];
 
     child.once('spawn', () => started.resolve(child));
@@ -313,7 +312,6 @@ for (const probe of [
         await held.close();
 
         const lock = await legacyLock(f.store, peer.id);
-
         releasePeer = () => lock.close();
       } else {
         cleanup(() => held.close());
@@ -400,7 +398,6 @@ test('a request cancels a stalled earlier project read and keeps the next projec
 
   try {
     const child = await within(paused.started, 2000, 'background Git started');
-
     rejected = assert.rejects(f.claim(Date.now() + requestTimeout));
 
     await within(rejected, 5000, 'request rejected');

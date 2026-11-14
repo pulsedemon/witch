@@ -20,7 +20,6 @@ test('completion identifies the successful activity only after its final save', 
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('remember-port');
 
     await within(gate.entered, 5000, 'the native turn');
@@ -42,7 +41,6 @@ test('completion identifies the successful activity only after its final save', 
       });
 
     saving = spy;
-
     const id = coordinator.snapshot.conversation!.id;
     const activity = (await readRecord(root, id)).activity!;
 
@@ -88,7 +86,6 @@ test('a rejected final save publishes no completion', async () => {
 
   try {
     a.gate = gate;
-
     const sending = coordinator.send('successful native result');
 
     await within(gate.entered, 5000, 'the native turn');
@@ -152,7 +149,6 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
         };
       else {
         a.gate = gate;
-
         a.failNext = outcome === 'failed';
       }
 
@@ -332,9 +328,7 @@ test('conversation adoption clears completion and the internal handoff summary s
     signals.clear();
 
     a.gate = summary;
-
     b.gate = destination;
-
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
 
     await within(summary.entered, 5000, 'the summary');
@@ -389,9 +383,7 @@ for (const failed of [false, true])
 
     try {
       a.refuseSteer = true;
-
       a.gate = gate;
-
       const first = coordinator.send('first queued turn');
 
       await within(gate.entered, 5000, 'the first turn');
@@ -400,7 +392,6 @@ for (const failed of [false, true])
 
       void gate.result.then(() => {
         a.gate = undefined;
-
         a.failNext = failed;
       });
 

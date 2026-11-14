@@ -223,7 +223,6 @@ test('history batches snapshot metadata and retain it across appends and replace
   });
 
   images[0] = 'changed.png';
-
   diff[0]!.hunks[0]!.lines[0] = '+changed';
 
   const second = held.append({
@@ -598,7 +597,6 @@ for (const [name, complete, partial, expectedRead] of [
           vi.spyOn(file, 'read').mockImplementation(
             async (...args: Parameters<typeof read>) => {
               const result = await read(...args);
-
               bytesRead += result.bytesRead;
 
               return result;

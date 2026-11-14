@@ -331,7 +331,6 @@ test('a delayed account reply preserves newer native fields and accepts untouche
     });
 
     const newer = f.session.usage.account!;
-
     response.rateLimits.secondary.usedPercent = 41;
 
     await f.reply(1, { result: response }, 'account');
@@ -371,7 +370,6 @@ test('a delayed account reply preserves newer native fields and accepts untouche
     });
 
     const denial = f.session.usage.account!.creditAccess;
-
     response.rateLimits.credits.balance = '789.012';
 
     await f.reply(2, { result: response }, 'account');

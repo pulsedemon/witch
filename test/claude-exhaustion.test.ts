@@ -54,7 +54,6 @@ async function exhausted(...turns: Step[][]) {
 
       await until('turn input', async () => {
         const inputs = await jsonLines(join(f.cwd, 'inputs.jsonl'));
-
         uuid = (inputs[index] as SDKUserMessage | undefined)?.uuid ?? '';
 
         return !!uuid;
@@ -81,7 +80,6 @@ async function exhausted(...turns: Step[][]) {
 
           await until('steered input', async () => {
             const [, input] = await jsonLines(join(f.cwd, 'inputs.jsonl'));
-
             id = (input as SDKUserMessage | undefined)?.uuid ?? '';
 
             return !!id;

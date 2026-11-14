@@ -46,7 +46,6 @@ test('clear runs in the current conversation and its visible boundary survives r
 
     const id = c.snapshot.conversation!.id;
     const native = c.snapshot.native!.id;
-
     ui = show(createElement(App, { coordinator: c, onExit: () => {} }), 80, 25);
 
     await until('old transcript', () => ui!.text().includes('earlier context'));
@@ -76,7 +75,6 @@ test('clear runs in the current conversation and its visible boundary survives r
     await c.close();
 
     c = await f.reopen();
-
     ui = show(createElement(App, { coordinator: c, onExit: () => {} }), 80, 25);
 
     await until(

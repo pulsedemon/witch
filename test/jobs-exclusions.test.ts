@@ -155,7 +155,6 @@ test('a mixed group preserves ordinary ownership while excluding tmux', async ()
     assert.equal(kill.mock.calls.length, 0);
 
     rows = [orphan, child];
-
     const restored = (await jobs.list()).find(({ group }) => group === 100201);
 
     assert.ok(restored, 'ordinary orphan returns after tmux exits');
@@ -314,13 +313,11 @@ test('a failed read does not commit partial tmux exclusions', async () => {
     assert.ok(before);
 
     rows = [agentRow, { ...original[1]!, name: 'tmux' }, orphanRow(100602)];
-
     fail = true;
 
     await assert.rejects(jobs.list(), { message: 'mark failed' });
 
     rows = original;
-
     fail = false;
 
     assert.deepEqual(await jobs.list(), [before]);

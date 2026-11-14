@@ -74,7 +74,6 @@ export class Graphics {
       this.entries.set(key, 'queued');
 
       const { signal } = this.controller;
-
       this.queue = this.queue.then(() => this.load(key, signal));
 
       return [];

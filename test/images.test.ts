@@ -220,9 +220,7 @@ test('a failed image conversion sends nothing and removes its temporary files', 
 test('data that starts like a PNG but breaks its signature after `\\x89PNG` is converted, not sent as PNG', async (t) => {
   const calls = sips(t, () => new Error('fixture conversion failure'));
   const image = png(1, 1);
-
   image[4] = 0;
-
   const source = `data:image/png;base64,${image.toString('base64')}`;
   const graphics = new Graphics(() => {});
 

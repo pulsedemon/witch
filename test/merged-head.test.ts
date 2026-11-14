@@ -20,9 +20,7 @@ import { exists, until, within } from './fixtures/within.js';
 
 // a developer's own git config would take part in the fixtures' switches and fetches
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-
 process.env.GIT_CONFIG_NOSYSTEM = '1';
-
 const execute = promisify(execFile);
 const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
 const url = 'https://github.test/o/r/pull/7';
@@ -53,7 +51,6 @@ async function withGh<T>(
   await chmod(join(bin, 'gh'), 0o755);
 
   const previousPath = process.env.PATH;
-
   process.env.PATH = `${bin}:${previousPath}`;
 
   try {

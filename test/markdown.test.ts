@@ -141,11 +141,9 @@ function streamMarkdown(chunks: readonly string[]): string[] {
       complete.push(...rendered.complete);
 
       pending = rendered.pending;
-
       output = [...complete, rendered.tail].join('\n');
     } else {
       full = true;
-
       output = markdown(source, '/work');
     }
 

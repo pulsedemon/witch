@@ -363,7 +363,6 @@ for (const [name, observed, expected] of [
   test(name, async (t) => {
     const stub = stubRepository();
     const { merged } = fixture(t.onTestFinished, stub.repository);
-
     stub.repository.pullRequestReadAt = 1000;
 
     await stub.publish(status({ pullRequest: pr() }));
@@ -377,7 +376,6 @@ for (const [name, observed, expected] of [
 test('a merge delivered before the open read publishes refreshes it once it does', async (t) => {
   const stub = stubRepository();
   const { merged } = fixture(t.onTestFinished, stub.repository);
-
   stub.repository.pullRequestReadAt = 1000;
 
   await merged([merge('m', 'main', at(1500))]);

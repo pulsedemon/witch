@@ -95,7 +95,6 @@ test('a pushed fix and its thread reply cover a summary without another response
 
 test('a summary claiming no open issues stays pending while it has its own inline finding', () => {
   const source = reviewSource();
-
   source.reviews[0]!.body = '**No open issues** 🎉';
 
   assert.deepEqual(
@@ -112,7 +111,6 @@ test('a summary claiming no open issues stays pending while it has its own inlin
 
 test('a summary claiming no open issues stays pending while it lists a previously missed issue', () => {
   const source = reviewSource();
-
   source.threads = [];
 
   source.reviews[0]!.body = [
@@ -140,7 +138,6 @@ test('a handled finding stays handled through rereads, head updates and human re
   );
 
   f.source.pullRequest.commit = 'c'.repeat(40);
-
   f.source.threads[0]!.isResolved = true;
 
   f.source.threads[0]!.comments.push({
@@ -194,9 +191,7 @@ test.each(['edit', 'new comment'])(
 
 test('a result for an older content version cannot handle a finding edited during its turn', async () => {
   const f = fixture();
-
   f.source.threads[0]!.comments[0]!.body = 'New evidence after dispatch.';
-
   const changed = observeReviews(f.state, f.source);
 
   const result = await reconcileReviews(
@@ -234,13 +229,11 @@ test.each([
     );
 
     f.source.threads[0]!.comments[0]!.body = 'A revised finding.';
-
     const edited = observeReviews(settled, f.source);
 
     assert.equal(edited.items[1]!.status, 'pending');
 
     f.source.threads[0]!.comments[0]!.body = 'The retry crosses the deadline.';
-
     const repeated = observeReviews(edited, f.source);
 
     assert.equal(repeated.items[1]!.status, expected);
@@ -433,7 +426,6 @@ test.each(['another batch', 'unknown item', 'duplicate item'])(
 
 test('partial results retain missing findings as visible blockers', async () => {
   const f = fixture();
-
   f.result.items = [f.result.items[1]!];
 
   const result = await reconcileReviews(
@@ -454,9 +446,7 @@ test('partial results retain missing findings as visible blockers', async () => 
   assert.equal(result.items[0]!.receipts[0]!.disposition, 'blocked');
 
   f.source.reviews[0]!.body = 'A revised summary.';
-
   const edited = observeReviews(result, f.source);
-
   f.source.reviews[0]!.body = reviewSource().reviews[0]!.body;
 
   assert.equal(observeReviews(edited, f.source).items[0]!.status, 'blocked');
@@ -465,9 +455,7 @@ test('partial results retain missing findings as visible blockers', async () => 
 test('an omitted disposition retains its admitted version when the finding changes mid-turn', async () => {
   const f = fixture();
   const original = f.source.threads[0]!.comments[0]!.body;
-
   f.source.threads[0]!.comments[0]!.body = 'Edited during the review turn.';
-
   const edited = observeReviews(f.state, f.source);
 
   const settled = await reconcileReviews(
@@ -488,7 +476,6 @@ test('an omitted disposition retains its admitted version when the finding chang
   assert.equal(settled.items[1]!.receipts[0]!.disposition, 'blocked');
 
   f.source.threads[0]!.comments[0]!.body = original;
-
   const restored = observeReviews(settled, f.source);
 
   assert.equal(restored.items[1]!.status, 'blocked');
@@ -589,9 +576,7 @@ test('blocked receipts with blank errors survive save and reopen', async (t) => 
   for (const error of ['', ' \n']) {
     const f = fixture();
     const id = randomUUID();
-
     f.batch.owner = id;
-
     f.state.claim = f.batch.claim;
 
     const record = conversationRecordSchema.parse({
@@ -690,9 +675,7 @@ for (const disposition of ['handled', 'blocked']) {
 
     const before = settled.items.find(({ id }) => id === 'review-1')!;
     const body = f.source.reviews[0]!.body;
-
     f.source.reviews[0]!.body = '';
-
     const absent = observeReviews(settled, f.source);
 
     assert.equal(
@@ -713,9 +696,7 @@ for (const disposition of ['handled', 'blocked']) {
 test('an omitted thread retains its attempted version and batch for reconciliation', () => {
   const f = fixture();
   const threads = f.source.threads;
-
   f.source.threads = [];
-
   const absent = observeReviews(f.state, f.source);
   const item = absent.items.find(({ id }) => id === 'thread-1')!;
 
@@ -726,7 +707,6 @@ test('an omitted thread retains its attempted version and batch for reconciliati
   assert.equal(absent.batch!.id, f.batch.id);
 
   f.source.threads = threads;
-
   const restored = observeReviews(absent, f.source);
 
   assert.deepEqual(

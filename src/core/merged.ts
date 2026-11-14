@@ -120,7 +120,6 @@ export async function runMergeCleanup(
         (await memory.scopePaths(install)).project
     ) {
       const resuming = !!progress.install;
-
       progress.install ??= {};
 
       notice(
@@ -366,13 +365,11 @@ async function fastForward(
     return false;
 
   progress.head = head;
-
   progress.target = await git('rev-parse', '@{upstream}');
 
   await git('merge', '--ff-only', '--no-overwrite-ignore', progress.target);
 
   progress.head = progress.target;
-
   progress.done = true;
 
   return true;
@@ -513,7 +510,6 @@ async function clean(
 
       if (progress.pull?.target === head) {
         progress.pull.head = head;
-
         progress.pull.done = true;
       }
     } else if (progress.moved || status.branch !== branch || head !== commit)
@@ -873,7 +869,6 @@ async function clean(
         await checkRemote();
 
         refs = await readBranches();
-
         keptDefault = name;
       }
     } catch (error) {
@@ -1031,7 +1026,6 @@ async function reconcilePull(
 ): Promise<void> {
   if (progress.target && (await git('rev-parse', 'HEAD')) === progress.target) {
     progress.head = progress.target;
-
     progress.done = true;
   }
 }
@@ -1229,9 +1223,7 @@ async function removePlans(
   if (progress.done) return progress;
 
   const top = await topLevel(git);
-
   progress.root = top;
-
   const ledgers = join(top, planDirectories.ledgers);
   const { removed, stayed } = progress;
 
@@ -1357,9 +1349,7 @@ export async function refreshInstall(
 
   try {
     progress.root ??= await topLevel(git);
-
     progress.checkout ??= {};
-
     const status = await read(git);
     const head = await git('rev-parse', 'HEAD');
     const checkout = progress.checkout;

@@ -36,7 +36,6 @@ test('a model chosen to keep the current effort stores the effort in force', asy
 test('catalog refresh preserves the active session, process, transcript, usage and skills and reports each failed runtime', async () => {
   const { coordinator, a, b, root } = await fixture(undefined, (a) => {
     a.connectUsage = { context: 0.75 };
-
     a.skills = [{ name: 'spell', description: 'Current spell' }];
   });
 
@@ -333,9 +332,7 @@ test('a listed /skill reaches the agent as a skill call, and an unlisted one sta
 test("a model list that fails at connect is reported, and the session's skills and usage still reach the snapshot", async () => {
   const { coordinator, a, store, project } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
-
     a.connectUsage = { context: 5 };
-
     a.failModels = true;
   });
 
@@ -442,7 +439,6 @@ for (const stop of ['interrupt', 'close'] as const)
         };
 
         a.gate = gate;
-
         sending = coordinator.send('Start');
 
         await within(gate.entered, 2000, 'the first turn');
