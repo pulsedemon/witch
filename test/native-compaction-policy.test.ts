@@ -150,6 +150,32 @@ test('Claude lets a failing usage publish reach its caller and keeps a failed co
   assert.equal(published, false);
 });
 
+test("a usage publish that throws in Claude's background context read leaves no unhandled rejection and a usable session", async () => {
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => unhandled.push(reason);
+  process.on('unhandledRejection', record);
+  let thrown = false;
+  const f = await launcher();
+  const session = await f.connect({
+    onEvent: (event) => {
+      // only the context read reports a percentage, and it does so first at connect
+      if (thrown || event.type !== 'usage' || event.usage.context === undefined)
+        return;
+      thrown = true;
+      throw new Error('publish failed');
+    },
+  });
+  try {
+    await until('the failed publish', () => thrown);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(unhandled, []);
+    assert.equal((await session.send('hello')).status, 'completed');
+  } finally {
+    process.off('unhandledRejection', record);
+    await session.close();
+  }
+});
+
 test('Claude compact hooks retain the current context reader when an older turn releases its reader', async () => {
   const policy = new ClaudeContext(() => ({
     getContextUsage: async () => context(1_000_000, 967_000),
