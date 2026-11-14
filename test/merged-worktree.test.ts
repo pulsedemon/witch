@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
 import { cleanUpMerge } from '../src/core/merged.js';
@@ -31,6 +31,22 @@ async function hook(checkout: string, body: string) {
   await write(join(hooks, 'post-checkout'), `#!/bin/sh\n${body}\n`);
   await chmod(join(hooks, 'post-checkout'), 0o755);
 }
+
+test('a main checkout whose path contains a newline switches to its base after a merge', async () => {
+  const { root, checkout, other, tip } = await merged();
+  const renamed = join(root, 'check\nout');
+  await rename(checkout, renamed);
+  await merge(other, 'feat/x');
+  const expected = await git(other, 'rev-parse', 'HEAD');
+  const result = await cleanUpMerge(renamed, pullRequest(tip), idle);
+  assert.deepEqual(result, {
+    text: '#7 merged: switched to main and pulled, deleted branch feat/x.',
+    cleaned: true,
+  });
+  assert.equal(await git(renamed, 'symbolic-ref', 'HEAD'), 'refs/heads/main');
+  assert.equal(await git(renamed, 'rev-parse', 'HEAD'), expected);
+  assert.deepEqual(await branches(renamed), ['main']);
+});
 
 test("a merged branch in a worktree whose base another worktree holds detaches at the base's upstream and loses the branch", async () => {
   const { launcher, checkout, other, tip } = await merged({}, [], true);

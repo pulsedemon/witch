@@ -463,15 +463,12 @@ async function clean(
     // checkout detaches only while a worktree holds the base, and keeps that decision, so a retry after it lets go still
     // detaches
     if (progress.detached === undefined) {
-      const [gitDir, commonDir, top] = (
-        await git(
-          'rev-parse',
-          '--path-format=absolute',
-          '--git-dir',
-          '--git-common-dir',
-          '--show-toplevel',
-        ).catch(stopped)
-      ).split('\n');
+      // separate reads keep newlines inside paths from becoming separators between them
+      const [gitDir, commonDir, top] = await Promise.all([
+        git('rev-parse', '--path-format=absolute', '--git-dir'),
+        git('rev-parse', '--path-format=absolute', '--git-common-dir'),
+        git('rev-parse', '--path-format=absolute', '--show-toplevel'),
+      ]).catch(stopped);
       const holder = await git(
         'for-each-ref',
         '--format=%(worktreepath)',
