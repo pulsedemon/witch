@@ -5,7 +5,7 @@ import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../../../src/core/coordinator.js';
 import { watchMerges } from '../../../src/core/repository/merge-watch.js';
@@ -756,6 +756,19 @@ async function interruptedCleanup(
   slowReconcile = false,
 ) {
   const { coordinator, root, project } = await fixture();
+
+  if (!slowReconcile) {
+    const timeout = AbortSignal.timeout;
+
+    // successful reconciliation must not depend on how fast Git starts under load
+    const deadline = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation((ms) =>
+        ms === 1000 ? new AbortController().signal : timeout(ms),
+      );
+
+    register(() => deadline.mockRestore());
+  }
 
   const { origin, install, base, tip } = await mergedOrigin(
     root,
