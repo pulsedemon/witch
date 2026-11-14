@@ -23,7 +23,7 @@ import {
   ConversationStore,
   StateStore,
 } from '../../../src/persistence/store.js';
-import { FixtureAgent, holdConnect } from '../../fixtures/agent.js';
+import { FixtureAgent, holdConnect, TurnGate } from '../../fixtures/agent.js';
 import {
   record,
   activity,
@@ -1141,6 +1141,46 @@ test('an interrupt while a chosen model connects keeps the stored one', async ()
 
     assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
   } finally {
+    await coordinator.close();
+  }
+});
+
+test('each distinct busy refusal reports once even when its message repeats', async () => {
+  const { coordinator, a } = await unitFixture();
+  const gate = new TurnGate();
+
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('hold the turn');
+
+    await gate.entered;
+
+    for (let i = 0; i < 2; i++)
+      await assert.rejects(coordinator.newConversation(), (error: unknown) => {
+        assert.ok(error instanceof Error);
+
+        coordinator.report(error);
+
+        coordinator.report(error);
+
+        return true;
+      });
+
+    const notices = coordinator.snapshot.items.filter(
+      ({ kind, text }) =>
+        kind === 'notice' && text === 'Stop the current operation first',
+    );
+
+    assert.equal(notices.length, 2);
+
+    assert.equal(coordinator.snapshot.error, undefined);
+
+    gate.open();
+
+    await sending;
+  } finally {
+    gate.open();
+
     await coordinator.close();
   }
 });
