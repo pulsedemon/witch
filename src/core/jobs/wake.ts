@@ -15,16 +15,16 @@ export interface WakeOptions {
 }
 
 const caffeinate = (pid: number) =>
-  spawn('/usr/bin/caffeinate', ['-i', '-w', String(pid)], {
+  spawn('/usr/bin/caffeinate', ['-d', '-i', '-w', String(pid)], {
     stdio: 'ignore',
     // its own session, so a hangup that reaches Witch's process group leaves the holder for `-w` to end
     detached: true,
   });
 
 /**
- * keeps macOS from idle sleeping while Witch has started something that is still going, a job included, through one
- * `caffeinate` per instance. `-w` ends the hold with Witch's pid, however Witch dies. a hold that ends on its own is
- * not replaced: `failed` hears it then, and again when a conversation loads without its notice.
+ * keeps the system and display awake while Witch has work, including jobs, through one `caffeinate` per instance.
+ * `-w` ends the hold when Witch's pid exits. unexpected holder exits are reported, not retried; the notice returns
+ * when a conversation loads without it.
  */
 export function keepAwake(
   coordinator: Pick<Coordinator, 'snapshot' | 'subscribe'>,
