@@ -942,6 +942,7 @@ for (const [stage, worktree] of [
 
     const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
     const cleanup = coordinator.cleanUpMerge.bind(coordinator);
+    const completed = Promise.withResolvers<void>();
 
     coordinator.cleanUpMerge = async (...args) => {
       const result = await cleanup(...args);
@@ -949,6 +950,8 @@ for (const [stage, worktree] of [
       if (result === 'interrupted') await stopped();
 
       results.push(result);
+
+      if (result === true) completed.resolve();
 
       return result;
     };
@@ -969,11 +972,7 @@ for (const [stage, worktree] of [
 
       await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
 
-      await until(
-        'resumed cleanup completion',
-        () => results.includes(true),
-        500,
-      );
+      await completed.promise;
 
       assert.deepEqual(results, ['interrupted', true]);
 
