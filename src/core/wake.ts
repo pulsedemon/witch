@@ -24,8 +24,7 @@ const caffeinate = (pid: number) =>
 /**
  * keeps macOS from idle sleeping while Witch has started something that is still going, a job included, through one
  * `caffeinate` per instance. `-w` ends the hold with Witch's pid, however Witch dies. a hold that ends on its own is
- * not replaced: `failed` hears it then, and again whenever a conversation loads, since the load replaces the
- * transcript.
+ * not replaced: `failed` hears it then, and again when a conversation loads without its notice.
  */
 export function keepAwake(
   coordinator: Pick<Coordinator, 'snapshot' | 'subscribe'>,
@@ -87,6 +86,12 @@ export function keepAwake(
       const { conversation } = coordinator.snapshot;
       if (conversation === reported) return;
       reported = conversation;
+      if (
+        coordinator.snapshot.items.some(
+          ({ kind, text }) => kind === 'notice' && text === lost!.message,
+        )
+      )
+        return;
       failed(lost);
       return;
     }

@@ -290,7 +290,7 @@ test.each<{
   },
 );
 
-test('a failure before the first conversation loads is reported again when it loads', () => {
+test('a startup failure is kept once on first load and reported in a later conversation', () => {
   const coordinator = snapshotCoordinator();
   assert.equal(coordinator.snapshot.phase, 'starting');
   assert.equal(coordinator.snapshot.conversation, undefined);
@@ -327,14 +327,23 @@ test('a failure before the first conversation loads is reported again when it lo
     coordinator.publish({ draft: 'typing' });
     assert.equal(failures.length, 1);
     const conversation = record('first', '/project');
-    coordinator.publish({ conversation, items: [] });
-    assert.equal(failures.length, 2);
+    coordinator.publish({ conversation });
+    assert.equal(failures.length, 1);
     assert.deepEqual(
       coordinator.snapshot.items.map(({ text }) => text),
       [prefix + 'no launch'],
     );
     coordinator.publish({ conversation });
+    assert.equal(failures.length, 1);
+    coordinator.publish({
+      conversation: record('second', '/project'),
+      items: [],
+    });
     assert.equal(failures.length, 2);
+    assert.deepEqual(
+      coordinator.snapshot.items.map(({ text }) => text),
+      [prefix + 'no launch'],
+    );
     assert.equal(launches, 1);
   } finally {
     stop();
