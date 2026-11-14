@@ -21,17 +21,21 @@ export function ScrollPage({
 }: Props) {
   const last = Math.max(0, lines.length - height);
   const top = Math.min(scroll, last);
+
   /** steps from the shown top, so movement still works after the page shrinks. */
   const scrollBy = (rows: number) =>
     setScroll((value) =>
       Math.max(0, Math.min(last, Math.min(value, last) + rows)),
     );
+
   // request input guards do not block scrolling.
   useWheel((rows) => {
     if (active) scrollBy(rows);
   });
+
   useInput((_, key) => {
     if (!active || key.eventType === 'release') return;
+
     const rows = key.pageDown
       ? height
       : arrows && key.downArrow
@@ -41,6 +45,7 @@ export function ScrollPage({
           : arrows && key.upArrow
             ? -1
             : 0;
+
     if (rows) scrollBy(rows);
   });
 

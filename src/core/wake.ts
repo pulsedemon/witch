@@ -37,6 +37,7 @@ export function keepAwake(
   }: WakeOptions = {},
 ): () => void {
   if (platform !== 'darwin') return () => {};
+
   let holder: ChildProcess | undefined;
   let working = false;
   let closing = false;
@@ -46,31 +47,43 @@ export function keepAwake(
   const release = () => {
     const retiring = holder;
     holder = undefined;
+
     // a child whose spawn failed has no pid until its error arrives, so a kill before then has no valid target
     if (retiring && running(retiring)) retiring.kill();
   };
+
   const lose = (reason: string, options?: ErrorOptions) => {
     holder = undefined;
+
     lost = new Error(
       `Witch can't keep the Mac awake until it restarts: ${reason}`,
       options,
     );
+
     reported = coordinator.snapshot.conversation;
+
     failed(lost);
   };
+
   const hold = () => {
     let child: ChildProcess;
+
     try {
       child = launch(pid);
     } catch (error) {
       lose(errorMessage(error), { cause: error });
+
       return;
     }
+
     holder = child;
+
     child.unref();
+
     child.once('error', (error) => {
       if (holder === child) lose(errorMessage(error), { cause: error });
     });
+
     child.once('exit', (code, signal) => {
       if (holder === child)
         lose(
@@ -80,39 +93,55 @@ export function keepAwake(
         );
     });
   };
+
   // `failed` publishes a notice, which runs this again before it returns, so every branch updates its state first
   const update = () => {
     if (lost) {
       const { conversation } = coordinator.snapshot;
+
       if (conversation === reported) return;
+
       reported = conversation;
+
       if (
         coordinator.snapshot.items.some(
           ({ kind, text }) => kind === 'notice' && text === lost!.message,
         )
       )
         return;
+
       failed(lost);
+
       return;
     }
+
     // a failure reported during close replaces the phase, and the hold lasts until the process exits
     closing ||= coordinator.snapshot.phase === 'closing';
+
     const next =
       closing ||
       witchWorking(coordinator.snapshot) ||
       !!coordinator.snapshot.automatic ||
       jobs.live;
+
     if (next === working) return;
+
     working = next;
+
     if (working) hold();
     else release();
   };
+
   const unsubscribe = coordinator.subscribe(update);
   const unsubscribeJobs = jobs.subscribe(update);
+
   update();
+
   return () => {
     unsubscribe();
+
     unsubscribeJobs();
+
     release();
   };
 }

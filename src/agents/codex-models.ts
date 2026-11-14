@@ -22,6 +22,7 @@ export async function readModels(
   includeHidden?: true,
 ): Promise<Model[]> {
   const models: Model[] = [];
+
   for await (const data of pages(
     rpc,
     'model/list',
@@ -37,5 +38,6 @@ export async function readModels(
         ),
       })),
     );
+
   return models;
 }

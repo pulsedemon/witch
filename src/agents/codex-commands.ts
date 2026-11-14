@@ -44,6 +44,7 @@ export type Notification = {
 };
 
 const commandStatus = z.enum(['completed', 'failed', 'declined']);
+
 const backgroundList = z.object({
   data: z.array(
     z.object({
@@ -75,29 +76,41 @@ export class CodexCommands {
 
   receive(message: Notification): void {
     if (this.stopped) return;
+
     const { params, item } = message;
+
     if (!item && message.method !== 'turn/completed') return;
+
     if (item && item.type !== 'commandExecution') return;
+
     const threadId = z.string().parse(params.threadId);
+
     if (!this.knownThread(threadId)) return;
+
     if (!item) {
       const { turn } = z
         .object({
           turn: z.object({ id: z.string(), status: z.string().optional() }),
         })
         .parse(params);
+
       for (const entry of this.entries.values())
         if (entry.threadId === threadId && entry.turnId === turn.id) {
           entry.ended = true;
+
           entry.interrupted =
             turn.status === 'interrupted' ||
             this.interrupted(threadId, turn.id);
         }
+
       void this.readBackground(threadId);
+
       return;
     }
+
     const itemId = z.string().parse(item.id);
     const key = `${threadId}/${itemId}`;
+
     if (message.method === 'item/started') {
       this.entries.set(key, {
         threadId,
@@ -109,23 +122,32 @@ export class CodexCommands {
         partial: '',
         familiars: [],
       });
+
       return;
     }
+
     const entry = this.entries.get(key);
+
     if (!entry || entry.done) return;
+
     const familiars = admitted(entry.familiars);
+
     const status =
       entry.command && !familiars.length
         ? commandStatus.parse(item.status)
         : undefined;
+
     entry.done = true;
+
     if (familiars.length) {
       const stopped =
         this.closing ||
         entry.interrupted ||
         this.interrupted(entry.threadId, entry.turnId);
+
       for (const familiar of familiars)
         familiar.end(stopped ? 'stopped' : 'failed');
+
       void this.collect(entry, item.status === 'completed');
     } else {
       if (entry.command)
@@ -136,12 +158,14 @@ export class CodexCommands {
             status: status === 'completed' ? 'completed' : 'failed',
           },
         });
+
       if (!entry.familiars.length) this.entries.delete(key);
     }
   }
 
   output(params: unknown): void {
     if (!this.binding || this.stopped) return;
+
     const parsed = z
       .object({
         threadId: z.string(),
@@ -150,9 +174,12 @@ export class CodexCommands {
         delta: z.string(),
       })
       .safeParse(params);
+
     if (!parsed.success) return;
+
     const { threadId, turnId, itemId, delta } = parsed.data;
     const entry = this.entries.get(`${threadId}/${itemId}`);
+
     if (
       !entry ||
       entry.done ||
@@ -160,18 +187,23 @@ export class CodexCommands {
       !this.knownThread(threadId)
     )
       return;
+
     for (const part of delta.split(/(?<=\n)/)) {
       const ends = part.endsWith('\n');
+
       if (!entry.discarding) {
         entry.partial += part;
+
         if (entry.partial.length > 4096) {
           entry.partial = '';
           entry.discarding = true;
         } else if (ends) {
           const marker = boundMarker(entry.partial.trimEnd(), this.binding);
+
           if (marker) addFamiliar(entry.familiars, marker);
         }
       }
+
       if (ends) {
         entry.partial = '';
         entry.discarding = false;
@@ -181,11 +213,16 @@ export class CodexCommands {
 
   report(action: FamiliarAction, deadline: number): FamiliarOutcome {
     checkDeadline(deadline);
+
     if (this.stopped || this.closing || !this.binding)
       throw new Error('Familiar reporting is unavailable.');
+
     const found = findFamiliar(this.entries.values(), action);
+
     if (!found) return { kind: 'familiar-pending' };
+
     const { entry, slot } = found;
+
     return admitFamiliar(
       slot,
       entry.done === true,
@@ -193,6 +230,7 @@ export class CodexCommands {
       (action) => {
         if (!entry.processId) {
           if (entry.lookupError) throw new Error(entry.lookupError);
+
           entry.lookup ??= this.readHandle(entry)
             .catch((error: unknown) => {
               entry.lookupError = errorMessage(error);
@@ -200,8 +238,10 @@ export class CodexCommands {
             .finally(() => {
               entry.lookup = undefined;
             });
+
           return { kind: 'familiar-pending' };
         }
+
         return new FamiliarRun(
           action,
           this.emit,
@@ -227,25 +267,31 @@ export class CodexCommands {
 
   async close(): Promise<void> {
     this.closing = true;
+
     await Promise.all(
       [...this.entries.values()]
         .filter((entry) => admitted(entry.familiars).length)
         .map((entry) => this.collect(entry)),
     );
+
     this.stop();
   }
 
   stop(): void {
     this.stopped = true;
+
     for (const entry of this.entries.values()) {
       const familiars = admitted(entry.familiars);
+
       for (const familiar of familiars) familiar.end('stopped');
+
       if (!familiars.length && entry.command)
         this.emit({
           type: 'command',
           command: { ...entry.command, status: 'stopped' },
         });
     }
+
     this.entries.clear();
   }
 
@@ -268,14 +314,17 @@ export class CodexCommands {
       })
       .catch((error: unknown) => {
         if (this.stopped) return;
+
         const names = admitted(entry.familiars)
           .map(({ subagent }) => subagent.name)
           .join(', ');
+
         this.emit({
           type: 'notice',
           text: `Witch could not confirm cleanup of ${names}: ${errorMessage(error)}`,
         });
       });
+
     return entry.cleanup;
   }
 
@@ -289,11 +338,15 @@ export class CodexCommands {
         this.entries.get(`${entry.threadId}/${entry.itemId}`) !== entry
       )
         return;
+
       const terminal = data.find((item) => item.itemId === entry.itemId);
+
       if (terminal) {
         if (!terminal.processId)
           throw new Error('The native terminal has no process handle.');
+
         entry.processId = terminal.processId;
+
         return;
       }
     }
@@ -317,16 +370,22 @@ export class CodexCommands {
         !entry.command &&
         !admitted(entry.familiars).length,
     );
+
     if (!candidates.length) return;
+
     try {
       const listed = new Map<string, string>();
+
       for await (const data of this.backgroundPages(threadId)) {
         if (this.stopped || this.closing) return;
+
         for (const { itemId, command } of data)
           listed.set(`${threadId}/${itemId}`, command);
       }
+
       for (const [id, entry] of candidates) {
         const description = listed.get(id);
+
         if (
           description === undefined ||
           this.entries.get(id) !== entry ||
@@ -335,7 +394,9 @@ export class CodexCommands {
           entry.done
         )
           continue;
+
         entry.command = { id, description, status: 'running' };
+
         this.emit({ type: 'command', command: entry.command });
       }
     } catch (error) {

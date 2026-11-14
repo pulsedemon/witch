@@ -6,6 +6,7 @@ import { scratch } from './scratch.js';
 
 export const write = async (path: string, text: string) => {
   await mkdir(dirname(path), { recursive: true });
+
   await writeFile(path, text);
 };
 
@@ -28,25 +29,39 @@ export async function merged(
   const checkout = join(root, 'checkout');
   const other = join(root, 'other');
   const main = worktree ? launcher : checkout;
+
   await git(root, 'init', '--bare', origin);
+
   await git(root, 'clone', origin, main);
+
   await write(
     join(main, '.gitignore'),
     ['docs/superpowers/', '.superpowers/', ...ignore, ''].join('\n'),
   );
+
   for (const [name, text] of Object.entries(files))
     await write(join(main, name), text);
+
   await git(main, 'add', '.');
+
   await git(main, 'commit', '-m', 'base');
+
   await git(main, 'push', '-u', 'origin', 'main');
+
   if (worktree)
     await git(launcher, 'worktree', 'add', '-b', 'feat/x', checkout);
   else await git(checkout, 'switch', '-c', 'feat/x');
+
   await write(join(checkout, 'x.txt'), 'x\n');
+
   await git(checkout, 'add', '.');
+
   await git(checkout, 'commit', '-m', 'x');
+
   await git(checkout, 'push', '-u', 'origin', 'feat/x');
+
   await git(root, 'clone', origin, other);
+
   return {
     root,
     origin,
@@ -59,6 +74,7 @@ export async function merged(
 
 export async function merge(other: string, branch: string, keep = false) {
   await git(other, 'pull');
+
   await git(
     other,
     'merge',
@@ -67,7 +83,9 @@ export async function merge(other: string, branch: string, keep = false) {
     `merge ${branch}`,
     `origin/${branch}`,
   );
+
   await git(other, 'push', 'origin', 'main');
+
   if (!keep) await git(other, 'push', 'origin', '--delete', branch);
 }
 

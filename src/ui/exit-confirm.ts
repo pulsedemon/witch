@@ -5,13 +5,18 @@ import { useLiveState } from './live-state.js';
 export function useExitConfirm(onExit: () => void) {
   const [armed, armedRef, setArmed] = useLiveState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
   useEffect(() => () => clearTimeout(timer.current), []);
+
   return {
     armed,
     press() {
       clearTimeout(timer.current);
+
       if (armedRef.current) return onExit();
+
       setArmed(true);
+
       timer.current = setTimeout(() => setArmed(false), 1000);
     },
   };

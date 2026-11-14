@@ -45,6 +45,7 @@ export async function readContextCatalog(
       ),
     );
   });
+
   return catalog.parse(JSON.parse(stdout));
 }
 
@@ -68,10 +69,14 @@ export class CodexCompactionPolicy {
     read: typeof readContextCatalog,
   ): Promise<CodexCompactionPolicy | undefined> {
     if (!options.automaticCompaction) return;
+
     const models = await read(options);
+
     if (!models.models.length) return;
+
     const config = await readConfig(rpc, options.cwd);
     let model = options.model;
+
     if (!model && options.resume) {
       const saved = z
         .object({ thread: z.object({ model: z.string().nullish() }) })
@@ -81,29 +86,39 @@ export class CodexCompactionPolicy {
             includeTurns: false,
           }),
         );
+
       model = saved.thread.model ?? undefined;
     } else if (!model && typeof config.model === 'string') model = config.model;
+
     if (!model && !options.resume) {
       const page = z
         .object({
           data: z.array(z.object({ id: z.string(), isDefault: z.boolean() })),
         })
         .parse(await rpc.request('model/list', { cursor: null, limit: 100 }));
+
       model = page.data.find((entry) => entry.isDefault)?.id;
     }
+
     const windows = new Map<string, number>();
+
     for (const entry of models.models) {
       const requested = config.model_context_window;
+
       const window =
         typeof requested === 'number'
           ? Math.min(requested, entry.max_context_window ?? requested)
           : (entry.context_window ?? entry.max_context_window);
+
       if (window === undefined || window === null) continue;
+
       const usable = Math.floor(
         (window * entry.effective_context_window_percent) / 100,
       );
+
       if (usable > 0) windows.set(entry.slug, usable);
     }
+
     return new CodexCompactionPolicy(
       rpc,
       options,
@@ -115,6 +130,7 @@ export class CodexCompactionPolicy {
 
   target(model = this.model): number | undefined {
     const window = model === undefined ? undefined : this.windows.get(model);
+
     return window === undefined
       ? undefined
       : compactionThreshold(window).tokens;
@@ -122,6 +138,7 @@ export class CodexCompactionPolicy {
 
   configuration(model = this.model): Record<string, unknown> {
     const target = this.target(model);
+
     return target === undefined
       ? {}
       : {
@@ -132,6 +149,7 @@ export class CodexCompactionPolicy {
 
   assertIdle(model: string, busy: boolean): void {
     const target = this.target(model);
+
     if (target !== this.applied && busy)
       throw new Error(
         'Wait for Codex background work to finish before changing its compaction window.',
@@ -145,9 +163,13 @@ export class CodexCompactionPolicy {
   ): Promise<unknown> {
     const { model, effort } = selection;
     const target = this.target(model);
+
     if (target === this.applied) return;
+
     this.assertIdle(model, busy);
+
     await this.rpc.request('thread/unsubscribe', { threadId: info.id });
+
     const response = await this.rpc.request(
       info.hasHistory ? 'thread/resume' : 'thread/start',
       {
@@ -166,7 +188,9 @@ export class CodexCompactionPolicy {
         ...(info.hasHistory ? { threadId: info.id, excludeTurns: true } : {}),
       },
     );
+
     this.applied = target;
+
     return response;
   }
 }

@@ -10,6 +10,7 @@ import type { NativeRuntime } from './runtime-updates.js';
 import type { AgentAdapter } from './types.js';
 import { unlessGone } from '../persistence/json.js';
 import { withoutModelPins } from './claude-side.js';
+
 export type VerificationLaunch = (
   command: string,
   args: string[],
@@ -17,6 +18,7 @@ export type VerificationLaunch = (
   env: NodeJS.ProcessEnv,
   signal?: AbortSignal,
 ) => ChildProcessWithoutNullStreams;
+
 const launch: VerificationLaunch = (command, args, cwd, env, signal) =>
   spawn(command, args, { cwd, env, signal, stdio: 'pipe' });
 
@@ -36,16 +38,21 @@ export async function verificationAdapter(
 ): Promise<AgentAdapter> {
   const config = join(directory, 'config');
   const temporary = join(directory, 'tmp');
+
   await mkdir(config, { recursive: true, mode: 0o700 });
+
   await mkdir(temporary, { recursive: true, mode: 0o700 });
+
   if (runtime === 'codex') {
     const auth = join(config, 'auth.json');
+
     if ((await unlessGone(lstat(auth))) === undefined)
       await symlink(
         join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'auth.json'),
         auth,
       );
   }
+
   const controls = {
     TMPDIR: temporary,
     CLAUDE_CODE_TMPDIR: temporary,
@@ -56,7 +63,9 @@ export async function verificationAdapter(
     DISABLE_TELEMETRY: '1',
     DISABLE_ERROR_REPORTING: '1',
   };
+
   const env = { ...process.env, ...controls };
+
   const recorded: VerificationLaunch = (
     command,
     args,
@@ -69,8 +78,10 @@ export async function verificationAdapter(
       `${JSON.stringify({ command, args, cwd, controls })}\n`,
       { mode: 0o600 },
     );
+
     return start(command, args, cwd, withoutModelPins(environment), signal);
   };
+
   return runtime === 'codex'
     ? new CodexAdapter((executable, cwd, signal) =>
         recorded(

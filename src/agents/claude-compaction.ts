@@ -15,6 +15,7 @@ export class ClaudeCompaction {
 
   lifecycle(uuid: string, state: string): boolean {
     if (uuid !== this.uuid) return false;
+
     if (state === 'started') this.started = true;
     else if (state !== 'queued' && state !== 'completed') {
       this.finish({
@@ -22,13 +23,16 @@ export class ClaudeCompaction {
         text: '',
         error: `Claude ${state} compaction`,
       });
+
       return true;
     }
+
     return false;
   }
 
   receive(message: SDKMessage, session: string): boolean {
     if (message.session_id !== session) return false;
+
     if (message.type === 'system' && this.started) {
       if (
         message.subtype === 'compact_boundary' &&
@@ -42,12 +46,15 @@ export class ClaudeCompaction {
         this.error = message.compact_error ?? 'Claude compaction failed';
     } else if (message.type === 'result') {
       const uuids = message.user_message_uuids ?? [message.user_message_uuid];
+
       if (!uuids.includes(this.uuid)) return false;
+
       const success =
         message.subtype === 'success' &&
         !message.is_error &&
         this.replaced &&
         !this.error;
+
       this.finish({
         status: success ? 'completed' : 'failed',
         text: '',
@@ -59,13 +66,16 @@ export class ClaudeCompaction {
             }
           : {}),
       });
+
       return true;
     }
+
     return false;
   }
 
   finish(result: TurnResult): void {
     this.result ??= result;
+
     this.finished.resolve(this.result);
   }
 }

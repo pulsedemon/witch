@@ -7,19 +7,25 @@ import { oneLine } from './links.js';
 
 function bounded(text: string): string {
   if (Buffer.byteLength(text) <= 240) return text;
+
   let bytes = 3;
   let prefix = '';
+
   for (const point of text) {
     bytes += Buffer.byteLength(point);
+
     if (bytes > 240) break;
+
     prefix += point;
   }
+
   return `${prefix}…`;
 }
 
 function waiting(snapshot: Snapshot) {
   const conversation = snapshot.conversation?.id ?? '';
   const request = snapshot.requests[0];
+
   if (request)
     return {
       key: `${conversation}/request/${request.id}`,
@@ -29,6 +35,7 @@ function waiting(snapshot: Snapshot) {
         elicitation: 'Input required',
       }[request.kind],
     };
+
   if (snapshot.phase === 'recovery' || snapshot.phase === 'error')
     return {
       key: `${conversation}/${snapshot.phase}`,
@@ -37,6 +44,7 @@ function waiting(snapshot: Snapshot) {
           ? 'Memory recovery required'
           : 'Restart required',
     };
+
   return undefined;
 }
 
@@ -66,6 +74,7 @@ export function watchTerminal(
   let delivered = coordinator.snapshot.completedTurn;
   let pending: ReturnType<typeof setImmediate> | undefined;
   let disabled = false;
+
   let desktop:
     | {
         reason: () => string | undefined;
@@ -78,52 +87,70 @@ export function watchTerminal(
 
   function cancelDesktop() {
     clearTimeout(desktop?.timer);
+
     desktop = undefined;
   }
 
   function notify(reason: () => string | undefined) {
     const current = reason();
+
     if (current === undefined) return;
+
     if (!schedule) {
       write(`${message(current)}\u0007`);
+
       return;
     }
+
     write('\u0007');
+
     if (disabled || desktop) return;
+
     const alert = {
       reason,
       timer: undefined as ReturnType<typeof setTimeout> | undefined,
     };
+
     desktop = alert;
+
     const attempt = () => {
       void schedule
         .attempt(() => {
           if (stopped || desktop !== alert) return undefined;
+
           const current = reason();
+
           return current === undefined ? undefined : message(current);
         }, write)
         .then((retry) => {
           if (desktop !== alert) return;
+
           if (retry === undefined) {
             desktop = undefined;
           } else {
             alert.timer = setTimeout(attempt, retry);
+
             alert.timer.unref();
           }
         })
         .catch((error: unknown) => {
           if (stopped || disabled) return;
+
           disabled = true;
+
           cancelDesktop();
+
           coordinator.report(error);
         });
     };
+
     attempt();
   }
 
   function taskName(): string {
     const conversation = coordinator.snapshot.conversation;
     const claim = coordination?.snapshot.ownClaim;
+
     return (
       oneLine(
         (claim?.owner.conversation === conversation?.id
@@ -135,60 +162,87 @@ export function watchTerminal(
 
   function update() {
     if (stopped) return;
+
     const snapshot = coordinator.snapshot;
+
     if (snapshot.phase === 'closing') {
       stop();
+
       return;
     }
+
     if (desktop && desktop.reason() === undefined) cancelDesktop();
+
     const conversation = snapshot.conversation;
+
     if (conversation?.id !== conversationId) {
       conversationId = conversation?.id;
       delivered = snapshot.completedTurn;
+
       clearImmediate(pending);
+
       pending = undefined;
+
       cancelDesktop();
     }
+
     const status = snapshot.requests.length
       ? 'waiting'
       : sessionStatus(snapshot);
+
     const next = bounded(
       `Witch | ${status}${conversation ? ` | ${taskName()}` : ''}`,
     );
+
     if (next !== title) {
       title = next;
+
       write(`\u001b]2;${title}\u001b\\`);
     }
+
     const wait = waiting(snapshot);
+
     if (wait?.key !== active) {
       clearInterval(timer);
+
       timer = undefined;
       active = wait?.key;
+
       if (wait) {
         const reason = () => {
           const current = waiting(coordinator.snapshot);
+
           return current?.key === wait.key ? current.reason : undefined;
         };
+
         notify(reason);
+
         timer = setInterval(() => notify(reason), 15_000);
+
         timer.unref();
       }
     }
+
     const completed = snapshot.completedTurn;
+
     if (
       snapshot.phase === 'recovery' ||
       snapshot.phase === 'error' ||
       snapshot.error
     )
       delivered = completed;
+
     if (!completed || completed === delivered || !settled(snapshot)) {
       clearImmediate(pending);
+
       pending = undefined;
     } else if (!pending) {
       const owner = conversationId;
+
       pending = setImmediate(() => {
         pending = undefined;
         const current = coordinator.snapshot;
+
         if (
           stopped ||
           current.conversation?.id !== owner ||
@@ -196,9 +250,12 @@ export function watchTerminal(
           !settled(current)
         )
           return;
+
         delivered = completed;
+
         notify(() => {
           const current = coordinator.snapshot;
+
           return current.conversation?.id === owner &&
             current.completedTurn === completed &&
             settled(current)
@@ -206,21 +263,31 @@ export function watchTerminal(
             : undefined;
         });
       });
+
       pending.unref();
     }
   }
 
   const unsubscribe = coordinator.subscribe(update);
   const unsubscribeCoordination = coordination?.subscribe(update);
+
   function stop() {
     if (stopped) return;
+
     stopped = true;
+
     unsubscribe();
+
     unsubscribeCoordination?.();
+
     clearInterval(timer);
+
     clearImmediate(pending);
+
     cancelDesktop();
   }
+
   update();
+
   return stop;
 }

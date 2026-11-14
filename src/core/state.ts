@@ -168,9 +168,13 @@ export const displayUpdateSchema = z.object({
 });
 
 export type Conversation = z.infer<typeof conversationSchema>;
+
 export type ConversationRecord = z.infer<typeof conversationRecordSchema>;
+
 export type ProcessIdentity = z.infer<typeof processIdentity>;
+
 export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
+
 export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
 
 /** the newest unmarked user row of each prompt the agent never read: those `result` left unread, and the turn's own `shown` prompt when its input went unwritten. */
@@ -180,6 +184,7 @@ export function unreadRows(
   { inputUnsent, unread = [] }: Pick<TurnResult, 'inputUnsent' | 'unread'>,
 ): DisplayItem[] {
   const rows: DisplayItem[] = [];
+
   for (const prompt of [...(inputUnsent ? shown : []), ...unread]) {
     const row = items.findLast(
       (item) =>
@@ -189,8 +194,10 @@ export function unreadRows(
         !item.unread &&
         !rows.includes(item),
     );
+
     if (row) rows.push(row);
   }
+
   return rows;
 }
 
@@ -204,6 +211,7 @@ export function clearConversationContext(
 ): void {
   const previous = record.sessions[record.agent];
   const model = info?.model || previous?.model || '';
+
   record.sessions = {
     [record.agent]: {
       id: '',
@@ -213,7 +221,9 @@ export function clearConversationContext(
       hasHistory: false,
     },
   };
+
   delete record.handoff;
+
   delete record.lastTurn;
 }
 
@@ -233,6 +243,7 @@ export function appendedDisplayText(
 ): string | undefined {
   const before = appends.get(previous);
   let after = appends.get(current);
+
   if (
     !before ||
     !after ||
@@ -240,11 +251,15 @@ export function appendedDisplayText(
     before.sequence > after.sequence
   )
     return undefined;
+
   const chunks: string[] = [];
+
   while (after.sequence > before.sequence) {
     chunks.push(after.text);
+
     after = after.previous!;
   }
+
   return after === before ? chunks.reverse().join('') : undefined;
 }
 
@@ -254,12 +269,14 @@ export function recordSession(
   info: SessionInfo,
 ): void {
   const previous = conversation.sessions[agent];
+
   conversation.sessions[agent] = {
     ...previous,
     id: info.id,
     model: info.model,
     hasHistory: info.hasHistory,
   };
+
   if (previous?.id !== info.id) clearDelivery(conversation.sessions[agent]!);
 }
 
@@ -274,6 +291,7 @@ export function recordDelivery(
     reference.deliveredMerges = [
       ...new Set([...(reference.deliveredMerges ?? []), ...delivered.merges]),
     ];
+
   if (delivered.answers.length)
     reference.deliveredAnswers = [
       ...new Set([...(reference.deliveredAnswers ?? []), ...delivered.answers]),
@@ -283,8 +301,11 @@ export function recordDelivery(
 /** a native session that compacted or was replaced has seen neither the memory snapshot, the fixed instructions nor the delivered events. */
 export function clearDelivery(reference: NativeSession): void {
   delete reference.deliveredRevision;
+
   delete reference.deliveredInstructionsRevision;
+
   delete reference.deliveredMerges;
+
   delete reference.deliveredAnswers;
 }
 
@@ -301,8 +322,10 @@ function merge(
         text: replace ? update.text : previous.text + update.text,
       }
     : update;
+
   if (item.kind === 'tool' || item.kind === 'assistant') {
     const before = previous && !replace ? appends.get(previous) : undefined;
+
     appends.set(
       item,
       before && !update.text
@@ -315,6 +338,7 @@ function merge(
           },
     );
   }
+
   return item;
 }
 
@@ -358,9 +382,12 @@ export function applyDisplayUpdate(
   update: DisplayUpdate,
 ): DisplayItem[] {
   const index = items.findLastIndex((item) => item.id === update.id);
+
   if (index < 0) return [...items, merge(undefined, update)];
+
   const next = [...items];
   next[index] = merge(items[index], update);
+
   return next;
 }
 
@@ -369,13 +396,17 @@ export function foldDisplayUpdates(
 ): DisplayItem[] {
   const items: DisplayItem[] = [];
   const indexes = new Map<string, number>();
+
   for (const update of updates) {
     const index = indexes.get(update.id);
+
     if (index === undefined) {
       indexes.set(update.id, items.length);
+
       items.push(merge(undefined, update));
     } else items[index] = merge(items[index], update);
   }
+
   return items;
 }
 
@@ -388,6 +419,7 @@ export function createConversation(
   source?: Conversation,
 ): Conversation {
   const stored = source?.agent === agent ? source.sessions[agent] : undefined;
+
   return {
     id: randomUUID(),
     title: untitled,

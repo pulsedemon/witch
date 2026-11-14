@@ -20,8 +20,10 @@ export function PhaseRow({
   exitArmed: boolean;
 }) {
   const { familiars, brews } = taskActivity(state);
+
   const count = (n: number, name: string) =>
     counts && n ? [`${n} ${name}${n === 1 ? '' : 'S'}`] : [];
+
   return (
     <Box height={1}>
       <Text dimColor wrap="truncate-end">

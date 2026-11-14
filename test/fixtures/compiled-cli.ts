@@ -20,22 +20,27 @@ export function compiledCli(): Promise<string> {
 async function buildCli(): Promise<string> {
   const root = inject('cliBuild');
   const dist = join(root, 'dist');
+
   const lock = await openLocked(
     join(root, 'lock'),
     constants.O_CREAT | constants.O_RDWR,
   );
+
   try {
     // tsc writes cli.js even when typechecking fails, so only the renamed directory marks a finished build
     if (!(await exists(dist))) {
       const output = join(await scratch('witch-cli-build-'), 'dist');
+
       await promisify(execFile)(process.execPath, [
         join(repository, 'scripts/build.mjs'),
         output,
       ]);
+
       await rename(output, dist);
     }
   } finally {
     await lock.close();
   }
+
   return join(dist, 'cli.js');
 }

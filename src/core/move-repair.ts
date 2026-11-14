@@ -63,6 +63,7 @@ const scopeAt = async (memory: Memory, to: string) => ({
   project: (await memory.scopePaths(to)).project,
   top: await memory.pathScope(to),
 });
+
 type Scopes = Map<string, ReturnType<typeof scopeAt>>;
 
 /** the project key at `to` that a record's delivered sessions move to, false when one was delivered to another project, undefined when none was delivered. */
@@ -75,17 +76,22 @@ const deliveredScope = async (
   const delivered = Object.values(record.sessions).flatMap(
     ({ deliveredProject }) => (deliveredProject ? [deliveredProject] : []),
   );
+
   if (!delivered.length) return undefined;
+
   if (!scopes.has(to)) scopes.set(to, scopeAt(memory, to));
+
   const { project, top } = await scopes.get(to)!;
   // a path-keyed project's key changes with the path, so the old paths' keys count too, including a stopped repair's
   // `from`
   const rest = top && to.slice(top.length);
+
   const old = [record.cwd, record.historyMove?.from].flatMap((from) =>
     rest !== undefined && from?.endsWith(rest)
       ? [projectKey(from.slice(0, from.length - rest.length))]
       : [],
   );
+
   return (
     delivered.every((key) => key === project || old.includes(key)) && project
   );
@@ -97,9 +103,12 @@ const rekeyed = (sessions: ConversationRecord['sessions'], project: string) =>
     Object.entries(sessions).map(([name, session]) => {
       if (!session.deliveredProject || session.deliveredProject === project)
         return [name, session];
+
       // as the next turn's delivery would, a new key resends the whole snapshot
       const next = { ...session, deliveredProject: project };
+
       delete next.deliveredRevision;
+
       return [name, next];
     }),
   );
@@ -113,8 +122,10 @@ const scopeDiffers = ({ cwd, title }: ConversationRecord, target: string) => ({
 async function realSource(from: string): Promise<string> {
   for (const prefix of prefixes(from)) {
     const real = await realpath(prefix).catch(() => undefined);
+
     if (real !== undefined) return join(real, from.slice(prefix.length));
   }
+
   return from;
 }
 
@@ -127,22 +138,28 @@ async function declaredProblem(
   scopes: Scopes,
 ): Promise<string | undefined> {
   if (await present(declared.from)) return 'The source directory still exists';
+
   // a source matched by no saved path, such as one named in the wrong case, would record a move that repairs nothing
   if (
     !records.some(({ cwd }) => within(cwd, declared.from)) &&
     !entries.some(({ path }) => within(path, declared.from))
   )
     return `No saved conversation or known directory is in ${declared.from}`;
+
   for (const record of records) {
     if (!within(record.cwd, declared.from)) continue;
+
     const target = declared.to + record.cwd.slice(declared.from.length);
+
     const checkAt = await memory.scopePaths(target).then(
       () => target,
       () => declared.to,
     );
+
     if ((await deliveredScope(memory, record, checkAt, scopes)) === false)
       return `The saved project memory scope of ${record.title} differs from ${declared.to}`;
   }
+
   return undefined;
 }
 
@@ -162,6 +179,7 @@ async function recordMoves(
   // it. the holders are collected once, so the check stays linear in entries and records
   const { map } = await mapper(ledger);
   const held = new Set<string>();
+
   for (const path of [
     ...seeds,
     ...records.flatMap((saved) => [
@@ -171,8 +189,10 @@ async function recordMoves(
   ])
     if (path !== undefined)
       for (const prefix of prefixes(path)) held.add(prefix);
+
   const used = (entry: DirectoryEntry) =>
     entry.main !== undefined || held.has(entry.path);
+
   const moves = await findMoves(
     ledger.entries.filter(used),
     seeds,
@@ -182,35 +202,48 @@ async function recordMoves(
         reason: `Couldn't look for where it went: ${errorMessage(error)}`,
       }),
   );
+
   const copyIdentity = declared && (await identify(declared.to));
+
   if (declared && !copyIdentity)
     report.blocked.push({
       path: declared.to,
       reason: 'The destination directory is gone',
     });
+
   const vouched =
     declared && copyIdentity
       ? { path: declared.to, ...copyIdentity }
       : undefined;
+
   if (declared && copyIdentity)
     moves.push({
       ...declared,
       ...copyIdentity,
     });
+
   // read under the ledger lock, so prompts added while repair waited for it count as before the move
   await resolve(ledger, moves, await store.promptsSize());
+
   // a declared move is a copy, so the directories under it have new identities the user vouches for
   if (declared && vouched) {
     const copied: Array<[DirectoryEntry, string]> = [];
+
     for (const entry of ledger.entries) {
       if (!within(entry.path, declared.from)) continue;
+
       const path = declared.to + entry.path.slice(declared.from.length);
       const identity = await identify(path);
+
       if (!identity) continue;
+
       Object.assign(entry, identity);
+
       copied.push([entry, path]);
     }
+
     relocate(ledger, copied);
+
     // the copy itself, so a stand-in put there later is never taken for it
     if (
       !ledger.entries.some(
@@ -218,9 +251,11 @@ async function recordMoves(
       )
     ) {
       ledger.entries.push(vouched);
+
       relocate(ledger, [[vouched, vouched.path]]);
     }
   }
+
   return moves;
 }
 
@@ -245,12 +280,15 @@ export async function repairMoves(
     unresolved: [],
     suspended: [],
   };
+
   const { records, unreadable } = await store.records();
   const scopes: Scopes = new Map();
+
   if (asked)
     report.blocked.push(
       ...unreadable.map(({ file, error }) => ({ path: file, reason: error })),
     );
+
   const listed = await worktreeList(run, cwd);
   const seeds = [cwd, ...(listed ?? [])];
 
@@ -259,11 +297,15 @@ export async function repairMoves(
       path: asked.from,
       reason: 'Choose an absolute saved directory to recover',
     });
+
     return report;
   }
+
   const declared = asked && { ...asked, from: await realSource(asked.from) };
+
   if (declared) {
     const { entries } = await readLedger(store.root);
+
     const problem = await declaredProblem(
       declared,
       records,
@@ -271,14 +313,17 @@ export async function repairMoves(
       memory,
       scopes,
     );
+
     if (problem) {
       report.blocked.push({ path: declared.from, reason: problem });
+
       return report;
     }
   }
 
   // a preview works on one copy of the ledger and never writes it
   let copy: Ledger | undefined;
+
   const change = async <T>(apply: (ledger: Ledger) => Promise<T>) =>
     preview
       ? apply((copy ??= await readLedger(store.root)))
@@ -291,14 +336,19 @@ export async function repairMoves(
   const { ledger, resolved } = await change(async (ledger) => {
     // the identities as resolved, before record() takes in what sits at a path whose recorded directory is gone
     const copied = structuredClone(ledger);
+
     const resolved: Snapshot = {
       ledger: copied,
       mapping: await mapper(copied),
       at: newestMoveTime(ledger),
     };
+
     const { map } = await mapper(ledger);
+
     await repairRepositories(ledger, listed?.[0], map, report, run, preview);
+
     if (!preview) await record(ledger, cwd, seeds, records, run, report);
+
     return { ledger, resolved };
   });
 
@@ -310,7 +360,9 @@ export async function repairMoves(
     preview,
     report,
   });
+
   summarize(report, found, ledger, tally);
+
   return report;
 }
 
@@ -339,35 +391,48 @@ async function repairConversations(
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
   // each directory this repair resolved, by path, a ledger entry over a move found to the same place
   const resolvedPaths = new Map<string, Identity & { path: string }>();
+
   for (const known of [
     ...resolved.ledger.entries,
     ...found.map((move) => ({ path: move.to, ...move })),
   ])
     if (!resolvedPaths.has(known.path)) resolvedPaths.set(known.path, known);
+
   for (const saved of records) {
     try {
       const target = map(saved.cwd, savedBefore(saved));
+
       if (target === undefined) {
         const move = suspended.find(({ from }) => within(saved.cwd, from));
+
         if (move) tally.suspended.push(move);
         else tally.unresolved.push(saved.cwd);
+
         continue;
       }
+
       const current = await identify(target);
+
       if (!current) {
         tally.unresolved.push(saved.cwd);
+
         continue;
       }
+
       // one left with `historyMove` has a stopped repair to finish
       if (target === saved.cwd && !saved.historyMove) continue;
+
       // the nearest directory this repair resolved at or above the target, which a stand-in put there since won't match
       const destination = [...prefixes(target)].flatMap(
         (path) => resolvedPaths.get(path) ?? [],
       )[0] ?? { path: target, ...current };
+
       if ((await deliveredScope(memory, saved, target, scopes)) === false) {
         report.blocked.push(scopeDiffers(saved, target));
+
         continue;
       }
+
       const repaired =
         preview ||
         (await rewrite(
@@ -380,6 +445,7 @@ async function repairConversations(
           resolved,
           report,
         ));
+
       if (repaired)
         tally.repaired.push({
           from: target === saved.cwd ? saved.historyMove!.from : saved.cwd,
@@ -392,6 +458,7 @@ async function repairConversations(
       });
     }
   }
+
   return tally;
 }
 
@@ -409,46 +476,69 @@ async function record(
 ) {
   // each path's entry is a map lookup rather than a scan of the entries
   const byPath = new Map(ledger.entries.map((entry) => [entry.path, entry]));
+
   /** the entry for what's at `path` now, or undefined while the one recorded there still exists elsewhere. */
   const upsert = async (path: string, identity: Identity) => {
     const entry = byPath.get(path);
+
     if (!entry) {
       const added: DirectoryEntry = { path, ...identity };
+
       ledger.entries.push(added);
+
       byPath.set(path, added);
+
       return added;
     }
+
     return (await adoptIdentity(entry, identity)) ? entry : undefined;
   };
+
   const paths = new Set([cwd, ...seeds, ...records.map(({ cwd }) => cwd)]);
   const spellings = new Map<string, string>();
+
   const spelling = async (path: string, identity?: Identity) => {
     const known = spellings.get(path);
+
     if (known !== undefined) return known;
+
     const found = identity ?? (await identify(path).catch(() => undefined));
+
     const actual =
       (found && (await caseDestination(path, found).catch(() => undefined))) ??
       path;
+
     spellings.set(path, actual);
+
     return actual;
   };
+
   const lists = new Map<string, string[]>();
   // every worktree of a repository lists the same registrations
   const listing = new Map<string, string[]>();
+
   for (const original of paths) {
     const identity = await identify(original).catch(() => undefined);
+
     if (!identity) continue;
+
     const path = await spelling(original, identity);
     const read = listing.get(path) ?? (await worktreeList(run, path));
+
     const list =
       read && (await Promise.all(read.map((path) => spelling(path))));
+
     const main = list?.[0];
+
     if (main && !lists.has(main)) {
       lists.set(main, list);
+
       for (const listed of list) listing.set(listed, list);
     }
+
     // a recorded main that Git no longer reaches means this directory's Git now belongs to another repository
     const known = byPath.get(path);
+
     if (
       original === cwd &&
       known?.main &&
@@ -461,28 +551,38 @@ async function record(
         reason: `its Git reaches ${main}, not its recorded main checkout ${known.main}`,
         repository: main,
       });
+
       continue;
     }
+
     if (!list?.includes(path)) await upsert(path, identity);
   }
+
   const holding = new Set(
     records.flatMap(({ cwd }) => [...prefixes(spellings.get(cwd) ?? cwd)]),
   );
+
   for (const [main, list] of lists) {
     for (const path of list) {
       // one that can't be looked at keeps its entry as it was
       const identity = await identify(path).catch(() => undefined);
+
       if (!identity) continue;
+
       const entry = await upsert(path, identity);
+
       if (entry) entry.main = main;
     }
+
     const registered = ledger.entries.filter(
       (entry) => entry.main === main && list.includes(entry.path),
     );
+
     for (const entry of registered) {
       const slot = entry.path.startsWith(main)
         ? /^-([1-9]\d{0,8})$/.exec(entry.path.slice(main.length))?.[1]
         : undefined;
+
       if (
         entry.slot === undefined &&
         slot &&
@@ -490,14 +590,18 @@ async function record(
       )
         entry.slot = Number(slot);
     }
+
     // a worktree Git no longer lists, with no conversation in it, is gone for good, unless a blocked repository's list is stale
     if (report.blocked.some(({ repository }) => repository === main)) continue;
+
     ledger.entries = ledger.entries.filter((entry) => {
       const kept =
         entry.main !== main ||
         list.includes(entry.path) ||
         holding.has(entry.path);
+
       if (!kept) byPath.delete(entry.path);
+
       return kept;
     });
   }
@@ -518,18 +622,25 @@ async function rewrite(
     return (
       (await store.repairRecord(saved.id, async (raw, directory, save) => {
         const current = conversationRecordSchema.parse(raw);
+
         if (current.cwd !== saved.cwd) return undefined;
+
         // a turn saved since the listing may have delivered another project
         const project = await deliveredScope(memory, current, target, scopes);
+
         if (project === false) {
           report.blocked.push(scopeDiffers(current, target));
+
           return undefined;
         }
+
         // holding the lock means no Witch has it open, so these are left from a crash, and claim would stop them too
         await stopLeftProcesses(current);
+
         // the mapping as resolved must still give the target, and anything it relied on that changed while this waited
         // for the lock or the stops leaves the conversation for the next start
         const owner = savedBefore(saved);
+
         if (
           resolved.mapping.map(saved.cwd, owner) !== target ||
           !(await resolved.mapping.unchanged(saved.cwd, owner)) ||
@@ -539,8 +650,10 @@ async function rewrite(
             path: saved.cwd,
             reason: `where it moved changed during the repair, so ${saved.title} waits for the next start`,
           });
+
           return undefined;
         }
+
         const moved = {
           ...raw,
           cwd: target,
@@ -549,6 +662,7 @@ async function rewrite(
             ? rekeyed(raw.sessions as ConversationRecord['sessions'], project)
             : raw.sessions,
         };
+
         await moveHistory(
           directory,
           target,
@@ -559,15 +673,18 @@ async function rewrite(
               : saved.cwd,
           (historyMove) => save({ ...moved, historyMove }),
         );
+
         return { ...moved, historyMove: undefined };
       })) === 'repaired'
     );
   } catch (error) {
     if (!(error instanceof LockedElsewhere)) throw error;
+
     report.blocked.push({
       path: saved.cwd,
       reason: `${saved.title} is open in another Witch`,
     });
+
     return false;
   }
 }
@@ -597,48 +714,64 @@ function summarize(
     string,
     Move & { conversations: number; worktrees: number }
   >();
+
   const line = (move: Move) => {
     const key = `${move.from}\0${move.to}`;
     let known = lines.get(key);
+
     if (!known) {
       known = { from: move.from, to: move.to, conversations: 0, worktrees: 0 };
+
       lines.set(key, known);
     }
+
     return known;
   };
+
   // a worktree whose main checkout moved too counts on its repository's line
   const mainOf = (move: Move) =>
     ledger.entries.find((entry) => entry.path === move.to)?.main;
+
   const owner = (move: Move) => {
     const main = mainOf(move);
+
     return (main !== move.to && found.find(({ to }) => to === main)) || move;
   };
+
   for (const move of found) {
     const known = line(owner(move));
     const main = mainOf(move);
+
     if (main !== undefined && main !== move.to) known.worktrees++;
   }
+
   for (const { from, to } of tally.repaired) {
     const move = found
       .filter((known) => within(from, known.from))
       .sort((a, b) => b.from.length - a.from.length)[0];
+
     line(move ? owner(move) : { from, to }).conversations++;
   }
+
   for (const move of new Set(tally.suspended))
     report.suspended.push({
       from: move.from,
       to: move.to,
       conversations: tally.suspended.filter((other) => other === move).length,
     });
+
   for (const path of new Set(tally.unresolved)) {
     const conversations = tally.unresolved.filter(
       (other) => other === path,
     ).length;
+
     // a missing worktree that held conversations is one directory to recover
     const worktree = report.unresolved.find((row) => row.path === path);
+
     if (worktree) worktree.conversations = conversations;
     else report.unresolved.push({ path, conversations, worktree: false });
   }
+
   report.repaired.push(...lines.values());
 }
 
@@ -664,8 +797,11 @@ export function describeMoves(
         `Couldn't find where ${path} went${worktree ? ', a worktree that moved or was deleted' : ''}${conversations ? `, with ${conversations} conversation(s)` : ''}. Start Witch in its new location, or from there preview recovery with:\nwitch --state-dir ${quote(root)} --recover-directory ${quote(path)}`,
     ),
   ];
+
   if (!lines.length) return undefined;
+
   if (preview) lines.push('Preview only. Repeat with --apply to repair.');
+
   return lines.join('\n');
 }
 

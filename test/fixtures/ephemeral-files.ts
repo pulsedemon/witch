@@ -13,23 +13,32 @@ export function ephemeralFiles(
   register: RegisterCleanup = onTestFinished,
 ): void {
   const prefix = `${directory}${sep}`;
+
   directories.add(prefix);
+
   const opening = vi
     .spyOn(files, 'open')
     .mockImplementation(async (...args) => {
       const handle = await open(...args);
+
       if (typeof args[0] === 'string')
         for (const root of directories)
           if (args[0].startsWith(root)) {
             handle.sync = async () => {};
+
             break;
           }
+
       return handle;
     });
+
   syncBuiltinESMExports();
+
   register(() => {
     directories.delete(prefix);
+
     if (!directories.size) opening.mockRestore();
+
     syncBuiltinESMExports();
   });
 }

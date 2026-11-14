@@ -23,10 +23,12 @@ class Terminal extends EventEmitter {
   resize(columns: number, rows = this.rows) {
     this.columns = columns;
     this.rows = rows;
+
     this.emit('resize');
   }
   write = (frame: string) => {
     this.frames.push(frame);
+
     return true;
   };
 }
@@ -36,12 +38,15 @@ class Keys extends EventEmitter {
   private data: string | null = null;
   write(data: string) {
     this.data = data;
+
     this.emit('readable');
+
     this.emit('data', data);
   }
   read = () => {
     const data = this.data;
     this.data = null;
+
     return data;
   };
   setEncoding() {}
@@ -55,6 +60,7 @@ class Keys extends EventEmitter {
 export function show(element: ReactElement, columns = 100, rows = 40) {
   const stdout = new Terminal(columns, rows);
   const stdin = new Keys();
+
   const instance = render(element, {
     stdout: stdout as unknown as NodeJS.WriteStream,
     stderr: stdout as unknown as NodeJS.WriteStream,
@@ -64,6 +70,7 @@ export function show(element: ReactElement, columns = 100, rows = 40) {
     exitOnCtrlC: false,
     patchConsole: false,
   });
+
   return {
     stdin,
     frame: () => stdout.frames.at(-1) ?? '',
@@ -85,10 +92,12 @@ export function SidebarView({
     coordinator.subscribe,
     () => coordinator.snapshot,
   );
+
   const coordination = useSyncExternalStore(
     coordinator.coordination?.subscribe ?? (() => () => {}),
     () => coordinator.coordination?.snapshot,
   );
+
   return createElement(
     Box,
     { width: 115, height },
@@ -118,11 +127,13 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
   // the composer saves its text on every change, so these stay out of `calls`
   const drafts: [string, string][] = [];
   let holds = 0;
+
   const record =
     (name: string) =>
     async (...args: unknown[]) => {
       calls.push([name, ...args]);
     };
+
   const coordinator = {
     pentacle: new PentacleActivity(),
     snapshot: {
@@ -153,29 +164,38 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     memory: { root: '/state/memory.git' },
     subscribe(listener: () => void) {
       listeners.add(listener);
+
       return () => listeners.delete(listener);
     },
     publish(update: Partial<Snapshot>) {
       coordinator.snapshot = { ...coordinator.snapshot, ...update };
+
       for (const listener of listeners) listener();
     },
     send: record('send'),
     // synchronous, as the composer inserts its result in the same paste
     paste: (text: string, before: string): string | undefined => {
       calls.push(['paste', text, before]);
+
       return undefined;
     },
     compact: async () => {
       calls.push(['compact']);
+
       return true;
     },
     holdPromptDelivery: () => {
       holds++;
+
       coordinator.publish({ commandsPending: true });
+
       let released = false;
+
       return () => {
         if (released) return;
+
         released = true;
+
         coordinator.publish({ commandsPending: --holds > 0 });
       };
     },
@@ -183,8 +203,11 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     draft: (id: string, text: string) => drafts.push([id, text]),
     unqueue: (draft: string) => {
       calls.push(['unqueue', draft]);
+
       const { queue } = coordinator.snapshot;
+
       coordinator.publish({ queue: [] });
+
       return [...queue];
     },
     interrupt: record('interrupt'),
@@ -194,6 +217,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     selectConversation: record('selectConversation'),
     refreshModels: async () => {
       calls.push(['refreshModels']);
+
       return true;
     },
     selectModel: record('selectModel'),
@@ -210,6 +234,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     ],
     projectFiles: async () => files,
   };
+
   return {
     coordinator,
     calls,
@@ -221,6 +246,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
 /** a prompt store holding `found` for the fake conversation's /work and nothing elsewhere, recording what the app adds. */
 export function prompts(found: string[]) {
   const added: [string, string][] = [];
+
   return {
     added,
     store: {
@@ -246,8 +272,11 @@ export async function openCommand(
   text: string,
 ) {
   ui.stdin.write(command);
+
   await delay(30);
+
   ui.stdin.write(ENTER);
+
   await until(`${command} to show ${text}`, () => ui.text().includes(text));
 }
 
@@ -260,6 +289,7 @@ export const tools = (prefix: string) =>
     cwd: '/work',
     done: true,
   }));
+
 export const approval = {
   id: 'r1',
   kind: 'approval' as const,
@@ -270,7 +300,9 @@ export const approval = {
 /** opens the command picker and waits for it. */
 export async function commands(ui: ReturnType<typeof show>) {
   ui.stdin.write('\u0010');
+
   await until('the command picker', () => ui.text().includes('Commands'));
+
   await delay(30);
 }
 
@@ -289,6 +321,8 @@ export function drag(
   to: [number, number],
 ) {
   ui.stdin.write(left('press', ...from));
+
   ui.stdin.write(left('drag', ...to));
+
   ui.stdin.write(left('release', ...to));
 }

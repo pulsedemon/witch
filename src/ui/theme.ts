@@ -2,7 +2,6 @@ import { Chalk } from 'chalk';
 
 /** truecolor, since the accent is a hex violet. */
 export const colors = new Chalk({ level: 3 });
-
 /** witch violet, the accent. potion green marks shell mode, green and red mark diffs and Monokai colors their code, other color marks warnings and errors, and the status line keeps the colors of `~/.claude/statusline.sh`. */
 export const accent = '#a855f7';
 export const accentDim = '#5b21b6';
@@ -17,6 +16,7 @@ export const diffRemovedWord = '#b3596b';
 /** Claude Code's dark colors for a changed row's number and marker. */
 export const diffAddedMarker = '#50c850';
 export const diffRemovedMarker = '#dc5a5a';
+
 /** Claude Code's dark syntax colors, Monokai's, by highlight.js scope. */
 export const syntax: ReadonlyMap<string, string> = new Map([
   ['keyword', '#f92672'],
@@ -39,6 +39,7 @@ export const syntax: ReadonlyMap<string, string> = new Map([
   ['punctuation', '#f8f8f2'],
   ['subst', '#f8f8f2'],
 ]);
+
 /** Monokai's storage cyan, which Claude Code gives keywords that declare, such as `const`. */
 export const storage = '#66d9ef';
 

@@ -41,13 +41,16 @@ export function claudeArguments(args: readonly string[]): string[] {
     '--version',
     '-v',
   ]);
+
   for (const arg of args) {
     if (arg === '--') break;
+
     if (conflicting.has(arg.split('=')[0]!))
       throw new Error(
         `Claude familiar mode cannot include ${arg}; it supplies its own print/stream protocol and settings.`,
       );
   }
+
   return [
     '--print',
     '--verbose',
@@ -73,92 +76,130 @@ export async function runClaudeFamiliar(
   let child: ReturnType<typeof spawn> | undefined;
   let escalation: ReturnType<typeof setTimeout> | undefined;
   let drain: ReturnType<typeof setTimeout> | undefined;
+
   const terminate = (signal: NodeJS.Signals) => {
     if (!child || !running(child)) return;
+
     child.kill(signal);
+
     escalation ??= setTimeout(() => {
       if (child && running(child)) child.kill('SIGKILL');
     }, terminateGraceMs);
   };
+
   const interrupt = () => {
     stopped = 'SIGINT';
+
     terminate('SIGINT');
   };
+
   const stop = () => {
     stopped = 'SIGTERM';
+
     terminate('SIGTERM');
   };
+
   process.on('SIGINT', interrupt);
+
   process.on('SIGTERM', stop);
+
   try {
     await registerFamiliar(binding, run, name, 'claude', () => !!stopped);
+
     const reports = new FamiliarReports(binding, run, (error) => {
       task.failed(error.message);
+
       terminate('SIGTERM');
     });
+
     const task = new ClaudeTask(process.cwd(), (progress) =>
       reports.push(progress),
     );
+
     child = nativeLaunch('claude', undefined, (executable) =>
       spawn(executable, argv, {
         stdio: ['inherit', 'pipe', 'pipe'],
         detached: false,
       }),
     );
+
     child.stderr!.pipe(process.stderr, { end: false });
+
     readLines(child.stdout!, (text) => {
       if (!text.trim()) return;
+
       try {
         task.message(JSON.parse(text));
       } catch (error) {
         task.failed(`Invalid Claude task JSON: ${errorMessage(error)}`);
       }
     });
+
     child.once('error', (error) =>
       task.failed(`Claude could not start: ${error.message}`),
     );
+
     child.once('exit', () => {
       clearTimeout(escalation);
+
       // descendants can retain output pipes after Claude exits; native command cleanup owns that group.
       drain = setTimeout(() => {
         for (const stream of [child!.stdout!, child!.stderr!]) {
           stream.push(null);
+
           stream.destroy();
         }
       }, 100);
     });
+
     const { code, signal } = await new Promise<{
       code: number | null;
       signal: NodeJS.Signals | null;
     }>((resolve) => {
       child!.once('close', (code, signal) => resolve({ code, signal }));
     });
+
     clearTimeout(drain);
+
     let terminal = task.closed(
       code,
       stopped ?? (reports.error ? null : signal),
     );
+
     const save = () => saveReport(file, terminal.report ?? '');
+
     await save();
+
     try {
       await reports.finish(terminal);
     } catch (error) {
       task.failed(errorMessage(error));
+
       terminal = task.closed(code, stopped ?? null);
+
       await save();
     }
+
     process.stdout.write(`${terminal.report ?? ''}\n\nSaved report: ${path}\n`);
+
     return exitCode(terminal.status);
   } catch (error) {
     const message = errorMessage(error);
+
     await file.writeFile(message);
+
     process.stderr.write(`witch: ${message}\nSaved report: ${path}\n`);
+
     return stopped ? 130 : 1;
   } finally {
     clearTimeout(escalation);
+
     clearTimeout(drain);
+
     process.off('SIGINT', interrupt);
+
     process.off('SIGTERM', stop);
+
     await file.close();
   }
 }

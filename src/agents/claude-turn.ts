@@ -51,6 +51,7 @@ export function claudeResult(
   text: string,
 ): TurnResult {
   const success = message.subtype === 'success' && !message.is_error;
+
   return {
     status: success ? 'completed' : 'failed',
     text:
@@ -78,10 +79,13 @@ export async function recoverInput(
 ): Promise<TurnResult> {
   try {
     await input.flush();
+
     const receipt = await query.interrupt();
     const unread = receipt?.still_queued;
     const inputUnread = unread?.includes(turn.initialInput!) ?? false;
+
     if (!inputUnread && !turn.result) throw new Error(unknownInput);
+
     return {
       ...(inputUnread
         ? {
@@ -116,11 +120,15 @@ export function recordResult(
   if (messageLifecycle)
     for (const uuid of uuids) {
       const input = uuid === undefined ? undefined : turn.inputs.get(uuid);
+
       if (!input) continue;
+
       input.pending = false;
+
       if (result.status !== 'completed' && !turn.interrupted)
         turn.inputError ??= result.error;
     }
+
   turn.result = result;
 }
 

@@ -38,18 +38,25 @@ export function transferRefusal(
 ): string | undefined {
   if (state?.recovery)
     return 'It has unresolved memory recovery. Resolve it there, then run /task take again.';
+
   if (state?.phase === 'error')
     return 'It stopped with an error. Restart Witch there, then run /task take again.';
+
   if (state?.phase !== 'idle')
     return `It is ${state?.phase ?? 'starting'}. Wait for it to go idle or stop its turn there, then run /task take again.`;
+
   if (state.nativeRunning)
     return 'It is running on its own. Wait for it to go idle, then run /task take again.';
+
   if (taskActivity(state).running)
     return 'It has running familiars or brews. Stop them there, then run /task take again.';
+
   const runtime = state.native?.agent ?? state.conversation?.agent;
   const account = runtime ? state.accounts[runtime] : undefined;
+
   if (automatic && creditCapacity(account, now) === 'available')
     return 'It has current usable credits. Use /task take for a manual transfer.';
+
   if (
     automatic &&
     !state.usage.account?.limits.some(
@@ -57,6 +64,7 @@ export function transferRefusal(
     )
   )
     return 'It has no reported exhausted limit awaiting reset.';
+
   return undefined;
 }
 
@@ -89,10 +97,12 @@ export async function awaitTransfer<View extends { ledger: Ledger }>(
   // leave time for withdrawal, the final peer refresh and the control reply.
   const end = request.deadline - 2000;
   const requested = await request.request(end);
+
   try {
     const title =
       (await request.title(requested.owner.conversation)) ??
       requested.owner.conversation;
+
     return await poll(request, requested.id, title, end);
   } catch (error) {
     const left = await request
@@ -105,11 +115,14 @@ export async function awaitTransfer<View extends { ledger: Ledger }>(
           },
         );
       });
+
     // a hand-over can land between the last poll and the withdrawal
     if (left?.owner.conversation === request.conversation)
       return { claim: left };
+
     if (error instanceof TransferUnavailable)
       throw new TransferUnavailable(error.message, left);
+
     throw error;
   }
 }
@@ -121,32 +134,44 @@ async function poll<View extends { ledger: Ledger }>(
   end: number,
 ): Promise<{ claim: TaskClaim; view: View }> {
   const { reference, field } = request;
+
   while (Date.now() < end) {
     await delay(250);
+
     request.admit();
+
     // a read whose deadline already passed would record a ledger failure
     if (Date.now() >= end) break;
+
     let view: View;
+
     try {
       view = await request.read(Math.min(Date.now() + 1000, end));
     } catch {
       // the read recorded its own failure, and the poll goes on to the deadline
       continue;
     }
+
     const claim = view.ledger.claims.find((claim) => claim.id === id);
+
     if (!claim)
       throw new TransferUnavailable(
         `${reference} was released. Claim it again.`,
       );
+
     if (claim.owner.conversation === request.conversation)
       return { claim, view };
+
     const transfer = claim[field];
+
     if (transfer?.activation !== request.activation) break;
+
     if (transfer.refusal)
       throw new TransferUnavailable(
         `${title} still holds ${reference}. ${transfer.refusal}`,
       );
   }
+
   throw new TransferUnavailable(
     `${title} did not answer. Restart Witch in that conversation or close it, then run /task take again.`,
   );

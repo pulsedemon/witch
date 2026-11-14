@@ -19,24 +19,33 @@ export function chooseModel(
 ): Promise<boolean | void> {
   const { agents, conversation, models } = coordinator.snapshot;
   const active = conversation!.agent;
+
   const selection = modelTarget(
     id,
     active,
     agents.map((agent) => agent.id),
     coordinator.snapshot,
   );
+
   const efforts =
     models.find(
       (model) => model.id === selection.id && model.agent === selection.agent,
     )?.efforts ?? [];
+
   const select = async (effort?: string) => {
     toChat(selection.agent !== active);
+
     await coordinator.selectModel({ ...selection, effort });
+
     // a handoff can run a continuation before it resolves, so a window choice there would come too late
     if (!live || selection.agent !== active) return;
+
     if (!live()) return false;
+
     const { longContext, contextWindow = 0 } = coordinator.snapshot.usage;
+
     if (!longContext) return;
+
     return picker(
       `Context window for ${selection.id}`,
       [
@@ -50,6 +59,7 @@ export function chooseModel(
           : true,
     );
   };
+
   if (live && efforts.length)
     return picker(
       `Reasoning for ${selection.id}`,
@@ -65,5 +75,6 @@ export function chooseModel(
       ],
       (effort) => select(effort || undefined),
     );
+
   return select(effort);
 }

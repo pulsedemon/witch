@@ -62,30 +62,49 @@ interface TurnOptions {
 
 interface TurnHost {
   conversation(): ConversationRecord;
+
   workspace(): Workspace;
+
   files(): ConversationStore;
+
   snapshot(): Snapshot;
+
   conflict(): Conflict | undefined;
+
   cancelled(): boolean;
+
   deliveryHeld(): boolean;
+
   publish(update: Partial<Snapshot>): void;
+
   display(update: DisplayUpdate): void;
+
   notice(text: string): void;
+
   report(error: unknown): void;
+
   save(): Promise<void>;
+
   persist(operation: Promise<void>): void;
+
   beginActivity(
     kind: Activity['kind'],
     scope?: MemoryScope,
   ): Promise<{ activity: Activity; scope: MemoryScope }>;
+
   steerQueued(): Promise<void>;
+
   /** saves the images the prompt's markers name into the conversation. */
   prepareImages(prompt: string): Promise<string[]>;
+
   /** the native turn ended, so only settlement holds the phase. */
   ended(): void;
+
   /** sets whether a failed turn holds the queue for the composer. */
   failed(failed: boolean): void;
+
   acceptMemory(agent: string): boolean;
+
   operate(operation: () => Promise<void>): Promise<void>;
 }
 
@@ -109,7 +128,9 @@ export class TurnRunner {
   async reviewCopilot(batch: ReviewBatch): Promise<TurnResult | undefined> {
     let result: TurnResult | undefined;
     let delivered = false;
+
     this.host.publish({ reviewing: true });
+
     try {
       await this.host.operate(async () => {
         result = await this.run(reviewInstruction(batch), 'review', {
@@ -120,6 +141,7 @@ export class TurnRunner {
     } finally {
       this.host.publish({ reviewing: false });
     }
+
     return delivered
       ? result
       : { status: 'interrupted', text: '', inputUnsent: true };
@@ -131,6 +153,7 @@ export class TurnRunner {
   ): Promise<TurnResult | undefined> {
     let result: TurnResult | undefined;
     this.repairing = true;
+
     try {
       await this.host.operate(async () => {
         result = await this.run(repairInstruction(repair), 'repair', {
@@ -141,19 +164,24 @@ export class TurnRunner {
     } finally {
       this.repairing = false;
     }
+
     return result;
   }
 
   async answerPeers(): Promise<boolean> {
     let ran = false;
+
     this.host.publish({ answering: true });
+
     await this.host
       .operate(async () => {
         const requests = await this.coordination!.beginAnswer();
         ran = requests.length > 0;
+
         if (ran) await this.run(answerInstruction, 'answer', { requests });
       })
       .finally(() => this.host.publish({ answering: false }));
+
     return ran;
   }
 
@@ -165,32 +193,45 @@ export class TurnRunner {
   ): Promise<TurnResult | undefined> {
     try {
       const scope = await this.memory.scopePaths(this.host.conversation().cwd);
+
       const session =
         this.link.live(this.host.conversation().agent) ??
         (await this.connectForTurn(scope));
+
       if (!session) return;
+
       const usage = session.info.hasHistory
         ? await session.contextUsage()
         : undefined;
+
       if (
         this.host.cancelled() ||
         session.closed ||
         this.link.session !== session
       )
         return;
+
       if (options.queued && this.host.deliveryHeld()) return;
+
       const window = session.usage.contextWindow;
+
       const compactAt =
         window !== undefined && window > 0
           ? compactionThreshold(window).percent
           : defaultCompactionPercent;
+
       if (usage !== undefined && usage >= compactAt) {
         this.host.publish({ phase: 'compacting' });
+
         const compacted = await this.compact(scope);
+
         if (compacted.status !== 'completed') return compacted;
+
         this.host.publish({ phase: 'running' });
       }
+
       if (options.queued && this.host.deliveryHeld()) return;
+
       return await this.perform(prompt, kind, options, scope);
     } catch (error) {
       this.host.report(error);
@@ -217,33 +258,46 @@ export class TurnRunner {
     const conversation = this.host.conversation();
     const answer = kind === 'answer';
     const automatic = answer || kind === 'review' || kind === 'repair';
+
     if (kind === 'turn') this.host.publish({ completedTurn: undefined });
+
     const { activity, scope } = await this.host.beginActivity(
       automatic ? 'turn' : kind,
       read,
     );
+
     const session = await this.connectForTurn(scope);
+
     if (!session || this.host.cancelled())
       return { status: 'interrupted', text: '' };
+
     if (!answer) this.coordination?.beginTurn(activity.id);
+
     let batch: PeerAnswerBatch | undefined;
+
     try {
       batch = requests && (await preparePeerAnswers(requests));
+
       this.host.publish({
         subagents: this.host
           .snapshot()
           .subagents.filter(({ status }) => status === 'running'),
       });
+
       const command = kind === 'turn' ? shellCommand(prompt) : undefined;
       const handoff = conversation.handoff;
+
       const pendingHandoff =
         !answer && handoff?.activated && handoff.to === conversation.agent
           ? handoff
           : undefined;
+
       const coordination = await this.coordination?.context(scope.project);
+
       const pendingContext = automatic
         ? undefined
         : this.pendingContext.get(conversation.id);
+
       // a resend inside the turn reads the current claim policy and omits the parts that describe output above its prompt
       const context = async (resent = false) =>
         nativePrompt({
@@ -278,10 +332,13 @@ export class TurnRunner {
           usage: this.usage.context(this.host.snapshot().agents),
           reviewWatch: this.copilot.context(),
         });
+
       let input = await context();
       const owned = review ?? repair;
+
       if (owned) {
         let refusal: string | undefined;
+
         try {
           if (
             owned.owner !== conversation.id ||
@@ -294,14 +351,18 @@ export class TurnRunner {
             refusal = '';
         } catch (error) {
           if (!repair) throw error;
+
           refusal = errorMessage(error);
         }
+
         if (refusal !== undefined) {
           // a stop or restart also fails the check, and leaves the repair attempted
           if (!this.host.cancelled() && !session.closed) refused?.(refusal);
+
           return { status: 'interrupted', text: '' };
         }
       }
+
       // from `prompt`, since handoff text in the input can quote old markers.
       // a stop aborts a conversion, and the check below reports it as the stop it is; a stop already made would have
       // aborted an earlier controller, so a cancelled turn starts none
@@ -314,9 +375,11 @@ export class TurnRunner {
             !session.closed
           ? await this.host.prepareImages(prompt).catch((error: unknown) => {
               if (this.host.cancelled() || session.closed) return [];
+
               throw error;
             })
           : [];
+
       // a stop during an awaited check must prevent native input.
       if (
         this.host.cancelled() ||
@@ -324,9 +387,12 @@ export class TurnRunner {
         (queued && this.host.deliveryHeld())
       )
         return { status: 'interrupted', text: '' };
+
       if (kind === 'turn' && !silent && conversation.title === untitled)
         conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
+
       const row = randomUUID();
+
       if (!silent)
         this.host.display({
           id: row,
@@ -343,18 +409,25 @@ export class TurnRunner {
           cwd: conversation.cwd,
           ...(images.length ? { images } : {}),
         });
+
       showing?.();
+
       this.host.persist(this.host.save());
+
       if (command !== undefined) delivered?.();
+
       let result: TurnResult;
       let steering: Promise<void> | undefined;
       let generation = this.link.generation;
+
       try {
         const ran =
           command === undefined ? undefined : await session.shell(command);
+
         if (ran && ran.status !== 'completed') result = ran;
         else {
           if (generation !== this.link.generation) input = await context();
+
           // a listener can stop the turn as its row publishes; the review's batch then stays retryable
           if (
             this.host.cancelled() ||
@@ -370,11 +443,14 @@ export class TurnRunner {
             };
           else {
             if (!automatic) this.pendingContext.delete(conversation.id);
+
             generation = this.link.generation;
+
             const stopResend = this.resendAfterCompaction(
               session,
               async () => (await context(true)).context,
             );
+
             const sending = session.send(input.prompt, {
               skill: skillCall(prompt, this.host.snapshot().skills),
               context: input.context,
@@ -391,6 +467,7 @@ export class TurnRunner {
               },
               images,
             });
+
             const stopPolicy = watchClaimPolicy(
               this.coordination,
               kind === 'turn' ? coordination?.snapshot : undefined,
@@ -399,13 +476,17 @@ export class TurnRunner {
                   ? session.steer(text, { contextOnly: true })
                   : Promise.resolve(false),
             );
+
             // before any await, so these steers go ahead of a prompt sent once the turn runs, whose steer can wait for this turn to end
             if (queued && command === undefined)
               steering = this.host.steerQueued();
+
             result = await sending.finally(() => {
               stopPolicy?.();
+
               stopResend();
             });
+
             if (requests)
               await recordPeerAnswers(result, requests, this.coordination!);
           }
@@ -413,58 +494,80 @@ export class TurnRunner {
       } catch (error) {
         result = { status: 'failed', text: '', error: errorMessage(error) };
       }
+
       this.host.ended();
+
       // first, so the prompts the turn left unread go ahead of those a refused steer gives back
       await steering;
+
       await this.compaction.busy;
+
       // unread input settles as unsent, so an automatic instruction never reaches the user queue; the drain reruns a
       // user prompt itself
       if (result.inputUnread && command === undefined)
         result = { ...result, inputUnsent: true };
+
       if (command === undefined && !result.inputUnsent) delivered?.();
+
       // a `!` command was delivered before it ran
       const back = command === undefined && result.inputUnsent;
+
       if (back) unsent?.();
+
       // one publish, so the batch and the prompts it left unread are saved together
       if (back || result.unread?.length)
         this.host.publish({
           queue: [...(result.unread ?? []), ...this.host.snapshot().queue],
         });
+
       const shown = kind === 'turn' && !silent ? [prompt] : [];
+
       for (const row of unreadRows(this.host.snapshot().items, shown, result))
         this.host.display({ ...row, text: '', images: [], unread: true });
+
       if (result.inputUnsent) this.retain(conversation.id, pendingContext);
+
       this.retain(conversation.id, result.unreadContext);
+
       await this.finishActivity(activity, this.compaction.failure ?? result);
+
       if (result.status === 'completed' && !answer) {
         if (generation === this.link.generation) {
           const reference = conversation.sessions[activity.agent]!;
           reference.deliveredRevision = activity.baseRevision;
           reference.deliveredInstructionsRevision = input.instructionsRevision;
+
           recordDelivery(reference, input);
         }
+
         if (!automatic && pendingHandoff === conversation.handoff)
           delete conversation.handoff;
       }
+
       if (kind === 'turn') {
         const { items } = this.host.snapshot();
         // the turn's own row and the steers accepted after it; an unread row's images were cleared above
         const start = items.findIndex(({ id }) => id === row);
+
         const sent =
           start < 0
             ? []
             : items
                 .slice(start)
                 .flatMap((item) => (item.kind === 'user' && item.images) || []);
+
         conversation.lastTurn = {
           id: activity.id,
           status: result.status,
           ...(sent.length ? { images: sent } : {}),
         };
       }
+
       await this.host.save();
+
       if (kind === 'turn' && conversation.lastTurn?.status === 'completed')
         this.host.publish({ completedTurn: conversation.lastTurn.id });
+
       return result;
     } finally {
       try {
@@ -482,39 +585,56 @@ export class TurnRunner {
   ): () => void {
     let stopped = false;
     let restored = false;
+
     const live = () =>
       !stopped && !this.host.cancelled() && this.link.session === session;
+
     const stopHook = session.restoreCompactionContext?.(async () => {
       const text = await context();
+
       if (!live()) return;
+
       restored = text !== undefined;
+
       return text;
     });
+
     const resend = async () => {
       const text = await context();
+
       if (!text || !live()) return;
+
       const steer = () =>
         session.steer(
           `Witch context, sent again after the conversation compacted:\n\n${text}`,
           { contextOnly: true },
         );
+
       // Claude takes no steer until a manual compaction completes
       if (await steer()) return;
+
       await this.compaction.busy;
+
       if (live()) await steer();
     };
+
     const unsubscribe = this.link.onCompacted(() => {
       if (restored) {
         restored = false;
+
         return;
       }
+
       void resend().catch((error: unknown) =>
         this.host.notice(errorMessage(error)),
       );
     });
+
     return () => {
       stopped = true;
+
       stopHook?.();
+
       unsubscribe();
     };
   }
@@ -525,15 +645,21 @@ export class TurnRunner {
 
   private async compactActivity(read?: MemoryScope): Promise<TurnResult> {
     const { activity, scope } = await this.host.beginActivity('turn', read);
+
     const result = await compactSession(
       () => this.link.connect(undefined, scope),
       () => this.host.cancelled(),
       (text) => this.host.notice(text),
     );
+
     this.host.failed(result.status !== 'completed');
+
     await this.finishActivity(activity, result);
+
     await this.host.save();
+
     if (this.host.cancelled()) this.host.failed(true);
+
     return this.host.cancelled() ? { status: 'interrupted', text: '' } : result;
   }
 
@@ -543,11 +669,15 @@ export class TurnRunner {
   ): Promise<void> {
     const conversation = this.host.conversation();
     const completed = result.status === 'completed';
+
     await this.host.files().flush();
+
     if (!completed) {
       this.host.notice(result.error ?? 'Turn interrupted');
+
       if (result.status === 'failed') this.host.failed(true);
     }
+
     await endActivity(
       this.host.workspace(),
       conversation,
@@ -555,6 +685,7 @@ export class TurnRunner {
       completed,
       () => this.host.acceptMemory(activity.agent),
     );
+
     if (completed) this.usage.others(activity.agent, conversation.cwd);
   }
 
@@ -568,7 +699,9 @@ export class TurnRunner {
 
   retain(id: string, context?: readonly string[]): void {
     if (!context?.length) return;
+
     const pending = this.pendingContext.get(id) ?? [];
+
     this.pendingContext.set(id, [...pending, ...context]);
   }
 

@@ -15,12 +15,15 @@ import { seededMemory } from './fixtures/seeded-memory.js';
 const ledgerCalls = vi.hoisted(() => ({
   before: undefined as (() => void) | undefined,
 }));
+
 vi.mock('../src/persistence/directories.js', async (importOriginal) => {
   const original = await importOriginal<typeof Directories>();
+
   return {
     ...original,
     updateLedger: ((...args) => {
       ledgerCalls.before?.();
+
       return original.updateLedger(...args);
     }) satisfies typeof original.updateLedger,
   };
@@ -30,32 +33,42 @@ vi.mock('../src/persistence/directories.js', async (importOriginal) => {
 async function held(moves: LedgerMove[] = []) {
   const root = await scratch('witch-clock-');
   const at = (path: string) => join(root, path);
+
   await mkdir(at('old'));
+
   await mkdir(at('state/conversations/held'), { recursive: true });
+
   await writeFile(
     at('state/conversations/held/state.json'),
     JSON.stringify(record('held', at('old'))),
   );
+
   const entries = [{ path: at('old'), ...(await identify(at('old')))! }];
+
   await writeFile(
     at('state/directories.json'),
     JSON.stringify({ version: 1, entries, moves }),
   );
+
   const store = await StateStore.open(at('state'));
   const memory = await seededMemory(at('state/memory.git'));
+
   const repair = async (cwd: string) => {
     await repairMoves(store, memory, at(cwd), {
       run: () => Promise.reject(new Error('not a repository')),
     });
+
     return JSON.parse(
       await readFile(at('state/conversations/held/state.json'), 'utf8'),
     ) as { cwd: string; cwdSince: string };
   };
+
   return { at, repair };
 }
 
 test('a conversation repaired while the clock reads behind a recorded move still follows its next move', async () => {
   const ahead = Date.now() + 60_000;
+
   const f = await held([
     {
       from: '/gone',
@@ -66,29 +79,45 @@ test('a conversation repaired while the clock reads behind a recorded move still
       at: ahead,
     },
   ]);
+
   await rename(f.at('old'), f.at('new'));
+
   const repaired = await f.repair('new');
+
   assert.equal(repaired.cwd, f.at('new'));
+
   assert.ok(Date.parse(repaired.cwdSince) >= ahead, repaired.cwdSince);
+
   await rename(f.at('new'), f.at('newer'));
+
   assert.equal((await f.repair('newer')).cwd, f.at('newer'));
 });
 
 test('a conversation repaired before the clock stepped back still follows its next move', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
+
   try {
     vi.setSystemTime(1_000_000);
+
     const f = await held();
+
     await rename(f.at('old'), f.at('new'));
+
     vi.setSystemTime(1_100_000);
+
     // the clock reads later when repair dates the conversation than when it recorded the move
     let calls = 0;
+
     ledgerCalls.before = () => {
       if (++calls === 2) vi.setSystemTime(2_000_000);
     };
+
     await f.repair('new').finally(() => (ledgerCalls.before = undefined));
+
     vi.setSystemTime(1_500_000);
+
     await rename(f.at('new'), f.at('newer'));
+
     assert.equal((await f.repair('newer')).cwd, f.at('newer'));
   } finally {
     vi.useRealTimers();
@@ -101,8 +130,11 @@ async function created(
 ) {
   const root = await scratch('witch-clock-');
   const at = (path: string) => join(root, path);
+
   await mkdir(at('old'));
+
   await mkdir(at('state'));
+
   await writeFile(
     at('state/directories.json'),
     JSON.stringify({
@@ -111,24 +143,32 @@ async function created(
       moves: await moves(at),
     }),
   );
+
   const store = await StateStore.open(at('state'));
   const files = await store.create(createConversation(at('old'), 'a'));
   const { id } = files.record;
+
   await files.close();
+
   const memory = await seededMemory(at('state/memory.git'));
+
   const repair = async (cwd: string) => {
     await repairMoves(store, memory, at(cwd), {
       run: () => Promise.reject(new Error('not a repository')),
     });
+
     const { records } = await store.records();
+
     return records.find((saved) => saved.id === id)?.cwd;
   };
+
   return { at, repair };
 }
 
 test("a conversation created at a reused path after the clock stepped back follows its own directory, not the earlier occupant's", async () => {
   const f = await created(async (at) => {
     await mkdir(at('elsewhere'));
+
     return [
       {
         from: at('old'),
@@ -139,17 +179,24 @@ test("a conversation created at a reused path after the clock stepped back follo
       },
     ];
   });
+
   await rename(f.at('old'), f.at('new'));
+
   assert.equal(await f.repair('new'), f.at('new'));
 });
 
 test('a conversation created before any move was recorded follows its directory after the clock stepped back', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
+
   try {
     vi.setSystemTime(2_000_000);
+
     const f = await created(async () => []);
+
     vi.setSystemTime(1_000_000);
+
     await rename(f.at('old'), f.at('new'));
+
     assert.equal(await f.repair('new'), f.at('new'));
   } finally {
     vi.useRealTimers();

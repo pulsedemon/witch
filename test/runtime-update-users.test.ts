@@ -12,11 +12,14 @@ test('process inspection distinguishes old Witch, participating Witch and an ins
   const state = join(directory, 'admission');
   const root = join(directory, 'native');
   const entry = join(directory, 'src', 'cli.tsx');
+
   await mkdir(dirname(entry), { recursive: true });
+
   await writeFile(
     join(directory, 'package.json'),
     '{"name":"witch","type":"module"}',
   );
+
   await writeFile(
     entry,
     `import {registerNativeParticipant} from ${JSON.stringify(new URL('../src/agents/native-launch.ts', import.meta.url).href)};
@@ -26,6 +29,7 @@ process.stdin.on('end', () => release?.());
 console.log('ready');
 `,
   );
+
   const child = spawn(
     process.execPath,
     [
@@ -38,47 +42,67 @@ console.log('ready');
     ],
     { stdio: 'pipe', cwd: directory },
   );
+
   let output = '';
+
   child.stdout.on('data', (chunk) => {
     output += String(chunk);
   });
+
   const ended = new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
+
     child.once('close', resolve);
   });
+
   try {
     await until('old Witch fixture', () => output.includes('ready'));
+
     const own = async () =>
       (await runtimeUpdateUsers(root, state)).filter(
         ({ pid }) => pid === child.pid,
       );
+
     assert.match((await own())[0]!.reason, /does not participate/);
+
     await mkdir(join(state, 'participants'), { recursive: true });
+
     await writeFile(join(state, 'participants', `${child.pid}.json`), '{}');
+
     assert.equal(
       (await own()).length,
       1,
       'an unlocked stale participant file cannot admit the old process',
     );
+
     child.stdin.write('register\n');
+
     await until('registered Witch fixture', () =>
       output.includes('registered'),
     );
+
     assert.deepEqual(await own(), []);
+
     const native = await runtimeUpdateUsers(dirname(process.execPath), state);
+
     assert.ok(
       native.some(
         ({ pid, reason }) =>
           pid === child.pid && reason === 'Native installation is in use',
       ),
     );
+
     child.stdin.end();
+
     assert.equal(await ended, 0);
+
     assert.deepEqual(await own(), []);
   } finally {
     child.kill('SIGKILL');
+
     await ended.catch(() => {});
   }
+
   const helper = spawn(
     process.execPath,
     [
@@ -88,10 +112,13 @@ console.log('ready');
     ],
     { stdio: 'pipe' },
   );
+
   const helperEnded = new Promise<number | null>((resolve, reject) => {
     helper.once('error', reject);
+
     helper.once('close', resolve);
   });
+
   try {
     await until('installer helper', async () =>
       (await runtimeUpdateUsers(root, state)).some(
@@ -100,6 +127,7 @@ console.log('ready');
     );
   } finally {
     helper.stdin.end();
+
     await helperEnded;
   }
 });

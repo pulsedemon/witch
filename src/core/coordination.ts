@@ -96,6 +96,7 @@ export class SessionCoordination {
     context: (project) => this.context(project),
     current: () => {
       const active = this.admit();
+
       return {
         owner: activationOwner(active),
         cwd: active.conversation.cwd,
@@ -182,10 +183,12 @@ export class SessionCoordination {
       failed: (error) => this.fail('presence', error),
       written: () => {
         this.failures.delete('presence');
+
         this.publish(this.snapshot);
       },
       failure: () => this.failures.has('presence'),
     });
+
     this.control = {
       registry,
       store,
@@ -204,6 +207,7 @@ export class SessionCoordination {
         this.refreshProject(active, deadline),
       retireProject: (active, state) => this.retireProject(active, state),
     };
+
     this.events = new ConversationEvents(
       registry,
       {
@@ -216,9 +220,12 @@ export class SessionCoordination {
         fail: (source, error) => this.fail(source, error),
         read: (sources, notify) => {
           for (const source of sources) this.failures.delete(source);
+
           if (sources.includes('peer-requests'))
             this.failures.delete('peer-admission');
+
           this.publish(this.snapshot);
+
           if (notify) for (const listener of this.listeners) listener();
         },
       },
@@ -227,15 +234,20 @@ export class SessionCoordination {
         serialize: (work) => this.serialize(work),
         recipients: async (project, source) => {
           const active = this.active;
+
           if (active?.conversation.id === source)
             await this.refreshProject(active);
+
           const discovery = await this.discover(++this.revision);
+
           const recipients = await Promise.all(
             discovery.records.map(async (record) => {
               const scope = await this.memory.scopePaths(record.cwd);
+
               return scope.project === project ? record.id : undefined;
             }),
           );
+
           return recipients.filter((id) => id !== undefined);
         },
         refresh: () => this.refreshEvents(),
@@ -251,7 +263,9 @@ export class SessionCoordination {
     assign: typeof assignGitHubTask = assignGitHubTask,
   ): Promise<SessionCoordination> {
     const identity = await identifyProcess(process.pid);
+
     if (!identity) throw new Error('Witch process identity is unavailable.');
+
     const coordination = new SessionCoordination(
       store,
       memory,
@@ -261,39 +275,53 @@ export class SessionCoordination {
       identity,
       assign,
     );
+
     coordination.host = await ControlHost.open(
       directory,
       (request) => coordination.handle(request),
       (error) => coordination.fail('control', error),
     );
+
     try {
       coordination.familiarHost = await ControlHost.open(
         join(directory, 'familiars'),
         async (request) => {
           coordination.admit(request);
+
           const { action } = request;
+
           if (!isFamiliarAction(action))
             throw new Error('Use the task control mailbox for this action.');
+
           const owned = coordination.ownFamiliars?.(action);
+
           if (owned) return owned;
+
           const familiar = coordination.live?.()?.familiar;
+
           if (!familiar)
             throw new Error('This runtime cannot report delegated familiars.');
+
           return familiar.report(action, request.deadline);
         },
         (error) => coordination.fail('control', error),
       );
     } catch (error) {
       await coordination.host.close();
+
       throw error;
     }
+
     coordination.timer = setInterval(() => coordination.tick(), 2000);
+
     coordination.timer.unref();
+
     return coordination;
   }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
+
     return () => this.listeners.delete(listener);
   };
 
@@ -318,18 +346,23 @@ export class SessionCoordination {
     project: string,
   ): Promise<ControlBinding> {
     if (this.ending || this.closed) throw new Error('Coordination is closing.');
+
     if (
       this.active?.accepting &&
       this.active.conversation.id === conversation.id &&
       this.active.project === project
     )
       return this.active.binding;
+
     if (this.active) await this.deactivate();
+
     const config = await this.memory
       .configPath(conversation.cwd)
       .catch(() => undefined);
+
     const activation = randomUUID();
     const release = await this.registry.holdActivation(activation);
+
     const active: Activation = {
       conversation,
       project,
@@ -344,10 +377,13 @@ export class SessionCoordination {
       release,
       config,
     };
+
     this.active = active;
     this.view = undefined;
     this.ledger = undefined;
+
     this.publish(emptySnapshot);
+
     try {
       for (const claim of await this.registry.claims()) {
         if (claim.owner.conversation === conversation.id && !claim.process)
@@ -360,6 +396,7 @@ export class SessionCoordination {
                 throw new Error('Coordination is closing.');
             },
           );
+
         // restart must recover releases for conversations this process has already left.
         if (
           claim.owner.conversation !== conversation.id &&
@@ -368,17 +405,26 @@ export class SessionCoordination {
         )
           this.claimReleases.add(claim.owner.conversation);
       }
+
       await this.retireProject(active);
+
       await this.presence.publish(active);
+
       if (this.ending || this.closed)
         throw new Error('Coordination is closing.');
+
       active.accepting = true;
+
       this.failures.delete('project');
+
       this.updateRepository(this.repository);
+
       await this.inspect();
+
       return active.binding;
     } catch (error) {
       await this.deactivate().catch(() => {});
+
       throw error;
     }
   }
@@ -387,10 +433,15 @@ export class SessionCoordination {
   async quiesce(): Promise<() => void> {
     const active = this.active;
     const accepting = active?.accepting ?? false;
+
     if (active) active.accepting = false;
+
     await this.operations;
+
     await this.host.drain();
+
     await this.familiarHost.drain();
+
     return () => {
       if (active && this.active === active && !this.ending && !this.closed)
         active.accepting = accepting;
@@ -399,20 +450,30 @@ export class SessionCoordination {
 
   async deactivate(): Promise<void> {
     const active = this.active;
+
     if (!active) return;
+
     const quiescing = Promise.all([this.endTurn(), this.quiesce()]);
     active.publishing = false;
+
     this.presence.cancel();
+
     let failure: unknown;
+
     try {
       await quiescing;
+
       await this.flushPauseWrites();
+
       await this.presence.idle();
+
       const error = this.failures.get('presence');
+
       if (error) failure = new Error(error);
     } catch (error) {
       failure = error;
     }
+
     try {
       await this.registry.removePresence(
         active.conversation.id,
@@ -424,34 +485,46 @@ export class SessionCoordination {
       await active.release().catch((error: unknown) => {
         failure ??= error;
       });
+
       if (this.active === active) this.active = undefined;
+
       this.events.forgetPauses();
+
       this.presence.reset();
     }
+
     if (failure !== undefined) throw failure;
   }
 
   update(snapshot: Snapshot): void {
     this.state = snapshot;
+
     if (snapshot.phase === 'closing') {
       this.ending = true;
+
       if (this.active) this.active.accepting = false;
     }
+
     const active = this.active;
+
     if (
       this.closed ||
       !active?.publishing ||
       snapshot.conversation?.id !== active.conversation.id
     )
       return;
+
     this.presence.schedule(active);
   }
 
   updateRepository(repository: Repository | undefined): void {
     this.repository = repository;
+
     if (this.state) this.update(this.state);
+
     const active = this.active;
     const pullRequest = repository?.pullRequest;
+
     if (
       !active?.accepting ||
       pullRequest?.state !== 'MERGED' ||
@@ -459,6 +532,7 @@ export class SessionCoordination {
       repository!.pullRequestProject === undefined
     )
       return;
+
     this.events.observeMerge(
       repository!.pullRequestProject,
       active.conversation.id,
@@ -471,12 +545,15 @@ export class SessionCoordination {
     try {
       return await this.serialize(async () => {
         const active = this.admit();
+
         const scope = {
           conversation: active.conversation.id,
           project: active.project,
         };
+
         const current = () =>
           this.active === active && active.project === scope.project;
+
         const { attempted, requests } = await this.change(
           undefined,
           (verify) =>
@@ -488,17 +565,21 @@ export class SessionCoordination {
             ),
           async () => {
             this.admit();
+
             if (!current())
               throw new Error(
                 'The conversation changed before its peer requests were admitted.',
               );
           },
         );
+
         if (current()) this.events.recordRequests(scope, requests);
+
         return attempted;
       });
     } catch (error) {
       this.fail('peer-admission', error);
+
       return [];
     }
   }
@@ -506,12 +587,14 @@ export class SessionCoordination {
   answerPeers(answers: readonly PeerAnswer[]): Promise<void> {
     return this.serialize(async () => {
       const active = this.admit();
+
       await this.registry.answerPeers(
         active.conversation.id,
         answers,
         Date.now() + 1000,
         true,
       );
+
       await this.refreshEvents();
     });
   }
@@ -527,35 +610,43 @@ export class SessionCoordination {
 
   private queuePauseWrite(write: SessionCoordination['pauseWrites'][number]) {
     this.pauseWrites.push(write);
+
     void this.flushPauseWrites();
   }
 
   /** runs while closing too, without admission, so a resume made just before /restart is stored. */
   private flushPauseWrites(): Promise<void> {
     if (!this.pauseWrites.length) return Promise.resolve();
+
     this.flushingPauses ??= this.serialize(async () => {
       while (this.pauseWrites.length) {
         const { conversation, kind, pauses } = this.pauseWrites[0]!;
         const deadline = Date.now() + 1000;
+
         if (kind === 'resume')
           await this.registry.resumeByUser(conversation, pauses, deadline);
         else
           for (const pause of pauses)
             await this.registry.confirmPause(conversation, pause, deadline);
+
         this.pauseWrites.shift();
       }
+
       this.failures.delete('pause-writes');
+
       this.publish(this.snapshot);
     })
       .catch((error: unknown) => this.fail('pause-writes', error))
       .finally(() => {
         this.flushingPauses = undefined;
       });
+
     return this.flushingPauses;
   }
 
   beginTurn(turn: string): void {
     const active = this.admit();
+
     this.turn = {
       owner: activationOwner(active),
       activation: active.binding.activation,
@@ -565,12 +656,14 @@ export class SessionCoordination {
 
   endTurn(turn?: string): Promise<void> {
     this.revokeTurn(turn);
+
     return this.serialize(() => this.finishCleanup());
   }
 
   private revokeTurn(turn?: string): void {
     if (this.turn && (turn === undefined || this.turn.turn === turn)) {
       this.cancellations.set(this.turn.turn, this.turn);
+
       this.turn = undefined;
     }
   }
@@ -587,12 +680,15 @@ export class SessionCoordination {
             verify,
           ),
         );
+
         this.cancellations.delete(id);
       }
+
       for (const conversation of this.claimReleases) {
         const claim = (await this.readLedger(state)).ledger.claims.find(
           (claim) => claim.owner.conversation === conversation,
         );
+
         if (claim)
           await this.change(state, (verify) =>
             this.registry.releaseConversation(
@@ -602,11 +698,14 @@ export class SessionCoordination {
               verify,
             ),
           );
+
         this.claimReleases.delete(conversation);
       }
+
       this.failures.delete('selection');
     } catch (error) {
       this.fail('selection', error);
+
       throw error;
     }
   }
@@ -614,16 +713,19 @@ export class SessionCoordination {
   private maintain(): Promise<void> {
     if (this.closed || (!this.cancellations.size && !this.claimReleases.size))
       return Promise.resolve();
+
     this.maintaining ??= this.serialize(() => this.finishCleanup())
       .catch(() => {})
       .finally(() => {
         this.maintaining = undefined;
       });
+
     return this.maintaining;
   }
 
   releaseConversation(conversation: string): Promise<void> {
     this.claimReleases.add(conversation);
+
     return this.serialize(() => this.finishCleanup());
   }
 
@@ -633,15 +735,19 @@ export class SessionCoordination {
   ): Promise<void> {
     if (this.turn && this.turn.owner.project !== active.project)
       this.revokeTurn();
+
     await this.finishCleanup(state);
+
     const claim = (await this.readLedger(state)).ledger.claims.find(
       (claim) =>
         claim.owner.conversation === active.conversation.id &&
         claim.suggestion &&
         claim.owner.project !== active.project,
     );
+
     if (claim) {
       this.claimReleases.add(claim.owner.conversation);
+
       await this.finishCleanup(state);
     }
   }
@@ -653,13 +759,17 @@ export class SessionCoordination {
   }> {
     const active = this.admit();
     let moved: string[] = [];
+
     try {
       await this.serialize(async () => {
         // a turn's own read stands in for another while it matches and no read failed
         if (project !== active.project || this.failures.has('project'))
           await this.refreshProject(active);
+
         const state: RequestState = {};
+
         await this.retireProject(active, state);
+
         moved = movedNotices(
           (await this.readLedger(state)).ledger,
           active.conversation.id,
@@ -668,26 +778,37 @@ export class SessionCoordination {
     } catch {
       // the recorded error withholds new work while the agent can still explain or finish its existing task
     }
+
     const snapshot = await this.inspect();
+
     this.admit();
+
     const context = coordinationContext(snapshot, moved, this.turn?.turn);
+
     const instructions = coordinationInstructions(
       snapshot,
       this.commandPrefixes().control,
     );
+
     return { instructions, context, snapshot };
   }
 
   async releaseTask(): Promise<void> {
     const active = this.admit();
+
     checkTaskRelease(this.state, true);
+
     this.failures.delete('control');
+
     await this.serialize(async () => {
       const state: RequestState = {};
+
       const claim = (await this.readLedger(state)).ledger.claims.find(
         (entry) => entry.owner.conversation === active.conversation.id,
       );
+
       if (!claim) return;
+
       await dispatchControl(
         this.control,
         {
@@ -706,11 +827,14 @@ export class SessionCoordination {
 
   async takeTask(reference: string, timeout = 10_000): Promise<void> {
     const active = this.admit();
+
     if (this.state?.phase !== 'idle' || this.state.recovery)
       throw new Error(
         'Wait for idle and resolve memory recovery before taking a task.',
       );
+
     this.failures.delete('control');
+
     await this.serialize(() =>
       dispatchControl(
         this.control,
@@ -730,7 +854,9 @@ export class SessionCoordination {
   async close(options: { restart?: boolean } = {}): Promise<void> {
     this.ending = true;
     this.closed = true;
+
     clearInterval(this.timer);
+
     try {
       try {
         await this.deactivate();
@@ -740,6 +866,7 @@ export class SessionCoordination {
       }
     } finally {
       await Promise.all([this.host.close(), this.familiarHost.close()]);
+
       await Promise.all([
         this.refreshing?.promise,
         this.events.pending,
@@ -750,6 +877,7 @@ export class SessionCoordination {
 
   private admit(request?: ControlRequest): Activation {
     const active = this.active;
+
     if (
       !active?.accepting ||
       this.ending ||
@@ -761,32 +889,43 @@ export class SessionCoordination {
       throw new Error(
         'This control activation is no longer current. Use the prefix from the current Witch context.',
       );
+
     if (request) checkDeadline(request.deadline);
+
     return active;
   }
 
   private serialize<T>(work: () => Promise<T>): Promise<T> {
     const operation = this.operations.then(work);
+
     this.operations = operation.then(
       () => {},
       () => {},
     );
+
     return operation;
   }
 
   private async readLedger(state?: RequestState): Promise<LedgerView> {
     if (state?.ledger) return state.ledger;
+
     const active = this.active;
     const project = active?.project;
     let revision = 0;
+
     const accept = () => {
       if (!this.current(active, project)) return false;
+
       // lock acquisition failures have no locked observation.
       const observed = revision || ++this.revision;
+
       if (observed <= this.ledgerObservation) return false;
+
       this.ledgerObservation = observed;
+
       return true;
     };
+
     try {
       const ledger = await this.registry.state(
         state?.deadline ?? Date.now() + 1000,
@@ -794,15 +933,21 @@ export class SessionCoordination {
           revision = ++this.revision;
         },
       );
+
       if (accept()) {
         this.failures.delete('ledger');
+
         if (active) this.answer(active, ledger);
       }
+
       const value = { revision, ledger };
+
       if (state) state.ledger = value;
+
       return value;
     } catch (error) {
       if (accept()) this.fail('ledger', error);
+
       throw error;
     }
   }
@@ -813,22 +958,30 @@ export class SessionCoordination {
     verify: Verify = async () => {},
   ): Promise<T> {
     let committed: LedgerView | undefined;
+
     try {
       const result = await work(async (value) => {
         // ledger reads after this revision wait for the transaction to release its lock.
         this.mutationRevision = this.ledgerObservation = ++this.revision;
+
         this.failures.delete('ledger');
+
         committed = { revision: this.mutationRevision, ledger: value };
+
         await verify(value);
       });
+
       if (committed) {
         if (!this.ledger || committed.revision > this.ledger.revision)
           this.ledger = committed;
+
         if (state) state.ledger = this.ledger;
       }
+
       return result;
     } catch (error) {
       if (state) state.ledger = undefined;
+
       throw error;
     }
   }
@@ -836,11 +989,13 @@ export class SessionCoordination {
   private observe(state: RequestState): Promise<Discovery> {
     if (!state.discovery) {
       const revision = ++this.revision;
+
       state.discovery = {
         revision,
         promise: this.discover(revision, state.deadline),
       };
     }
+
     return state.discovery.promise;
   }
 
@@ -850,12 +1005,15 @@ export class SessionCoordination {
   ): Promise<CoordinationSnapshot> {
     const discovery = this.observe(state).catch((error: unknown) => {
       this.failDiscovery(error, state.discovery!.revision);
+
       throw error;
     });
+
     const [ledger, observed] = await Promise.all([
       this.readLedger(state),
       discovery,
     ]);
+
     return this.updateView(active, active.project, observed, ledger);
   }
 
@@ -866,10 +1024,12 @@ export class SessionCoordination {
     ledger?: LedgerView,
   ): CoordinationSnapshot {
     if (!this.current(active, project)) return this.snapshot;
+
     const previous =
       this.view?.active === active && this.view.project === project
         ? this.view
         : undefined;
+
     this.view = {
       active,
       project,
@@ -878,13 +1038,18 @@ export class SessionCoordination {
           ? previous.discovery
           : discovery,
     };
+
     // an invalidated ledger could erase a committed claim.
     if (!ledger) return this.snapshot;
+
     if (!this.ledger || ledger.revision > this.ledger.revision)
       this.ledger = ledger;
+
     if (this.view.discovery.revision > this.discoveryFailure)
       this.failures.delete('discovery');
+
     this.published++;
+
     this.publish(
       projectDiscovery(
         active.conversation.id,
@@ -893,6 +1058,7 @@ export class SessionCoordination {
         this.ledger.ledger,
       ),
     );
+
     return this.snapshot;
   }
 
@@ -905,12 +1071,17 @@ export class SessionCoordination {
         kind: 'error',
         message: 'Use the familiar reporting mailbox for this action.',
       });
+
     this.failures.delete('control');
+
     if (request.action.kind === 'route') {
       this.admit(request);
+
       if (!this.router) throw new Error('This Witch cannot route work.');
+
       return this.router(request.action);
     }
+
     return this.serialize(() => dispatchControl(this.control, request, human));
   }
 
@@ -921,15 +1092,22 @@ export class SessionCoordination {
         claim.owner.conversation === active.conversation.id &&
         (claim.transfer || claim.automaticTransfer),
     );
+
     if (!claim) {
       // a request that went away takes its failure with it
       this.handover(active);
+
       return;
     }
+
     if (this.handing) return;
+
     const field = claim.transfer ? 'transfer' : 'automaticTransfer';
+
     if (claim[field]?.refusal) return;
+
     const owner = { ...claim.owner, conversation: active.conversation.id };
+
     this.handing = this.serialize(async () => {
       const moved = await this.change(
         undefined,
@@ -946,12 +1124,15 @@ export class SessionCoordination {
           if (this.admit() !== active) throw new Error('Coordination moved.');
         },
       );
+
       this.handover(active);
+
       if (moved && !moved.transfer) void this.refresh();
     })
       .catch((error: unknown) => {
         // the request stays pending, so the next tick rereads and answers again
         active.observed = undefined;
+
         this.handover(active, error);
       })
       .finally(() => {
@@ -969,6 +1150,7 @@ export class SessionCoordination {
       this.closed
     )
       return;
+
     if (error !== undefined) this.fail('handover', error);
     else if (this.failures.delete('handover')) this.publish(this.snapshot);
   }
@@ -976,23 +1158,31 @@ export class SessionCoordination {
   private refreshProject(active: Activation, deadline?: number): Promise<void> {
     const previous = this.projecting;
     const controller = new AbortController();
+
     const cancel = () => {
       previous?.cancel();
+
       controller.abort();
     };
+
     const timer =
       deadline === undefined
         ? undefined
         : setTimeout(cancel, checkDeadline(deadline));
+
     const read = (previous?.promise ?? Promise.resolve()).then(() =>
       this.readProject(active, controller.signal),
     );
+
     const settled = read.finally(() => {
       clearTimeout(timer);
+
       if (this.projecting === pending) this.projecting = undefined;
     });
+
     const pending = { promise: settled.catch(() => {}), cancel };
     this.projecting = pending;
+
     return settled;
   }
 
@@ -1006,20 +1196,29 @@ export class SessionCoordination {
         active.conversation.cwd,
         signal,
       );
+
       signal.throwIfAborted();
+
       if (this.active !== active || !active.publishing || this.closed) return;
+
       const changed = active.project !== project;
       active.project = project;
+
       if (this.turn && this.turn.owner.project !== project) this.revokeTurn();
+
       this.failures.delete('project');
+
       if (this.state) this.update(this.state);
+
       if (changed) {
         void this.refresh();
+
         void this.refreshEvents();
       }
     } catch (error) {
       if (this.active === active && active.publishing && !this.closed)
         this.fail('project', error);
+
       throw error;
     }
   }
@@ -1027,22 +1226,33 @@ export class SessionCoordination {
   /** starts its refreshes synchronously, so a caller can read `refreshing` as soon as it returns. */
   private tick(): void {
     void this.maintain();
+
     void this.flushPauseWrites();
+
     void this.presence.retry();
+
     void this.events.publishMerges();
+
     const active = this.active;
+
     if (!active?.publishing || this.closed) return;
+
     this.rescope(active);
+
     this.reread(active);
   }
 
   private rescope(active: Activation): void {
     // a hung Git would otherwise queue a read for every tick while a project failure stands
     if (active.rescoping) return;
+
     const stamp = configStamp(active.config);
+
     if (stamp === active.configured && !this.failures.has('project')) return;
+
     active.configured = stamp;
     active.rescoping = true;
+
     void this.refreshProject(active)
       .catch(() => {})
       .finally(() => {
@@ -1053,10 +1263,13 @@ export class SessionCoordination {
   /** a refresh started while another runs would join it and miss what changed since it read, so the next tick decides. */
   private reread(active: Activation): void {
     if (this.refreshing || this.events.pending) return;
+
     const signature = this.registry.signature();
     const now = performance.now();
+
     const minute =
       active.rereadAt === undefined || now - active.rereadAt >= rereadInterval;
+
     if (
       signature !== undefined &&
       signature === active.observed &&
@@ -1071,15 +1284,19 @@ export class SessionCoordination {
       ].some((key) => this.failures.has(key))
     )
       return;
+
     active.observed = signature;
     active.rereadAt = now;
     const published = this.published;
+
     void this.refresh().then(() => {
       // a refresh that published nothing leaves what it read unshown, so the next tick tries again
       if (this.published === published && active.observed === signature)
         active.observed = undefined;
     });
+
     void this.refreshEvents();
+
     // a repository created or moved after activation has no config to stamp yet
     if (
       minute &&
@@ -1095,32 +1312,42 @@ export class SessionCoordination {
 
   private async inspect(): Promise<CoordinationSnapshot> {
     await Promise.all([this.refreshing?.promise, this.events.pending]);
+
     await Promise.all([this.refresh(), this.refreshEvents()]);
+
     return this.snapshot;
   }
 
   private refresh(): Promise<void> {
     const active = this.active;
+
     if (!active?.publishing || this.closed) return Promise.resolve();
+
     const project = active.project;
+
     if (this.refreshing)
       return this.refreshing.active === active &&
         this.refreshing.project === project
         ? this.refreshing.promise
         : this.refreshing.promise.then(() => this.refresh());
+
     const revision = ++this.revision;
     const current = () => this.current(active, project);
+
     const discovery = this.discover(revision).catch((error: unknown) => {
       if (current()) this.failDiscovery(error, revision);
     });
+
     const promise = Promise.all([this.readLedger(), discovery])
       .then(
         ([ledger, discovery]) => {
           if (!current() || !discovery) return;
+
           const consistent =
             ledger.revision > this.mutationRevision ||
             (this.ledger !== undefined &&
               this.ledger.revision > ledger.revision);
+
           this.updateView(
             active,
             project,
@@ -1133,14 +1360,19 @@ export class SessionCoordination {
       .finally(() => {
         this.refreshing = undefined;
       });
+
     this.refreshing = { active, project, promise };
+
     return promise;
   }
 
   private refreshEvents(): Promise<void> {
     const active = this.active;
+
     if (!active?.publishing || this.closed) return Promise.resolve();
+
     const project = active.project;
+
     return this.events.refresh(
       active,
       { conversation: active.conversation.id, project },
@@ -1167,6 +1399,7 @@ export class SessionCoordination {
     const held = this.active?.publishing
       ? this.active.binding.activation
       : undefined;
+
     return discover(
       { registry: this.registry, store: this.store, memory: this.memory },
       revision,
@@ -1177,6 +1410,7 @@ export class SessionCoordination {
 
   private fail(source: string, error: unknown): void {
     this.failures.set(source, errorMessage(error));
+
     this.publish(this.snapshot);
   }
 
@@ -1186,18 +1420,24 @@ export class SessionCoordination {
       (this.view && this.view.discovery.revision > revision)
     )
       return;
+
     this.discoveryFailure = revision;
+
     this.fail('discovery', error);
   }
 
   private publish(snapshot: CoordinationSnapshot): void {
     if (this.closed) return;
+
     const next = {
       ...snapshot,
       error: [...this.failures.values()].join('\n') || undefined,
     };
+
     if (JSON.stringify(next) === JSON.stringify(this.snapshot)) return;
+
     this.snapshot = next;
+
     for (const listener of this.listeners) listener();
   }
 }

@@ -34,11 +34,15 @@ export function usagePlacement(
   const readings = snapshot.agents
     .filter(({ installed }) => installed)
     .map(({ id }) => ({ id, reading: snapshot.accounts[id] }));
+
   const accounts = readings.some(({ reading }) => reading) ? readings : [];
   const lines = usageLines(accounts, now);
+
   if (sidebar && height >= rows + 1 + lines.length)
     return { sidebar: lines, status: {} };
+
   const live = snapshot.native?.agent ?? snapshot.conversation?.agent;
+
   return {
     sidebar: [],
     status: {

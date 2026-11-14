@@ -5,6 +5,7 @@ export interface Choice {
   exact?: string;
   cwd?: string;
 }
+
 export type Picker = (
   title: string,
   choices: readonly Choice[],

@@ -6,6 +6,7 @@ import { defaultPolicy, family, resolve, route } from '../src/core/routing.js';
 import { USAGE_CURRENT_MS } from '../src/core/usage.js';
 
 const now = 2_000_000_000_000;
+
 const codexIds = [
   'gpt-6.1-sol',
   'gpt-6-astra',
@@ -16,6 +17,7 @@ const codexIds = [
   'gpt-5.6-terra',
   'gpt-5.6-luna',
 ];
+
 const catalog: Catalog = {
   models: [
     ...['default', 'opus', 'sonnet', 'claude-opus-5', 'claude-opus-4-8'].map(
@@ -32,12 +34,15 @@ const catalog: Catalog = {
     },
   },
 };
+
 const installed = ['claude', 'codex'];
+
 const window = (
   name: string,
   percent: number,
   observedAt = now - 1000,
 ): Limit => ({ window: name, percent, observedAt });
+
 const credited = (percent: number): AccountReading => ({
   limits: [window('7D', percent)],
   funding: {
@@ -49,6 +54,7 @@ const credited = (percent: number): AccountReading => ({
   },
   creditAccess: { state: 'available', observedAt: now },
 });
+
 const fresh = {
   claude: [window('5H', 20), window('7D', 61)],
   codex: [window('7D', 49)],
@@ -57,6 +63,7 @@ const fresh = {
 /** a single route as itself, so a result with an unexpected number of routes fails as an array. */
 function unwrap(result: Route) {
   if ('refused' in result) return result;
+
   return result.routes.length === 1 ? result.routes[0]! : result.routes;
 }
 
@@ -107,7 +114,9 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
     },
     creditAccess: { state: 'available', observedAt: now },
   };
+
   const accounts = { claude: { limits: [window('7D', 100)] }, codex: funded };
+
   assert.deepEqual(ask({ accounts }), {
     runtime: 'codex',
     model: 'gpt-6.1-sol',
@@ -115,6 +124,7 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
     reason:
       'claude (7D 100%) is at or over the 90% shift threshold, and codex (7D 100%, 12345.68 credits) has usable credits',
   });
+
   assert.deepEqual(
     ask({
       caller: 'codex',
@@ -127,10 +137,12 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
         'implementation stays on codex; codex (7D 100%, 12345.68 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
     },
   );
+
   assert.equal(
     (ask({ caller: 'codex', accounts }) as { runtime: string }).runtime,
     'codex',
   );
+
   assert.equal(
     (
       ask({
@@ -140,6 +152,7 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
     ).runtime,
     'claude',
   );
+
   for (const creditAccess of [
     { state: 'unavailable' as const, observedAt: now },
     { state: 'unknown' as const, observedAt: now },
@@ -153,6 +166,7 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
       ).runtime,
       'claude',
     );
+
     assert.equal(
       (
         ask({
@@ -166,6 +180,7 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
       'claude',
     );
   }
+
   assert.equal(
     (
       ask({
@@ -207,6 +222,7 @@ test('credits draw work onto another runtime only at 100%, and a spent runtime w
       },
     ],
   );
+
   assert.deepEqual(
     ask({
       limits: { claude: [window('7D', 100)], codex: [window('7D', 96)] },
@@ -228,6 +244,7 @@ test('usable credits keep a runtime past the shift threshold on its own placemen
       of: { runtime: 'claude', model: 'claude-opus-5-5' },
       accounts: { claude: { limits: [window('7D', 19)] }, codex },
     });
+
   for (const codex of [
     {
       ...credited(99),
@@ -257,6 +274,7 @@ test('usable credits keep a runtime past the shift threshold on its own placemen
       model: 'claude-opus-5-5',
       reason: 'review of claude work goes to every runtime',
     });
+
   assert.deepEqual(review(credited(99)), [
     {
       runtime: 'claude',
@@ -287,6 +305,7 @@ test('a versioned model runs as named, even absent from the catalog, and the rea
       reason: "named explicitly; claude's 7D reading is not current",
     },
   );
+
   assert.deepEqual(ask({ named: { runtime: 'codex', model: 'gpt-6-sol' } }), {
     runtime: 'codex',
     model: 'gpt-6-sol',
@@ -296,9 +315,11 @@ test('a versioned model runs as named, even absent from the catalog, and the rea
 
 test('a family resolves to its newest version, comparing versions numerically', () => {
   assert.deepEqual(resolve('codex', 'sol', catalog), { model: 'gpt-6.1-sol' });
+
   assert.deepEqual(resolve('codex', 'astra', catalog), {
     model: 'gpt-6-astra',
   });
+
   const later: Catalog = {
     ...catalog,
     models: ['gpt-6.9-sol', 'gpt-6.10-sol'].map((id) => ({
@@ -308,7 +329,9 @@ test('a family resolves to its newest version, comparing versions numerically', 
       efforts: [],
     })),
   };
+
   assert.deepEqual(resolve('codex', 'sol', later), { model: 'gpt-6.10-sol' });
+
   assert.deepEqual(resolve('claude', 'opus', catalog), {
     model: 'claude-opus-5-5',
   });
@@ -326,6 +349,7 @@ test('a named family with no model in the catalog is refused rather than run by 
       }),
       { refused: 'codex lists no sol model to run' },
     );
+
   assert.deepEqual(
     ask({
       named: { runtime: 'claude', model: 'opus' },
@@ -343,6 +367,7 @@ test('an unversioned model a runtime without aliases lists runs as named, by nam
       { agent: 'codex', id: 'gpt-reserve', label: 'reserve', efforts: [] },
     ],
   };
+
   assert.deepEqual(
     ask({
       named: { runtime: 'codex', model: 'gpt-reserve' },
@@ -350,6 +375,7 @@ test('an unversioned model a runtime without aliases lists runs as named, by nam
     }),
     { runtime: 'codex', model: 'gpt-reserve', reason: 'named explicitly' },
   );
+
   assert.deepEqual(
     ask({
       policy: { work: { implementation: 'codex:gpt-reserve' } },
@@ -361,9 +387,11 @@ test('an unversioned model a runtime without aliases lists runs as named, by nam
       reason: 'the policy sends implementation to codex:gpt-reserve',
     },
   );
+
   assert.deepEqual(family('codex', 'gpt-reserve', listed), {
     refused: 'gpt-reserve names a model, not a family',
   });
+
   assert.deepEqual(resolve('codex', 'gpt-reserve', catalog), {
     refused: 'codex lists no gpt-reserve model to run',
   });
@@ -373,12 +401,15 @@ test('default and names that are not Claude families are refused, and a policy f
   assert.deepEqual(resolve('claude', 'default', catalog), {
     refused: 'name a claude family or model, not default',
   });
+
   assert.deepEqual(resolve('claude', 'gpt', catalog), {
     refused: 'claude lists no gpt model to run',
   });
+
   assert.deepEqual(family('codex', 'gpt-6-sol', catalog), {
     refused: 'gpt-6-sol names a model, not a family',
   });
+
   assert.deepEqual(
     ask({
       policy: { families: { claude: 'opus', codex: 'sol' } },
@@ -399,6 +430,7 @@ test('with no rule, work stays on the caller with its family at the newest versi
 
 test('review routes relative to the runtime that produced the work', () => {
   const codexWork = { runtime: 'codex', model: 'gpt-6.1-sol' };
+
   assert.deepEqual(
     ask({
       work: 'review',
@@ -411,6 +443,7 @@ test('review routes relative to the runtime that produced the work', () => {
       reason: 'the policy sends review of codex work to other',
     },
   );
+
   assert.deepEqual(
     ask({
       work: 'review',
@@ -423,6 +456,7 @@ test('review routes relative to the runtime that produced the work', () => {
       reason: 'review stays on codex, which produced it',
     },
   );
+
   assert.equal(
     (
       ask({ work: 'review', policy: { work: { review: 'other' } } }) as {
@@ -435,6 +469,7 @@ test('review routes relative to the runtime that produced the work', () => {
 
 test('work shifts to the runtime with room once the chosen one is over the level, in either direction', () => {
   const hours = (count: number) => now / 1000 + count * 3600;
+
   assert.deepEqual(
     ask({
       limits: {
@@ -453,6 +488,7 @@ test('work shifts to the runtime with room once the chosen one is over the level
         'claude (7D 92%, resets in 1d2h) is at or over the 90% shift threshold, and codex (7D 49%, resets in 4d4h) has room under it',
     },
   );
+
   // the reason names the current window that is over, not a stale one beside it
   assert.deepEqual(
     ask({
@@ -472,6 +508,7 @@ test('work shifts to the runtime with room once the chosen one is over the level
         'claude (5H 95%) is at or over the 90% shift threshold, and codex (5H 10%) has room under it',
     },
   );
+
   assert.deepEqual(
     ask({
       caller: 'codex',
@@ -490,6 +527,7 @@ test('work shifts to the runtime with room once the chosen one is over the level
 test('a review the policy sent away from its producer stays off the producer when the reviewer is over the level, and other work does not', () => {
   const of = { runtime: 'codex', model: 'gpt-6.1-sol' };
   const limits = { claude: [window('7D', 92)], codex: [window('7D', 49)] };
+
   assert.deepEqual(
     ask({ work: 'review', of, policy: { work: { review: 'other' } }, limits }),
     {
@@ -499,6 +537,7 @@ test('a review the policy sent away from its producer stays off the producer whe
         'the policy sends review of codex work to other; claude (7D 92%) is at or over the 90% shift threshold, but codex produced the work',
     },
   );
+
   // a review kept on its producer may shift away
   assert.equal(
     (
@@ -511,12 +550,14 @@ test('a review the policy sent away from its producer stays off the producer whe
     ).runtime,
     'claude',
   );
+
   // `--of` is accepted with any work, but only a review stays off its producer
   assert.equal((ask({ of, limits }) as { runtime: string }).runtime, 'codex');
 });
 
 test('no shift happens without current evidence of room, and the reason says which reading is missing', () => {
   const over = [window('7D', 92)];
+
   const cases: [Limit[] | undefined, string][] = [
     [
       [window('7D', 49, now - USAGE_CURRENT_MS - 1)],
@@ -529,6 +570,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       "codex's 7D reading is not current",
     ],
   ];
+
   for (const [codex, missing] of cases)
     assert.deepEqual(
       ask({ limits: { claude: over, ...(codex ? { codex } : {}) } }),
@@ -538,6 +580,7 @@ test('no shift happens without current evidence of room, and the reason says whi
         reason: `implementation stays on claude; claude (7D 92%) is at or over the 90% shift threshold, but ${missing}`,
       },
     );
+
   assert.deepEqual(
     ask({
       limits: { claude: over, codex: [window('7D', 49)] },
@@ -553,6 +596,7 @@ test('no shift happens without current evidence of room, and the reason says whi
         'implementation stays on claude; claude (7D 92%) is at or over the 90% shift threshold, but codex lists no sol model to run',
     },
   );
+
   // the reason names the current window that is over, not a stale one beside it
   assert.deepEqual(
     ask({
@@ -588,6 +632,7 @@ test('no shift happens when the chosen runtime has no current window over the le
         "implementation stays on claude; claude's 7D reading is not current",
     },
   );
+
   assert.match(
     (
       ask({
@@ -596,6 +641,7 @@ test('no shift happens when the chosen runtime has no current window over the le
     ).reason,
     /but codex \(7D 95%\) is at or over it too$/,
   );
+
   assert.equal(
     (
       ask({
@@ -609,6 +655,7 @@ test('no shift happens when the chosen runtime has no current window over the le
 
 test('a runtime that is not installed, a missing other runtime and an unset family are refused', () => {
   const alone = { installed: ['claude'] };
+
   for (const [fields, refused] of [
     [
       { named: { runtime: 'codex', model: 'gpt-6-sol' } },
@@ -632,6 +679,7 @@ test('a runtime that is not installed, a missing other runtime and an unset fami
     ],
   ] as const)
     assert.deepEqual(ask({ ...alone, ...fields }), { refused }, refused);
+
   assert.deepEqual(ask({ policy: { families: { codex: 'sol' } } }), {
     refused: 'no family is set for claude',
   });
@@ -652,10 +700,12 @@ test('a runtime over the level stays when no other runtime is installed, and the
 test('with no rule, review goes to every runtime, and a reviewer over the level folds into the route of the runtime it shifts onto', () => {
   const of = { runtime: 'claude', model: 'claude-opus-5-5' };
   const reason = 'review of claude work goes to every runtime';
+
   assert.deepEqual(ask({ work: 'review', of }), [
     { runtime: 'claude', model: 'claude-opus-5-5', reason },
     { runtime: 'codex', model: 'gpt-6.1-sol', reason },
   ]);
+
   assert.deepEqual(
     route({
       work: 'review',
@@ -694,6 +744,7 @@ test('with no rule, review goes to every runtime, and a reviewer over the level 
       ],
     },
   );
+
   assert.deepEqual(ask({ work: 'review', of, installed: ['claude'] }), {
     runtime: 'claude',
     model: 'claude-opus-5-5',
@@ -740,6 +791,7 @@ test("a review whose first runtime is over the level folds its shift into the ne
 test('a rule that names a model or family shifts to the comparable model on a runtime with room, and stays when there is none', () => {
   const claudeHot = { claude: [window('7D', 99)], codex: [window('7D', 1)] };
   const codexHot = { claude: [window('7D', 1)], codex: [window('7D', 99)] };
+
   for (const [rule, limits, model, from] of [
     ['claude:claude-opus-5', claudeHot, 'gpt-6-astra', 'claude-opus-5'],
     ['claude:fable', claudeHot, 'gpt-6-astra', 'fable'],
@@ -758,6 +810,7 @@ test('a rule that names a model or family shifts to the comparable model on a ru
       },
       rule,
     );
+
   assert.deepEqual(
     ask({
       policy: { work: { implementation: 'codex:gpt-6-nova' } },
@@ -770,6 +823,7 @@ test('a rule that names a model or family shifts to the comparable model on a ru
         'the policy sends implementation to codex:gpt-6-nova; codex (7D 99%) is at or over the 90% shift threshold, but claude has no model comparable to gpt-6-nova',
     },
   );
+
   assert.deepEqual(
     ask({ policy: { work: { implementation: 'claude:claude-opus-5' } } }),
     {

@@ -8,17 +8,22 @@ const lowlight = createLowlight({
   // JavaScript still embeds XML for JSX and tagged HTML templates.
   xml: (hljs) => {
     const language = all.xml!(hljs);
+
     for (const mode of language.contains ?? [])
       if (typeof mode === 'object' && Array.isArray(mode.starts?.subLanguage))
         mode.starts.subLanguage = mode.starts.subLanguage.filter(
           (name) => name !== 'xml' && name !== 'handlebars',
         );
+
     return language;
   },
 });
+
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
 // `@types/hast` isn't a direct dependency, and pnpm doesn't hoist it
 type Root = ReturnType<typeof lowlight.highlight>;
+
 type Node = Root['children'][number];
 
 export interface Span {
@@ -73,12 +78,14 @@ export function languageOf(
   const name = basename(path);
   const candidates = [names.get(name.split('.')[0]!), extname(path).slice(1)];
   const line = first?.replace(/^\uFEFF/, '');
+
   if (line?.startsWith('#!'))
     candidates.push(
       interpreters.find(([interpreter]) => line.includes(interpreter))?.[1],
     );
   else if (line?.startsWith('<?php')) candidates.push('php');
   else if (line?.startsWith('<?xml')) candidates.push('xml');
+
   return candidates.find(
     (candidate) => candidate && lowlight.registered(candidate),
   );
@@ -91,10 +98,12 @@ export function languageOf(
  */
 function spansOf(line: string, language: string): Span[] {
   const spans: Span[] = [];
+
   const walk = (nodes: readonly Node[], scope?: string) => {
     for (const node of nodes)
       if (node.type === 'element') {
         const name = node.properties.className;
+
         walk(
           node.children,
           Array.isArray(name)
@@ -110,21 +119,28 @@ function spansOf(line: string, language: string): Span[] {
               : syntax.get(scope ?? ''),
         });
   };
+
   try {
     // a deep enough nesting overflows the stack
     walk(lowlight.highlight(language, line).children);
   } catch {
     return [{ text: line }];
   }
+
   if (spans.map(({ text }) => text).join('') !== line) return [{ text: line }];
+
   const starts = new Set(
     Array.from(graphemes.segment(line), ({ index }) => index),
   );
+
   let at = 0;
+
   for (const { text } of spans) {
     if (!starts.has(at)) return [{ text: line }];
+
     at += text.length;
   }
+
   return spans;
 }
 
@@ -139,9 +155,11 @@ export function syntaxSpans(
   language: string | undefined,
 ): Span[][] {
   let spent = 0;
+
   return lines.map((line) => {
     const cost = line.length > 256 ? line.length ** 2 : 0;
     spent += cost;
+
     return !language || (cost && spent > 16_000_000)
       ? [{ text: line }]
       : spansOf(line, language);

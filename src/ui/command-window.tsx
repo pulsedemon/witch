@@ -7,9 +7,11 @@ export function CommandWindow({ items }: { items: readonly DisplayItem[] }) {
   const calls = items.filter(
     (item) => item.kind === 'tool' && item.id.includes('/') && !item.shell,
   );
+
   const recent = calls.slice(-(commandWindowRows - 1));
   const running = calls.filter((item) => !item.done).length;
   const older = running - recent.filter((item) => !item.done).length;
+
   return (
     <Box
       height={commandWindowRows}

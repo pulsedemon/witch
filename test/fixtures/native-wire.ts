@@ -21,7 +21,9 @@ export function normalizeWire(
     '/message/params/serverName': 'native-machine.invalid',
     '/message/params/installationId': 'native-installation',
   };
+
   const encoded = cwd.replace(/[^a-zA-Z0-9]/g, '-');
+
   const normalize = (input: unknown, path: string): unknown => {
     if (typeof input === 'string')
       return (
@@ -31,8 +33,10 @@ export function normalizeWire(
           .replaceAll(cwd, '/native/project')
           .replaceAll(home, '/home/native')
       );
+
     if (Array.isArray(input))
       return input.map((child) => normalize(child, path));
+
     if (input && typeof input === 'object')
       return Object.fromEntries(
         Object.entries(input).map(([key, child]) => [
@@ -40,8 +44,10 @@ export function normalizeWire(
           normalize(child, `${path}/${key}`),
         ]),
       );
+
     return input;
   };
+
   return normalize(value, '');
 }
 
@@ -51,25 +57,35 @@ export function replayWire(
   options: { fragmentBytes?: number; gates?: number[][] } = {},
 ): {
   launch(): ChildProcessWithoutNullStreams;
+
   finished(): Promise<void>;
+
   paused(stream: number, frame: number): Promise<void>;
+
   release(stream: number): void;
 } {
   const children: ChildProcessWithoutNullStreams[] = [];
   const completions: Promise<void>[] = [];
+
   const pauses = new Map<
     string,
     ReturnType<typeof Promise.withResolvers<void>>
   >();
+
   const pause = (stream: number, frame: number) => {
     const key = `${stream}/${frame}`;
+
     if (!pauses.has(key)) pauses.set(key, Promise.withResolvers<void>());
+
     return pauses.get(key)!;
   };
+
   return {
     launch() {
       const index = children.length;
+
       assert.ok(files[index], `Unexpected native process ${index}`);
+
       const child = spawn(
         process.execPath,
         [
@@ -80,25 +96,34 @@ export function replayWire(
         ],
         { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'] },
       ) as ChildProcessWithoutNullStreams;
+
       children.push(child);
+
       let stderr = '';
+
       child.stderr.on('data', (chunk) => {
         stderr += String(chunk);
       });
+
       child.on('message', (message: { paused?: number }) => {
         if (message.paused !== undefined)
           pause(index, message.paused).resolve();
       });
+
       const completion = new Promise<void>((resolve, reject) => {
         child.once('error', reject);
+
         child.once('close', (code, signal) => {
           if (code === 0) resolve();
           else
             reject(new Error(`Replay ${index}: ${stderr || signal || code}`));
         });
       });
+
       void completion.catch(() => {});
+
       completions.push(completion);
+
       return child;
     },
     paused: (stream, frame) => pause(stream, frame).promise,
@@ -107,6 +132,7 @@ export function replayWire(
     },
     async finished() {
       await Promise.all(completions);
+
       assert.equal(
         children.length,
         files.length,
@@ -122,6 +148,7 @@ export function observeWire(child: ChildProcessWithoutNullStreams): {
 } {
   const frames: WireFrame[] = [];
   let failure: unknown;
+
   const readers = new Map<
     WireFrame['direction'],
     { decoder: StringDecoder; pending: string }
@@ -134,6 +161,7 @@ export function observeWire(child: ChildProcessWithoutNullStreams): {
       },
     ]),
   );
+
   const read = (
     direction: WireFrame['direction'],
     chunk: string | Uint8Array,
@@ -142,8 +170,10 @@ export function observeWire(child: ChildProcessWithoutNullStreams): {
     reader.pending += reader.decoder.write(Buffer.from(chunk));
     const lines = reader.pending.split('\n');
     reader.pending = lines.pop()!;
+
     for (const line of lines) {
       if (!line.trim()) continue;
+
       try {
         frames.push({ direction, message: JSON.parse(line) });
       } catch (error) {
@@ -151,26 +181,37 @@ export function observeWire(child: ChildProcessWithoutNullStreams): {
       }
     }
   };
+
   const write = child.stdin.write;
+
   child.stdin.write = (...args) => {
     read('client', args[0] as string | Uint8Array);
+
     return Reflect.apply(write, child.stdin, args) as boolean;
   };
+
   child.stdout.on('data', (chunk: Buffer | string) => read('server', chunk));
+
   child.on('error', (error) => {
     failure ??= error;
   });
+
   const closed = new Promise<void>((resolve) =>
     child.once('close', () => resolve()),
   );
+
   return {
     frames,
     async finished() {
       await closed;
+
       if (failure) throw failure;
+
       for (const [direction, reader] of readers) {
         const tail = reader.pending + reader.decoder.end();
+
         if (tail.trim()) frames.push({ direction, message: JSON.parse(tail) });
+
         reader.pending = '';
       }
     },

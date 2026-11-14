@@ -30,11 +30,13 @@ const metadata = '.witch-scratch.json';
 const legacyName = /^\d{1,11}$/;
 // short so a unix socket under TMPDIR fits macOS's 104-byte path limit.
 const shortName = /^[0-9a-f]{12}$/;
+
 const legacyRecord = z.object({
   version: z.literal(1),
   boot: z.uuid(),
   owner: processIdentity.optional(),
 });
+
 const recordSchema = z.discriminatedUnion('version', [
   legacyRecord,
   legacyRecord.extend({
@@ -75,6 +77,7 @@ async function removeScratch(directory: string): Promise<void> {
       timeout: 10_000,
       killSignal: 'SIGKILL',
     }).catch(() => {});
+
     await rm(directory, { recursive: true, force: true });
   }
 }
@@ -86,17 +89,21 @@ async function sweep(
   inspect: typeof inspectScratch,
 ): Promise<void> {
   let parentLock: FileHandle | undefined;
+
   const held: {
     candidate: ScratchCandidate;
     record: z.infer<typeof recordSchema>;
     lock: FileHandle;
   }[] = [];
+
   try {
     parentLock = await lockDirectory(parent);
+
     const observed = new Map<
       string,
       z.infer<typeof recordSchema> | undefined
     >();
+
     for (const name of await readdir(parent)) {
       if (
         !legacyName.test(name) &&
@@ -104,29 +111,37 @@ async function sweep(
         !z.uuid().safeParse(name).success
       )
         continue;
+
       const directory = join(parent, name);
+
       try {
         if (!(await lstat(directory)).isDirectory()) continue;
+
         const record = await readRecord(directory);
+
         if (
           record?.boot === boot &&
           (waitsForBoot(record) || sameProcess(record.owner, owner))
         )
           continue;
+
         observed.set(directory, record);
       } catch {
         // unreadable and invalid roots cannot establish ownership.
       }
     }
+
     const owners = await identifyProcesses(
       [...observed.values()].flatMap((record) =>
         record?.boot === boot && record.owner ? [record.owner.pid] : [],
       ),
       { timeout: scratchProbeTimeout },
     );
+
     for (const [directory, previous] of observed) {
       const name = basename(directory);
       const numeric = legacyName.test(name);
+
       // a restarting owner must never compete with a sweep for its directory lock.
       if (
         (previous?.boot === boot &&
@@ -135,18 +150,25 @@ async function sweep(
         (!previous && numeric && processRunning(Number(name)))
       )
         continue;
+
       let lock: FileHandle | undefined;
+
       try {
         lock = await lockDirectory(directory);
         const record = await readRecord(directory);
+
         if (JSON.stringify(record) !== JSON.stringify(previous)) continue;
+
         if (!record) {
           // a legacy pid can be reused while the directory lock is acquired.
           if (!numeric || !processRunning(Number(name)))
             await writeJson(join(directory, metadata), { version: 1, boot });
+
           continue;
         }
+
         const previousBoot = record.boot !== boot;
+
         held.push({
           candidate: {
             directory,
@@ -158,6 +180,7 @@ async function sweep(
           record,
           lock,
         });
+
         lock = undefined;
       } catch {
         // busy, unreadable and invalid roots remain for a later pass.
@@ -165,30 +188,38 @@ async function sweep(
         await lock?.close();
       }
     }
+
     if (!held.length) return;
+
     const decisions = await inspect(held.map(({ candidate }) => candidate));
+
     const live = await identifyProcesses(
       held.flatMap(({ candidate }) =>
         !candidate.previousBoot && candidate.owner ? [candidate.owner.pid] : [],
       ),
       { timeout: scratchProbeTimeout },
     );
+
     for (const { candidate, record, lock } of held) {
       const { directory, owner, previousBoot } = candidate;
+
       if (
         decisions.get(directory) !== 'unused' ||
         (!previousBoot && owner && sameProcess(live.get(owner.pid), owner))
       )
         continue;
+
       try {
         const original = await lock.stat();
         const current = await lstat(directory);
+
         if (
           original.dev !== current.dev ||
           original.ino !== current.ino ||
           JSON.stringify(record) !== JSON.stringify(await readRecord(directory))
         )
           continue;
+
         await removeScratch(directory);
       } catch {
         // a changed root or failed removal stays for the next pass.
@@ -220,6 +251,7 @@ export class ScratchSpace {
     interval: number,
   ) {
     this.timer = setInterval(() => void this.maintain(), interval);
+
     this.timer.unref();
   }
 
@@ -234,36 +266,49 @@ export class ScratchSpace {
   ): Promise<ScratchSpace> {
     parent = resolve(parent);
     const resumed = options.resume !== undefined;
+
     const directory = resumed
       ? resolve(options.resume!)
       : join(parent, randomBytes(6).toString('hex'));
+
     if (dirname(directory) !== parent)
       throw new Error('Scratch must be a direct child of its state directory.');
+
     const boot = z.uuid().parse(await (options.boot ?? bootSession)());
     const owner = await identifyProcess(process.pid);
+
     if (!owner) throw new Error('Cannot identify the scratch owner.');
+
     let requiresBoot = resumed ? true : await scratchRequiresBoot();
+
     await mkdir(parent, { recursive: true, mode: 0o700 });
+
     if (!resumed) await mkdir(directory, { mode: 0o700 });
+
     // wait out a sweep that found the new directory before its owner locked it.
     const lock = await lockDirectory(directory, resumed);
+
     try {
       if (resumed) {
         const record = await readRecord(directory);
         const legacy = !record && basename(directory) === String(process.pid);
+
         if (
           !legacy &&
           (record?.boot !== boot || !sameProcess(record.owner, owner))
         )
           throw new Error('Scratch does not belong to this restarting Witch.');
+
         requiresBoot = record?.version === 2 ? record.requiresBoot : true;
       }
+
       await writeJson(join(directory, metadata), {
         version: 2,
         boot,
         owner,
         requiresBoot,
       });
+
       const space = new ScratchSpace(
         directory,
         lock,
@@ -273,29 +318,37 @@ export class ScratchSpace {
         options.inspect ?? inspectScratch,
         options.interval ?? 60_000,
       );
+
       await space.maintain();
+
       return space;
     } catch (error) {
       await lock.close();
+
       throw error;
     }
   }
 
   private maintain(): Promise<void> {
     if (!this.lock) return Promise.resolve();
+
     this.polling ??= sweep(this.parent, this.boot, this.owner, this.inspect)
       .catch(() => {})
       .finally(() => {
         this.polling = undefined;
       });
+
     return this.polling;
   }
 
   async close(): Promise<void> {
     clearInterval(this.timer);
+
     const lock = this.lock;
     this.lock = undefined;
+
     await this.polling;
+
     await lock?.close();
   }
 }

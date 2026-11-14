@@ -11,7 +11,6 @@ import {
   parsePullRequest,
   parseStatus,
 } from '../src/core/repository.js';
-import type { Run } from '../src/core/repository.js';
 import { view } from './fixtures/repository.js';
 import { scratch } from './fixtures/scratch.js';
 import { until } from './fixtures/within.js';
@@ -20,31 +19,52 @@ const execute = promisify(execFile);
 
 test("Git's status counts staged, modified and untracked entries, and the branch's distance from its upstream", async () => {
   const root = await scratch('witch-repository-');
+
   const git = (cwd: string, ...args: string[]) =>
     execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
       cwd,
     });
+
   const remote = join(root, 'remote.git');
   const work = join(root, 'work');
+
   await git(root, 'init', '--bare', '-b', 'main', remote);
+
   await git(root, 'clone', remote, work);
+
   await writeFile(join(work, 'a.txt'), 'a\n');
+
   await writeFile(join(work, 'b.txt'), 'b\n');
+
   await git(work, 'add', '.');
+
   await git(work, 'commit', '-m', 'first');
+
   await git(work, 'push', '-u', 'origin', 'HEAD:main');
+
   await git(work, 'commit', '--allow-empty', '-m', 'ahead');
+
   await writeFile(join(work, 'a.txt'), 'changed\n');
+
   await writeFile(join(work, 'c.txt'), 'c\n');
+
   await git(work, 'add', 'c.txt');
+
   await writeFile(join(work, 'b.txt'), 'staged\n');
+
   await git(work, 'add', 'b.txt');
+
   await writeFile(join(work, 'b.txt'), 'and modified\n');
+
   await mkdir(join(work, 'new'));
+
   await writeFile(join(work, 'new', 'one.txt'), '1');
+
   await writeFile(join(work, 'new', 'two.txt'), '2');
+
   const { stdout } = await git(work, 'status', '--porcelain=v2', '--branch');
   const commit = (await git(work, 'rev-parse', 'HEAD')).stdout.trim();
+
   // b.txt is staged and modified; the new directory is one entry
   assert.deepEqual(parseStatus(stdout), {
     branch: 'main',
@@ -64,15 +84,22 @@ test("the watch's status read never runs the repository's fsmonitor command", as
   const work = join(root, 'work');
   const marker = join(root, 'ran');
   const monitor = join(root, 'monitor.sh');
+
   await execute('git', ['init', '--quiet', '-b', 'main', work]);
+
   await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+
   await execute('git', ['config', 'core.fsmonitor', monitor], { cwd: work });
+
   const watch = new RepositoryWatch(work, async (command, args, options) => {
     if (command === 'gh') throw new Error('no pull requests found');
+
     return execute(command, args, options);
   });
+
   try {
     await until('status read', () => watch.snapshot?.branch === 'main');
+
     await assert.rejects(access(marker), { code: 'ENOENT' });
   } finally {
     watch.close();
@@ -88,15 +115,22 @@ test.each([true, false])(
     const marker = join(root, 'ran');
     const ssh = join(root, 'ssh.sh');
     const contents = 'unchanged\n'.repeat(20);
+
     const git = (cwd: string, ...args: string[]) =>
       execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
         cwd,
       });
+
     await git(root, 'init', '--quiet', '-b', 'main', source);
+
     await writeFile(join(source, 'a'), contents);
+
     await git(source, 'add', 'a');
+
     await git(source, 'commit', '--quiet', '-m', 'source');
+
     await git(source, 'config', 'uploadpack.allowFilter', 'true');
+
     await git(
       root,
       'clone',
@@ -106,10 +140,15 @@ test.each([true, false])(
       pathToFileURL(source).href,
       work,
     );
+
     await git(work, 'read-tree', 'HEAD');
+
     await git(work, 'rm', '--cached', 'a');
+
     await writeFile(join(work, 'b'), `${contents}changed\n`);
+
     await git(work, 'add', 'b');
+
     const { stdout: objects } = await git(
       work,
       'rev-list',
@@ -117,23 +156,31 @@ test.each([true, false])(
       '--all',
       '--missing=print',
     );
+
     assert.match(objects, /^\?[0-9a-f]+$/m);
+
     await writeFile(ssh, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`, {
       mode: 0o755,
     });
+
     await git(
       work,
       'config',
       'remote.origin.url',
       'ssh://example.invalid/source',
     );
+
     await git(work, 'config', 'core.sshCommand', ssh);
+
     await git(work, 'config', 'protocol.ssh.allow', 'always');
+
     let reads = 0;
+
     const watch = new RepositoryWatch(
       work,
       async (command, args, options) => {
         if (command === 'gh') throw new Error('no pull requests found');
+
         try {
           return await execute(command, args, {
             ...options,
@@ -151,17 +198,27 @@ test.each([true, false])(
       undefined,
       { interval: 50 },
     );
+
     try {
       await until('missing-blob status read', () => reads > 0);
+
       await assert.rejects(access(marker), { code: 'ENOENT' });
+
       const unavailable = watch.snapshot;
+
       assert.equal(unavailable, undefined);
+
       await git(work, 'hash-object', '-w', join(source, 'a'));
+
       // delivers the change itself, since FSEvents can drop the event while the disk is busy
       watch['changed']();
+
       await until('rename status', () => watch.snapshot?.staged === 1);
+
       assert.equal(watch.snapshot?.branch, 'main');
+
       assert.equal(watch.snapshot?.modified, 0);
+
       await assert.rejects(access(marker), { code: 'ENOENT' });
     } finally {
       watch.close();
@@ -176,55 +233,81 @@ test("the watch's status read runs no filter driver from the repository's config
   const kept = join(root, 'kept');
   const filter = join(root, 'filter.sh');
   const global = join(root, 'global');
+
   const git = (...args: string[]) =>
     execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
       cwd: work,
     });
+
   await execute('git', ['init', '--quiet', '-b', 'main', work]);
+
   for (const name of ['a', 'b', 'c', 'e'])
     await writeFile(join(work, name), `${name}\n`);
+
   await git('add', 'a', 'b', 'c', 'e');
+
   await git('commit', '--quiet', '-m', 'first');
+
   await writeFile(join(work, 'd'), 'd\n');
+
   await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
     mode: 0o755,
   });
+
   // a `;` outside quotes starts a config comment
   await writeFile(global, `[filter "g"]\n\tclean = "touch '${kept}'; cat"\n`);
+
   // `-c` would split `x=y`, a `(.+)` match drops the empty name, and `.` without the `s` flag stops at U+2028
   await git('config', 'filter.x=y.clean', filter);
+
   await git('config', 'filter.x=y.required', 'true');
+
   await git('config', 'filter..clean', filter);
+
   await git('config', 'filter.p\u2028q.process', filter);
+
   await mkdir(join(work, '.git', 'info'), { recursive: true });
+
   await writeFile(
     join(work, '.git', 'info', 'attributes'),
     'a filter=x=y\nb filter=\nc filter=p\u2028q\ne filter=g\n',
   );
+
   const later = new Date(Date.now() + 60_000);
+
   for (const name of ['a', 'b', 'c', 'e'])
     await utimes(join(work, name), later, later);
+
   const inherited: Record<string, string> = {
     GIT_CONFIG_GLOBAL: global,
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'status.showUntrackedFiles',
     GIT_CONFIG_VALUE_0: 'no',
   };
+
   const earlier = Object.fromEntries(
     Object.keys(inherited).map((key) => [key, process.env[key]]),
   );
+
   Object.assign(process.env, inherited);
+
   const watch = new RepositoryWatch(work, async (command, args, options) => {
     if (command === 'gh') throw new Error('no pull requests found');
+
     return execute(command, args, options);
   });
+
   try {
     await until('status read', () => watch.snapshot?.branch === 'main');
+
     await assert.rejects(access(marker), { code: 'ENOENT' });
+
     await access(kept);
+
     assert.equal(watch.snapshot?.untracked, 0);
   } finally {
     watch.close();
+
     for (const [key, value] of Object.entries(earlier))
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -237,6 +320,7 @@ test("a submodule's own filter driver never runs, and changes inside its work tr
   const top = join(root, 'top');
   const marker = join(root, 'ran');
   const filter = join(root, 'filter.sh');
+
   const git = (cwd: string, ...args: string[]) =>
     execute(
       'git',
@@ -251,39 +335,61 @@ test("a submodule's own filter driver never runs, and changes inside its work tr
       ],
       { cwd },
     );
+
   await execute('git', ['init', '--quiet', '-b', 'main', sub]);
+
   await writeFile(join(sub, 's'), 's\n');
+
   await writeFile(join(sub, 't'), 't\n');
+
   await git(sub, 'add', 's', 't');
+
   await git(sub, 'commit', '--quiet', '-m', 'first');
+
   await execute('git', ['init', '--quiet', '-b', 'main', top]);
+
   await git(top, 'submodule', '--quiet', 'add', sub, 'sub');
+
   await git(top, 'commit', '--quiet', '-m', 'sub');
+
   await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
     mode: 0o755,
   });
+
   const modules = join(top, '.git', 'modules', 'sub');
+
   await execute('git', ['config', 'filter.z.clean', filter], {
     cwd: join(top, 'sub'),
   });
+
   await mkdir(join(modules, 'info'), { recursive: true });
+
   await writeFile(join(modules, 'info', 'attributes'), 's filter=z\n');
+
   const later = new Date(Date.now() + 60_000);
+
   await utimes(join(top, 'sub', 's'), later, later);
+
   await writeFile(join(top, 'sub', 't'), 'changed\n');
+
   const watch = new RepositoryWatch(
     top,
     async (command, args, options) => {
       if (command === 'gh') throw new Error('no pull requests found');
+
       return execute(command, args, options);
     },
     undefined,
     { interval: 50 },
   );
+
   try {
     await until('status read', () => watch.snapshot?.branch === 'main');
+
     await assert.rejects(access(marker), { code: 'ENOENT' });
+
     assert.equal(watch.snapshot?.modified, 0);
+
     // a submodule at another commit still counts, and watchMerges relies on it
     await git(
       join(top, 'sub'),
@@ -293,6 +399,7 @@ test("a submodule's own filter driver never runs, and changes inside its work tr
       '-m',
       'moved',
     );
+
     await until('moved submodule', () => watch.snapshot?.modified === 1);
   } finally {
     watch.close();
@@ -304,9 +411,13 @@ test("a filter driver whose name isn't valid UTF-8 leaves Git out without runnin
   const work = join(root, 'work');
   const marker = join(root, 'ran');
   const filter = join(root, 'filter.sh');
+
   await execute('git', ['init', '--quiet', '-b', 'main', work]);
+
   await writeFile(join(work, 'a'), 'a\n');
+
   await execute('git', ['add', 'a'], { cwd: work });
+
   await execute(
     'git',
     [
@@ -321,38 +432,52 @@ test("a filter driver whose name isn't valid UTF-8 leaves Git out without runnin
     ],
     { cwd: work },
   );
+
   await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
     mode: 0o755,
   });
+
   // the default UTF-8 encoding would write `\xff` as C3 BF, which is valid UTF-8
   await appendFile(
     join(work, '.git', 'config'),
     Buffer.from(`[filter "b\xffd"]\n\tclean = ${filter}\n`, 'latin1'),
   );
+
   await mkdir(join(work, '.git', 'info'), { recursive: true });
+
   await writeFile(
     join(work, '.git', 'info', 'attributes'),
     Buffer.from('a filter=b\xffd\n', 'latin1'),
   );
+
   const later = new Date(Date.now() + 60_000);
+
   await utimes(join(work, 'a'), later, later);
+
   let listings = 0;
   let statuses = 0;
+
   const watch = new RepositoryWatch(
     work,
     async (command, args, options) => {
       if (command === 'gh') throw new Error('no pull requests found');
+
       if (args.includes('config')) listings++;
+
       if (args.includes('status')) statuses++;
+
       return execute(command, args, options);
     },
     undefined,
     { interval: 50 },
   );
+
   try {
     // reads don't overlap, so a second listing means the first read has finished
     await until('second listing', () => listings >= 2);
+
     assert.equal(statuses, 0);
+
     assert.equal(watch.snapshot, undefined);
   } finally {
     watch.close();
@@ -386,6 +511,7 @@ test('a detached head reads as HEAD, and branch.ab and unmerged entries count', 
 test('a failing pull request lists its failed runs and statuses with their details pages', () => {
   const read = (rollup: object[]) =>
     parsePullRequest(view({ state: 'OPEN', statusCheckRollup: rollup }));
+
   const run = (name: string, conclusion: string, detailsUrl?: string) => ({
     __typename: 'CheckRun',
     name,
@@ -393,6 +519,7 @@ test('a failing pull request lists its failed runs and statuses with their detai
     conclusion,
     detailsUrl,
   });
+
   assert.deepEqual(
     read([
       run('verify', 'FAILURE', 'https://x.test/job/1'),
@@ -413,20 +540,25 @@ test('a failing pull request lists its failed runs and statuses with their detai
       { name: 'external', url: 'https://ci.test/3' },
     ],
   );
+
   assert.equal(read([run('lint', 'SUCCESS')]).failed, undefined);
 });
 
 test("a pull request's check rollup distinguishes no checks, running checks and completed checks, and only an open one carries its mergeability", () => {
   const checks = (rollup: object[]) =>
     parsePullRequest(view({ state: 'OPEN', statusCheckRollup: rollup })).checks;
+
   const done = (conclusion: string) => ({
     __typename: 'CheckRun',
     name: conclusion.toLowerCase(),
     status: 'COMPLETED',
     conclusion,
   });
+
   assert.equal(checks([]), 'none');
+
   assert.equal(checks([done('SUCCESS'), done('SKIPPED')]), 'passing');
+
   assert.equal(
     checks([
       done('SUCCESS'),
@@ -434,6 +566,7 @@ test("a pull request's check rollup distinguishes no checks, running checks and 
     ]),
     'pending',
   );
+
   assert.equal(
     checks([
       done('FAILURE'),
@@ -446,20 +579,24 @@ test("a pull request's check rollup distinguishes no checks, running checks and 
     ]),
     'failing',
   );
+
   assert.equal(
     checks([{ __typename: 'StatusContext', context: 'ci', state: 'ERROR' }]),
     'failing',
   );
+
   assert.equal(
     checks([{ __typename: 'StatusContext', context: 'ci', state: 'EXPECTED' }]),
     'pending',
   );
+
   assert.equal(
     parsePullRequest(
       view({ state: 'OPEN', statusCheckRollup: [], mergeable: 'CONFLICTING' }),
     ).mergeable,
     'CONFLICTING',
   );
+
   assert.deepEqual(
     parsePullRequest(
       view({
@@ -576,15 +713,20 @@ test.each<{
     const calls: string[][] = [];
     let rulesRead = false;
     let confirmation: string[] | undefined;
+
     const workflow = {
       __typename: 'Tree',
       entries: [{ name: 'ci.yml', type: 'blob' }],
     };
+
     const watch = new RepositoryWatch('/work', async (command, args) => {
       if (command === 'git') return { stdout: '# branch.head feat/x\n' };
+
       if (args[0] === 'pr' && args[2] !== '--json') {
         confirmation = args;
+
         if (failure === 'confirmation') throw new Error('unavailable');
+
         return {
           stdout: JSON.stringify({
             headRefOid:
@@ -596,6 +738,7 @@ test.each<{
           }),
         };
       }
+
       if (args[0] === 'pr')
         return {
           stdout: view({
@@ -605,11 +748,15 @@ test.each<{
             statusCheckRollup: [],
           }),
         };
+
       calls.push(args);
+
       const graphql = args.includes('graphql');
       const branch = args[3]?.startsWith('repos/owner/repo/branches/');
+
       if (failure === (graphql ? 'graphql' : branch ? 'branch' : 'rules'))
         throw new Error('unavailable');
+
       if (branch)
         return {
           stdout: JSON.stringify({
@@ -620,7 +767,9 @@ test.each<{
             },
           }),
         };
+
       if (!graphql) rulesRead = true;
+
       return {
         stdout: JSON.stringify(
           graphql
@@ -655,34 +804,47 @@ test.each<{
         ),
       };
     });
+
     try {
       await until('pull request checks', () => !!watch.snapshot?.pullRequest);
+
       assert.equal(watch.snapshot?.pullRequest?.checks, expected);
+
       assert.equal(watch.snapshot?.pullRequest?.commit, 'a1b2c3');
+
       assert.equal(watch.snapshot?.pullRequest?.base, 'release/next');
+
       assert.ok(calls[0]?.includes('head=a1b2c3:.github/workflows'));
+
       assert.ok(
         calls[0]?.includes('base=refs/heads/release/next:.github/workflows'),
       );
+
       assert.ok(calls[0]?.includes('owner=owner'));
+
       assert.ok(calls[0]?.includes('name=repo'));
+
       assert.ok(calls[0]?.includes('number=4'));
+
       for (const args of calls)
         assert.deepEqual(args.slice(0, 3), [
           'api',
           '--hostname',
           'github.example',
         ]);
+
       if (calls.length > 1)
         assert.deepEqual(calls[1]?.slice(3), [
           'repos/owner/repo/branches/release%2Fnext',
         ]);
+
       if (calls.length > 2)
         assert.deepEqual(calls[2]?.slice(3), [
           'repos/owner/repo/rules/branches/release%2Fnext?per_page=100',
           '--paginate',
           '--slurp',
         ]);
+
       if (
         expected === 'none' ||
         moved?.startsWith('late-') ||
@@ -704,10 +866,12 @@ test.each<{
 test('reported checks skip configuration reads and replace a previous no-check state', async () => {
   let rollup: object[] = [];
   let configurationReads = 0;
+
   const watch = new RepositoryWatch(
     '/work',
     async (command, args) => {
       if (command === 'git') return { stdout: '# branch.head feat/x\n' };
+
       if (args[0] === 'pr')
         return {
           stdout: view({
@@ -716,13 +880,16 @@ test('reported checks skip configuration reads and replace a previous no-check s
             statusCheckRollup: rollup,
           }),
         };
+
       configurationReads++;
+
       if (args[3]?.startsWith('repos/owner/repo/branches/'))
         return {
           stdout: JSON.stringify({
             protection: { required_status_checks: { contexts: [] } },
           }),
         };
+
       return {
         stdout: JSON.stringify(
           args.includes('graphql')
@@ -746,19 +913,26 @@ test('reported checks skip configuration reads and replace a previous no-check s
     undefined,
     { interval: 5 },
   );
+
   try {
     await until(
       'no checks',
       () => watch.snapshot?.pullRequest?.checks === 'none',
     );
+
     assert.equal(configurationReads, 3);
+
     rollup = [{ __typename: 'CheckRun', name: 'ci', status: 'IN_PROGRESS' }];
+
     watch.refreshPullRequest();
+
     await until(
       'running check',
       () => watch.snapshot?.pullRequest?.checks === 'pending',
     );
+
     assert.equal(configurationReads, 3);
+
     rollup = [
       {
         __typename: 'CheckRun',
@@ -767,12 +941,16 @@ test('reported checks skip configuration reads and replace a previous no-check s
         conclusion: 'FAILURE',
       },
     ];
+
     watch.refreshPullRequest();
+
     await until(
       'failed check',
       () => watch.snapshot?.pullRequest?.checks === 'failing',
     );
+
     assert.deepEqual(watch.snapshot?.pullRequest?.failed, [{ name: 'ci' }]);
+
     assert.equal(configurationReads, 3);
   } finally {
     watch.close();
@@ -784,14 +962,18 @@ test('the watch reads the pull request once per branch, again when the branch ch
     toFake: ['setInterval', 'clearInterval', 'Date'],
     now: 0,
   });
+
   let branch = 'main';
   const reads: string[] = [];
   let fields: string | undefined;
+
   const watch = new RepositoryWatch('/work', async (command, args) => {
     if (command === 'gh') {
       reads.push(branch);
+
       fields = args.at(-1);
     }
+
     return {
       stdout:
         command === 'gh'
@@ -799,30 +981,51 @@ test('the watch reads the pull request once per branch, again when the branch ch
           : `# branch.head ${branch}\n`,
     };
   });
+
   let published = 0;
+
   watch.subscribe(() => published++);
+
   try {
     await delay(20);
+
     assert.equal(watch.snapshot?.pullRequest?.number, 4);
+
     assert.equal(watch.snapshot?.pullRequest?.checks, 'pending');
+
     assert.match(
       fields ?? '',
       /,headRefName,headRefOid,baseRefName,mergeable,mergedAt$/,
     );
+
     const settled = published;
+
     vi.advanceTimersByTime(5000);
+
     await delay(20);
+
     assert.equal(published, settled);
+
     branch = 'feat/x';
+
     vi.advanceTimersByTime(5000);
+
     await delay(20);
+
     assert.equal(watch.snapshot?.branch, 'feat/x');
+
     assert.deepEqual(reads, ['main', 'feat/x']);
+
     vi.advanceTimersByTime(85_000);
+
     await delay(20);
+
     assert.deepEqual(reads, ['main', 'feat/x']);
+
     vi.advanceTimersByTime(5000);
+
     await delay(20);
+
     assert.deepEqual(reads, ['main', 'feat/x', 'feat/x']);
   } finally {
     watch.close();
@@ -834,34 +1037,57 @@ test('a failed git read leaves Git out, and a failed gh read leaves the pull req
     toFake: ['setInterval', 'clearInterval', 'Date'],
     now: 0,
   });
+
   let repository = false;
   let reads = 0;
+
   const watch = new RepositoryWatch('/work', async (command) => {
     if (command === 'gh') {
       reads++;
+
       throw new Error('no pull requests found for branch "main"');
     }
+
     if (!repository) throw new Error('fatal: not a git repository');
+
     return { stdout: '# branch.head main\n' };
   });
+
   try {
     await delay(20);
+
     assert.equal(watch.snapshot?.branch, undefined);
+
     repository = true;
+
     vi.advanceTimersByTime(5000);
+
     await delay(20);
+
     assert.equal(watch.snapshot?.branch, 'main');
+
     assert.equal(watch.snapshot?.pullRequest, undefined);
+
     assert.equal(reads, 1);
+
     vi.advanceTimersByTime(85_000);
+
     await delay(20);
+
     assert.equal(reads, 1);
+
     vi.advanceTimersByTime(5000);
+
     await delay(20);
+
     assert.equal(reads, 2);
+
     repository = false;
+
     vi.advanceTimersByTime(5000);
+
     await delay(20);
+
     assert.equal(watch.snapshot?.branch, undefined);
   } finally {
     watch.close();
@@ -873,569 +1099,60 @@ test('a read still running skips the next ticks, and a pull request read for a b
     toFake: ['setInterval', 'clearInterval', 'Date'],
     now: 0,
   });
+
   let branch = 'main';
   const git: PromiseWithResolvers<{ stdout: string }>[] = [];
   const gh: PromiseWithResolvers<{ stdout: string }>[] = [];
+
   const watch = new RepositoryWatch('/work', (command, args) => {
     if (args[0] === 'config') return Promise.resolve({ stdout: '' });
+
     const read = Promise.withResolvers<{ stdout: string }>();
+
     (command === 'gh' ? gh : git).push(read);
+
     return read.promise;
   });
+
   try {
     vi.advanceTimersByTime(5000);
+
     vi.advanceTimersByTime(5000);
+
     await delay(20);
+
     assert.equal(git.length, 1);
+
     git[0]!.resolve({ stdout: `# branch.head ${branch}\n` });
+
     await delay(20);
+
     assert.equal(watch.snapshot?.branch, 'main');
+
     assert.equal(gh.length, 1);
+
     branch = 'feat/x';
+
     for (let tick = 0; tick < 3; tick++) {
       vi.advanceTimersByTime(5000);
+
       await delay(20);
+
       git.at(-1)!.resolve({ stdout: `# branch.head ${branch}\n` });
+
       await delay(20);
     }
+
     assert.equal(watch.snapshot?.branch, 'feat/x');
+
     assert.equal(gh.length, 1);
+
     gh[0]!.resolve({ stdout: view({ state: 'OPEN', statusCheckRollup: [] }) });
+
     await delay(20);
+
     assert.equal(watch.snapshot?.pullRequest, undefined);
   } finally {
     watch.close();
   }
 });
-
-/** a watch on `main` whose pull request reads answer with `answer`, recording each tip lookup's arguments. */
-function conflictWatch(options: {
-  answer: () => object | Error;
-  tip?: () => string | Error;
-  branch?: () => string;
-  project?: () => Promise<string>;
-}) {
-  const reads = { pr: 0, tips: [] as string[][] };
-  const watch = new RepositoryWatch(
-    '/work',
-    async (command, args) => {
-      if (command !== 'gh')
-        return { stdout: `# branch.head ${options.branch?.() ?? 'main'}\n` };
-      if (args.includes('graphql'))
-        throw new Error('configuration unavailable');
-      if (args[0] === 'api') {
-        reads.tips.push(args);
-        const tip = options.tip?.() ?? 'f00';
-        if (tip instanceof Error) throw tip;
-        return { stdout: `${tip}\n` };
-      }
-      reads.pr++;
-      const answer = options.answer();
-      if (answer instanceof Error) throw answer;
-      return {
-        stdout: view({
-          url: 'https://github.com/o/r/pull/4',
-          state: 'OPEN',
-          statusCheckRollup: [],
-          ...answer,
-        }),
-      };
-    },
-    options.project,
-  );
-  return { watch, reads };
-}
-
-test("a conflicting read records its base's tip, and only a mergeable or closed read clears it", async () => {
-  vi.useFakeTimers({
-    toFake: ['setInterval', 'clearInterval', 'Date'],
-    now: 0,
-  });
-  let answer: object | Error = { mergeable: 'CONFLICTING' };
-  let tip: string | Error = 'f00';
-  const { watch, reads } = conflictWatch({
-    answer: () => answer,
-    tip: () => tip,
-  });
-  // a function, so an assertion that it's unset doesn't narrow later reads
-  const conflict = () => watch.snapshot?.conflict;
-  const read = async (next: object | Error) => {
-    answer = next;
-    watch.refreshPullRequest();
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-  };
-  try {
-    await delay(20);
-    assert.deepEqual(reads.tips, [
-      [
-        'api',
-        '--hostname',
-        'github.com',
-        'repos/o/r/commits/develop',
-        '--jq',
-        '.sha',
-      ],
-    ]);
-    assert.equal(conflict()?.baseTip, 'f00');
-    assert.equal(conflict()?.pullRequest.commit, 'a1b2c3');
-    await read({ mergeable: 'UNKNOWN' });
-    assert.equal(watch.snapshot?.pullRequest?.mergeable, 'UNKNOWN');
-    assert.equal(conflict()?.baseTip, 'f00');
-    await read(new Error('network'));
-    assert.equal(watch.snapshot?.pullRequest, undefined);
-    assert.equal(conflict()?.baseTip, 'f00');
-    await read({ mergeable: 'UNKNOWN' });
-    assert.equal(conflict()?.baseTip, 'f00');
-    assert.equal(reads.tips.length, 1);
-    await read({ mergeable: 'UNKNOWN', headRefOid: 'd4e5f6' });
-    assert.equal(conflict()?.pullRequest.commit, 'a1b2c3', 'a pushed head');
-    tip = new Error('not found');
-    await read({ mergeable: 'CONFLICTING' });
-    assert.ok(conflict());
-    assert.equal(conflict()?.baseTip, undefined);
-    await read({ mergeable: 'UNKNOWN', baseRefName: 'main' });
-    assert.equal(conflict()?.pullRequest.base, 'develop', 'a new base');
-    await read({ mergeable: 'MERGEABLE' });
-    assert.equal(conflict(), undefined);
-    await read({ mergeable: 'CONFLICTING' });
-    await read({ state: 'MERGED' });
-    assert.equal(conflict(), undefined);
-    assert.equal(reads.tips.length, 3);
-  } finally {
-    watch.close();
-  }
-});
-
-test('an uncomputed mergeability is read again after 10 seconds, while a status read in between keeps a conflict', async () => {
-  vi.useFakeTimers({
-    toFake: ['setInterval', 'clearInterval', 'Date'],
-    now: 0,
-  });
-  let answer: object = { mergeable: 'CONFLICTING' };
-  const { watch, reads } = conflictWatch({ answer: () => answer });
-  try {
-    await delay(20);
-    answer = { mergeable: 'UNKNOWN' };
-    watch.refreshPullRequest();
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.equal(reads.pr, 2);
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.equal(reads.pr, 2);
-    assert.ok(watch.snapshot?.conflict);
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.equal(reads.pr, 3);
-  } finally {
-    watch.close();
-  }
-});
-
-test('another local branch leaves a conflict out of the snapshot, and a read for another project leaves it in place', async () => {
-  vi.useFakeTimers({
-    toFake: ['setInterval', 'clearInterval', 'Date'],
-    now: 0,
-  });
-  let branch = 'main';
-  let answer: object | Error = { mergeable: 'CONFLICTING' };
-  let project = 'a';
-  let asked = 0;
-  const { watch } = conflictWatch({
-    answer: () => answer,
-    branch: () => branch,
-    // the second call checks the project hasn't changed while gh ran
-    project: async () => (asked++ % 2 ? project : 'a'),
-  });
-  try {
-    await delay(20);
-    assert.ok(watch.snapshot?.conflict);
-    project = 'b';
-    answer = { mergeable: 'MERGEABLE' };
-    watch.refreshPullRequest();
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.ok(watch.snapshot?.conflict);
-    project = 'a';
-    answer = new Error('no pull requests found');
-    branch = 'feat/y';
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.equal(watch.snapshot?.branch, 'feat/y');
-    assert.equal(watch.snapshot?.conflict, undefined);
-  } finally {
-    watch.close();
-  }
-});
-
-test('a refresh asked for while a pull request read runs reads again once it ends', async () => {
-  vi.useFakeTimers({
-    toFake: ['setInterval', 'clearInterval', 'Date'],
-    now: 0,
-  });
-  const gh: PromiseWithResolvers<{ stdout: string }>[] = [];
-  const watch = new RepositoryWatch('/work', (command) => {
-    if (command !== 'gh')
-      return Promise.resolve({ stdout: '# branch.head main\n' });
-    const read = Promise.withResolvers<{ stdout: string }>();
-    gh.push(read);
-    return read.promise;
-  });
-  try {
-    await delay(20);
-    assert.equal(gh.length, 1);
-    watch.refreshPullRequest();
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.equal(gh.length, 1);
-    gh[0]!.resolve({ stdout: view({ state: 'OPEN', statusCheckRollup: [] }) });
-    await delay(20);
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.equal(gh.length, 2);
-  } finally {
-    watch.close();
-  }
-});
-
-test('a detached head reads no pull request', async () => {
-  vi.useFakeTimers({
-    toFake: ['setInterval', 'clearInterval', 'Date'],
-    now: 0,
-  });
-  const calls: Parameters<Run>[] = [];
-  const watch = new RepositoryWatch('/work', async (...args) => {
-    calls.push(args);
-    return { stdout: '# branch.head (detached)\n' };
-  });
-  try {
-    await delay(20);
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.equal(watch.snapshot?.branch, 'HEAD');
-    assert.equal(calls.length, 4);
-    for (const [command, args, { cwd, timeout, env }] of calls) {
-      assert.equal(command, 'git');
-      assert.equal(cwd, '/work');
-      assert.equal(timeout, 10_000);
-      assert.deepEqual(
-        args,
-        args.includes('status')
-          ? [
-              '-c',
-              'core.fsmonitor=false',
-              '--no-optional-locks',
-              'status',
-              '--porcelain=v2',
-              '--branch',
-              '--ignore-submodules=dirty',
-            ]
-          : ['config', '-z', '--name-only', '--show-scope', '--list'],
-      );
-      if (args.includes('status')) {
-        assert.equal(env?.GIT_NO_LAZY_FETCH, '1');
-        assert.equal(env?.GIT_ALLOW_PROTOCOL, '');
-      }
-    }
-    assert.equal(calls.filter(([, args]) => args.includes('status')).length, 2);
-  } finally {
-    watch.close();
-  }
-});
-
-test('a cached pull request keeps its observed project until a fresh scoped read', async () => {
-  vi.useFakeTimers({
-    toFake: ['setInterval', 'clearInterval', 'Date'],
-    now: 0,
-  });
-  let project = 'project-a';
-  const watch = new RepositoryWatch(
-    '/work',
-    async (command) => ({
-      stdout:
-        command === 'gh' ? view({ state: 'MERGED' }) : '# branch.head feat/x\n',
-    }),
-    async () => project,
-  );
-  try {
-    await until(
-      'initial scoped observation',
-      () => watch.snapshot?.pullRequestProject === 'project-a',
-    );
-    project = 'project-b';
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-    assert.equal(watch.snapshot?.pullRequestProject, 'project-a');
-    vi.advanceTimersByTime(85_000);
-    await until(
-      'fresh scoped observation',
-      () => watch.snapshot?.pullRequestProject === 'project-b',
-    );
-    assert.equal(watch.snapshot?.pullRequest?.state, 'MERGED');
-  } finally {
-    watch.close();
-  }
-});
-
-test('a project change during a pull request read invalidates the observation', async () => {
-  let project = 'project-a';
-  let scopeReads = 0;
-  const watch = new RepositoryWatch(
-    '/work',
-    async (command) => {
-      if (command === 'git') return { stdout: '# branch.head feat/x\n' };
-      project = 'project-b';
-      return { stdout: view({ state: 'MERGED' }) };
-    },
-    async () => {
-      scopeReads++;
-      return project;
-    },
-  );
-  try {
-    await until('scope recheck', () => scopeReads === 2);
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(watch.snapshot?.pullRequest, undefined);
-  } finally {
-    watch.close();
-  }
-});
-
-test('head and upstream status changes refresh the pull request, while file edits keep its cache', async (t) => {
-  vi.useFakeTimers({
-    toFake: ['setInterval', 'clearInterval', 'Date'],
-    now: 0,
-  });
-  let commit = 'a1b2c3',
-    ahead = 0,
-    upstream = 'origin/feat/x',
-    dirty = false;
-  let reads = 0;
-  const watch = new RepositoryWatch('/work', async (command) => {
-    if (command === 'gh') {
-      reads++;
-      return { stdout: view({ state: 'OPEN', headRefOid: commit }) };
-    }
-    return {
-      stdout: `# branch.head feat/x\n# branch.oid ${commit}\n# branch.upstream ${upstream}\n# branch.ab +${ahead} -0\n${dirty ? '? file.txt\n' : ''}`,
-    };
-  });
-  t.onTestFinished(() => watch.close());
-  await until(
-    'initial pull request',
-    () => reads === 1 && !!watch.snapshot?.pullRequest,
-  );
-  const step = async () => {
-    vi.advanceTimersByTime(5000);
-    await delay(20);
-  };
-  dirty = true;
-  await step();
-  assert.equal(watch.snapshot?.untracked, 1);
-  assert.equal(reads, 1);
-  commit = 'd4e5f6';
-  ahead = 1;
-  await step();
-  assert.equal(watch.snapshot?.pullRequest?.commit, 'd4e5f6');
-  assert.equal(reads, 2);
-  ahead = 0;
-  await step();
-  assert.equal(watch.snapshot?.ahead, 0);
-  assert.equal(reads, 3, 'pushing the already observed commit');
-  upstream = 'other/feat/x';
-  await step();
-  assert.equal(watch.snapshot?.upstream, 'other/feat/x');
-  assert.equal(reads, 4);
-  await step();
-  assert.equal(reads, 4, 'unchanged status');
-  assert.equal(
-    parseStatus('# branch.head new\n# branch.oid (initial)\n').commit,
-    undefined,
-  );
-});
-
-test('an awaited admission refresh reads after an older request and publishes before it resolves', async (t) => {
-  const pending = Promise.withResolvers<{ stdout: string }>();
-  let reads = 0;
-  const watch = new RepositoryWatch('/work', async (command) => {
-    if (command !== 'gh')
-      return { stdout: '# branch.head feat/x\n# branch.oid a1b2c3\n' };
-    if (++reads === 1) return pending.promise;
-    return { stdout: view({ state: 'OPEN', mergeable: 'MERGEABLE' }) };
-  });
-  t.onTestFinished(() => watch.close());
-  await until('old read', () => reads === 1);
-  let finished = false;
-  const fresh = watch.readPullRequest().then(() => {
-    finished = true;
-  });
-  await delay(20);
-  assert.equal(finished, false);
-  assert.equal(reads, 1);
-  pending.resolve({ stdout: view({ state: 'OPEN', mergeable: 'UNKNOWN' }) });
-  await fresh;
-  assert.equal(reads, 2);
-  assert.equal(watch.snapshot?.pullRequest?.mergeable, 'MERGEABLE');
-  assert.equal(watch.snapshot?.commit, 'a1b2c3');
-});
-
-test('an awaited refresh retains a confirmed conflict on failure or UNKNOWN without retaining repair eligibility', async (t) => {
-  let answer: object | Error = { mergeable: 'CONFLICTING' };
-  const { watch, reads } = conflictWatch({ answer: () => answer });
-  t.onTestFinished(() => watch.close());
-  await until('conflict', () => !!watch.snapshot?.conflict);
-  const conflict = watch.snapshot!.conflict;
-  const current = () => watch.snapshot?.pullRequest;
-  answer = new Error('network unavailable');
-  await watch.readPullRequest();
-  assert.equal(current(), undefined);
-  assert.deepEqual(watch.snapshot?.conflict, conflict);
-  answer = { mergeable: 'UNKNOWN' };
-  await watch.readPullRequest();
-  assert.equal(current()?.mergeable, 'UNKNOWN');
-  assert.deepEqual(watch.snapshot?.conflict, conflict);
-  answer = { mergeable: 'MERGEABLE' };
-  await watch.readPullRequest();
-  assert.equal(watch.snapshot?.conflict, undefined);
-  assert.equal(reads.pr, 4);
-});
-
-test('a head change during the base-tip lookup cannot publish the old conflicting read', async (t) => {
-  vi.useFakeTimers({
-    toFake: ['setInterval', 'clearInterval', 'Date'],
-    now: 0,
-  });
-  let commit = 'a1b2c3';
-  const tip = Promise.withResolvers<{ stdout: string }>();
-  let lookingUp = false;
-  const watch = new RepositoryWatch('/work', async (command, args) => {
-    if (command !== 'gh')
-      return { stdout: `# branch.head feat/x\n# branch.oid ${commit}\n` };
-    if (args[0] === 'api') {
-      lookingUp = true;
-      return tip.promise;
-    }
-    return {
-      stdout: view({
-        state: 'OPEN',
-        url: 'https://github.com/o/r/pull/4',
-        headRefOid: commit,
-        mergeable: commit === 'a1b2c3' ? 'CONFLICTING' : 'MERGEABLE',
-      }),
-    };
-  });
-  t.onTestFinished(() => watch.close());
-  const conflicts: string[] = [];
-  watch.subscribe(() => {
-    if (watch.snapshot?.conflict)
-      conflicts.push(watch.snapshot.conflict.pullRequest.commit);
-  });
-  await until('base-tip read', () => lookingUp);
-  commit = 'd4e5f6';
-  vi.advanceTimersByTime(5000);
-  await until('new local head', () => watch.snapshot?.commit === commit);
-  tip.resolve({ stdout: 'f00\n' });
-  await watch.readPullRequest();
-  assert.deepEqual(conflicts, []);
-  assert.equal(watch.snapshot?.pullRequest?.commit, 'd4e5f6');
-  assert.equal(watch.snapshot?.conflict, undefined);
-});
-
-for (const kind of ['status', 'pull request'] as const) {
-  test(`closing during a ${kind} read prevents later publication or refresh`, async (t) => {
-    const entered = Promise.withResolvers<void>();
-    const response = Promise.withResolvers<{ stdout: string }>();
-    const reads = { status: 0, pullRequest: 0 };
-    const watch = new RepositoryWatch('/work', async (command, args) => {
-      if (args.includes('status')) reads.status++;
-      if (command === 'gh' && args[0] === 'pr') reads.pullRequest++;
-      if (
-        (kind === 'status' && args.includes('status')) ||
-        (kind === 'pull request' && command === 'gh')
-      ) {
-        entered.resolve();
-        return response.promise;
-      }
-      return {
-        stdout:
-          command === 'gh'
-            ? view({ state: 'OPEN' })
-            : '# branch.head feat/x\n# branch.oid a1b2c3\n',
-      };
-    });
-    t.onTestFinished(() => watch.close());
-    let publications = 0;
-    watch.subscribe(() => publications++);
-    await entered.promise;
-    const snapshot = watch.snapshot;
-    const before = publications;
-    const reading = watch.readPullRequest();
-    watch.close();
-    const readsAtClose = { ...reads };
-    response.resolve({
-      stdout:
-        kind === 'status'
-          ? '# branch.head feat/x\n# branch.oid a1b2c3\n'
-          : view({ state: 'OPEN' }),
-    });
-    await reading;
-    assert.equal(watch.snapshot, snapshot);
-    assert.equal(publications, before);
-    assert.deepEqual(reads, readsAtClose);
-  });
-}
-
-for (const change of ['head', 'upstream status'] as const) {
-  test(`status recovery refreshes a cached conflict after the ${change} changes`, async (t) => {
-    vi.useFakeTimers({
-      toFake: ['setInterval', 'clearInterval', 'Date'],
-      now: 0,
-    });
-    let fail = false,
-      reads = 0;
-    let commit = 'a1b2c3',
-      ahead = 1,
-      mergeable = 'CONFLICTING';
-    const watch = new RepositoryWatch('/work', async (command, args) => {
-      if (command !== 'gh') {
-        if (args.includes('status') && fail)
-          throw Object.assign(new Error('status unavailable'), { code: 128 });
-        return {
-          stdout: `# branch.head feat/x\n# branch.oid ${commit}\n# branch.upstream origin/feat/x\n# branch.ab +${ahead} -0\n`,
-        };
-      }
-      if (args[0] === 'api') return { stdout: 'f00\n' };
-      reads++;
-      return {
-        stdout: view({
-          state: 'OPEN',
-          url: 'https://github.com/o/r/pull/4',
-          headRefOid: commit,
-          mergeable,
-        }),
-      };
-    });
-    t.onTestFinished(() => watch.close());
-    await until('initial conflict', () => !!watch.snapshot?.conflict);
-    assert.equal(reads, 1);
-    fail = true;
-    vi.advanceTimersByTime(5000);
-    await until('failed local read', () => watch.snapshot === undefined);
-    if (change === 'head') commit = 'd4e5f6';
-    else ahead = 0;
-    mergeable = 'MERGEABLE';
-    fail = false;
-    vi.advanceTimersByTime(5000);
-    await until(
-      'resolution after recovery',
-      () => watch.snapshot?.pullRequest?.mergeable === 'MERGEABLE',
-    );
-    assert.equal(watch.snapshot?.conflict, undefined);
-    assert.equal(
-      watch.snapshot?.pullRequest?.commit,
-      change === 'head' ? 'd4e5f6' : 'a1b2c3',
-    );
-    assert.equal(reads, 2);
-  });
-}

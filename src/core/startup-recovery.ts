@@ -16,10 +16,12 @@ export async function launchRecord(
 ): Promise<Conversation> {
   const [source] = await store.conversations();
   const installed = agents.filter(({ executable }) => executable);
+
   const agent =
     installed.find(({ adapter }) => adapter.id === source?.agent) ??
     installed[0] ??
     agents[0]!;
+
   return createConversation(cwd, agent.adapter.id, source);
 }
 
@@ -30,38 +32,51 @@ export async function recoverConversations(
 ): Promise<string | undefined> {
   const { records, unreadable } = await store.records();
   const ahead = new Set(await memory.unpublished());
+
   const lines = unreadable.map(
     ({ file, error }) => `- ${file} can't be read: ${error}`,
   );
+
   const listed = new Set(records.map(({ id }) => id));
+
   for (const id of ahead)
     if (!listed.has(id))
       lines.push(`- ${branchOf(id)} has unpublished memory but no state`);
+
   for (const record of records) {
     if (
       record.id === skip ||
       (!record.process && !record.activity && !ahead.has(record.id))
     )
       continue;
+
     let reason: string | undefined;
+
     // close() rethrows a save failure the catch already reported
     const problem = (error: unknown) => {
       reason ??= errorMessage(error);
     };
+
     let files: ConversationStore | undefined;
+
     try {
       files = await store.claim(record.id);
       const workspace = memory.workspace(files.directory, record.id);
       let pending = false;
+
       if (await workspace.branchExists()) {
         await workspace.ensureWorktree();
+
         pending = await workspace.isDirty();
+
         if (pending) reason = 'unfinished memory changes';
         else if ((await workspace.publish()) !== 'published')
           reason = 'memory conflicts with another conversation';
       }
+
       if (!pending && files.record.activity) {
         delete files.record.activity;
+
         await files.save(files.record);
       }
     } catch (error) {
@@ -69,13 +84,17 @@ export async function recoverConversations(
     } finally {
       await files?.close().catch(problem);
     }
+
     if (!reason) continue;
+
     const where = await present(record.cwd).then(
       (found) => (found ? '' : ' (start Witch in its new location)'),
       (error: unknown) => ` (can't be checked: ${errorMessage(error)})`,
     );
+
     lines.push(`- ${record.title} in ${record.cwd}${where}: ${reason}`);
   }
+
   return lines.length
     ? `These conversations need attention. Open each from /sessions in its directory:\n${lines.join('\n')}`
     : undefined;

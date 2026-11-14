@@ -10,7 +10,6 @@ import type {
 
 /** older account observations cannot establish current capacity. */
 export const USAGE_CURRENT_MS = 10 * 60_000;
-
 /** a probe that hasn't answered by then is stopped, so a hung CLI doesn't hold its runtime's read. */
 export const USAGE_PROBE_MS = 30_000;
 
@@ -28,11 +27,15 @@ export function current(
 /** what a percentage alone can't say: how soon the window resets, or `''` once it has. */
 export function untilReset(resetsAt: number | undefined, now: number): string {
   const left = Math.floor((resetsAt ?? 0) - now / 1000);
+
   if (left <= 0) return '';
+
   if (left >= 86_400)
     return `${Math.floor(left / 86_400)}d${Math.floor((left % 86_400) / 3600)}h`;
+
   if (left >= 3600)
     return `${Math.floor(left / 3600)}h${Math.floor((left % 3600) / 60)}m`;
+
   return `${Math.floor(left / 60)}m`;
 }
 
@@ -80,9 +83,13 @@ export function creditCapacity(
   now: number,
 ): 'available' | 'unavailable' | 'unknown' {
   const access = account?.creditAccess;
+
   if (!access || !current(access, now)) return 'unknown';
+
   if (access.state !== 'available') return access.state;
+
   const funding = account?.funding;
+
   return funding?.kind === 'credits' &&
     current(funding, now) &&
     (funding.available || funding.unlimited)
@@ -96,25 +103,34 @@ function money(
   decimals: number | null | undefined,
 ): string {
   if (amount === null) return '?';
+
   if (decimals == null || !currency)
     return `${currency ? `${currency} ` : ''}${amount} minor units`;
+
   const [coefficient, exponent = '0'] = Math.abs(amount).toString().split('e');
   const [whole = '', fraction = ''] = coefficient!.split('.');
   const point = whole.length + Number(exponent) - decimals;
   const digits = whole + fraction;
   const integer = point > 0 ? digits.slice(0, point).padEnd(point, '0') : '0';
+
   const remainder =
     point < 0 ? '0'.repeat(-point) + digits : digits.slice(point);
+
   const tail = remainder.padEnd(decimals, '0');
+
   return `${currency} ${amount < 0 ? '-' : ''}${integer}${tail ? `.${tail}` : ''}`;
 }
 
 export function fundingText(funding: Funding): string {
   if (funding.kind === 'unavailable') return 'credits unavailable';
+
   if (funding.kind === 'extra-usage')
     return `extra ${funding.enabled ? 'on' : 'off'}: ${money(funding.used, funding.currency, funding.decimalPlaces)} spent / ${funding.limit === null ? 'unlimited' : money(funding.limit, funding.currency, funding.decimalPlaces)} cap`;
+
   if (funding.unlimited) return 'unlimited credits';
+
   if (funding.balance !== null) return `${funding.balance} credits`;
+
   return funding.available
     ? 'credits available; balance unavailable'
     : 'no credits';
@@ -127,25 +143,34 @@ export function describeReading(
   now: number,
 ): string | undefined {
   if (!account || (!account.limits.length && !account.funding)) return;
+
   const reading = account.limits;
+
   const windows = reading
     .map(({ window, percent }) => `${window} ${Math.round(percent)}%`)
     .join(', ');
+
   const parts: string[] = [];
+
   const describe = (
     text: string,
     observed: readonly { observedAt: number; resetsAt?: number }[],
   ) => {
     if (observed.every((entry) => current(entry, now))) return text;
+
     const age = Math.floor(
       (now - Math.min(...observed.map(({ observedAt }) => observedAt))) /
         60_000,
     );
+
     return `${text}, not current (${age} minutes old)`;
   };
+
   if (windows) parts.push(describe(windows, reading));
+
   if (account.funding)
     parts.push(describe(fundingText(account.funding), [account.funding]));
+
   return `${name} ${parts.join(', ')}`;
 }
 
@@ -157,14 +182,18 @@ export function usageContext(
 ): string | undefined {
   const readings = agents.flatMap(({ id, label }) => {
     const reading = describeReading(label, accounts[id], now);
+
     if (!reading) return [];
+
     const access = accounts[id]?.creditAccess;
+
     return [
       access
         ? `${reading}, credit execution ${creditCapacity(accounts[id], now)}`
         : reading,
     ];
   });
+
   return readings.length
     ? `Account usage: ${readings.join('; ')}. A reading older than ${USAGE_CURRENT_MS / 60_000} minutes or past its reset is not current.`
     : undefined;
@@ -190,24 +219,31 @@ export class AccountUsage {
   /** omitted account fields retain their observation; an empty window list clears windows. */
   report(agent: string, account: AccountReading | undefined): void {
     if (!account) return;
+
     const stored = this.accounts[agent];
+
     const previous =
       account.identity && account.identity !== stored?.identity
         ? undefined
         : stored;
+
     const { limits } = account;
+
     // a session's first report knows only its own windows, so one it leaves out keeps the earlier reading
     const kept = limits.length
       ? (previous?.limits ?? []).filter(
           ({ window }) => !limits.some((limit) => limit.window === window),
         )
       : [];
+
     const reading = kept.length ? [...limits, ...kept] : limits;
+
     this.store(agent, { ...previous, ...account, limits: reading });
   }
 
   private store(agent: string, next: AccountReading): void {
     const previous = this.accounts[agent];
+
     if (
       previous?.limits.length === next.limits.length &&
       next.limits.every((limit, index) => limit === previous.limits[index]) &&
@@ -216,14 +252,18 @@ export class AccountUsage {
       previous.identity === next.identity
     )
       return;
+
     this.accounts = { ...this.accounts, [agent]: next };
+
     this.publish(this.accounts);
   }
 
   /** a live session's connect read counts as its first attempt; later reads use its method or existing polling. */
   connected(session: AgentSession, cwd: string): void {
     this.session = session;
+
     this.attempts.set(session.info.agent, Date.now());
+
     this.others(session.info.agent, cwd);
   }
 
@@ -245,15 +285,20 @@ export class AccountUsage {
     { force = false, after = -Infinity } = {},
   ): Promise<void> {
     if (this.suspended) return Promise.resolve();
+
     const running = this.reads.get(agent);
+
     if (running) return running;
+
     const now = Date.now();
     const account = this.accounts[agent];
+
     const observed = [
       ...(account?.limits ?? []),
       account?.funding,
       account?.creditAccess,
     ];
+
     if (
       this.closed ||
       (!due(account, now) &&
@@ -262,32 +307,44 @@ export class AccountUsage {
         now - (this.attempts.get(agent) ?? -Infinity) <= USAGE_CURRENT_MS)
     )
       return Promise.resolve();
+
     const live =
       this.session?.info.agent === agent && !this.session.closed
         ? this.session
         : undefined;
+
     const read = live ? live.readAccountUsage?.() : this.probe(agent, cwd);
+
     if (!read) return Promise.resolve();
+
     this.attempts.set(agent, now);
+
     const settled = read.finally(() => this.reads.delete(agent));
+
     this.reads.set(agent, settled);
+
     return settled;
   }
 
   async close(stop: AgentStopOptions): Promise<void> {
     this.closed = true;
+
     for (const abort of this.probes.keys()) abort.abort(new NativeStop(stop));
+
     await Promise.allSettled(this.probes.values());
   }
 
   async suspend(): Promise<void> {
     this.suspended = true;
+
     for (const abort of this.probes.keys()) abort.abort(new NativeStop({}));
+
     await Promise.allSettled(this.probes.values());
   }
 
   resume(runtime: string): void {
     this.attempts.delete(runtime);
+
     this.suspended = false;
   }
 
@@ -295,14 +352,20 @@ export class AccountUsage {
     const registration = this.agents.find(
       ({ adapter, executable }) => adapter.id === agent && executable,
     );
+
     if (!registration) return;
+
     const abort = new AbortController();
+
     const timer = setTimeout(
       () => abort.abort(new Error(`${agent} usage read timed out`)),
       USAGE_PROBE_MS,
     );
+
     timer.unref();
+
     const previous = this.accounts[agent];
+
     const probe = registration.adapter
       .accountUsage(
         { cwd, executable: registration.executable!, signal: abort.signal },
@@ -310,27 +373,36 @@ export class AccountUsage {
       )
       .then((reading) => {
         if (this.closed) return;
+
         const current = this.accounts[agent];
+
         if (current?.identity !== previous?.identity) return;
+
         if (
           current === previous ||
           (reading.identity && reading.identity !== current?.identity)
         ) {
           this.report(agent, reading);
+
           return;
         }
+
         const changed = (window: string) =>
           current?.limits.find((entry) => entry.window === window) !==
           previous?.limits.find((entry) => entry.window === window);
+
         const limits = reading.limits.length
           ? reading.limits.flatMap((limit) => {
               if (!changed(limit.window)) return [limit];
+
               const newer = current?.limits.find(
                 (entry) => entry.window === limit.window,
               );
+
               return newer ? [newer] : [];
             })
           : (current?.limits ?? []).filter((limit) => changed(limit.window));
+
         this.store(agent, {
           ...current,
           ...reading,
@@ -357,9 +429,12 @@ export class AccountUsage {
       .catch(() => {})
       .finally(() => {
         clearTimeout(timer);
+
         this.probes.delete(abort);
       });
+
     this.probes.set(abort, probe);
+
     return probe;
   }
 }

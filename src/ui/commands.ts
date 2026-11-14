@@ -40,6 +40,7 @@ const catalog = [
 ] as const;
 
 export type CommandName = (typeof catalog)[number]['id'];
+
 export interface WitchCommand {
   name: CommandName;
   argument: string;
@@ -66,23 +67,31 @@ export function parseCommands(
   skills: readonly Skill[],
 ): WitchCommand[] | undefined {
   if (text.trimStart().startsWith('!')) return;
+
   const native = skillCall(text, skills);
+
   if (native && !names.has(native.name)) return;
+
   const found: {
     command: (typeof commands)[number];
     start: number;
     end: number;
   }[] = [];
+
   let ticks = 0;
+
   for (const match of text.matchAll(/`+|\/[^\s`]+/g)) {
     const token = match[0],
       start = match.index;
+
     if (token.startsWith('`')) {
       if (!ticks) ticks = token.length;
       else if (token.length === ticks || (ticks >= 3 && token.length >= ticks))
         ticks = 0;
+
       continue;
     }
+
     if (
       ticks ||
       (start && !/\s/.test(text[start - 1]!)) ||
@@ -90,11 +99,16 @@ export function parseCommands(
         !/\s/.test(text[start + token.length]!))
     )
       continue;
+
     const command = names.get(token.slice(1));
+
     if (command) found.push({ command, start, end: start + token.length });
   }
+
   if (!found.length) return;
+
   const leading = found[0]!.start === text.length - text.trimStart().length;
+
   const run = found.flatMap(({ command, end }, index) =>
     leading || !command.leading
       ? [
@@ -108,6 +122,7 @@ export function parseCommands(
         ]
       : [],
   );
+
   return run.length ? run : undefined;
 }
 

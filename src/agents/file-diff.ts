@@ -7,8 +7,10 @@ export function wholeFile(
   content: string,
 ): FileDiff {
   if (!content) return { path, kind, hunks: [] };
+
   const marker = kind === 'add' ? '+' : '-';
   const lines = content.replace(/\n$/, '').split('\n');
+
   return {
     path,
     kind,
@@ -27,20 +29,24 @@ export function diffLines(diff: string): { added: number; removed: number } {
   let added = 0;
   let removed = 0;
   let hunk = false;
+
   for (const line of diff.split('\n')) {
     if (line.startsWith('@@')) hunk = true;
     else if (line.startsWith('diff ')) hunk = false;
     else if (hunk && line.startsWith('+')) added++;
     else if (hunk && line.startsWith('-')) removed++;
   }
+
   return { added, removed };
 }
 
 /** the hunks of a Codex update's diff, which has no file headers and can end with a move's note. */
 export function hunks(diff: string): Hunk[] {
   const hunks: Hunk[] = [];
+
   for (const line of diff.split('\n')) {
     const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+
     if (header)
       hunks.push({
         oldStart: Number(header[1]),
@@ -49,5 +55,6 @@ export function hunks(diff: string): Hunk[] {
       });
     else if (/^[ +-]/.test(line)) hunks.at(-1)?.lines.push(line);
   }
+
   return hunks;
 }

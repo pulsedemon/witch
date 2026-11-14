@@ -38,13 +38,16 @@ const updateJournalSchema = z.object({
   startedAt: z.number(),
   error: z.string().optional(),
 });
+
 export type UpdateJournal = z.infer<typeof updateJournalSchema>;
 
 export const nativeUpdateDirectory = () =>
   join(homedir(), '.witch', 'native-updates');
+
 /** where each Witch taking part in native updates keeps a locked `<pid>.json`. */
 export const participantsDirectory = (directory: string) =>
   join(directory, 'participants');
+
 export const participantFile = (directory: string, pid: number) =>
   join(participantsDirectory(directory), `${pid}.json`);
 
@@ -52,12 +55,15 @@ export const participantFile = (directory: string, pid: number) =>
 export async function listParticipants(directory: string): Promise<string[]> {
   const folder = participantsDirectory(directory);
   const files = (await unlessGone(readdir(folder))) ?? [];
+
   return files
     .filter((file) => /^\d+\.json$/.test(file))
     .map((file) => join(folder, file));
 }
+
 export const pendingUpdate = (journal: UpdateJournal) =>
   !['verified', 'recovered', 'aborted'].includes(journal.phase);
+
 /** whether `journal` records a passed qualification of exactly this artifact by this Witch build. */
 export const qualifiedBy = (
   journal: UpdateJournal | undefined,
@@ -68,7 +74,9 @@ export const qualifiedBy = (
   !!installation &&
   installation.digest === journal.selected?.digest &&
   journal.build === build;
+
 const key = (root: string) => createHash('sha256').update(root).digest('hex');
+
 const journalFile = (directory: string, root: string) =>
   join(directory, `${key(root)}.json`);
 
@@ -85,14 +93,18 @@ export function holdRuntime(
   directory = nativeUpdateDirectory(),
 ): () => void {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
+
   const descriptor = tryOpenLockedSync(
     join(directory, `${key(root)}.use`),
     constants.O_CREAT | constants.O_RDWR,
     true,
   );
+
   if (descriptor === undefined) throw new NativeUpdatePending();
+
   try {
     let journal: UpdateJournal | undefined;
+
     try {
       journal = updateJournalSchema.parse(
         JSON.parse(readFileSync(journalFile(directory, root), 'utf8')),
@@ -100,10 +112,13 @@ export function holdRuntime(
     } catch (error) {
       if (!gone(error)) throw error;
     }
+
     if (journal && pendingUpdate(journal)) throw new NativeUpdatePending();
+
     return () => closeSync(descriptor);
   } catch (error) {
     closeSync(descriptor);
+
     throw error;
   }
 }
@@ -113,28 +128,36 @@ export class RuntimeUpdateStore {
 
   async transaction(root: string): Promise<FileHandle> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
+
     const file = await tryOpenLocked(
       join(this.directory, `${key(root)}.transaction`),
       constants.O_CREAT | constants.O_RDWR,
     );
+
     if (!file)
       throw new NativeUpdatePending(
         'Another native update, recovery or qualification holds this installation. Try again when it finishes.',
       );
+
     return file;
   }
 
   async exclusive(root: string, signal: AbortSignal): Promise<FileHandle> {
     const deadline = Date.now() + 5000;
+
     do {
       signal.throwIfAborted();
+
       const file = await tryOpenLocked(
         join(this.directory, `${key(root)}.use`),
         constants.O_CREAT | constants.O_RDWR,
       );
+
       if (file) return file;
+
       await delay(50, undefined, { signal });
     } while (Date.now() < deadline);
+
     throw new Error(
       'Another process is using this native installation. Close it before updating.',
     );
@@ -150,6 +173,7 @@ export class RuntimeUpdateStore {
 
   async journals(): Promise<UpdateJournal[]> {
     const files = (await unlessGone(readdir(this.directory))) ?? [];
+
     const values = await Promise.all(
       files
         .filter((file) => /^[a-f0-9]{64}\.json$/.test(file))
@@ -157,6 +181,7 @@ export class RuntimeUpdateStore {
           readJson(join(this.directory, file), updateJournalSchema),
         ),
     );
+
     return values.filter((value) => value !== undefined);
   }
 
@@ -176,24 +201,30 @@ export class RuntimeUpdateStore {
 
   async cache(check: z.infer<typeof runtimeCheckSchema>): Promise<boolean> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
+
     const file = join(
       this.directory,
       `${key(check.installation.root)}-${check.installation.channel}.check.json`,
     );
+
     const lock = await openLocked(
       `${file}.lock`,
       constants.O_CREAT | constants.O_RDWR,
     );
+
     try {
       const previous = await readJson(file, cachedCheckSchema);
+
       const notify =
         check.available &&
         !check.blocked &&
         previous?.notified !== check.target;
+
       await writeJson(file, {
         ...check,
         notified: notify ? check.target : previous?.notified,
       });
+
       return notify;
     } finally {
       await lock.close();

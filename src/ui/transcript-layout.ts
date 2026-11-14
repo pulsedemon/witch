@@ -18,8 +18,11 @@ export interface ScrollAnchor {
 }
 
 type Anchor = Omit<ScrollAnchor, 'item'>;
+
 type Expansion = 'closed' | 'preview' | 'full';
+
 type TextRows = Pick<readonly string[], 'length' | 'at' | 'slice'>;
+
 type Append =
   | ({ kind: 'tool' } & Pick<LinkedAppend, 'pending' | 'target'>)
   | { kind: 'assistant'; pending: string }
@@ -63,19 +66,24 @@ function textRows(
 ): TextRows {
   const relative = (index: number) => {
     const integer = Math.trunc(index) || 0;
+
     return integer < 0 ? length + integer : integer;
   };
+
   return {
     length,
     at(index) {
       const row = relative(index);
+
       return row >= 0 && row < length ? read(row) : undefined;
     },
     slice(start = 0, end = length) {
       const result: string[] = [];
       const last = Math.min(length, Math.max(0, relative(end)));
+
       for (let row = Math.max(0, relative(start)); row < last; row++)
         result.push(read(row)!);
+
       return result;
     },
   };
@@ -91,8 +99,10 @@ function block(
 ): Block {
   const count = complete.length;
   const length = count + suffix.length;
+
   const row = (index: number) =>
     index < count ? complete[index] : suffix[index - count];
+
   return {
     content,
     viewport,
@@ -112,17 +122,24 @@ function section(
 ) {
   const rows: Row[] = [];
   let sourceLine = first;
+
   for (const line of text) {
     const source = trim ? stripAnsi(normalizeText(line)) : undefined;
     let offset = 0;
+
     for (const row of wrapLines(line, width, trim)) {
       const plain = stripAnsi(row);
+
       if (source !== undefined) offset = source.indexOf(plain, offset);
+
       rows.push({ text: row, anchor: { line: sourceLine, offset } });
+
       offset += plain.length;
     }
+
     sourceLine++;
   }
+
   return { rows, next: sourceLine };
 }
 
@@ -130,8 +147,11 @@ function section(
 function linkedTitle(title: string, path: string | undefined, cwd: string) {
   // `toolTitle` puts the path two spaces after the name, which can contain the same text
   const separator = path ? title.indexOf(`  ${path}`) : -1;
+
   if (!path || separator < 0) return linkify(title, cwd);
+
   const start = separator + 2;
+
   return (
     linkify(title.slice(0, start), cwd) +
     hyperlink(plain(path), path, cwd) +
@@ -147,6 +167,7 @@ function prepare(
 ): Content {
   const tool = item.kind === 'tool';
   const expanded = expansion !== 'closed';
+
   const title =
     item.kind === 'user'
       ? colors.hex(accent).bold('You')
@@ -164,15 +185,19 @@ function prepare(
           : item.cast
             ? castTitle()
             : colors.dim('Notice');
+
   const linked =
     tool && expanded ? linkifyAppend(item.text, item.cwd) : undefined;
+
   const assistant =
     item.kind === 'assistant' && !fullMarkdown
       ? markdownAppend(item.text, item.cwd)
       : undefined;
+
   // a one-line notice needs no heading to read as one, only dim text
   const headless =
     item.kind === 'notice' && !item.cast && !item.text.includes('\n');
+
   const body = tool
     ? ''
     : (assistant?.tail ??
@@ -181,14 +206,18 @@ function prepare(
             markdown(item.text, item.cwd),
           )
         : markdown(item.text, item.cwd)));
+
   const sources =
     item.kind === 'user' || (tool && expanded) ? (item.images ?? []) : [];
+
   const diff =
     tool && expanded && item.diff?.length
       ? prepareDiff(item.diff, item.cwd, expansion === 'full')
       : undefined;
+
   const complete = linked?.complete ?? assistant?.complete ?? [];
   const hasBody = linked ? linked.complete.length > 0 || !!linked.tail : !!body;
+
   return {
     item,
     title: headless ? [] : title.split('\n'),
@@ -216,12 +245,15 @@ function ending(
 ): { rows: Row[]; missing: boolean } {
   const rendered = section(content.tail, width, false, first);
   const diff = content.diff?.(width) ?? [];
+
   const images = graphics
     ? content.images.map((source) =>
         graphics.rows(source, content.item.cwd, width),
       )
     : [];
+
   const next = rendered.next;
+
   // row offsets preserve diff and image rows across resizes and when copying, and an image without rows yet
   // keeps its line, so the images after it keep theirs when it loads.
   const ended = rendered.rows.concat(
@@ -236,6 +268,7 @@ function ending(
       anchor: { line: next + diff.length + images.length, offset: 0 },
     },
   );
+
   return { rows: ended, missing: images.some((rows) => !rows.length) };
 }
 
@@ -246,6 +279,7 @@ function wrap(
 ): Block {
   const { width } = viewport;
   const head = section(content.title, width, true, 0);
+
   if (content.singleLine && head.rows.length > 1) {
     const first =
       width > 1
@@ -255,12 +289,15 @@ function wrap(
             wordWrap: false,
           }).split('\n')[0]!
         : '';
+
     head.rows = [
       { text: `${first}${colors.dim('…')}`, anchor: { line: 0, offset: 0 } },
     ];
   }
+
   const complete = section(content.complete, width, false, head.next);
   const end = ending(content, width, complete.next, graphics);
+
   return block(
     content,
     viewport,
@@ -278,6 +315,7 @@ function extend(
 ): Block | undefined {
   const before = previous.content.item;
   const tail = previous.content.append;
+
   if (
     !tail ||
     item.kind !== before.kind ||
@@ -290,21 +328,30 @@ function extend(
     item.images !== before.images
   )
     return undefined;
+
   const appended = appendedDisplayText(before, item);
+
   if (appended === undefined) return undefined;
+
   if (tail.kind === 'full-markdown')
     return wrap(prepare(item, 'closed', undefined, true), viewport, graphics);
+
   const linked =
     tail.kind === 'tool'
       ? linkifyAppend(tail.pending + appended, item.cwd, tail.target)
       : undefined;
+
   const content = linked ?? markdownAppend(tail.pending + appended, item.cwd);
+
   if (!content)
     return wrap(prepare(item, 'closed', undefined, true), viewport, graphics);
+
   const source = previous.content;
   const first = source.title.length + source.complete.length;
+
   const hasBody =
     source.complete.length > 0 || content.complete.length > 0 || !!content.tail;
+
   const prepared: Content = {
     ...source,
     item,
@@ -314,13 +361,19 @@ function extend(
         ? { kind: 'tool', pending: content.pending, target: linked?.target }
         : { kind: 'assistant', pending: content.pending },
   };
+
   for (const line of content.complete) source.complete.push(line);
+
   if (previous.viewport !== viewport) return wrap(prepared, viewport, graphics);
+
   const { width } = viewport;
   const complete = section(content.complete, width, false, first);
+
   // a large chunk can exceed the argument limit if spread into push().
   for (const row of complete.rows) previous.complete.push(row);
+
   const end = ending(prepared, width, complete.next, graphics);
+
   return block(prepared, viewport, previous.complete, end.rows, end.missing);
 }
 
@@ -331,8 +384,10 @@ export function isExpanded(
 ): boolean {
   // only `/` already ends in a separator
   const root = item.cwd.endsWith('/') ? item.cwd : `${item.cwd}/`;
+
   const inside = (path: string | undefined) =>
     path === item.cwd || !!path?.startsWith(root);
+
   return (
     choices.get(item.id) ??
     (!!item.shell ||
@@ -371,10 +426,13 @@ export function toggleGroup(
 ): Map<string, boolean> {
   const open = groupOpen(members, choices);
   const next = new Map(choices);
+
   for (const { id } of members) {
     next.set(`open:${id}`, !open);
+
     if (open) next.set(id, false);
   }
+
   return next;
 }
 
@@ -395,23 +453,32 @@ export class TranscriptLayout {
   ) {
     // reopening a variant at an older width must restore its terminal image placement.
     if (this.viewport.width !== width) this.viewport = { width };
+
     const viewport = this.viewport;
     // two or more consecutive groupable tools show as one row, followed by them once it is open
     const shown: DisplayItem[] = [];
     const groups = new Map<string, readonly DisplayItem[]>();
     const owner = new Map<string, string>();
+
     for (let index = 0; index < items.length;) {
       let end = index;
+
       while (end < items.length && groupable(items[end]!)) end++;
+
       if (end - index < 2) {
         shown.push(items[index]!);
+
         index++;
+
         continue;
       }
+
       const members = items.slice(index, end);
       const first = members[0]!;
       const id = `tools:${first.id}`;
+
       groups.set(id, members);
+
       shown.push({
         id,
         kind: 'tool',
@@ -420,20 +487,27 @@ export class TranscriptLayout {
         cwd: first.cwd,
         done: true,
       });
+
       const open = groupOpen(members, expanded);
+
       for (const member of members) {
         owner.set(member.id, id);
+
         if (open) shown.push(member);
       }
+
       index = end;
     }
+
     let length = 0;
     const blocks: TextRows[] = [];
     const starts = new Map<string, number>();
     const rendered = new Map<string, Block>();
     const cache = new Map<string, Map<Expansion, Block>>();
+
     for (const item of shown) {
       const members = groups.get(item.id);
+
       const expansion = !(members
         ? groupOpen(members, expanded)
         : isExpanded(item, expanded))
@@ -441,8 +515,10 @@ export class TranscriptLayout {
         : full?.has(item.id)
           ? 'full'
           : 'preview';
+
       const variants = this.cache.get(item.id) ?? new Map<Expansion, Block>();
       const previous = variants.get(expansion);
+
       const current =
         previous?.content.item === item
           ? previous.viewport === viewport &&
@@ -455,51 +531,73 @@ export class TranscriptLayout {
               viewport,
               this.graphics,
             ));
+
       if (current !== previous) current.loads = loads;
+
       variants.set(expansion, current);
+
       cache.set(item.id, variants);
+
       starts.set(item.id, length);
+
       length += current.lines.length;
+
       blocks.push(current.lines);
+
       rendered.set(item.id, current);
     }
+
     // a collapsed group's members keep their blocks for when it opens again
     for (const id of owner.keys()) {
       const kept = this.cache.get(id);
+
       if (kept && !cache.has(id)) cache.set(id, kept);
     }
+
     this.cache = cache;
     const positions = [...starts];
+
     /** where an id that no longer shows leads: a collapsed member to its group, a former group to the one holding its first tool. */
     const shownAs = (id: string): string => {
       if (starts.has(id)) return id;
+
       const first = id.startsWith('tools:') ? id.slice('tools:'.length) : id;
+
       return owner.get(first) ?? (starts.has(first) ? first : id);
     };
+
     const positionAt = (row: number) => {
       let low = 0;
       let high = positions.length;
+
       while (low < high) {
         const middle = Math.floor((low + high) / 2);
+
         if (positions[middle]![1] <= row) low = middle + 1;
         else high = middle;
       }
+
       return positions[low - 1];
     };
+
     return {
       items: shown,
       shownAs,
       members: (id: string) => groups.get(id),
       lines: textRows(length, (row) => {
         const [item, start] = positionAt(row)!;
+
         return rendered.get(item)!.row(row - start)?.text;
       }),
       blocks,
       starts,
       anchorAt(row: number): ScrollAnchor | undefined {
         const entry = positionAt(row);
+
         if (!entry) return undefined;
+
         const [item, start] = entry;
+
         return {
           item,
           ...(rendered.get(item)!.row(row - start)?.anchor ?? {
@@ -510,26 +608,36 @@ export class TranscriptLayout {
       },
       rowOf(anchor: ScrollAnchor): number {
         const id = shownAs(anchor.item);
+
         if (id !== anchor.item) return starts.get(id) ?? 0;
+
         const start = starts.get(anchor.item) ?? 0;
         const current = rendered.get(anchor.item);
+
         if (!current) return start;
+
         let low = 0;
         let high = current.lines.length;
+
         while (low < high) {
           const middle = Math.floor((low + high) / 2);
+
           if (current.row(middle)!.anchor.line <= anchor.line) low = middle + 1;
           else high = middle;
         }
+
         for (let index = low - 1; index >= 0; index--) {
           const row = current.row(index)!.anchor;
+
           if (row.line !== anchor.line) break;
+
           if (
             row.offset === anchor.offset ||
             (row.offset >= 0 && row.offset < anchor.offset)
           )
             return start + index;
         }
+
         return start;
       },
     };

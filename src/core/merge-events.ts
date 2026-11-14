@@ -28,6 +28,7 @@ export function mergeNotices(
 ): { id: string; text: string }[] {
   return events.map((event) => {
     const { number, url, branch, base, commit } = event.pullRequest;
+
     return {
       id: `project-merge/${event.id}`,
       text: `Project merge: [#${number}](${url}) merged ${branch} into ${base} at ${commit}. Observed by Witch session ${event.source}.`,

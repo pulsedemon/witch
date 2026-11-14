@@ -1,11 +1,44 @@
 import js from '@eslint/js';
+import stylistic from '@stylistic/eslint-plugin';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
+
+const singleLineVariable = {
+  selector:
+    ':matches(VariableDeclaration, ExportNamedDeclaration[declaration.type="VariableDeclaration"], ExpressionStatement[expression.type="AssignmentExpression"])',
+  lineMode: 'singleline',
+};
+
+const singleLineValidationGuard = {
+  selector: 'IfStatement[alternate=null][consequent.type="ThrowStatement"]',
+  lineMode: 'singleline',
+};
 
 export default defineConfig(
   { ignores: ['dist/**', '.superpowers/**', 'docs/superpowers/**'] },
   js.configs.recommended,
   tseslint.configs.recommended,
+  {
+    plugins: { '@stylistic': stylistic },
+    rules: {
+      'no-fallthrough': ['error', { allowEmptyCase: true }],
+      '@stylistic/padding-line-between-statements': [
+        'error',
+        { blankLine: 'always', prev: '*', next: '*' },
+        { blankLine: 'any', prev: 'import', next: 'import' },
+        {
+          blankLine: 'any',
+          prev: singleLineVariable,
+          next: singleLineVariable,
+        },
+        {
+          blankLine: 'any',
+          prev: singleLineValidationGuard,
+          next: singleLineValidationGuard,
+        },
+      ],
+    },
+  },
   {
     files: [
       'src/**/*.{ts,tsx}',

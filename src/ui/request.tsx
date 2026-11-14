@@ -50,12 +50,16 @@ export function Request({
   const expandable = !!request.diff && canExpandDiff(request.diff);
   const bodyHeight = Math.max(2, height - 7 - Number(expandable));
   const fields = `${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
+
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
     : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
+
   const lines = useMemo(() => {
     const wrap = (text: string) => wrapLines(linkify(text, cwd), width);
+
     if (question || !request.diff?.length) return wrap(detail);
+
     return [
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
       ...diffRows(request.diff, width, cwd, full).flat(),
@@ -63,28 +67,42 @@ export function Request({
       ...wrap(fields),
     ];
   }, [request, detail, fields, question, width, cwd, full]);
+
   useInput((input, key) => {
     if (!active || key.eventType === 'release') return;
+
     if (key.ctrl && input === 'o' && expandable) {
       setFull((previous) => !previous);
+
       setScroll(0);
+
       return;
     }
+
     if (!ready) return;
+
     if (key.escape) {
       respond({ decision: 'decline' });
+
       return;
     }
+
     const count = (
       request.questions?.[questionIndexRef.current]?.options ?? approvals
     ).length;
+
     if (key.upArrow) setSelection(Math.max(0, selectionRef.current - 1));
+
     if (key.downArrow)
       setSelection(Math.min(count - 1, selectionRef.current + 1));
+
     if (request.kind === 'approval') {
       const plain = !key.ctrl && !key.meta && !key.super;
+
       if (plain && input === 'y') respond({ decision: 'accept' });
+
       if (plain && input === 'n') respond({ decision: 'decline' });
+
       if (key.return)
         respond({ decision: approvals[selectionRef.current]!.decision });
     }
@@ -93,11 +111,14 @@ export function Request({
   const submit = (text: string): boolean => {
     const index = questionIndexRef.current;
     const question = request.questions?.[index];
+
     if (question) {
       const options = question.options;
+
       const values = text.trim()
         ? (question.multiple ? text.split(',') : [text]).map((value) => {
             const number = Number(value.trim());
+
             return Number.isInteger(number) &&
               number > 0 &&
               number <= options.length
@@ -107,28 +128,39 @@ export function Request({
         : options[selectionRef.current]
           ? [options[selectionRef.current]!]
           : [];
+
       if (!values.length) return false;
+
       const next = { ...answers.current, [question.id]: values };
+
       if (index + 1 === request.questions!.length)
         respond({ decision: 'accept', answers: next });
       else {
         answers.current = next;
+
         setQuestionIndex(index + 1);
+
         setSelection(0);
+
         setScroll(0);
       }
+
       return true;
     }
+
     const form = !request.url || !!request.schema;
     const json = text.trim() || '{}';
     let content: UserResponse['content'];
+
     if (form)
       try {
         content = z.record(z.string(), z.unknown()).parse(JSON.parse(json));
       } catch {
         setError('Enter a JSON object matching the requested fields.');
+
         return false;
       }
+
     if (request.schema) {
       // MCP allows any $schema, and Ajv2020 throws on a meta-schema it lacks
       const validator = new Ajv2020({
@@ -136,7 +168,9 @@ export function Request({
         validateSchema: false,
         formats: fullFormats,
       });
+
       let valid: boolean;
+
       try {
         valid = validator.validate(request.schema, content);
       } catch (error) {
@@ -144,15 +178,20 @@ export function Request({
         setError(
           plain(`The request's schema can't be used: ${errorMessage(error)}`),
         );
+
         return false;
       }
+
       if (!valid) {
         // Ajv quotes the agent's property names, escapes included
         setError(plain(validator.errorsText()));
+
         return false;
       }
     }
+
     respond({ decision: 'accept', content });
+
     return true;
   };
 

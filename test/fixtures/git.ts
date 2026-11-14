@@ -37,7 +37,9 @@ export type GitHook = (
 export function hookedGit(hook: { current: GitHook }): GitRunner {
   return (args, options) => {
     let start = 0;
+
     while (args[start] === '-c') start += 2;
+
     return hook.current(
       args.slice(start),
       () => runGit(args, options),

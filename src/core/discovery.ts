@@ -35,23 +35,31 @@ export async function discover(
   deadline?: number,
 ): Promise<Discovery> {
   const timeout = deadline === undefined ? undefined : checkDeadline(deadline);
+
   const reads = [
     registry.presences(),
     store.openConversations(undefined, { timeout }),
   ] as const;
+
   await Promise.allSettled(reads);
+
   const [presences, opened] = await Promise.all(reads);
   const { records, unreadable } = await store.records([...opened.keys()]);
+
   if (unreadable.length)
     throw new Error(
       `Cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ')}`,
     );
+
   const candidates = new Map<string, SessionPresence>();
+
   for (const record of records) {
     const presence = presences.find((entry) => entry.id === record.id);
+
     if (opened.has(record.id) && presence?.cwd === record.cwd)
       candidates.set(record.id, presence);
   }
+
   const activations = await registry.activeActivations(
     [...candidates.values()].flatMap(({ activation }) =>
       activation === held ? [] : [activation],
@@ -60,7 +68,9 @@ export async function discover(
       timeout: deadline === undefined ? undefined : checkDeadline(deadline),
     },
   );
+
   if (held) activations.add(held);
+
   const processes = await identifyProcesses(
     [...candidates.values()].flatMap((presence) =>
       activations.has(presence.activation) ? [presence.process.pid] : [],
@@ -69,22 +79,30 @@ export async function discover(
       timeout: deadline === undefined ? undefined : checkDeadline(deadline),
     },
   );
+
   const live = new Map<string, SessionPresence>();
   const unregistered = new Map<string, CoordinationSnapshot['unregistered']>();
+
   for (const record of records) {
     const holder = opened.get(record.id);
+
     if (!holder) continue;
+
     const presence = candidates.get(record.id);
+
     if (
       presence &&
       activations.has(presence.activation) &&
       sameProcess(processes.get(presence.process.pid), presence.process)
     ) {
       live.set(record.id, presence);
+
       continue;
     }
+
     // a current Witch opening, reconnecting or closing this conversation
     if (holder.coordinated) continue;
+
     try {
       const { project } = await memory.scopePaths(
         record.cwd,
@@ -92,14 +110,19 @@ export async function discover(
           ? undefined
           : AbortSignal.timeout(checkDeadline(deadline)),
       );
+
       const summaries = unregistered.get(project) ?? [];
+
       summaries.push(conversationSummarySchema.parse(record));
+
       unregistered.set(project, summaries);
     } catch (error) {
       const { code, syscall } = error as NodeJS.ErrnoException;
+
       if (code !== 'ENOENT' || syscall !== 'realpath') throw error;
     }
   }
+
   return { revision, live, opened, records, unregistered };
 }
 
@@ -112,17 +135,21 @@ export function projectDiscovery(
 ): CoordinationSnapshot {
   const { live, opened } = discovery;
   const positions = selectionStates(selections);
+
   const ownSelection = positions.find(
     (state) => state.ticket.owner.conversation === conversation,
   );
+
   const ownClaim = claims.find(
     (claim) => claim.owner.conversation === conversation,
   );
+
   const projectClaims = claims.filter(
     (claim) =>
       claim.owner.project === project &&
       claim.owner.conversation !== conversation,
   );
+
   const peers = [...live.values()]
     .filter(
       (presence) =>
@@ -138,10 +165,13 @@ export function projectDiscovery(
         (claim) => claim.owner.conversation === presence.id,
       ),
     }));
+
   const reservations: CoordinationSnapshot['reservations'] =
     projectClaims.flatMap((claim) => {
       const presence = live.get(claim.owner.conversation);
+
       if (presence?.project === project) return [];
+
       return [
         {
           claim,
@@ -153,6 +183,7 @@ export function projectDiscovery(
         },
       ];
     });
+
   return {
     peers,
     ownClaim,
@@ -164,8 +195,10 @@ export function projectDiscovery(
 
 export function configStamp(file: string | undefined): string {
   if (!file) return 'none';
+
   try {
     const { mtimeNs, ino, size } = statSync(file, { bigint: true });
+
     return `${mtimeNs}:${ino}:${size}`;
   } catch {
     return 'missing';

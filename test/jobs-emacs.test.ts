@@ -35,6 +35,7 @@ test.each([
       leadsSession: true,
       identity: '100105 a',
     };
+
     const jobs = new JobWatch({
       interval: 60_000,
       processes: async () => [row],
@@ -49,8 +50,10 @@ test.each([
           command: '',
         })),
     });
+
     try {
       jobs.track(row.pgid);
+
       assert.deepEqual(
         (await jobs.list()).map(({ group }) => group),
         managed ? [100105] : [],

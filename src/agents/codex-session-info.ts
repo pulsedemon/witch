@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { SessionInfo } from './types.js';
 
 const activePermissionProfile = z.object({ id: z.string() }).nullish();
+
 const session = z.object({
   thread: z.object({ id: z.string() }),
   model: z.string(),
@@ -17,10 +18,12 @@ export function permissionProfile(value: unknown): string | undefined {
 
 export function sessionInfo(value: unknown, current: SessionInfo): SessionInfo {
   const data = session.parse(value);
+
   const policy =
     typeof data.approvalPolicy === 'string'
       ? data.approvalPolicy
       : JSON.stringify(data.approvalPolicy);
+
   return {
     ...current,
     id: data.thread.id,

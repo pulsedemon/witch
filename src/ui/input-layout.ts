@@ -30,5 +30,6 @@ export function split(
 /** the rows an input holding `value` fills at `width`. */
 export function inputRows(value: string, width: number, shell = false): number {
   const drawn = split({ value, cursor: 0 }, width, shell);
+
   return wrap(visible(drawn.text.value), drawn.width).length;
 }

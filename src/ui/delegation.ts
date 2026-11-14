@@ -22,39 +22,57 @@ export function changeDelegation(
   installed: readonly string[],
 ): Policy | string {
   const [first = '', second, third, ...rest] = argument.trim().split(/\s+/);
+
   if (rest.length) return `Use ${delegationUsage}.`;
+
   if (first === 'shift' && second && !third) {
     if (second === 'off') return { ...policy, shiftAt: null };
+
     const level = Number(second);
+
     return Number.isInteger(level) && level >= 1 && level <= 100
       ? { ...policy, shiftAt: level }
       : 'Use a whole percent from 1 to 100, or off.';
   }
+
   if (first === 'family' && second && third) {
     if (!installed.includes(second)) return `${second} is not installed.`;
+
     const resolved = family(second, third, catalog);
+
     return 'refused' in resolved
       ? `${resolved.refused}.`
       : { ...policy, families: { ...policy.families, [second]: third } };
   }
+
   const kind = work.safeParse(first);
+
   if (!kind.success || !second || third) return `Use ${delegationUsage}.`;
+
   const rules = { ...policy.work };
+
   if (second === 'clear') {
     delete rules[kind.data];
+
     return { ...policy, work: rules };
   }
+
   if (second !== 'same' && second !== 'other' && second !== 'both') {
     const [runtime = '', model] = second.split(/:(.*)/s);
+
     if (!runtime || model === '') return `Use ${delegationUsage}.`;
+
     if (!installed.includes(runtime)) return `${runtime} is not installed.`;
+
     const resolved = model
       ? resolve(runtime, model, catalog)
       : policy.families[runtime]
         ? family(runtime, policy.families[runtime], catalog)
         : { refused: `no family is set for ${runtime}` };
+
     if ('refused' in resolved) return `${resolved.refused}.`;
   }
+
   return { ...policy, work: { ...rules, [kind.data]: second } };
 }
 
@@ -68,15 +86,20 @@ export function delegationPage(
 ): string {
   const families = installed.map((runtime) => {
     const name = policy.families[runtime];
+
     if (!name) return `${runtime}  no family`;
+
     const resolved = family(runtime, name, catalog);
+
     return `${runtime}  ${name} → ${'refused' in resolved ? 'unavailable' : resolved.model}`;
   });
+
   const usage = installed.map(
     (runtime) =>
       describeReading(runtime, accounts[runtime], now) ??
       `${runtime} no reading`,
   );
+
   return [
     'Work goes where its rule sends it; with no rule, review goes to every runtime and other work stays on the runtime asking.',
     '',
@@ -103,13 +126,17 @@ export async function delegation(
   coordinator: Pick<Coordinator, 'snapshot' | 'notice'>,
 ): Promise<string | undefined> {
   const { snapshot } = coordinator;
+
   const installed = snapshot.agents
     .filter((agent) => agent.installed)
     .map(({ id }) => id);
+
   const catalog = { models: snapshot.models, latest: snapshot.latest };
   let current = (await policy?.read()) ?? defaultPolicy;
+
   if (argument) {
     const changed = changeDelegation(argument, current, catalog, installed);
+
     if (typeof changed === 'string' || !policy) {
       coordinator.notice(
         typeof changed === 'string'
@@ -118,11 +145,15 @@ export async function delegation(
         undefined,
         false,
       );
+
       return;
     }
+
     await policy.write(changed);
+
     current = changed;
   }
+
   return delegationPage(
     current,
     catalog,

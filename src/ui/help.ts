@@ -11,10 +11,12 @@ export function helpText(): string {
         `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`,
     )
     .join('\n');
+
   const argumentCommands = commands
     .filter((command) => command.takesArguments)
     .map((command) => `/${command.id}`)
     .join(', ');
+
   return [
     `${heading('COMMANDS')}\n${commandList}\nA message that starts with a Witch command runs every Witch command in it outside backticks, in order. In a message that starts otherwise, /new, /clear, /restart and /exit (or /quit) stay text and other Witch commands still run; with none left, the message goes to the agent unchanged. Surrounding prose is discarded. ${argumentCommands} take arguments up to the next command. A leading ! or listed native command keeps the whole input unchanged.\n/compact waits for foreground work without interrupting the task. Claude can compact while familiars continue; Codex waits for its active turn to finish. Pending: /compact shows unfinished requests. Prompts wait until compaction, picker choices and model changes finish. A failed or canceled command stops later command batches and lists them for explicit retry.\nCtrl+P opens commands.`,
     `${heading('COMPOSER')}\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing but a spell or native command is waiting, when it runs at once.\n↑ on the first line takes queued messages back to edit when merging would not execute Witch commands, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.`,

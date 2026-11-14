@@ -16,11 +16,13 @@ export default defineConfig({
       enforce: 'pre',
       transform(source, id) {
         if (!id.startsWith(ui) || !/\.tsx?$/.test(id)) return;
+
         const { code, map } = transformSync(source, {
           filename: id,
           configFile,
           sourceMaps: true,
         })!;
+
         return { code: code!, map };
       },
     },

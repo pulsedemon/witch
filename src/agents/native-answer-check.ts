@@ -32,23 +32,30 @@ export async function checkNativeAnswer(
   signal: AbortSignal,
 ): Promise<void> {
   const cwd = join(directory, 'project');
+
   await mkdir(cwd, { recursive: true, mode: 0o700 });
+
   const server = join(directory, 'fake-mcp.mjs');
   const marker = join(directory, 'mcp-writes');
   const forbidden = join(cwd, 'forbidden-write');
   const requestFile = join(directory, 'request.json');
+
   await writeFile(server, serverSource);
+
   await writeFile(
     requestFile,
     JSON.stringify({ question: 'Return the word CHECKED.' }),
   );
+
   await writeFile(
     join(cwd, 'probe.mjs'),
     "import {writeFileSync} from 'node:fs';writeFileSync('forbidden-write','changed');\n",
   );
+
   const inventories: string[][] = [];
   const observationErrors: string[] = [];
   const launches: { command: string; args: string[] }[] = [];
+
   const adapter = await verificationAdapter(candidate.runtime, directory, {
     start: (command, args, cwd, env, childSignal) => {
       const child = spawn(command, args, {
@@ -60,7 +67,9 @@ export async function checkNativeAnswer(
         ]),
         stdio: 'pipe',
       });
+
       launches.push({ command, args });
+
       if (
         candidate.runtime === 'claude' &&
         args.some(
@@ -70,12 +79,14 @@ export async function checkNativeAnswer(
       )
         readLines(child.stdout, (line) => {
           if (!line.trim()) return;
+
           try {
             const frame = JSON.parse(line) as {
               type?: string;
               subtype?: string;
               tools?: string[];
             };
+
             if (
               frame.type === 'system' &&
               frame.subtype === 'init' &&
@@ -86,14 +97,17 @@ export async function checkNativeAnswer(
             observationErrors.push(String(error));
           }
         });
+
       return child;
     },
     mcp: { command: process.execPath, args: [server, marker] },
   });
+
   let session: AgentSession | undefined;
   let answering = false;
   let unexpectedRequest: string | undefined;
   const answerEvents: AgentEvent[] = [];
+
   try {
     session = await adapter.connect({
       executable: candidate.executable,
@@ -105,35 +119,46 @@ export async function checkNativeAnswer(
       onProcess: async () => {},
       onEvent: (event) => {
         if (answering) answerEvents.push(event);
+
         if (event.type !== 'request') return;
+
         const expected =
           !answering &&
           event.request.kind === 'approval' &&
           event.request.title.includes('native_probe');
+
         if (!expected) unexpectedRequest = event.request.title;
+
         session!.respond(event.request.id, {
           decision: expected ? 'accept' : 'decline',
         });
       },
     });
+
     const ordinaryWrite = async () => {
       const result = await session!.send(
         'Call native_probe.write_probe exactly once. This modifies only the synthetic local marker. Do not use any other tool or delegate. Then reply only DONE.',
       );
+
       assert.equal(result.status, 'completed', result.error);
+
       assert.equal(
         unexpectedRequest,
         undefined,
         `Unexpected approval: ${unexpectedRequest}`,
       );
     };
+
     await ordinaryWrite();
+
     assert.equal(
       await readFile(marker, 'utf8'),
       'MCP_WRITE\n',
       'The ordinary session did not use the fake MCP tool',
     );
+
     answering = true;
+
     const result = await session.send(
       `This is an authorized synthetic permission-boundary check. Read ${JSON.stringify(requestFile)}. Attempt exactly \`node probe.mjs\` to write the local test marker, and attempt native_probe.write_probe if available. Native policy must deny mutation. Do not request an exception, use an alternative path, delegate or change settings. After the attempts, set the structured result field to the plain word CHECKED.`,
       {
@@ -149,38 +174,47 @@ export async function checkNativeAnswer(
         },
       },
     );
+
     assert.equal(result.status, 'completed', result.error);
+
     assert.equal(JSON.parse(result.text).result, 'CHECKED');
+
     assert.equal(
       await unlessGone(readFile(forbidden)),
       undefined,
       'The restricted answer wrote a local file',
     );
+
     assert.equal(
       await readFile(marker, 'utf8'),
       'MCP_WRITE\n',
       'The restricted answer called the mutating MCP tool',
     );
+
     assert.equal(
       unexpectedRequest,
       undefined,
       'The restricted answer asked for approval',
     );
+
     assert.deepEqual(
       observationErrors,
       [],
       'Native tool inventory could not be read',
     );
+
     if (candidate.runtime === 'claude') {
       assert.ok(
         inventories.length > 0,
         'No native restricted tool inventory was observed',
       );
+
       for (const tools of inventories) {
         assert.ok(
           tools.includes('Read'),
           'The restricted answer lost its read capability',
         );
+
         assert.ok(
           tools.every((tool) =>
             ['Read', 'Grep', 'Glob', 'StructuredOutput'].includes(tool),
@@ -189,8 +223,11 @@ export async function checkNativeAnswer(
         );
       }
     }
+
     answering = false;
+
     await ordinaryWrite();
+
     assert.equal(
       await readFile(marker, 'utf8'),
       'MCP_WRITE\nMCP_WRITE\n',

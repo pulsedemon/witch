@@ -110,6 +110,7 @@ export const taskStatuses = [
   'failed',
   'stopped',
 ] as const;
+
 export type TaskStatus = (typeof taskStatuses)[number];
 
 /** a subagent the native agent started; a later event with the same id replaces it. */
@@ -152,6 +153,7 @@ const hunkSchema = z.object({
   newStart: z.number(),
   lines: z.array(z.string()),
 });
+
 export type Hunk = z.infer<typeof hunkSchema>;
 
 /** a file a tool changed. */
@@ -170,6 +172,7 @@ const fileDiffSchema = z.object({
     ])
     .optional(),
 });
+
 export type FileDiff = z.infer<typeof fileDiffSchema>;
 
 const questionSchema = z.object({
@@ -179,6 +182,7 @@ const questionSchema = z.object({
   multiple: z.boolean().optional(),
   secret: z.boolean().optional(),
 });
+
 export type Question = z.infer<typeof questionSchema>;
 
 export const userRequestSchema = z.object({
@@ -195,6 +199,7 @@ export const userRequestSchema = z.object({
   schema: z.record(z.string(), z.unknown()).optional(),
   url: z.string().optional(),
 });
+
 export type UserRequest = z.infer<typeof userRequestSchema>;
 
 export const userResponseSchema = z.object({
@@ -202,6 +207,7 @@ export const userResponseSchema = z.object({
   answers: z.record(z.string(), z.array(z.string())).optional(),
   content: z.record(z.string(), z.unknown()).optional(),
 });
+
 export type UserResponse = z.infer<typeof userResponseSchema>;
 
 export type AgentEvent =
@@ -294,32 +300,41 @@ export interface AgentSession {
   readonly usage: Usage;
   /** reads the account again, joining a read already in flight; the result arrives as a `usage` event. */
   readAccountUsage?(): Promise<void>;
+
   readonly closed: boolean;
   /** the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then takes a command or a model change. */
   readonly replied: boolean;
   /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
+
   skills(): Promise<Skill[]>;
+
   /** current native context percentage, or undefined when no usable sample is available. */
   contextUsage(): Promise<number | undefined>;
+
   /** supplies context through a native hook that runs before post-compaction inference. */
   restoreCompactionContext?(
     read: () => Promise<string | undefined>,
   ): () => void;
+
   /** replaces native history in place; resolves after native completion, independently of replacement events. */
   compact(): Promise<TurnResult>;
+
   /** queues native compaction within an ordinary turn without interrupting it; undefined refuses delivery. */
   compactDuringTurn?(): Promise<TurnResult> | undefined;
+
   /**
    * generated context never replaces the user's request in native authorization evidence; an automatic prompt is
    * Witch's instruction for a turn with no new user request. `images` are absolute paths of prepared PNG or JPEG files.
    */
   send(prompt: string, options?: SendOptions): Promise<TurnResult>;
+
   /**
    * runs a command the user typed after `!`, unsandboxed in the session's directory, and gives it and its output to
    * the agent without a reply. its output streams as tool events, the first marked `shell`.
    */
   shell(command: string): Promise<TurnResult>;
+
   /**
    * adds the prompt to the turn in flight, which the agent reads at its next
    * tool step or before the turn ends; false when no turn can take it, when
@@ -342,21 +357,27 @@ export interface AgentSession {
       images?: readonly string[];
     },
   ): Promise<boolean>;
+
   /**
    * an omitted effort keeps the one in force; `null` resets it where the native agent can. refused during a turn
    * unless it has `replied`.
    */
   selectModel(model: string, effort?: string | null): Promise<void>;
+
   /** refuses a new choice the runtime would accept now and fail at the next turn; restoring a model the session already ran skips it. */
   checkModel?(model: string): Promise<void>;
+
   respond(id: string, response: UserResponse): void;
+
   /**
    * stops the active turn or shell command and disables automatic continuation of native background work.
    * the session may close afterward; the coordinator then reconnects with resume.
    */
   interrupt(options?: AgentStopOptions): Promise<void>;
+
   /** transfers unsent command records to the conversation on disconnect; valid after close. */
   takeUnreadContext?(): string[];
+
   close(options?: AgentStopOptions): Promise<void>;
 }
 
@@ -387,10 +408,14 @@ export interface SessionOptions {
   withoutMcp?: boolean;
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
+
   onProcess(pid: number | undefined): Promise<void>;
+
   onAnswerProcess?(pid: number | undefined): Promise<void>;
+
   /** the end report follows successful registration and closure of the separate usage process. */
   onUsageProcess?(pid: number | undefined): Promise<void>;
+
   /**
    * an adapter that runs a `!` command itself reports its shell when it starts and `undefined` once it ends. the end
    * comes once the start's report resolves, and none comes when it rejects.
@@ -409,13 +434,16 @@ export interface AgentAdapter {
   label: string;
   /** discovers the native catalog without a conversation; joins child shutdown before settling. */
   models(options: ModelDiscoveryOptions): Promise<Model[]>;
+
   /** reads native account usage without a conversation; omitted observations keep their previous timestamp. */
   accountUsage(
     options: ModelDiscoveryOptions,
     previous: AccountReading,
   ): Promise<AccountReading>;
+
   /** each family alias's current concrete model, read past native model pins. */
   latest?(options: ModelDiscoveryOptions): Promise<Record<string, string>>;
+
   /** cancellation rejects with an `Error` named `AbortError`. */
   connect(options: SessionOptions): Promise<AgentSession>;
 }
