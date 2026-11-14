@@ -187,6 +187,8 @@ export async function sharedRebuild(
 
         await rm(pathFor(attempt.id));
       }
+    } catch (cause) {
+      throw 'error' in outcome ? error : cause;
     } finally {
       await completion?.close();
     }

@@ -264,105 +264,123 @@ test('a completed joined rebuild resumes without fetching or reporting an interv
   assert.deepEqual(calls, []);
 });
 
-for (const failure of ['completion admission', 'receipt write'])
-  test(`a failed ${failure} releases its waiter and allows a later rebuild`, async () => {
-    const root = await scratch('witch-rebuild-receipt-');
-    const sample = await open(join(root, 'sample'), 'w');
-    const prototype = Object.getPrototypeOf(sample) as FileHandle;
-    const write = prototype.writeFile;
+for (const outcome of ['rebuilt', 'failed', 'interrupted'])
+  for (const failure of ['completion admission', 'receipt write'])
+    test(`a failed ${failure} after ${outcome} releases its waiter and allows a later rebuild`, async () => {
+      const root = await scratch('witch-rebuild-receipt-');
+      const sample = await open(join(root, 'sample'), 'w');
+      const prototype = Object.getPrototypeOf(sample) as FileHandle;
+      const write = prototype.writeFile;
 
-    await sample.close();
+      await sample.close();
 
-    const publish = vi
-      .spyOn(prototype, 'writeFile')
-      .mockImplementation(async function (this: FileHandle, data, options) {
-        if (
-          failure === 'receipt write' &&
-          typeof data === 'string' &&
-          data.startsWith('{"result":')
-        )
-          throw new Error('ENOSPC: receipt publication failed');
+      const publish = vi
+        .spyOn(prototype, 'writeFile')
+        .mockImplementation(async function (this: FileHandle, data, options) {
+          if (
+            failure === 'receipt write' &&
+            typeof data === 'string' &&
+            /^\{"(?:result|error)":/.test(data)
+          )
+            throw new Error('ENOSPC: receipt publication failed');
 
-        return write.call(this, data, options);
-      });
+          return write.call(this, data, options);
+        });
 
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    const waiting = Promise.withResolvers<void>();
-    const abort = new AbortController();
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const waiting = Promise.withResolvers<void>();
+      const abort = new AbortController();
+      const builderAbort = new AbortController();
 
-    const options = {
-      signal: abort.signal,
-      waiting: () => waiting.resolve(),
-      failure: (error: unknown) => error as Error,
-    };
-
-    const builder = sharedRebuild(
-      root,
-      async () => {
-        entered.resolve();
-
-        await release.promise;
-
-        return { text: 'rebuilt', built: true };
-      },
-      options,
-    );
-
-    void builder.catch(() => {});
-
-    await entered.promise;
-
-    const waiter = sharedRebuild(
-      root,
-      async () => assert.fail('the waiter must not rebuild'),
-      options,
-    );
-
-    void waiter.catch(() => {});
-
-    try {
-      await waiting.promise;
-
-      if (failure === 'completion admission')
-        await chmod(join(root, 'witch-rebuild.lock'), 0);
-
-      release.resolve();
-
-      await assert.rejects(
-        builder,
-        failure === 'completion admission' ? /EACCES/ : /ENOSPC/,
+      const reason = new Error(
+        outcome === 'failed'
+          ? 'build failed\ncompiler diagnostic'
+          : 'build cancelled',
       );
 
-      await assert.rejects(
-        within(waiter, 5000, 'the failed publication'),
-        /without reporting a result.*unconfirmed/,
+      const options = {
+        signal: abort.signal,
+        waiting: () => waiting.resolve(),
+        failure: (error: unknown) => error as Error,
+      };
+
+      const builder = sharedRebuild(
+        root,
+        async () => {
+          entered.resolve();
+
+          await release.promise;
+
+          if (outcome === 'failed') throw reason;
+
+          builderAbort.signal.throwIfAborted();
+
+          return { text: 'rebuilt', built: true };
+        },
+        { ...options, signal: builderAbort.signal },
       );
 
-      publish.mockRestore();
+      void builder.catch(() => {});
 
-      await chmod(join(root, 'witch-rebuild.lock'), 0o600);
+      await entered.promise;
 
-      assert.deepEqual(
-        await sharedRebuild(
-          root,
-          async () => ({ text: 'later rebuild', built: true }),
-          options,
-        ),
-        { text: 'later rebuild', built: true },
+      const waiter = sharedRebuild(
+        root,
+        async () => assert.fail('the waiter must not rebuild'),
+        options,
       );
-    } finally {
-      await chmod(join(root, 'witch-rebuild.lock'), 0o600);
 
-      publish.mockRestore();
+      void waiter.catch(() => {});
 
-      release.resolve();
+      try {
+        await waiting.promise;
 
-      abort.abort();
+        if (failure === 'completion admission')
+          await chmod(join(root, 'witch-rebuild.lock'), 0);
 
-      await Promise.allSettled([builder, waiter]);
-    }
-  });
+        if (outcome === 'interrupted') builderAbort.abort(reason);
+
+        release.resolve();
+
+        if (outcome === 'rebuilt')
+          await assert.rejects(
+            builder,
+            failure === 'completion admission' ? /EACCES/ : /ENOSPC/,
+          );
+        else await assert.rejects(builder, (error) => error === reason);
+
+        await assert.rejects(
+          within(waiter, 5000, 'the failed publication'),
+          /without reporting a result.*unconfirmed/,
+        );
+
+        publish.mockRestore();
+
+        await chmod(join(root, 'witch-rebuild.lock'), 0o600);
+
+        assert.deepEqual(
+          await sharedRebuild(
+            root,
+            async () => ({ text: 'later rebuild', built: true }),
+            options,
+          ),
+          { text: 'later rebuild', built: true },
+        );
+      } finally {
+        await chmod(join(root, 'witch-rebuild.lock'), 0o600);
+
+        publish.mockRestore();
+
+        release.resolve();
+
+        abort.abort();
+
+        builderAbort.abort();
+
+        await Promise.allSettled([builder, waiter]);
+      }
+    });
 
 test('failed attempt setup removes its receipt and permits another rebuild', async () => {
   const root = await scratch('witch-rebuild-setup-');
