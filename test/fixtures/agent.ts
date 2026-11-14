@@ -19,8 +19,8 @@ import type {
   Usage,
   UserResponse,
 } from '../../src/agents/types.js';
-import { peerRequestSchema } from '../../src/core/peer-requests.js';
-import type { PeerRequest } from '../../src/core/peer-requests.js';
+import { peerRequestSchema } from '../../src/core/coordination/peer-requests.js';
+import type { PeerRequest } from '../../src/core/coordination/peer-requests.js';
 
 /** holds gated turns until `open()`, which releases the current turn and every later one. */
 /**

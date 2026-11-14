@@ -1,8 +1,8 @@
 import { mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { runCommand } from '../../src/core/command.js';
-import { repairMoves } from '../../src/core/move-repair.js';
-import type { Run } from '../../src/core/repository.js';
+import { runCommand } from '../../src/core/repository/command.js';
+import { repairMoves } from '../../src/core/repository/move-repair.js';
+import type { Run } from '../../src/core/repository/repository.js';
 import type { ConversationRecord } from '../../src/core/state.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { record } from './coordinator.js';

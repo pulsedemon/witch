@@ -12,7 +12,7 @@
   "packageManager": "pnpm@10.34.7",
   "scripts": {
     "prepare": "husky",
-    "dev": "node --import ./scripts/register.mjs src/cli.tsx",
+    "dev": "node --import ./scripts/register.mjs src/cli.ts",
     "build": "node scripts/build.mjs",
     "install:cli": "node --import tsx scripts/install.ts",
     "typecheck": "tsc --noEmit",

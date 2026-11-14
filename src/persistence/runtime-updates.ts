@@ -10,8 +10,8 @@ import {
   installationSchema,
   runtimeCheckSchema,
   versionSchema,
-} from '../agents/runtime-updates.js';
-import type { RuntimeInstallation } from '../agents/runtime-updates.js';
+} from '../agents/updates/runtime-updates.js';
+import type { RuntimeInstallation } from '../agents/updates/runtime-updates.js';
 import { gone, readJson, unlessGone, writeJson } from './json.js';
 import { openLocked, tryOpenLocked, tryOpenLockedSync } from './lock.js';
 

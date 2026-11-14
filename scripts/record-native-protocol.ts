@@ -4,9 +4,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
-import { verificationAdapter } from '../src/agents/native-verification-profile.js';
+import { verificationAdapter } from '../src/agents/updates/native-verification-profile.js';
 import { observeWire, normalizeWire } from '../test/fixtures/native-wire.js';
-import { nativeScenario } from '../src/agents/native-scenario.js';
+import { nativeScenario } from '../src/agents/updates/native-scenario.js';
 
 const { values } = parseArgs({
   options: {

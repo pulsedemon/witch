@@ -6,14 +6,14 @@ import { installedAgents } from '../src/agents/registry.js';
 import {
   inspectRuntime,
   runtimeSchema,
-} from '../src/agents/runtime-updates.js';
+} from '../src/agents/updates/runtime-updates.js';
 import {
   prepareNativeUpdate,
   verifyNativeUpdate,
-} from '../src/agents/native-verification.js';
-import { verificationAdapter } from '../src/agents/native-verification-profile.js';
+} from '../src/agents/updates/native-verification.js';
+import { verificationAdapter } from '../src/agents/updates/native-verification-profile.js';
 import { writeJson } from '../src/persistence/json.js';
-import { runtimeBuildIdentity } from '../src/core/runtime-updates.js';
+import { runtimeBuildIdentity } from '../src/core/runtime/runtime-updates.js';
 
 const { values } = parseArgs({
   options: {

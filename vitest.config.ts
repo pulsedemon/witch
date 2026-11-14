@@ -28,7 +28,8 @@ export default defineConfig({
     },
   ],
   test: {
-    include: ['test/*.test.ts'],
+    include: ['test/**/*.test.ts'],
+    exclude: [...configDefaults.exclude, 'test/fixtures/**'],
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,
       '**/test/fixtures/**',

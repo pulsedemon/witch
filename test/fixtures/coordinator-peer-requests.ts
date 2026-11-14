@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { vi } from 'vitest';
-import type { TaskClaim } from '../../src/core/coordination-state.js';
-import type { PeerRequest } from '../../src/core/peer-requests.js';
+import type { TaskClaim } from '../../src/core/coordination/coordination-state.js';
+import type { PeerRequest } from '../../src/core/coordination/peer-requests.js';
 import { callControl } from '../../src/persistence/control.js';
 import { orderedCleanup } from './cleanup.js';
 import type { RegisterCleanup } from './cleanup.js';

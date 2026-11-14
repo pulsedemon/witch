@@ -5,7 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { present } from '../persistence/directories.js';
 import { resolveFile, unescapePath } from '../paths.js';
-import { imageFile } from './images.js';
+import { imageFile } from './transcript/images.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();

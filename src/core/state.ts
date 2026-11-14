@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentEvent, SessionInfo, TurnResult } from '../agents/types.js';
-import { copilotReviewStateSchema } from './copilot-reviews.js';
-import { pullRequestSchema } from './repository.js';
+import { copilotReviewStateSchema } from './review/copilot-reviews.js';
+import { pullRequestSchema } from './repository/repository.js';
 
 const session = z.object({
   id: z.string(),

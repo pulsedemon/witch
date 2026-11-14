@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { defaultPolicy, policySchema } from '../core/routing.js';
-import type { Policy } from '../core/routing.js';
+import { defaultPolicy, policySchema } from '../core/runtime/routing.js';
+import type { Policy } from '../core/runtime/routing.js';
 import { errorMessage } from '../errors.js';
 import { readJson, writeJson } from './json.js';
 
