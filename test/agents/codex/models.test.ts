@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { close, fixture } from '../../fixtures/codex-adapter.js';
+import { readContextCatalog } from '../../../src/agents/codex/compaction-policy.js';
+import { appears, until } from '../../fixtures/within.js';
 
 test("a model missing from Codex's catalog is refused, while a hidden one passes", async () => {
   const { session, cwd } = await fixture();
@@ -100,6 +102,75 @@ test('failed standalone discovery settles with no catalog read still active', as
     assert.equal(active, false);
   } finally {
     finished.resolve();
+
+    await close(f.session, f.cwd);
+  }
+});
+
+test('canceled discovery joins a catalog child that ignores SIGTERM', async () => {
+  const f = await fixture(undefined, { contextCatalog: readContextCatalog });
+  const controller = new AbortController();
+  let pid: number | undefined;
+  let outcome: Promise<unknown> | undefined;
+
+  const exited = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+
+      return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+
+      throw error;
+    }
+  };
+
+  try {
+    const executable = join(f.cwd, 'catalog-child');
+    const ready = join(f.cwd, 'catalog-ready');
+
+    await writeFile(
+      executable,
+      `#!${process.execPath}
+process.on('SIGTERM', () => {});
+require('node:fs').writeFileSync('catalog-ready.tmp', String(process.pid));
+require('node:fs').renameSync('catalog-ready.tmp', 'catalog-ready');
+setInterval(() => {}, 1000);
+`,
+      { mode: 0o755 },
+    );
+
+    outcome = f.adapter
+      .models({ cwd: f.cwd, executable, signal: controller.signal })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    await appears(ready);
+
+    pid = Number(await readFile(ready, 'utf8'));
+
+    assert.ok(Number.isSafeInteger(pid) && pid > 0);
+
+    controller.abort();
+
+    const error = await outcome;
+
+    assert.ok(error instanceof Error);
+
+    assert.equal(error.name, 'AbortError');
+
+    assert.equal(exited(pid), true);
+  } finally {
+    controller.abort();
+
+    if (pid !== undefined && !exited(pid)) process.kill(pid, 'SIGKILL');
+
+    if (pid !== undefined)
+      await until('catalog child exits', () => exited(pid!));
+
+    await outcome;
 
     await close(f.session, f.cwd);
   }

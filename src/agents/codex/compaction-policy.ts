@@ -1,8 +1,11 @@
 import { execFile } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import { compactionThreshold } from '../../core/compaction-policy.js';
 import { readConfig } from './config.js';
 import { nativeLaunch } from '../native-launch.js';
+import { watchChild } from '../stderr.js';
+import { stopDeadline, stopOptions, terminateChild } from '../shutdown.js';
 import type { JsonRpc } from './json-rpc.js';
 import type {
   ContextWindowChoice,
@@ -60,23 +63,37 @@ export async function readContextCatalog(
   options: ModelDiscoveryOptions,
   env = process.env,
 ) {
-  const stdout = await new Promise<string>((resolve, reject) => {
-    nativeLaunch(options.executable, env, (command) =>
-      execFile(
-        command,
-        ['debug', 'models'],
-        {
-          cwd: options.cwd,
-          signal: options.signal,
-          env,
-          maxBuffer: 8 * 1024 * 1024,
-        },
-        (error, output) => (error ? reject(error) : resolve(output)),
-      ),
-    );
-  });
+  let child: ChildProcessWithoutNullStreams | undefined;
+  let closed: Promise<void> | undefined;
 
-  return catalog.parse(JSON.parse(stdout));
+  try {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      child = nativeLaunch(options.executable, env, (command) =>
+        execFile(
+          command,
+          ['debug', 'models'],
+          {
+            cwd: options.cwd,
+            signal: options.signal,
+            env,
+            maxBuffer: 8 * 1024 * 1024,
+          },
+          (error, output) => (error ? reject(error) : resolve(output)),
+        ),
+      ) as ChildProcessWithoutNullStreams;
+
+      closed = watchChild(child).closed;
+    });
+
+    return catalog.parse(JSON.parse(stdout));
+  } finally {
+    if (child && closed)
+      await terminateChild(
+        child,
+        closed,
+        stopDeadline(stopOptions(options.signal)?.deadline),
+      );
+  }
 }
 
 export class CodexCompactionPolicy {
