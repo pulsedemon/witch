@@ -249,11 +249,10 @@ export function statusLines(
 
     const balance = wrapLines(plain(text), width, true);
 
-    const compact: [string, string, ...string[]] = [
-      balance[0]!,
-      balance[1] ?? 'Details: /delegation',
-      ...balance.slice(2),
-    ];
+    const compact = [
+      ...balance,
+      ...wrapLines('Details: /delegation', width, true),
+    ] as [string, string, ...string[]];
 
     if (compact.length < maxRows)
       compact.unshift(

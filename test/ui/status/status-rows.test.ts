@@ -56,7 +56,7 @@ test('tiny footer errors leave the full raw-unit funding height and reserved bod
       now,
       {
         width: 28,
-        height: 12,
+        height: 13,
         bodyRows,
         error: 'A long error which wraps across several rows. '.repeat(3),
       },
@@ -66,15 +66,49 @@ test('tiny footer errors leave the full raw-unit funding height and reserved bod
       'extra off: USD 651 minor',
       'units spent / USD 10000',
       'minor units cap',
+      'Details: /delegation',
     ]);
 
     assert.equal(errors.length, expectedErrors);
 
-    assert.equal(1 + lines.length + errors.length + bodyRows, 12);
+    assert.equal(1 + lines.length + errors.length + bodyRows, 13);
 
     if (expectedErrors) assert.match(errors.at(-1)!, /more rows$/);
   }
 });
+
+for (const [width, balance] of [
+  [20, ['extra off: USD 6.51', 'spent / USD 100.00', 'cap']],
+  [26, ['extra off: USD 6.51 spent', '/ USD 100.00 cap']],
+] as const) {
+  test(`the tiny footer keeps the full balance and delegation pointer at width ${width}`, () => {
+    const lines = statusLines(
+      {
+        usage: {},
+        cwd: '/work',
+        account: {
+          limits: [],
+          funding: {
+            kind: 'extra-usage',
+            enabled: false,
+            used: 651,
+            limit: 10000,
+            currency: 'USD',
+            decimalPlaces: 2,
+            observedAt: now,
+          },
+        },
+      },
+      now,
+      width,
+      2,
+    );
+
+    assert.deepEqual(lines, [...balance, 'Details: /delegation']);
+
+    assert.ok(lines.every((line) => stringWidth(line) <= width));
+  });
+}
 
 test('the status line shows reported fields with the context capacity beside its percentage', () => {
   const [first, second] = statusLines(
