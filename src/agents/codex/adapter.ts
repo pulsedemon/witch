@@ -238,7 +238,7 @@ class CodexSession implements AgentSession {
   private reportedStopTimeout = false;
   private connected = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
-  /** the thread's settings as Codex last reported them, which `model/rerouted` leaves alone. */
+  /** model and effort retain Codex settings across reroutes; Witch's requested window survives failed reloads. */
   private native: CodexSelection = { model: '' };
   private readonly malformed = new Set<string>();
   private readonly commands: CodexCommands;

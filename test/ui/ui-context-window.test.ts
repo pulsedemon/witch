@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { App } from '../../src/ui/App.js';
 import { chooseModel } from '../../src/ui/commands/model-choice.js';
-import { show, fake, ENTER, DOWN, openCommand } from '../fixtures/ui.js';
+import { show, fake, ENTER, DOWN } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+
+async function openModels(ui: ReturnType<typeof show>, command = '/model') {
+  await until('composer ready', () =>
+    ui.text().includes('Ask the agent, or type /help'),
+  );
+
+  ui.stdin.write(command);
+
+  await until('command rendered', () => ui.text().includes(command));
+
+  ui.stdin.write(ENTER);
+
+  await until('model picker', () => ui.text().includes('Model M'));
+}
 
 for (const [saved, choice, keys] of [
   [undefined, 'default', ENTER],
@@ -36,19 +49,13 @@ for (const [saved, choice, keys] of [
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
     try {
-      await delay(60);
-
-      await openCommand(ui, '/model', 'Model M');
-
-      await delay(30);
+      await openModels(ui);
 
       ui.stdin.write(ENTER);
 
       await until('effort picker', () =>
         ui.text().includes('Keep current effort'),
       );
-
-      await delay(30);
 
       ui.stdin.write(ENTER);
 
@@ -61,8 +68,6 @@ for (const [saved, choice, keys] of [
       assert.match(ui.text(), /Maximum \(828\.4K\)/);
 
       assert.deepEqual(calls, [['refreshModels']]);
-
-      await delay(30);
 
       ui.stdin.write(keys);
 
@@ -78,7 +83,7 @@ for (const [saved, choice, keys] of [
   });
 
 test('Escape from the Codex window picker changes no selection and completes dismissal', async () => {
-  const { app, calls } = fake({
+  const { app, calls, coordinator } = fake({
     models: [
       {
         agent: 'a',
@@ -93,11 +98,7 @@ test('Escape from the Codex window picker changes no selection and completes dis
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
-    await delay(60);
-
-    await openCommand(ui, '/model /clear', 'Model M');
-
-    await delay(30);
+    await openModels(ui, '/model /clear');
 
     ui.stdin.write(ENTER);
 
@@ -112,7 +113,12 @@ test('Escape from the Codex window picker changes no selection and completes dis
       () => !ui.text().includes('Context window for m'),
     );
 
-    await delay(60);
+    await until(
+      'clear completed and batch released',
+      () =>
+        calls.some(([name]) => name === 'clear') &&
+        !coordinator.snapshot.commandsPending,
+    );
 
     assert.deepEqual(calls, [['refreshModels'], ['clear']]);
   } finally {
@@ -248,19 +254,13 @@ test('a refused Codex window choice stops the remaining command batch', async ()
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
-    await delay(60);
-
-    await openCommand(ui, '/model /clear', 'Model M');
-
-    await delay(30);
+    await openModels(ui, '/model /clear');
 
     ui.stdin.write(ENTER);
 
     await until('window picker', () =>
       ui.text().includes('Context window for m'),
     );
-
-    await delay(30);
 
     ui.stdin.write(ENTER);
 
