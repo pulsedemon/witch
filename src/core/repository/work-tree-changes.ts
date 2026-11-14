@@ -636,7 +636,7 @@ export class WorkTreeChanges {
     const discovered = new Set(
       fields(
         await this.git(
-          checkout,
+          original,
           ['ls-files', '--others', '--exclude-standard', '-z'],
           listBuffer,
         ),
@@ -732,7 +732,7 @@ export class WorkTreeChanges {
 
       if (
         reset ||
-        discovered.has(path) ||
+        (discovered.has(path) && !entries.has(path)) ||
         !state.metadata.has(path) ||
         state.metadata.get(path)?.signature !== current?.signature ||
         entries.get(path)?.mode === gitlink
@@ -754,10 +754,7 @@ export class WorkTreeChanges {
         current?.directory &&
         (await this.fileState(join(checkout.top, path, '.git')));
 
-      if (
-        !current ||
-        (current.directory && state.tracked.has(path) && !nested)
-      ) {
+      if (!current || (current.directory && !nested)) {
         if (entry) remove.add(path);
 
         continue;

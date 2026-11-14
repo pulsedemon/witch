@@ -18,6 +18,7 @@ import { scratch } from '../../fixtures/scratch.js';
 async function repository(
   files: Record<string, string>,
   run: GitRun = execute,
+  objectFormat?: 'sha1' | 'sha256',
 ) {
   const root = await scratch('witch-changes-costs-');
   const work = join(root, 'work');
@@ -30,7 +31,13 @@ async function repository(
       timeout: 10_000,
     });
 
-  await git('init', '-q', '-b', 'main');
+  await git(
+    'init',
+    '-q',
+    '-b',
+    'main',
+    ...(objectFormat ? [`--object-format=${objectFormat}`] : []),
+  );
 
   for (const [name, content] of Object.entries(files))
     await writeFile(join(work, name), content);
@@ -944,4 +951,155 @@ test('a file removed during conversion is reported as a deletion', async () => {
     withHead: 0,
     more: 0,
   });
+});
+
+for (const kind of ['file', 'repository'])
+  test(`an untracked ${kind} replaced by a directory keeps ignored children out and reports visible children immediately`, async () => {
+    const { work, changes } = await repository({ '.gitignore': '.env\n' });
+    const target = join(work, 'item');
+
+    if (kind === 'file') await writeFile(target, 'old\n');
+    else {
+      await mkdir(target);
+
+      await execute('git', ['init', '-q'], { cwd: target, timeout: 10_000 });
+
+      await execute(
+        'git',
+        [
+          '-c',
+          'user.name=t',
+          '-c',
+          'user.email=t@t',
+          'commit',
+          '--allow-empty',
+          '-qm',
+          'inner',
+        ],
+        { cwd: target, timeout: 10_000 },
+      );
+    }
+
+    await changes.watch(work);
+
+    await rm(target, { recursive: true });
+
+    await mkdir(target);
+
+    await writeFile(join(target, '.env'), 'excluded\n');
+
+    await writeFile(join(target, 'visible.txt'), 'visible\n');
+
+    assert.deepEqual(
+      (await changes.read(work)).files.map((file) => ({
+        path: file.path,
+        kind: file.kind,
+        lines: file.hunks.flatMap((hunk) => hunk.lines),
+      })),
+      [
+        {
+          path: target,
+          kind: 'delete',
+          lines: kind === 'file' ? ['-old'] : [],
+        },
+        {
+          path: join(target, 'visible.txt'),
+          kind: 'add',
+          lines: ['+visible'],
+        },
+      ],
+    );
+
+    assert.deepEqual(await changes.read(work), {
+      files: [],
+      withHead: 0,
+      more: 0,
+    });
+  });
+
+test('SHA-256 snapshots absorb exact paths and reclaim obsolete loose and packed objects', async () => {
+  let directory = '';
+
+  const run: GitRun = (command, args, options) => {
+    directory = options.env?.GIT_OBJECT_DIRECTORY ?? directory;
+
+    return execute(command, args, options);
+  };
+
+  const { work, git, changes } = await repository(
+    { 'a.txt': 'base\n', 'pending.txt': 'base\n', 'removed.txt': 'base\n' },
+    run,
+    'sha256',
+  );
+
+  await changes.watch(work);
+
+  await writeFile(join(work, 'a.txt'), 'reported\n');
+
+  await writeFile(join(work, 'pending.txt'), 'pending\n');
+
+  await rm(join(work, 'removed.txt'));
+
+  await changes.absorb(work, [join(work, 'a.txt'), join(work, 'removed.txt')]);
+
+  assert.deepEqual(
+    (await changes.read(work)).files.map((file) => ({
+      path: file.path,
+      lines: file.hunks.flatMap((hunk) => hunk.lines),
+    })),
+    [{ path: join(work, 'pending.txt'), lines: ['-base', '+pending'] }],
+  );
+
+  const old = (await git('hash-object', '--no-filters', 'a.txt')).stdout.trim();
+
+  await writeFile(join(work, 'a.txt'), 'next\n');
+
+  await changes.read(work);
+
+  await changes.read(work);
+
+  const local = (...args: string[]) =>
+    execute('git', args, {
+      cwd: work,
+      timeout: 10_000,
+      env: { ...process.env, GIT_OBJECT_DIRECTORY: directory },
+    });
+
+  await assert.rejects(local('cat-file', '-e', old), { code: 1 });
+
+  const current = (
+    await git('hash-object', '--no-filters', 'a.txt')
+  ).stdout.trim();
+
+  assert.equal((await local('cat-file', '-p', current)).stdout, 'next\n');
+
+  await git('config', 'core.bigFileThreshold', '1k');
+
+  await writeFile(join(work, 'data.bin'), Buffer.alloc(2048, 1));
+
+  await changes.read(work);
+
+  assert.ok(
+    (await readdir(join(directory, 'pack'))).some((name) =>
+      name.endsWith('.pack'),
+    ),
+  );
+
+  const packed = (
+    await git('hash-object', '--no-filters', 'data.bin')
+  ).stdout.trim();
+
+  await writeFile(join(work, 'data.bin'), Buffer.alloc(2048, 2));
+
+  await changes.read(work);
+
+  await changes.read(work);
+
+  await assert.rejects(local('cat-file', '-e', packed), { code: 1 });
+
+  const live = (
+    await git('hash-object', '--no-filters', 'data.bin')
+  ).stdout.trim();
+
+  assert.equal((await local('cat-file', '-s', live)).stdout.trim(), '2048');
 });
