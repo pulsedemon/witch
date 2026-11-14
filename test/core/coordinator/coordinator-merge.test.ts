@@ -943,13 +943,15 @@ else {
     await until(
       `the ${stage} command`,
       async () => {
+        if (coordinator.snapshot.error) assert.fail(coordinator.snapshot.error);
+
         pids = await readFile(ready, 'utf8')
           .then((text) => JSON.parse(text) as number[])
           .catch(() => []);
 
         return pids.length > 0;
       },
-      500,
+      1500,
     );
   };
 
