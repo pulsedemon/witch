@@ -54,6 +54,7 @@ import type { Conflict, PullRequest } from './repository/repository.js';
 import { watchEventNotices } from './coordination/conversation-events.js';
 import { ConversationPauses } from './coordination/conversation-pauses.js';
 import {
+  agentWorking,
   applyDisplayUpdate,
   createConversation,
   type Conversation,
@@ -1246,6 +1247,12 @@ export class Coordinator {
     this.snapshot = {
       ...this.snapshot,
       ...update,
+      activityStartedAt:
+        update.phase &&
+        agentWorking(update.phase) &&
+        !agentWorking(this.snapshot.phase)
+          ? Date.now()
+          : this.snapshot.activityStartedAt,
       commandsPending: this.delivery.commandsPending,
       pendingCompaction: this.compaction.pending,
     };

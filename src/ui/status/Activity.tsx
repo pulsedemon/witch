@@ -17,7 +17,7 @@ const verbs = [
 const frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 
 /** the row above the composer while the agent works, since a model can think for many seconds before it shows anything. */
-export function Activity() {
+export function Activity({ startedAt }: { startedAt: number }) {
   const [start] = useState(Date.now);
 
   const [verb] = useState(
@@ -38,7 +38,7 @@ export function Activity() {
     <Text wrap="truncate-end">
       {piped([
         colors.hex(accent)(`${frame} ${verb}`),
-        colors.dim(elapsed(now - start)),
+        colors.dim(elapsed(now - startedAt)),
         colors.dim('ESC TO INTERRUPT'),
       ])}
     </Text>

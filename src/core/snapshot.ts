@@ -19,6 +19,8 @@ export interface TimedSubagent extends Subagent {
 
 export interface Snapshot {
   phase: Phase;
+  /** when the current or last uninterrupted working period began, in epoch milliseconds. */
+  activityStartedAt: number;
   conversation?: Conversation;
   items: readonly DisplayItem[];
   /** prompts waiting for a turn, oldest first. */
@@ -70,6 +72,7 @@ export function initialSnapshot(
 ): Snapshot {
   return {
     phase: 'starting',
+    activityStartedAt: Date.now(),
     items: [],
     queue: [],
     commandsPending: false,

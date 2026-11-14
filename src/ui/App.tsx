@@ -1111,7 +1111,12 @@ export function App({
         )}
         <CommandWindow items={state.items} height={fitted.commands} />
         <Box height={fitted.activity} overflow="hidden" flexShrink={0}>
-          {working && <Activity />}
+          {working && (
+            <Activity
+              key={state.activityStartedAt}
+              startedAt={state.activityStartedAt}
+            />
+          )}
         </Box>
         <Box
           height={fitted.gap}

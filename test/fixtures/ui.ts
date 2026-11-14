@@ -138,6 +138,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     pentacle: new PentacleActivity(),
     snapshot: {
       phase: 'idle',
+      activityStartedAt: Date.now(),
       items: [],
       queue: [],
       commandsPending: false,
