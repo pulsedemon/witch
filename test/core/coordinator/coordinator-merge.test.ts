@@ -980,7 +980,7 @@ else {
 
 test('a busy continuation after interrupted revision reporting waits without caching the skip or rebuilding', async (t) => {
   const { coordinator, install, tip, expectedHead, entered, commands } =
-    await interruptedCleanup('report', t.onTestFinished);
+    await interruptedCleanup('report', t.onTestFinished, true);
 
   const progress: MergeCleanup = {};
   const cleanup = coordinator.cleanUpMerge(pullRequest(tip), install, progress);
@@ -1009,6 +1009,11 @@ test('a busy continuation after interrupted revision reporting waits without cac
     );
 
     assert.equal(progress.install?.result, undefined);
+
+    assert.equal(
+      notices(coordinator).at(-1),
+      `Witch's checkout at ${install} is busy, so it wasn't rebuilt.`,
+    );
   } finally {
     await lock.close();
   }
