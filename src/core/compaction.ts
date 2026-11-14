@@ -121,7 +121,8 @@ export class Compaction {
   ): Promise<boolean> {
     // a synchronous snapshot listener can request compact before the pre-turn check installs its operation
     await Promise.resolve();
-    await this.owner.exhaustion();
+    const exhaustion = this.owner.exhaustion();
+    await exhaustion;
     let success: boolean | undefined;
     const state = this.owner.state();
     if (this.running) success = await this.running;
@@ -150,14 +151,15 @@ export class Compaction {
     }
     await parent?.catch(() => {});
     await draining;
-    await this.owner.exhaustion();
+    const pendingExhaustion = this.owner.exhaustion();
+    await pendingExhaustion;
     const next = this.owner.state();
     if (
       request.cancelled ||
       next.closed ||
       next.conversation !== request.conversation ||
       next.phase !== 'idle' ||
-      (parent && next.halted)
+      ((parent || exhaustion || pendingExhaustion) && next.halted)
     )
       return false;
     if (success === undefined) success = await this.owner.idle();

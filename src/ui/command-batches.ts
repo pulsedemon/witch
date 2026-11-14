@@ -31,12 +31,15 @@ export class CommandBatches {
 
   submit(commands: readonly WitchCommand[], execute: Execute): void {
     if (this.closed) return;
-    this.batches.push({
+    const batch: Batch = {
       commands,
       next: 0,
-      release: this.coordinator.holdPromptDelivery(),
+      release: this.coordinator.holdPromptDelivery(() =>
+        commands.slice(batch.next).every(({ name }) => name === 'compact'),
+      ),
       execute,
-    });
+    };
+    this.batches.push(batch);
     if (!this.running) void this.drain();
   }
 

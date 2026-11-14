@@ -3,12 +3,14 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
+import { CommandBatches } from '../src/ui/command-batches.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { Workspace } from '../src/memory/workspace.js';
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import {
   coordinationFixture,
+  unitCoordinationFixture,
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { FixtureAgent } from './fixtures/agent.js';
@@ -311,4 +313,105 @@ for (const [stage, writesMemory, finishes] of [
     assert.match(codex.inputs[0]!.context!, /Retain the migration lock/);
     assert.equal(codex.inputs[1]!.prompt, 'Queued after report');
     assert.equal(claude.inputs.length, 1);
+  });
+
+for (const mode of [
+  'direct-blocked',
+  'command-blocked',
+  'command',
+  'mixed',
+  'queued',
+] as const)
+  test(`background exhaustion with ${mode} compaction preserves delivery holds`, async (t) => {
+    pauseDiscovery(vi.spyOn);
+    const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
+    const claude = new FixtureAgent('claude');
+    const codex = new FixtureAgent('codex');
+    claude.catalog.splice(0, Infinity, {
+      id: 'claude-fable-5-2',
+      label: 'Fable',
+      efforts: [],
+    });
+    codex.catalog.splice(0, Infinity, {
+      id: 'gpt-6-astra',
+      label: 'Astra',
+      efforts: [],
+    });
+    for (const adapter of [claude, codex])
+      adapter.accountRead = async () => ({
+        limits: [
+          {
+            window: '7D',
+            percent: adapter === codex && mode.endsWith('blocked') ? 100 : 10,
+            observedAt: Date.now(),
+          },
+        ],
+      });
+    const { coordinator } = await f.start(
+      'A',
+      {},
+      [claude, codex].map((adapter) => ({ adapter, executable: adapter.id })),
+    );
+    await coordinator.selectModel({ agent: 'claude', id: 'claude-fable-5-2' });
+    await coordinator.send('Review migration');
+    const emit = claude.sessions.at(-1)!.options.onEvent;
+    const batches = new CommandBatches(coordinator);
+    try {
+      emit({ type: 'running', running: true });
+      emit({ type: 'exhausted' });
+      await coordinator.send('Queued after compact');
+      const finished = Promise.withResolvers<boolean>();
+      let compacting: Promise<boolean>;
+      if (mode === 'direct-blocked') compacting = coordinator.compact();
+      else {
+        batches.submit(
+          [
+            { name: 'compact', argument: '' },
+            ...(mode === 'mixed'
+              ? [{ name: 'help' as const, argument: '' }]
+              : []),
+          ],
+          async (command) => {
+            if (command.name !== 'compact') return true;
+            const result = await coordinator.compact();
+            finished.resolve(result);
+            return result;
+          },
+        );
+        if (mode === 'queued')
+          batches.submit([{ name: 'help', argument: '' }], async () => true);
+        compacting = finished.promise;
+      }
+      emit({ type: 'running', running: false });
+      const success = await within(compacting, 5000, 'background compaction');
+      assert.equal(success, mode === 'command');
+      await until(
+        'compaction command settled',
+        () =>
+          !batches.pending &&
+          coordinator.snapshot.phase === 'idle' &&
+          (!success || codex.inputs.length === 2),
+      );
+      assert.equal(claude.compactions.length, 0);
+      assert.equal(claude.inputs.length, 1);
+      if (success) {
+        assert.equal(codex.compactions.length, 1);
+        assert.match(codex.inputs[0]!.prompt, /^Continue the task/);
+        assert.equal(codex.inputs[1]!.prompt, 'Queued after compact');
+      } else {
+        assert.equal(codex.inputs.length, 0);
+        assert.equal(codex.compactions.length, 0);
+        assert.deepEqual(coordinator.snapshot.queue, ['Queued after compact']);
+        if (mode === 'mixed' || mode === 'queued')
+          assert.ok(
+            coordinator.snapshot.items.some(
+              (item) =>
+                item.kind === 'notice' &&
+                item.text.includes('commands are pending'),
+            ),
+          );
+      }
+    } finally {
+      batches.close();
+    }
   });

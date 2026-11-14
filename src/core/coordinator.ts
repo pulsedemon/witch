@@ -112,7 +112,7 @@ export class Coordinator {
   private readonly attachments = new Attachments();
   readonly accountUsage: AccountUsage;
   private draining?: PromiseWithResolvers<void>;
-  private deliveryHolds = 0;
+  private readonly deliveryHolds = new Set<{ compacting?: () => boolean }>();
   private admissions = 0;
   /** the familiars Witch launches itself, which the familiar mailbox consults before the live session. */
   readonly reviewers = new Reviewers((event) => this.background(event));
@@ -183,6 +183,9 @@ export class Coordinator {
     failed: (failed) => (this.turnFailed = failed),
     prepareBackground: () => this.operate('switching', async () => {}),
     changed: () => this.drainAfter(),
+    compactionOnly: (): boolean =>
+      this.compaction.pending &&
+      [...this.deliveryHolds].every(({ compacting }) => compacting?.()),
   });
   private readonly compaction = new Compaction({
     state: () => ({
@@ -513,14 +516,12 @@ export class Coordinator {
     this.persist(this.save());
   }
 
-  holdPromptDelivery(): () => void {
-    this.deliveryHolds++;
+  holdPromptDelivery(compacting?: () => boolean): () => void {
+    const hold = { compacting };
+    this.deliveryHolds.add(hold);
     this.publish({});
-    let released = false;
     return () => {
-      if (released) return;
-      released = true;
-      this.deliveryHolds--;
+      if (!this.deliveryHolds.delete(hold)) return;
       this.publish({});
       this.drainAfter(true);
     };
@@ -637,7 +638,9 @@ export class Coordinator {
 
   private get deliveryHeld(): boolean {
     return (
-      this.deliveryHolds > 0 || this.compaction.pending || this.restoredQueue
+      this.deliveryHolds.size > 0 ||
+      this.compaction.pending ||
+      this.restoredQueue
     );
   }
 
@@ -1471,7 +1474,7 @@ export class Coordinator {
     this.snapshot = {
       ...this.snapshot,
       ...update,
-      commandsPending: this.deliveryHolds > 0,
+      commandsPending: this.deliveryHolds.size > 0,
       pendingCompaction: this.compaction.pending,
     };
     if ('queue' in update) this.saveQueue();

@@ -43,6 +43,7 @@ export interface SwitchHost {
   failed(failed: boolean): void;
   prepareBackground(): Promise<void>;
   changed(): void;
+  compactionOnly(): boolean;
 }
 
 interface PendingSwitch {
@@ -303,7 +304,7 @@ export class RuntimeSwitch {
     }
     if (phase === 'recovery') request.recovering = true;
     if (phase !== 'idle') return false;
-    if (commandsPending) {
+    if (commandsPending && !(request.background && host.compactionOnly())) {
       host.notice(
         `${from} is out of usage. Witch won't switch while commands are pending.`,
       );
