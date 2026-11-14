@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -48,7 +48,50 @@ export function Request({
   const question = request.questions?.[questionIndex];
   const options = question?.options ?? approvals.map(({ label }) => label);
   const expandable = !!request.diff && canExpandDiff(request.diff);
-  const bodyHeight = Math.max(2, height - 7 - Number(expandable));
+  const approval = request.kind === 'approval';
+  const inputHeight = approval
+    ? 0
+    : Math.min(3, Math.max(1, Math.floor(height / 4)));
+  const controlRows = approval ? 1 : inputHeight;
+  const headingRows = Number(height >= controlRows + 2);
+  const errorRows = Number(!!error && height > controlRows + headingRows);
+  const hints = [
+    ...(expandable ? [diffExpansionHint(full)] : []),
+    approval
+      ? piped([
+          '↑/↓ CHOOSE',
+          'ENTER CONFIRM',
+          'y ALLOW',
+          'n DECLINE',
+          'ESC DECLINE',
+          'CTRL+C STOP TURN',
+        ])
+      : question
+        ? question.multiple
+          ? 'Type an answer or option numbers separated by commas.'
+          : 'Type an answer or option number.'
+        : request.url
+          ? 'Click the URL, then press Enter when finished.'
+          : 'Enter a JSON object with the requested fields.',
+    ...(!approval ? [piped(['ESC DECLINE', 'CTRL+C STOP TURN'])] : []),
+  ].flatMap((line) => wrapLines(line, width));
+  const hintRows = Math.min(
+    hints.length,
+    Math.max(0, height - controlRows - headingRows - errorRows - 2),
+  );
+  const bodyHeight = Math.min(
+    height - controlRows - headingRows - errorRows - hintRows,
+    Math.max(2, height - 7 - Number(expandable)),
+  );
+  const labels = options
+    .map((label, index) => `${index === selection ? '› ' : '  '}${label}`)
+    .join('   ');
+  const choices =
+    wrapLines(labels, width).length > 1
+      ? width < 3
+        ? wrapLines(options[selection] ?? '', width)[0]
+        : `› ${options[selection] ?? ''}`
+      : labels;
   const fields = `${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
@@ -63,6 +106,29 @@ export function Request({
       ...wrap(fields),
     ];
   }, [request, detail, fields, question, width, cwd, full]);
+  const selectedRow = question
+    ? wrapLines(question.title, width).length +
+      1 +
+      options
+        .slice(0, selection)
+        .reduce(
+          (rows, option, index) =>
+            rows + wrapLines(`  ${index + 1}. ${option}`, width).length,
+          0,
+        )
+    : undefined;
+  useEffect(() => {
+    if (selectedRow !== undefined && bodyHeight > 0)
+      setScroll((current) =>
+        Math.max(
+          0,
+          Math.min(
+            selectedRow,
+            Math.max(current, selectedRow - bodyHeight + 1),
+          ),
+        ),
+      );
+  }, [selectedRow, bodyHeight]);
   useInput((input, key) => {
     if (!active || key.eventType === 'release') return;
     if (key.ctrl && input === 'o' && expandable) {
@@ -157,14 +223,16 @@ export function Request({
   };
 
   return (
-    <Box flexDirection="column" height={height}>
-      <Text bold color="yellow">
-        {question
-          ? `Question ${questionIndex + 1}/${request.questions!.length}`
-          : request.kind === 'approval'
-            ? 'Approval required'
-            : 'Input requested'}
-      </Text>
+    <Box flexDirection="column" height={height} overflow="hidden">
+      <Box height={headingRows} flexShrink={0} overflow="hidden">
+        <Text bold color="yellow" wrap="truncate-end">
+          {question
+            ? `Question ${questionIndex + 1}/${request.questions!.length}`
+            : approval
+              ? 'Approval required'
+              : 'Input requested'}
+        </Text>
+      </Box>
       <ScrollPage
         lines={lines}
         active={active}
@@ -172,53 +240,30 @@ export function Request({
         scroll={scroll}
         setScroll={setScroll}
       />
-      {expandable && <Text dimColor>{diffExpansionHint(full)}</Text>}
-      {request.kind === 'approval' ? (
-        <Box flexDirection="column">
-          <Text>
-            {options
-              .map(
-                (label, index) =>
-                  `${index === selection ? '› ' : '  '}${label}`,
-              )
-              .join('   ')}
-          </Text>
-          <Text dimColor>
-            {piped([
-              '↑/↓ CHOOSE',
-              'ENTER CONFIRM',
-              'y ALLOW',
-              'n DECLINE',
-              'ESC DECLINE',
-              'CTRL+C STOP TURN',
-            ])}
-          </Text>
+      <Box height={hintRows} flexShrink={0} overflow="hidden">
+        <Text dimColor>{hints.slice(0, hintRows).join('\n')}</Text>
+      </Box>
+      {approval ? (
+        <Box height={1} flexShrink={0}>
+          <Text wrap="truncate-end">{choices}</Text>
         </Box>
       ) : (
-        <Box flexDirection="column">
-          <Text dimColor>
-            {question
-              ? question.multiple
-                ? 'Type an answer or option numbers separated by commas.'
-                : 'Type an answer or option number.'
-              : request.url
-                ? 'Click the URL, then press Enter when finished.'
-                : 'Enter a JSON object with the requested fields.'}
-          </Text>
-          <Input
-            key={questionIndex}
-            width={width}
-            height={3}
-            active={active && ready}
-            secret={question?.secret}
-            multiline={!question}
-            placeholder={question ? 'Your answer' : '{}'}
-            onSubmit={submit}
-          />
-          <Text dimColor>{piped(['ESC DECLINE', 'CTRL+C STOP TURN'])}</Text>
-        </Box>
+        <Input
+          key={questionIndex}
+          width={width}
+          height={inputHeight}
+          active={active && ready}
+          secret={question?.secret}
+          multiline={!question}
+          placeholder={question ? 'Your answer' : '{}'}
+          onSubmit={submit}
+        />
       )}
-      {error && <Text color="red">{error}</Text>}
+      <Box height={errorRows} flexShrink={0} overflow="hidden">
+        <Text color="red" wrap="truncate-end">
+          {error}
+        </Text>
+      </Box>
     </Box>
   );
 }

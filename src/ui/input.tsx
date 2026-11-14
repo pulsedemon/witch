@@ -170,7 +170,7 @@ export function Input({
   };
   const edit = (action: Edit) => {
     const { mark, text } = split(current.current, width, shell);
-    // Backspace, Option+Delete or Cmd+Delete at the text's start takes the `!`, as Backspace leaves Claude Code's and Codex's shell mode
+    // backspace at the text's start leaves shell mode.
     if (mark && !text.cursor && backward.has(action.type)) return replace(text);
     const next = editInput(text, action);
     replace({ value: mark + next.value, cursor: mark.length + next.cursor });
@@ -252,7 +252,7 @@ export function Input({
 
   return (
     <Box width={width} height={height}>
-      {drawn.mark && <Text>{`${drawn.mark} `}</Text>}
+      {drawn.mark && width > 2 && <Text>{`${drawn.mark} `}</Text>}
       <Box
         ref={reference}
         width={drawn.width}

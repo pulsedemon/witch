@@ -264,14 +264,17 @@ function prepareFile(
     const lines = [wrapLines(header, width, true)];
     for (const row of painted) {
       if (!row) {
-        lines.push([colors.dim('...')]);
+        lines.push(wrapLines(colors.dim('...'), width));
         continue;
       }
       // wrapping the code on its own expands its tabs from its first column
-      const code = wrapLines(row.code, width - digits - 2);
+      const numbered = width >= digits + 4;
+      const code = numbered
+        ? wrapLines(row.code, width - digits - 2)
+        : wrapLines(row.prefix + row.code, width);
       lines.push(
         code.map((part, index) => {
-          const text = (index ? gutter : row.prefix) + part;
+          const text = (numbered ? (index ? gutter : row.prefix) : '') + part;
           return row.background
             ? colors.bgHex(row.background)(
                 text + ' '.repeat(Math.max(0, width - stringWidth(text))),
@@ -280,11 +283,14 @@ function prepareFile(
         }),
       );
     }
-    if (hidden) lines.push([colors.dim(`… +${hidden} lines`)]);
+    if (hidden) lines.push(wrapLines(colors.dim(`… +${hidden} lines`), width));
     if (file.unshown)
-      lines.push([
-        colors.dim(file.unshown === 'binary' ? '… binary' : '… not shown'),
-      ]);
+      lines.push(
+        wrapLines(
+          colors.dim(file.unshown === 'binary' ? '… binary' : '… not shown'),
+          width,
+        ),
+      );
     return lines;
   };
 }

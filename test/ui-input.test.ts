@@ -54,6 +54,33 @@ const mountRequest = (
     createElement(Request, { width, height, cwd: '/work', request, respond }),
   );
 
+for (const width of [1, 2]) {
+  test(`shell input remains visible and editable at width ${width}`, async () => {
+    const sent: string[] = [];
+    const ui = await mount(
+      createElement(Input, {
+        width,
+        height: 1,
+        active: true,
+        shell: true,
+        initialValue: '!echo',
+        onSubmit(value) {
+          sent.push(value);
+          return true;
+        },
+      }),
+    );
+    try {
+      await press(ui.stdin, '\u001b[D');
+      assert.match(ui.lastFrame() ?? '', /o/);
+      await press(ui.stdin, '\r');
+      assert.deepEqual(sent, ['!echo']);
+    } finally {
+      await unmount(ui);
+    }
+  });
+}
+
 test('the terminal composer keeps a bracketed paste unsent until Enter', async () => {
   const sent: string[] = [];
   const ui = await mount(

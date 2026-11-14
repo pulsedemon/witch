@@ -5,7 +5,7 @@ import { test } from 'vitest';
 import { applyDisplayUpdate } from '../src/core/state.js';
 import type { DisplayItem } from '../src/core/state.js';
 import { App } from '../src/ui/app.js';
-import { approval, ENTER, fake, left, show } from './fixtures/ui.js';
+import { approval, ENTER, fake, show } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
 const call = (name: string, done = false): DisplayItem => ({
@@ -219,7 +219,7 @@ test('grouping tools above a reading anchor and the first new-message button lea
   }
 });
 
-test('shrinking hides interactive UI, preserves the draft and reading anchor, and keeps Ctrl+C interrupt available', async () => {
+test('shrinking preserves editing, the reading anchor and Ctrl+C interrupt', async () => {
   const { app, coordinator, calls } = fake({
     phase: 'running',
     items: [reading],
@@ -248,13 +248,14 @@ test('shrinking hides interactive UI, preserves the draft and reading anchor, an
       [29, 24],
     ]) {
       ui.resize(columns!, rows!);
-      await until('resize message', () =>
-        ui.text().includes('Resize terminal'),
-      );
+      await until('small composer', () => ui.text().includes('retained draft'));
+      assert.ok(!ui.text().includes('Resize terminal'));
       assert.equal(lines(ui).length, rows);
-      ui.stdin.write(
-        `unseen${ENTER}\t${ENTER}\u001b[5~${left('press', 2, 2)}${left('release', 2, 2)}`,
+      ui.stdin.write('+');
+      await until('edited small composer', () =>
+        ui.text().includes('retained draft+'),
       );
+      ui.stdin.write('\u007f');
       await delay(60);
       assert.deepEqual(calls, []);
       ui.stdin.write('\u0003');
@@ -263,12 +264,13 @@ test('shrinking hides interactive UI, preserves the draft and reading anchor, an
       ui.resize(100, 40);
       await until('draft restored', () => ui.text().includes('retained draft'));
       assert.equal(lines(ui)[1], source);
-      assert.ok(!ui.text().includes('unseen'));
     }
     coordinator.publish({ phase: 'idle' });
     await until('idle', () => ui.text().startsWith('IDLE'));
     ui.resize(30, 23);
-    await until('small idle', () => ui.text().includes('Resize terminal'));
+    await until('small idle', () => ui.text().includes('retained draft'));
+    ui.stdin.write('\u0003');
+    await until('draft cleared', () => !ui.text().includes('retained draft'));
     ui.stdin.write('\u0003\u0003');
     await until('exit', () => exits === 1);
   } finally {
@@ -276,7 +278,7 @@ test('shrinking hides interactive UI, preserves the draft and reading anchor, an
   }
 });
 
-test('undersized approval and ready recovery views accept no hidden decisions', async () => {
+test('small approval and recovery views keep visible decisions and preserved scroll', async () => {
   const { app, coordinator, calls } = fake({
     requests: [
       {
@@ -301,22 +303,24 @@ test('undersized approval and ready recovery views accept no hidden decisions', 
       line.includes('approval line'),
     );
     ui.resize(30, 23);
-    await until('hidden approval', () => ui.text().includes('Resize terminal'));
-    ui.stdin.write(`y${ENTER}\u001b[6~\u001b[<65;5;5M`);
-    await delay(60);
-    assert.deepEqual(calls, []);
+    await until('small approval', () => ui.text().includes('› Decline'));
+    assert.equal(lines(ui).length, 23);
     ui.resize(100, 40);
     await until('decline retained', () => ui.text().includes('› Decline'));
     assert.equal(
       lines(ui).find((line) => line.includes('approval line')),
       firstDetail,
     );
-    await delay(550);
+    ui.resize(20, 8);
+    await until('small selected decision', () =>
+      ui.text().includes('› Decline'),
+    );
     ui.stdin.write(ENTER);
-    await until('declined after restore', () => calls.length === 1);
+    await until('declined while small', () => calls.length === 1);
     assert.deepEqual(calls.splice(0), [
       ['respond', 'r1', { decision: 'decline' }],
     ]);
+    ui.resize(100, 40);
     coordinator.publish({
       requests: [],
       phase: 'recovery',
@@ -327,14 +331,7 @@ test('undersized approval and ready recovery views accept no hidden decisions', 
     );
     await delay(550);
     ui.resize(30, 23);
-    await until('hidden recovery', () => ui.text().includes('Resize terminal'));
-    ui.stdin.write('adk');
-    await delay(60);
-    assert.deepEqual(calls, []);
-    ui.resize(100, 40);
-    await until('restored recovery', () =>
-      ui.text().includes('Unfinished memory changes'),
-    );
+    await until('small recovery', () => ui.text().includes('a ACCEPT'));
     ui.stdin.write('a');
     await until('accepted recovery', () => calls.length === 1);
     assert.deepEqual(calls, [['recoverMemory', 'accept']]);
@@ -343,7 +340,7 @@ test('undersized approval and ready recovery views accept no hidden decisions', 
   }
 });
 
-test('wrapped tool hints and completions preserve the composer, reading line and live funding at minimum size', async () => {
+test('wrapped tool hints and completions preserve the composer, reading line and live funding at 30 by 24', async () => {
   const { app, coordinator } = fake({
     phase: 'running',
     pendingCompaction: true,
@@ -384,7 +381,7 @@ test('wrapped tool hints and completions preserve the composer, reading line and
     assert.match(ui.text(), /source line \d+/);
   };
   try {
-    await until('minimum window', () => windowText(ui).includes('current'));
+    await until('tool window', () => windowText(ui).includes('current'));
     ui.stdin.write('\u001b[5~');
     ui.stdin.write('draft');
     await until(
@@ -414,7 +411,7 @@ test('wrapped tool hints and completions preserve the composer, reading line and
   }
 });
 
-test('a picker keeps its filter through an undersized window without accepting hidden keys', async () => {
+test('a picker keeps its filter editable through a small window', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit() {} }));
   try {
@@ -426,23 +423,23 @@ test('a picker keeps its filter through an undersized window without accepting h
       lines(ui).some((line) => line.trim() === 'memory'),
     );
     ui.resize(100, 23);
-    await until('hidden picker', () => ui.text().includes('Resize terminal'));
-    ui.stdin.write(`wrong${ENTER}`);
-    await delay(60);
+    await until('small picker', () => ui.text().includes('memory'));
+    ui.stdin.write('x');
+    await until('small filter edit', () => ui.text().includes('memoryx'));
+    ui.stdin.write('\u007f');
     ui.resize(100, 40);
     await until('filter restored', () =>
       lines(ui).some((line) => line.trim() === 'memory'),
     );
     assert.match(ui.text(), /Browse shared memory/);
     assert.ok(!ui.text().includes('New conversation'));
-    assert.ok(!ui.text().includes('wrong'));
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
   }
 });
 
-test('a partly answered request retains its answers and current input while undersized', async () => {
+test('a partly answered request retains answers and edits its input while small', async () => {
   const { app, calls } = fake({
     requests: [
       {
@@ -465,15 +462,16 @@ test('a partly answered request retains its answers and current input while unde
     ui.stdin.write('second answer');
     await until('draft answer', () => ui.text().includes('second answer'));
     ui.resize(100, 23);
-    await until('hidden question', () => ui.text().includes('Resize terminal'));
-    ui.stdin.write('wrong' + ENTER);
-    await delay(60);
-    assert.deepEqual(calls, []);
+    await until('small question', () => ui.text().includes('Question 2/2'));
+    ui.stdin.write(' continued');
+    await until('small answer edit', () =>
+      ui.text().includes('second answer continued'),
+    );
     ui.resize(100, 40);
     await until('question restored', () => ui.text().includes('Question 2/2'));
-    assert.match(ui.text(), /second answer/);
-    assert.ok(!ui.text().includes('wrong'));
-    await delay(550);
+    assert.match(ui.text(), /second answer continued/);
+    ui.resize(20, 8);
+    await delay(60);
     ui.stdin.write(ENTER);
     await until('answers submitted', () => calls.length === 1);
     assert.deepEqual(calls, [
@@ -482,7 +480,10 @@ test('a partly answered request retains its answers and current input while unde
         'questions',
         {
           decision: 'accept',
-          answers: { first: ['first answer'], second: ['second answer'] },
+          answers: {
+            first: ['first answer'],
+            second: ['second answer continued'],
+          },
         },
       ],
     ]);

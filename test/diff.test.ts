@@ -15,6 +15,38 @@ const red = '\u001b[48;2;122;41;54m';
 const addedWord = '\u001b[48;2;56;166;96m';
 const removedWord = '\u001b[48;2;179;89;107m';
 
+test('diffs wrap line numbers and notices when the gutter cannot fit', () => {
+  const files: FileDiff[] = [
+    {
+      path: '/work/narrow.ts',
+      kind: 'update',
+      hunks: [
+        { oldStart: 10000, newStart: 10000, lines: ['-old', '+replacement'] },
+      ],
+    },
+  ];
+  for (const width of [1, 2, 4, 7]) {
+    const lines = rows(files, width);
+    assert.ok(lines.every((line) => stringWidth(line) <= width));
+    const text = stripAnsi(lines.join('')).replaceAll(' ', '');
+    assert.ok(text.includes('10000-old'));
+    assert.ok(text.includes('10000+replacement'));
+  }
+});
+
+test('a narrow diff leaves room for wide characters beside line numbers', () => {
+  const files: FileDiff[] = [
+    {
+      path: '/work/a.txt',
+      kind: 'add',
+      hunks: [{ oldStart: 0, newStart: 1, lines: ['+界'] }],
+    },
+  ];
+  const lines = rows(files, 4);
+  assert.ok(lines.every((line) => stringWidth(line) <= 4));
+  assert.ok(stripAnsi(lines.join('')).includes('界'));
+});
+
 test('a prepared diff preserves earlier rows while rendering new widths', () => {
   const files: FileDiff[] = [
     {
@@ -248,7 +280,9 @@ test(
         },
       ],
       4,
-    ).join('\n');
+    )
+      .join('')
+      .replaceAll(' ', '');
     assert.ok(shown.includes('99998') && shown.includes('99999'), shown);
   },
 );

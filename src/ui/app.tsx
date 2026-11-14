@@ -28,12 +28,7 @@ import {
 import type { WitchCommand, CommandName } from './commands.js';
 import { CommandBatches } from './command-batches.js';
 import { CommandWindow } from './command-window.js';
-import {
-  commandWindowRows,
-  minimumColumns,
-  minimumRows,
-  toolHintLines,
-} from './chat-layout.js';
+import { chatLayout, toolHintLines } from './chat-layout.js';
 import { Input } from './input.js';
 import { inputRows } from './input-layout.js';
 import type { InputHandle } from './input.js';
@@ -45,6 +40,7 @@ import {
   tokenKey,
 } from './completion.js';
 import { Request } from './request.js';
+import { Recovery } from './Recovery.js';
 import { canExpandDiff, diffExpansionHint } from './diff.js';
 import type { Graphics } from './images.js';
 import { TranscriptLayout } from './transcript-layout.js';
@@ -153,15 +149,13 @@ export function App({
     () => graphics?.version,
   );
   const size = useWindowSize();
-  const undersized = size.columns < minimumColumns || size.rows < minimumRows;
-  const columns = Math.max(minimumColumns, size.columns);
+  const columns = Math.max(1, size.columns);
   const sidebar = columns - sidebarWidth >= 80;
   const width = sidebar ? columns - sidebarWidth : columns;
-  /** inside the body's paddingX. */
-  const bodyWidth = width - 2;
-  /** inside the composer's border and paddingX. */
-  const composerWidth = bodyWidth - 4;
-  const height = Math.max(minimumRows, size.rows);
+  const padding = width >= 7 ? 1 : 0;
+  const bodyWidth = width - padding * 2;
+  const height = Math.max(1, size.rows);
+  const phaseRows = Number(height > 2);
   const statusTime = useStatusTime();
   const usage = usagePlacement(state, sidebar, height, statusTime);
   // the compiler needs the native fallback's string type to memoize its consumers.
@@ -378,11 +372,14 @@ export function App({
   const request = state.requests[0];
   const recovering = state.phase === 'recovery';
   const chat = view.kind === 'chat' && !request && !recovering;
-  const minimumTranscriptRows = 2;
   const toolHint = toolFocus.focused ? toolHintLines(bodyWidth, diffHint) : [];
-  const minimumListRows = list ? 1 : toolHint.length;
-  const fixedControlsRows =
-    3 + commandWindowRows + Number(working) + Number(state.pendingCompaction);
+  const controls = {
+    working,
+    pending: state.pendingCompaction,
+    list: list?.items.length ?? 0,
+    hints: toolHint.length,
+  };
+  const desired = chatLayout(height - phaseRows, bodyWidth, controls);
   const { lines: status, errors: errorRows } = statusFooter(
     {
       ...usage.status,
@@ -398,36 +395,24 @@ export function App({
     },
     statusTime,
     {
-      width: width - 2,
+      width: Math.max(1, width - 2),
       height,
+      headerRows: phaseRows,
       error: state.error,
-      bodyRows: chat
-        ? minimumTranscriptRows + 1 + fixedControlsRows + minimumListRows
-        : 6 + Number(working) + Number(state.pendingCompaction),
+      bodyRows: Math.min(height - phaseRows, chat ? desired.minimumRows : 6),
     },
   );
-  const bodyHeight = height - 1 - status.length - errorRows.length;
-  const listRows = list
-    ? Math.min(
-        8,
-        list.items.length,
-        Math.max(1, bodyHeight - fixedControlsRows - minimumTranscriptRows - 1),
-      )
-    : minimumListRows;
-  const listFirst = Math.max(0, listSelected - listRows + 1);
-  const controlsRows = fixedControlsRows + listRows;
-  // leave the transcript's minimum height intact when the footer squeezes the body.
-  const composerRows = Math.min(
-    Math.max(
-      1,
-      Math.min(
-        Math.floor(bodyHeight / 2),
-        bodyHeight - controlsRows - minimumTranscriptRows,
-      ),
-    ),
-    inputRows(buffer.value, composerWidth, true),
+  const bodyHeight = height - phaseRows - status.length - errorRows.length;
+  const fitted = chatLayout(bodyHeight, bodyWidth, controls);
+  const { list: listRows, transcript: minimumTranscriptRows } = fitted;
+  const composerWidth = bodyWidth - (fitted.border ? 4 : 0);
+  const wrappedInputRows = useMemo(
+    () => inputRows(buffer.value, composerWidth, true),
+    [buffer.value, composerWidth],
   );
-  const freeRows = bodyHeight - composerRows - controlsRows;
+  const composerRows = Math.min(fitted.composer, wrappedInputRows);
+  const freeRows = fitted.content - composerRows;
+  const listFirst = Math.max(0, listSelected - listRows + 1);
   // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
   const queued = useMemo(
     () => state.queue.map((prompt) => oneLine(prompt).slice(0, width)),
@@ -451,7 +436,8 @@ export function App({
       row,
       Math.max(0, transcript.lines.length - availableRows),
     );
-    const pinned = clearedAt !== undefined && unpinnedTop < clearedAt;
+    const pinned =
+      availableRows > 1 && clearedAt !== undefined && unpinnedTop < clearedAt;
     const height = availableRows - Number(pinned);
     const maxTop = Math.max(0, transcript.lines.length - height);
     return {
@@ -993,7 +979,10 @@ export function App({
     state.agents,
     bodyWidth,
   ]);
-  const pageRows = Math.max(1, bodyHeight - (recovering ? 5 : 3));
+  const pageHeading = Number(bodyHeight >= 3);
+  const pageHint = Number(bodyHeight >= 2);
+  const pageRows =
+    bodyHeight - pageHeading - pageHint - Number(bodyHeight >= 4);
   const page = (
     <ScrollPage
       lines={pageLines}
@@ -1001,11 +990,9 @@ export function App({
       scroll={pageScroll}
       setScroll={setPageScroll}
       arrows
-      active={!undersized}
     />
   );
   usePointer((pointer, { column, row }) => {
-    if (undersized) return;
     // a press or release ends the drag even while another view covers the transcript
     if (pointer !== 'drag') {
       pressedAt.current = undefined;
@@ -1055,7 +1042,6 @@ export function App({
     }
   });
   useClick(() => {
-    if (undersized) return;
     if (
       pressedNewMessages.current &&
       newMessagesBox.current &&
@@ -1076,8 +1062,7 @@ export function App({
       toolFocus.toggle(item, transcript.members(item.id));
   });
   useWheel((rows) => {
-    if (!undersized && !request && !recovering && view.kind === 'chat')
-      scrollBy(rows);
+    if (!request && !recovering && view.kind === 'chat') scrollBy(rows);
   });
 
   useInput((input, key) => {
@@ -1090,7 +1075,6 @@ export function App({
         batches.cancel();
         dismissPicker(false);
       } else if (
-        !undersized &&
         viewRef.current.kind === 'chat' &&
         !toolFocus.focusedRef.current &&
         composerOpen(state, leavingRef.current) &&
@@ -1100,7 +1084,6 @@ export function App({
       else exit.press();
       return;
     }
-    if (undersized) return;
     if (key.super && input === 'c') {
       // nothing copies while another view covers the transcript, and blank rows or images hold no text to replace the clipboard with
       const selected = endsOf(rangeRef.current);
@@ -1194,7 +1177,6 @@ export function App({
       <Request
         key={request.id}
         request={request}
-        active={!undersized}
         width={bodyWidth}
         height={bodyHeight}
         cwd={cwd}
@@ -1203,40 +1185,33 @@ export function App({
     );
   else if (state.phase === 'recovery') {
     body = (
-      <Box flexDirection="column" height={bodyHeight}>
-        <Text color="yellow" bold>
-          {conflict
-            ? 'Memory conflicts with another conversation'
-            : 'Unfinished memory changes'}
-        </Text>
-        <Text>
-          {conflict
-            ? 'Another conversation published changes to the same notes. Keep mine merges your current changes.'
-            : 'Accept these changes with their original attribution, or discard them.'}
-        </Text>
-        {page}
-        <Text bold>
-          {piped([
-            ...(conflict
-              ? [
-                  'k KEEP MINE (YOUR SIDE OF EACH CONFLICTING CHANGE WINS)',
-                  'd DISCARD MINE',
-                ]
-              : ['a ACCEPT', 'd DISCARD']),
-            '↑/↓ SCROLL',
-            'CTRL+C QUIT',
-          ])}
-        </Text>
-      </Box>
+      <Recovery
+        conflict={conflict}
+        lines={pageLines}
+        height={bodyHeight}
+        width={bodyWidth}
+        scroll={pageScroll}
+        setScroll={setPageScroll}
+      />
     );
   } else if (view.kind === 'picker') {
-    const count = Math.max(1, bodyHeight - 4 - (view.caption ? 1 : 0));
+    const heading = Number(bodyHeight >= 4);
+    const caption = Number(!!view.caption && bodyHeight >= 5);
+    const hint = Number(bodyHeight >= 3);
+    const count = Math.max(
+      0,
+      bodyHeight - 1 - heading - caption - hint - Number(bodyHeight >= 5),
+    );
     const first = Math.max(0, selected - count + 1);
     body = (
       <Box flexDirection="column" height={bodyHeight}>
-        <Text bold>{plain(view.title)}</Text>
-        {view.caption && (
-          <Text wrap="truncate-middle">{plain(view.caption)}</Text>
+        <Box height={heading} flexShrink={0} overflow="hidden">
+          <Text bold wrap="truncate-end">
+            {plain(view.title)}
+          </Text>
+        </Box>
+        {caption > 0 && (
+          <Text wrap="truncate-middle">{plain(view.caption ?? '')}</Text>
         )}
         <Box height={count} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => {
@@ -1258,7 +1233,7 @@ export function App({
           key={view.title}
           width={bodyWidth}
           height={1}
-          active={!undersized}
+          active
           multiline={false}
           placeholder="Filter, then Enter"
           onChange={(text) => {
@@ -1278,9 +1253,11 @@ export function App({
             return true;
           }}
         />
-        <Text dimColor>
-          {piped(['↑/↓ CHOOSE', 'ENTER SELECT', 'ESC BACK'])}
-        </Text>
+        <Box height={hint} flexShrink={0} overflow="hidden">
+          <Text dimColor wrap="truncate-end">
+            {piped(['↑/↓ CHOOSE', 'ENTER SELECT', 'ESC BACK'])}
+          </Text>
+        </Box>
       </Box>
     );
   } else if (
@@ -1299,21 +1276,25 @@ export function App({
             : 'Current task';
     body = (
       <Box flexDirection="column" height={bodyHeight}>
-        <Text bold>
-          {view.kind === 'page' && view.link
-            ? hyperlink(title, view.link, cwd)
-            : title}
-        </Text>
+        {pageHeading > 0 && (
+          <Text bold wrap="truncate-end">
+            {view.kind === 'page' && view.link
+              ? hyperlink(title, view.link, cwd)
+              : title}
+          </Text>
+        )}
         {page}
-        <Text dimColor>
-          {piped([
-            ...(view.kind === 'page' && view.note
-              ? ['e EDIT', 'h HISTORY']
-              : []),
-            '↑/↓ SCROLL',
-            'ESC BACK',
-          ])}
-        </Text>
+        {pageHint > 0 && (
+          <Text dimColor wrap="truncate-end">
+            {piped([
+              ...(view.kind === 'page' && view.note
+                ? ['e EDIT', 'h HISTORY']
+                : []),
+              '↑/↓ SCROLL',
+              'ESC BACK',
+            ])}
+          </Text>
+        )}
       </Box>
     );
   } else {
@@ -1370,7 +1351,11 @@ export function App({
                 )}
           </Text>
         </Box>
-        {state.pendingCompaction && <Text dimColor>Pending: /compact</Text>}
+        {fitted.pending > 0 && (
+          <Text dimColor wrap="truncate-end">
+            Pending: /compact
+          </Text>
+        )}
         {queueRows > 0 && (
           <Box height={queueRows} flexDirection="column" overflow="hidden">
             {queued.slice(0, queueRows).map((prompt, index) => (
@@ -1380,9 +1365,16 @@ export function App({
             ))}
           </Box>
         )}
-        <CommandWindow items={state.items} />
-        {working && <Activity />}
-        <Box height={1} flexShrink={0} justifyContent="center">
+        <CommandWindow items={state.items} height={fitted.commands} />
+        <Box height={fitted.activity} overflow="hidden" flexShrink={0}>
+          {working && <Activity />}
+        </Box>
+        <Box
+          height={fitted.gap}
+          overflow="hidden"
+          flexShrink={0}
+          justifyContent="center"
+        >
           {newMessages && (
             <Box ref={newMessagesBox}>
               <Text color={accent} inverse>
@@ -1392,7 +1384,7 @@ export function App({
           )}
         </Box>
         <Box
-          borderStyle="bold"
+          borderStyle={fitted.border ? 'bold' : undefined}
           borderColor={
             toolFocus.focused
               ? 'gray'
@@ -1400,15 +1392,16 @@ export function App({
                 ? potion
                 : accent
           }
-          height={composerRows + 2}
-          paddingX={1}
+          height={composerRows + (fitted.border ? 2 : 0)}
+          paddingX={fitted.border ? 1 : 0}
+          flexShrink={0}
         >
           <Input
             key={state.conversation?.id ?? 'initial'}
             width={composerWidth}
             height={composerRows}
             shell
-            active={!undersized && !toolFocus.focused && composerPhase}
+            active={!toolFocus.focused && composerPhase}
             ref={composer}
             initialValue={draftOf(drafts, state) ?? ''}
             placeholder={
@@ -1448,33 +1441,34 @@ export function App({
               ))}
           </Box>
         ) : (
-          toolFocus.focused && <Text dimColor>{toolHint.join('\n')}</Text>
+          toolFocus.focused && (
+            <Box height={listRows} overflow="hidden">
+              <Text dimColor>{toolHint.slice(0, listRows).join('\n')}</Text>
+            </Box>
+          )
         )}
       </Box>
     );
   }
   return (
     <Box width={size.columns} height={size.rows} overflow="hidden">
-      {undersized && (
-        <Text>
-          {exit.armed
-            ? 'Press Ctrl+C again to quit.'
-            : `Resize terminal to at least ${minimumColumns} columns × ${minimumRows} rows.`}
-        </Text>
-      )}
-      <Box
-        display={undersized ? 'none' : 'flex'}
-        width={columns}
-        height={height}
-      >
+      <Box width={columns} height={height}>
         <Box flexDirection="column" width={width} height={height}>
-          <PhaseRow
-            state={state}
-            reading={top !== null && view.kind === 'chat'}
-            counts={!sidebar}
-            exitArmed={exit.armed}
-          />
-          <Box flexDirection="column" paddingX={1}>
+          <Box height={phaseRows} flexShrink={0} overflow="hidden">
+            <PhaseRow
+              state={state}
+              reading={top !== null && view.kind === 'chat'}
+              counts={!sidebar}
+              exitArmed={exit.armed}
+            />
+          </Box>
+          <Box
+            flexDirection="column"
+            height={bodyHeight}
+            flexShrink={0}
+            paddingX={padding}
+            overflow="hidden"
+          >
             {body}
           </Box>
           {errorRows.length > 0 && (

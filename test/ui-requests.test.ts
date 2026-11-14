@@ -34,6 +34,55 @@ const fileApproval = (id: string, title: string): UserRequest => ({
   ],
 });
 
+test('a short question keeps its selected option visible and submits that option', async () => {
+  const { app, calls } = fake({
+    requests: [
+      {
+        id: 'q',
+        kind: 'question',
+        title: 'Question',
+        detail: '',
+        questions: [
+          { id: 'answer', title: 'Choose one', options: ['first', 'second'] },
+        ],
+      },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit() {} }), 20, 8);
+  try {
+    await until('first visible option', () => ui.text().includes('› 1. first'));
+    await delay(550);
+    ui.stdin.write(DOWN);
+    await until('second visible option', () =>
+      ui.text().includes('› 2. second'),
+    );
+    assert.equal(ui.text().split('\n').length, 8);
+    ui.stdin.write(ENTER);
+    await until('selected answer', () => calls.length > 0);
+    assert.deepEqual(calls, [
+      ['respond', 'q', { decision: 'accept', answers: { answer: ['second'] } }],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a one-cell approval distinguishes the selected decision', async () => {
+  const { app, calls } = fake({ requests: [approval] });
+  const ui = show(createElement(App, { coordinator: app, onExit() {} }), 1, 1);
+  try {
+    await until('allow selection', () => ui.text() === 'A');
+    await delay(550);
+    ui.stdin.write(DOWN);
+    await until('decline selection', () => ui.text() === 'D');
+    ui.stdin.write(ENTER);
+    await until('declined', () => calls.length > 0);
+    assert.deepEqual(calls, [['respond', 'r1', { decision: 'decline' }]]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('approval diffs scroll and expand without responding', async () => {
   const request = fileApproval('file-approval', 'proposal');
   request.diff!.unshift({

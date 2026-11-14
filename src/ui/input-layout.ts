@@ -21,7 +21,7 @@ export function split(
   return shell && value.startsWith('!')
     ? {
         mark: '!',
-        width: width - 2,
+        width: width > 2 ? width - 2 : width,
         text: { value: value.slice(1), cursor: Math.max(0, cursor - 1) },
       }
     : { mark: '', width, text: { value, cursor } };
