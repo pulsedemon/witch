@@ -174,6 +174,97 @@ for (const [columns, rows, visibleDraft] of [
   });
 }
 
+for (const [columns, rows] of [
+  [22, 17],
+  [28, 16],
+] as const) {
+  test(`the tiny footer leaves both draft rows visible at ${columns} columns`, async () => {
+    const now = Date.now();
+
+    const limits = [
+      { window: '5H', percent: 45, observedAt: now },
+      { window: '7D', percent: 80, observedAt: now },
+    ];
+
+    const { app, calls } = fake({
+      native: {
+        id: 's',
+        agent: 'a',
+        model: 'claude-fable-5-2',
+        permissionMode: 'on-request',
+        hasHistory: false,
+      },
+      accounts: {
+        a: {
+          limits,
+          funding: {
+            kind: 'extra-usage',
+            enabled: false,
+            used: 651,
+            limit: 10000,
+            currency: 'USD',
+            decimalPlaces: 2,
+            observedAt: now,
+          },
+        },
+        b: { limits },
+      },
+      items: [
+        {
+          id: 'reply',
+          kind: 'assistant',
+          cwd: '/work',
+          text: Array.from({ length: 10 }, (_, i) => `transcript ${i}`).join(
+            '\n',
+          ),
+        },
+      ],
+    });
+
+    const ui = show(
+      createElement(App, { coordinator: app, onExit() {} }),
+      columns,
+      rows,
+    );
+
+    try {
+      ui.stdin.write('draft line one\ndraft line two' + LEFT);
+
+      await until(
+        'draft and delegation pointer',
+        () =>
+          ui.text().includes('draft line one') &&
+          ui.text().includes('/delegation'),
+      );
+
+      const frame = ui.text().split('\n');
+
+      assert.equal(frame.length, rows);
+
+      assert.ok(frame.every((line) => stringWidth(line) <= columns));
+
+      assert.match(ui.text(), /draft line two/);
+
+      assert.match(ui.text(), /transcript 9/);
+
+      assert.match(
+        frame.map((line) => line.trim()).join(' '),
+        /extra off: USD 6\.51 spent \/ USD 100\.00 cap Details: \/delegation/,
+      );
+
+      ui.stdin.write(ENTER);
+
+      await until('submitted multiline draft', () => calls.length > 0);
+
+      assert.deepEqual(calls, [
+        ['send', 'draft line one\ndraft line two', { composer: true }],
+      ]);
+    } finally {
+      ui.unmount();
+    }
+  });
+}
+
 for (const [mode, expected] of [
   ['approval', 'reading 28'],
   ['recovery', 'reading 33'],
