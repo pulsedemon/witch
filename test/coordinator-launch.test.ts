@@ -12,11 +12,11 @@ import {
   utimes,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { identifyProcess } from '../src/persistence/process.js';
-import { StateStore } from '../src/persistence/store.js';
+import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import { FixtureAgent, holdConnect } from './fixtures/agent.js';
 import {
   record,
@@ -949,6 +949,60 @@ test('/new copies this conversation for its own agent, starts another agent on i
     await coordinator.close();
   }
 });
+
+test.each([false, true])(
+  'startup notices survive the first load without persistence or carryover (resumed: %s)',
+  async (resumed) => {
+    const { coordinator: first, store, memory, project, a } = await fixture();
+    if (resumed) first.notice('Saved history');
+    const saved = [...first.snapshot.items];
+    const previous = first.snapshot.conversation!.id;
+    await first.close();
+    const coordinator = new Coordinator(store, memory, [
+      { adapter: a, executable: 'a' },
+    ]);
+    const read = ConversationStore.prototype.items;
+    vi.spyOn(ConversationStore.prototype, 'items').mockImplementationOnce(
+      async function (this: ConversationStore) {
+        const items = await read.call(this);
+        coordinator.notice('During history read', project, false);
+        return items;
+      },
+    );
+    try {
+      coordinator.notice('Update check failed', project, false);
+      const early = coordinator.snapshot.items[0];
+      await coordinator.initialize(
+        project,
+        resumed ? { conversation: previous } : {},
+      );
+      assert.deepEqual(
+        coordinator.snapshot.items.map(({ text }) => text),
+        [
+          ...(resumed ? ['Saved history'] : []),
+          'Update check failed',
+          'During history read',
+        ],
+      );
+      assert.deepEqual(
+        coordinator.snapshot.items.slice(0, saved.length),
+        saved,
+      );
+      assert.deepEqual(coordinator.snapshot.items[saved.length], early);
+      const id = coordinator.snapshot.conversation!.id;
+      await coordinator.newConversation();
+      assert.deepEqual(coordinator.snapshot.items, []);
+      const files = await store.claim(id);
+      try {
+        assert.deepEqual(await files.items(), saved);
+      } finally {
+        await files.close();
+      }
+    } finally {
+      await coordinator.close();
+    }
+  },
+);
 
 test('a transient native notice shows without making an unused conversation resumable', async () => {
   const { coordinator, a, root } = await unitFixture();

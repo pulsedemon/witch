@@ -401,6 +401,7 @@ export class Coordinator {
           ?.close()
           .catch((error: unknown) => (failure ??= error));
       }
+      if (!this.record) items.push(...this.snapshot.items);
       this.files = files;
       this.record = files.record;
       this.automaticHeld = false;
