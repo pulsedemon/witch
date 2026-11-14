@@ -411,7 +411,7 @@ test('a queue longer than the free rows shows its first prompts and keeps the co
   }
 });
 
-test('↑ in an open list moves its selection and leaves the queue', async () => {
+test('↑ in an open completion list leaves the queue', async () => {
   const { app, calls } = fake({ phase: 'running', queue: ['one'] });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
@@ -434,7 +434,7 @@ test('↑ in an open list moves its selection and leaves the queue', async () =>
   }
 });
 
-test('Tab and ↑ in one read move through tools and leave the queue', async () => {
+test('Tab and ↑ in one read focus tools and leave the queue', async () => {
   const { app, calls } = fake({
     phase: 'running',
     items: tools('first'),

@@ -178,7 +178,11 @@ test('a composer submission moves its draft into the queue in one save, and anot
 
     assert.ok(submitted.length > 0);
 
-    assert.ok(submitted.every(({ draft }) => draft === undefined));
+    for (const { draft, queue } of submitted) {
+      assert.equal(draft, undefined);
+
+      assert.deepEqual(queue, ['/x-two']);
+    }
 
     f.coordinator.draft(id, 'kept');
 
