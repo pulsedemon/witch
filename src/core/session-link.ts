@@ -214,7 +214,11 @@ export class SessionLink {
 
     if (stored.model) {
       // restore the resolved model without changing the saved alias
-      await session.selectModel(stored.model, stored.effort);
+      await session.selectModel(
+        stored.model,
+        stored.effort,
+        stored.contextWindow,
+      );
 
       recordSession(conversation, conversation.agent, session.info);
     }
@@ -332,6 +336,7 @@ export class SessionLink {
         executable: executable!,
         resume: stored?.hasHistory ? stored.id : undefined,
         model: selection?.id ?? stored?.requestedModel,
+        contextWindow: selection?.contextWindow ?? stored?.contextWindow,
         effort: selection
           ? (modelEffort(
               selection,

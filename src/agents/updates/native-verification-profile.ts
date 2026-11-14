@@ -83,43 +83,45 @@ export async function verificationAdapter(
   };
 
   return runtime === 'codex'
-    ? new CodexAdapter((executable, cwd, signal) =>
-        recorded(
-          executable,
-          [
-            'app-server',
-            '--stdio',
-            '-c',
-            'approval_policy="on-request"',
-            '-c',
-            'approvals_reviewer="user"',
-            '-c',
-            'sandbox_mode="read-only"',
-            '-c',
-            'features.apps=false',
-            '-c',
-            'features.plugins=false',
-            '-c',
-            'features.skill_mcp_dependency_install=false',
-            '-c',
-            'features.hooks=false',
-            '-c',
-            'notify=[]',
-            '-c',
-            'mcp_servers={}',
-            ...(mcp
-              ? [
-                  '-c',
-                  `mcp_servers.native_probe.command=${JSON.stringify(mcp.command)}`,
-                  '-c',
-                  `mcp_servers.native_probe.args=${JSON.stringify(mcp.args)}`,
-                ]
-              : []),
-          ],
-          cwd,
-          env,
-          signal,
-        ),
+    ? new CodexAdapter(
+        (executable, cwd, signal) =>
+          recorded(
+            executable,
+            [
+              'app-server',
+              '--stdio',
+              '-c',
+              'approval_policy="on-request"',
+              '-c',
+              'approvals_reviewer="user"',
+              '-c',
+              'sandbox_mode="read-only"',
+              '-c',
+              'features.apps=false',
+              '-c',
+              'features.plugins=false',
+              '-c',
+              'features.skill_mcp_dependency_install=false',
+              '-c',
+              'features.hooks=false',
+              '-c',
+              'notify=[]',
+              '-c',
+              'mcp_servers={}',
+              ...(mcp
+                ? [
+                    '-c',
+                    `mcp_servers.native_probe.command=${JSON.stringify(mcp.command)}`,
+                    '-c',
+                    `mcp_servers.native_probe.args=${JSON.stringify(mcp.args)}`,
+                  ]
+                : []),
+            ],
+            cwd,
+            env,
+            signal,
+          ),
+        async () => ({ models: [] }),
       )
     : new ClaudeAdapter((options) =>
         recorded(

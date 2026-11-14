@@ -245,6 +245,7 @@ export class RuntimeSwitch {
       await session.selectModel(
         id,
         modelEffort(selection, this.host.snapshot().models),
+        selection.contextWindow,
       );
     } finally {
       this.selecting = false;
@@ -255,6 +256,9 @@ export class RuntimeSwitch {
       model: session.info.model,
       requestedModel: id,
       effort: session.info.effort,
+      ...(session.info.contextWindow && {
+        contextWindow: session.info.contextWindow,
+      }),
     };
   }
 

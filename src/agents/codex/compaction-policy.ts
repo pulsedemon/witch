@@ -1,10 +1,15 @@
 import { execFile } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import { compactionThreshold } from '../../core/compaction-policy.js';
 import { readConfig } from './config.js';
 import { nativeLaunch } from '../native-launch.js';
+import { watchChild } from '../stderr.js';
+import { stopDeadline, stopOptions, terminateChild } from '../shutdown.js';
 import type { JsonRpc } from './json-rpc.js';
 import type {
+  ContextWindowChoice,
+  Model,
   ModelDiscoveryOptions,
   SessionInfo,
   SessionOptions,
@@ -13,6 +18,7 @@ import type {
 export interface CodexSelection {
   model: string;
   effort?: string;
+  contextWindow?: ContextWindowChoice;
 }
 
 const catalog = z.object({
@@ -26,40 +32,84 @@ const catalog = z.object({
   ),
 });
 
+type ContextCatalog = z.infer<typeof catalog>;
+
+type ContextModel = ContextCatalog['models'][number];
+
+function usableWindow(model: ContextModel, window: number): number {
+  return Math.floor((window * model.effective_context_window_percent) / 100);
+}
+
+export function withContextWindows(
+  models: Model[],
+  context: ContextCatalog,
+): Model[] {
+  return models.map((model) => {
+    const entry = context.models.find(({ slug }) => slug === model.id);
+
+    if (!entry?.context_window || !entry.max_context_window) return model;
+
+    return {
+      ...model,
+      contextWindows: {
+        default: usableWindow(entry, entry.context_window),
+        maximum: usableWindow(entry, entry.max_context_window),
+      },
+    };
+  });
+}
+
 export async function readContextCatalog(
   options: ModelDiscoveryOptions,
   env = process.env,
 ) {
-  const stdout = await new Promise<string>((resolve, reject) => {
-    nativeLaunch(options.executable, env, (command) =>
-      execFile(
-        command,
-        ['debug', 'models'],
-        {
-          cwd: options.cwd,
-          signal: options.signal,
-          env,
-          maxBuffer: 8 * 1024 * 1024,
-        },
-        (error, output) => (error ? reject(error) : resolve(output)),
-      ),
-    );
-  });
+  let child: ChildProcessWithoutNullStreams | undefined;
+  let closed: Promise<void> | undefined;
 
-  return catalog.parse(JSON.parse(stdout));
+  try {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      child = nativeLaunch(options.executable, env, (command) =>
+        execFile(
+          command,
+          ['debug', 'models'],
+          {
+            cwd: options.cwd,
+            signal: options.signal,
+            env,
+            maxBuffer: 8 * 1024 * 1024,
+          },
+          (error, output) => (error ? reject(error) : resolve(output)),
+        ),
+      ) as ChildProcessWithoutNullStreams;
+
+      closed = watchChild(child).closed;
+    });
+
+    return catalog.parse(JSON.parse(stdout));
+  } finally {
+    if (child && closed)
+      await terminateChild(
+        child,
+        closed,
+        stopDeadline(stopOptions(options.signal)?.deadline),
+      );
+  }
 }
 
 export class CodexCompactionPolicy {
-  applied?: number;
+  private appliedWindow?: number;
+  private appliedTarget?: number;
 
   private constructor(
     private readonly rpc: JsonRpc,
     private readonly options: SessionOptions,
     readonly model: string | undefined,
-    private readonly windows: ReadonlyMap<string, number>,
+    private readonly catalog: ContextCatalog,
+    private readonly configuredWindow: unknown,
     private readonly baseConfiguration: Record<string, unknown>,
   ) {
-    this.applied = this.target();
+    this.appliedWindow = this.window();
+    this.appliedTarget = this.target();
   }
 
   static async read(
@@ -100,60 +150,91 @@ export class CodexCompactionPolicy {
       model = page.data.find((entry) => entry.isDefault)?.id;
     }
 
-    const windows = new Map<string, number>();
-
-    for (const entry of models.models) {
-      const requested = config.model_context_window;
-
-      const window =
-        typeof requested === 'number'
-          ? Math.min(requested, entry.max_context_window ?? requested)
-          : (entry.context_window ?? entry.max_context_window);
-
-      if (window === undefined || window === null) continue;
-
-      const usable = Math.floor(
-        (window * entry.effective_context_window_percent) / 100,
-      );
-
-      if (usable > 0) windows.set(entry.slug, usable);
-    }
-
     return new CodexCompactionPolicy(
       rpc,
       options,
       model,
-      windows,
+      models,
+      config.model_context_window,
       baseConfiguration,
     );
   }
 
-  target(model = this.model): number | undefined {
-    const window = model === undefined ? undefined : this.windows.get(model);
+  models(models: Model[]): Model[] {
+    return withContextWindows(models, this.catalog);
+  }
+
+  private window(
+    model = this.model,
+    choice = this.options.contextWindow,
+  ): number | undefined {
+    const entry = this.catalog.models.find(({ slug }) => slug === model);
+
+    if (!entry) return;
+
+    const requested =
+      choice === 'default'
+        ? entry.context_window
+        : choice === 'maximum'
+          ? entry.max_context_window
+          : this.configuredWindow;
+
+    return typeof requested === 'number'
+      ? Math.min(requested, entry.max_context_window ?? requested)
+      : (entry.context_window ?? entry.max_context_window ?? undefined);
+  }
+
+  capacity(
+    model = this.model,
+    choice = this.options.contextWindow,
+  ): number | undefined {
+    const entry = this.catalog.models.find(({ slug }) => slug === model);
+    const window = this.window(model, choice);
+
+    return entry && window !== undefined
+      ? usableWindow(entry, window)
+      : undefined;
+  }
+
+  target(model = this.model, choice = this.options.contextWindow) {
+    const window = this.capacity(model, choice);
 
     return window === undefined
       ? undefined
       : compactionThreshold(window).tokens;
   }
 
-  configuration(model = this.model): Record<string, unknown> {
-    const target = this.target(model);
+  configuration(
+    model = this.model,
+    choice = this.options.contextWindow,
+  ): Record<string, unknown> {
+    const target = this.target(model, choice);
 
     return target === undefined
       ? {}
       : {
+          ...(choice && { model_context_window: this.window(model, choice) }),
           model_auto_compact_token_limit: target,
           model_auto_compact_token_limit_scope: 'total',
         };
   }
 
-  assertIdle(model: string, busy: boolean): void {
-    const target = this.target(model);
-
-    if (target !== this.applied && busy)
+  assertIdle(
+    model: string,
+    busy: boolean,
+    choice = this.options.contextWindow,
+  ): void {
+    if (this.changed(model, choice) && busy)
       throw new Error(
         'Wait for Codex background work to finish before changing its compaction window.',
       );
+  }
+
+  private changed(model: string, choice?: ContextWindowChoice): boolean {
+    return (
+      this.window(model, choice) !== this.appliedWindow ||
+      this.target(model, choice) !== this.appliedTarget
+    );
   }
 
   async apply(
@@ -161,12 +242,11 @@ export class CodexCompactionPolicy {
     selection: CodexSelection,
     busy: boolean,
   ): Promise<unknown> {
-    const { model, effort } = selection;
-    const target = this.target(model);
+    const { model, effort, contextWindow } = selection;
 
-    if (target === this.applied) return;
+    if (!this.changed(model, contextWindow)) return;
 
-    this.assertIdle(model, busy);
+    this.assertIdle(model, busy, contextWindow);
 
     await this.rpc.request('thread/unsubscribe', { threadId: info.id });
 
@@ -180,7 +260,7 @@ export class CodexCompactionPolicy {
         ],
         config: {
           ...this.baseConfiguration,
-          ...this.configuration(model),
+          ...this.configuration(model, contextWindow),
           ...(!info.hasHistory && effort
             ? { model_reasoning_effort: effort }
             : {}),
@@ -189,7 +269,8 @@ export class CodexCompactionPolicy {
       },
     );
 
-    this.applied = target;
+    this.appliedWindow = this.window(model, contextWindow);
+    this.appliedTarget = this.target(model, contextWindow);
 
     return response;
   }

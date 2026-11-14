@@ -1,6 +1,10 @@
 import type { AgentRegistration } from '../../agents/registry.js';
 import { errorMessage } from '../../errors.js';
-import type { AgentSession, Model } from '../../agents/types.js';
+import type {
+  AgentSession,
+  ContextWindowChoice,
+  Model,
+} from '../../agents/types.js';
 import type { Catalog } from './routing.js';
 
 export interface ModelChoice extends Model {
@@ -9,6 +13,7 @@ export interface ModelChoice extends Model {
 
 export type ModelSelection = Pick<ModelChoice, 'agent' | 'id'> & {
   effort?: string;
+  contextWindow?: ContextWindowChoice;
 };
 
 export function modelEffort(

@@ -211,6 +211,7 @@ export class FixtureAgent implements AgentAdapter {
       permissionMode: 'default',
       hasHistory: true,
       effort: options.effort,
+      ...(options.contextWindow && { contextWindow: options.contextWindow }),
     };
 
     options.onEvent({ type: 'info', info });
@@ -317,7 +318,7 @@ export class FixtureAgent implements AgentAdapter {
 
         if (model === this.invalidModel) throw new Error('Unknown model');
       },
-      selectModel: async (model, effort) => {
+      selectModel: async (model, effort, contextWindow) => {
         if (effort && effort === this.invalidEffort)
           throw new Error('Invalid effort');
 
@@ -327,6 +328,9 @@ export class FixtureAgent implements AgentAdapter {
           ...info,
           model,
           effort: effort === undefined ? info.effort : (effort ?? undefined),
+          ...((contextWindow ?? info.contextWindow) && {
+            contextWindow: contextWindow ?? info.contextWindow,
+          }),
         };
       },
       respond: (id, response) => {
