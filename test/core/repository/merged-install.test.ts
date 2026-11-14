@@ -218,9 +218,9 @@ test('an install stays locked through install and build, aliases share it, and a
 
       assert.deepEqual(calls, []);
 
-      if (stage === 'install') {
-        assert.equal(await cleanUpMerge(install, request, idle), undefined);
+      assert.equal(await cleanUpMerge(install, request, idle), undefined);
 
+      if (stage === 'install') {
         const independentCalls: string[][] = [];
 
         assert.equal(
