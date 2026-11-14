@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
-import { chmod, open } from 'node:fs/promises';
+import { chmod, open, readdir } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { onTestFinished, test, vi } from 'vitest';
@@ -363,3 +363,53 @@ for (const failure of ['completion admission', 'receipt write'])
       await Promise.allSettled([builder, waiter]);
     }
   });
+
+test('failed attempt setup removes its receipt and permits another rebuild', async () => {
+  const root = await scratch('witch-rebuild-setup-');
+  const sample = await open(join(root, 'sample'), 'w');
+  const prototype = Object.getPrototypeOf(sample) as FileHandle;
+  const write = prototype.writeFile;
+  const failure = new Error('ENOSPC: state publication failed');
+
+  await sample.close();
+
+  const publish = vi
+    .spyOn(prototype, 'writeFile')
+    .mockImplementation(async function (this: FileHandle, data, options) {
+      if (typeof data === 'string' && data.includes('"owner":')) throw failure;
+
+      return write.call(this, data, options);
+    });
+
+  const options = {
+    waiting: () => assert.fail('a failed setup must not be joined'),
+    failure: (error: unknown) => error as Error,
+  };
+
+  try {
+    await assert.rejects(
+      sharedRebuild(
+        root,
+        async () => assert.fail('setup must succeed before building'),
+        options,
+      ),
+      (error) => error === failure,
+    );
+
+    assert.deepEqual((await readdir(root)).sort(), [
+      'sample',
+      'witch-rebuild.lock',
+    ]);
+  } finally {
+    publish.mockRestore();
+  }
+
+  assert.deepEqual(
+    await sharedRebuild(
+      root,
+      async () => ({ text: 'later rebuild', built: true }),
+      options,
+    ),
+    { text: 'later rebuild', built: true },
+  );
+});

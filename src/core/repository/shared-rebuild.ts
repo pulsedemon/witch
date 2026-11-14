@@ -111,6 +111,7 @@ export async function sharedRebuild(
   });
 
   let receipt: FileHandle | undefined;
+  let created: string | undefined;
   let attempt: Attempt;
   let joined = false;
 
@@ -133,12 +134,17 @@ export async function sharedRebuild(
       if (!owner) throw new Error('Could not identify the rebuild process');
 
       attempt = { id: randomUUID(), owner };
-      receipt = await open(pathFor(attempt.id), 'wx+', 0o600);
+
+      const path = pathFor(attempt.id);
+      receipt = await open(path, 'wx+', 0o600);
+      created = path;
 
       await writeJson(state, attempt);
     }
   } catch (error) {
     await receipt?.close();
+
+    if (created) await rm(created, { force: true }).catch(() => {});
 
     throw failure(error);
   } finally {
