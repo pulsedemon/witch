@@ -996,18 +996,18 @@ test("the status line shows the model's label, the effort the agent runs, its us
   }
 });
 
-test('while the agent works, a row above the composer names a verb and counts the seconds, and it leaves at idle', async () => {
+test('while the agent works, activity sits below a separator against the composer, counts seconds, and leaves at idle', async () => {
   const { app, coordinator } = fake({ phase: 'running' });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
-  const row = () => {
+  const row = (above = 1) => {
     const lines = ui.text().split('\n');
 
     const composer = lines.findIndex((line) =>
       line.trimStart().startsWith('┏'),
     );
 
-    return lines[composer - 2]?.trim() ?? '';
+    return lines[composer - above]?.trim() ?? '';
   };
 
   const activity =
@@ -1015,6 +1015,8 @@ test('while the agent works, a row above the composer names a verb and counts th
 
   try {
     await until('the activity row', () => activity.exec(row())?.[2] === '0');
+
+    assert.equal(row(2), '');
 
     await until('a second later', () => activity.exec(row())?.[2] === '1');
 
