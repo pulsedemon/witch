@@ -28,6 +28,8 @@ import { markdown } from '../transcript/markdown.js';
 import { chooseModel } from './model-choice.js';
 import { coordinationText } from './peers.js';
 import { ScrollPage } from '../ScrollPage.js';
+import { pageStart } from '../scroll-page-layout.js';
+import type { PagePosition } from '../scroll-page-layout.js';
 import { piped } from '../theme.js';
 import { showUpdates, updatesText } from './updates.js';
 import { wrapSourceLines } from '../wrap.js';
@@ -78,10 +80,10 @@ export function useCommandViews({
 
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
-  const [pageScroll, setPageScroll] = useState(0);
+  const [pageScroll, setPageScroll] = useState<PagePosition>(pageStart);
 
   const openPage = (next: View) => {
-    setPageScroll(0);
+    setPageScroll(pageStart);
 
     setView(next);
   };
@@ -580,7 +582,6 @@ export function CommandView({
   const page = (
     <ScrollPage
       lines={pageLines}
-      width={bodyWidth}
       height={pageRows}
       scroll={pageScroll}
       setScroll={setPageScroll}

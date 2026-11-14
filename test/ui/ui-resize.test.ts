@@ -244,43 +244,114 @@ for (const [mode, expected] of [
   });
 }
 
-test('a command page retains its paragraph offset through width changes', async () => {
-  const { app } = fake({});
+test('approval diff positions ignore gutters and padding inside a wrapped source line', async () => {
+  const code = Array.from(
+    { length: 900 },
+    (_, index) => `word${String(index + 1).padStart(4, '0')}`,
+  ).join(' ');
+
+  const { app } = fake({
+    requests: [
+      {
+        ...approval,
+        diff: [
+          {
+            path: '/work/a.ts',
+            kind: 'add',
+            hunks: [{ oldStart: 0, newStart: 1, lines: [`+${code}`] }],
+          },
+        ],
+      },
+    ],
+  });
+
   const ui = show(createElement(App, { coordinator: app, onExit() {} }));
-  const first = () => ui.text().split('\n')[2]!.trim();
+  const firstWord = () => ui.text().match(/word\d{4}/)?.[0];
 
   try {
-    await openCommand(ui, '/help', 'Keyboard help');
+    await until('first word', () => firstWord() === 'word0001');
 
     ui.stdin.write('\u001b[6~');
 
-    await until('shell command explanation', () =>
-      first().startsWith('sandbox, and the agent'),
-    );
+    await until('scrolled source text', () => firstWord() === 'word0261');
 
-    const before = first();
+    for (const width of [20, 100]) {
+      ui.resize(width, 40);
 
-    ui.resize(20, 40);
+      await until('rewrapped source text', () => {
+        const line = ui
+          .text()
+          .split('\n')
+          .find((row) => row.includes('word0261'));
 
-    await until('narrow paragraph', () => first() === 'without a sandbox,');
+        return !!line && line.includes('word0262') === (width === 100);
+      });
 
-    assert.ok(
-      ui
-        .text()
-        .split('\n')
-        .slice(2, 5)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .includes(before.slice(0, 20)),
-    );
-
-    ui.resize(100, 40);
-
-    await until('restored paragraph offset', () => first() === before);
+      assert.equal(firstWord(), 'word0261');
+    }
   } finally {
     ui.unmount();
   }
 });
+
+for (const covered of [false, true]) {
+  test(`a ${covered ? 'covered ' : ''}command page retains its paragraph offset through width changes`, async () => {
+    const { app, coordinator } = fake({});
+    const ui = show(createElement(App, { coordinator: app, onExit() {} }));
+    const first = () => ui.text().split('\n')[2]!.trim();
+
+    try {
+      await openCommand(ui, '/help', 'Keyboard help');
+
+      ui.stdin.write('\u001b[6~');
+
+      await until('shell command explanation', () =>
+        first().startsWith('sandbox, and the agent'),
+      );
+
+      const before = first();
+
+      if (covered) {
+        coordinator.publish({ requests: [approval] });
+
+        await until('covering approval', () =>
+          ui.text().includes('Approval required'),
+        );
+      }
+
+      ui.resize(20, 40);
+
+      if (covered) {
+        await until('narrow approval', () =>
+          ui
+            .text()
+            .split('\n')
+            .every((line) => stringWidth(line) <= 20),
+        );
+
+        coordinator.publish({ requests: [] });
+      }
+
+      await until('narrow paragraph', () => first() === 'without a sandbox,');
+
+      assert.ok(
+        ui
+          .text()
+          .split('\n')
+          .slice(2, 5)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .includes(before.slice(0, 20)),
+      );
+
+      ui.resize(100, 40);
+
+      await until('restored paragraph offset', () => first() === before);
+    } finally {
+      ui.unmount();
+    }
+  });
+}
 
 test('the sidebar width transition preserves the reading line and draft', async () => {
   const output = (text: string) => ({

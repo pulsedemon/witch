@@ -37,6 +37,7 @@ import {
 } from './input/completion.js';
 import { Request } from './Request.js';
 import { Recovery } from './Recovery.js';
+import { pageStart } from './scroll-page-layout.js';
 import { canExpandDiff, diffExpansionHint } from './transcript/diff.js';
 import type { Graphics } from './transcript/images.js';
 import { TranscriptLayout } from './transcript/transcript-layout.js';
@@ -800,7 +801,7 @@ export function App({
   const recoveryReady = useKeysReady(state.phase === 'recovery');
 
   useEffect(() => {
-    if (state.phase === 'recovery') setPageScroll(0);
+    if (state.phase === 'recovery') setPageScroll(pageStart);
   }, [state.phase]);
 
   const recovery = recovering ? state.recovery : undefined;

@@ -3,15 +3,11 @@ import { test } from 'vitest';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../../../src/agents/types.js';
-import {
-  canExpandDiff,
-  diffRows,
-  prepareDiff,
-} from '../../../src/ui/transcript/diff.js';
+import { canExpandDiff, prepareDiff } from '../../../src/ui/transcript/diff.js';
 import { syntaxSpans } from '../../../src/ui/transcript/syntax.js';
 
 const rows = (files: FileDiff[], width = 30) =>
-  diffRows(files, width, '/work').flat();
+  prepareDiff(files, '/work')(width).flat();
 
 const plainRows = (files: FileDiff[], width = 30) =>
   rows(files, width).map((row) => stripAnsi(row).trimEnd());
@@ -135,8 +131,6 @@ test('a prepared diff preserves earlier rows while rendering new widths', () => 
 
       assert.ok(drawn.flat().every((line) => stringWidth(line) <= width));
 
-      assert.deepEqual(drawn, diffRows(files, width, '/work', full));
-
       assert.deepEqual(earlier, saved);
     }
 
@@ -174,7 +168,7 @@ test('whole-file expansion exposes every supplied line without changing updates 
     assert.equal(canExpandDiff([file]), true);
 
     const full = stripAnsi(
-      diffRows([file], 30, '/work', true).flat().join('\n'),
+      prepareDiff([file], '/work', true)(30).flat().join('\n'),
     );
 
     assert.match(full, /line_11[\s\S]*line_12/);
@@ -188,8 +182,8 @@ test('whole-file expansion exposes every supplied line without changing updates 
     assert.equal(canExpandDiff([update]), false);
 
     assert.deepEqual(
-      diffRows([update], 30, '/work', true),
-      diffRows([update], 30, '/work'),
+      prepareDiff([update], '/work', true)(30),
+      prepareDiff([update], '/work')(30),
     );
 
     const short: FileDiff = {
@@ -828,7 +822,7 @@ test("a long line past the highlighting budget draws plain while shorter lines k
   const long = (name: string) =>
     `+const ${name} = [` + 'a, '.repeat(1000) + '];';
 
-  const [, first, second, short, , later, , , next, , , indented] = diffRows(
+  const [, first, second, short, , later, , , next, , , indented] = prepareDiff(
     [
       {
         path: '/work/a.ts',
@@ -869,9 +863,8 @@ test("a long line past the highlighting budget draws plain while shorter lines k
         ],
       },
     ],
-    100,
     '/work',
-  );
+  )(100);
 
   const colored = (drawn: readonly string[]) =>
     drawn.some((row) => syntaxOf(row).includes('\u001b[38;'));

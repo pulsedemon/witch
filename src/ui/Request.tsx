@@ -17,6 +17,8 @@ import {
 } from './transcript/diff.js';
 import { wrapLines, wrapSourceLines } from './wrap.js';
 import { ScrollPage } from './ScrollPage.js';
+import { pageAnchorAt, pageRowOf, pageStart } from './scroll-page-layout.js';
+import type { PagePosition } from './scroll-page-layout.js';
 
 interface Props {
   request: UserRequest;
@@ -45,7 +47,7 @@ export function Request({
   const [questionIndex, questionIndexRef, setQuestionIndex] = useLiveState(0);
   // never rendered, so a ref alone carries answers between keys
   const answers = useRef<Record<string, string[]>>({});
-  const [scroll, setScroll] = useState(0);
+  const [scroll, setScroll] = useState<PagePosition>(pageStart);
   const followedSelection = useRef({ question: -1, option: -1 });
   const [error, setError] = useState('');
   const [full, setFull] = useState(false);
@@ -124,7 +126,7 @@ export function Request({
     return [
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
       ...diffRows(request.diff, width, cwd, full),
-      [''],
+      [{ text: '', offset: 0 }],
       ...wrap(fields),
     ];
   }, [request, detail, fields, question, width, cwd, full]);
@@ -153,13 +155,17 @@ export function Request({
 
     followedSelection.current = { question: questionIndex, option: selection };
 
-    setScroll((current) =>
-      Math.max(
+    setScroll((current) => {
+      const row = pageRowOf(lines, current);
+
+      const next = Math.max(
         0,
-        Math.min(selectedRow, Math.max(current, selectedRow - bodyHeight + 1)),
-      ),
-    );
-  }, [selectedRow, bodyHeight, questionIndex, selection]);
+        Math.min(selectedRow, Math.max(row, selectedRow - bodyHeight + 1)),
+      );
+
+      return next === row ? current : pageAnchorAt(lines, next);
+    });
+  }, [selectedRow, bodyHeight, questionIndex, selection, lines]);
 
   useInput((input, key) => {
     if (!active || key.eventType === 'release') return;
@@ -167,7 +173,7 @@ export function Request({
     if (key.ctrl && input === 'o' && expandable) {
       setFull((previous) => !previous);
 
-      setScroll(0);
+      setScroll(pageStart);
 
       return;
     }
@@ -235,7 +241,7 @@ export function Request({
 
         setSelection(0);
 
-        setScroll(0);
+        setScroll(pageStart);
       }
 
       return true;
@@ -301,7 +307,6 @@ export function Request({
       </Box>
       <ScrollPage
         lines={lines}
-        width={width}
         active={active}
         height={bodyHeight}
         scroll={scroll}

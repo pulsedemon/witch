@@ -1,8 +1,10 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { Box, Text } from 'ink';
 import { ScrollPage } from './ScrollPage.js';
+import type { PagePosition } from './scroll-page-layout.js';
 import { piped } from './theme.js';
 import { wrapLines } from './wrap.js';
+import type { WrappedLines } from './wrap.js';
 
 export function Recovery({
   conflict,
@@ -13,11 +15,11 @@ export function Recovery({
   setScroll,
 }: {
   conflict: boolean;
-  lines: readonly (readonly string[])[];
+  lines: WrappedLines;
   height: number;
   width: number;
-  scroll: number;
-  setScroll: Dispatch<SetStateAction<number>>;
+  scroll: PagePosition;
+  setScroll: Dispatch<SetStateAction<PagePosition>>;
 }) {
   const heading = Number(height >= 3);
 
@@ -65,7 +67,6 @@ export function Recovery({
       </Box>
       <ScrollPage
         lines={lines}
-        width={width}
         height={pageRows}
         scroll={scroll}
         setScroll={setScroll}
