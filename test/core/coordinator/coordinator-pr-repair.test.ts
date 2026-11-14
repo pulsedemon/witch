@@ -449,6 +449,16 @@ test('losing the claim or the base during a repair stops it once', async (t) => 
       s.observe(s.read({ base: 'release' }));
     }
 
+    if (kind === 'base')
+      await until('replacement repair starts', () => s.repairs().length === 2);
+
+    assert.equal(
+      (await within(gate.result, 5000, `${kind} repair stopped`)).status,
+      'interrupted',
+    );
+
+    gate.open();
+
     await s.idle();
 
     s.observe(s.read());
