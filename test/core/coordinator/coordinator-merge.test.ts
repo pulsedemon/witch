@@ -5,7 +5,7 @@ import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../../../src/core/coordinator.js';
 import { watchMerges } from '../../../src/core/repository/merge-watch.js';
@@ -757,6 +757,19 @@ async function interruptedCleanup(
 ) {
   const { coordinator, root, project } = await fixture();
 
+  if (!slowReconcile) {
+    const timeout = AbortSignal.timeout;
+
+    // successful reconciliation must not depend on how fast Git starts under load
+    const deadline = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation((ms) =>
+        ms === 1000 ? new AbortController().signal : timeout(ms),
+      );
+
+    register(() => deadline.mockRestore());
+  }
+
   const { origin, install, base, tip } = await mergedOrigin(
     root,
     project,
@@ -929,6 +942,7 @@ for (const [stage, worktree] of [
 
     const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
     const cleanup = coordinator.cleanUpMerge.bind(coordinator);
+    const completed = Promise.withResolvers<void>();
 
     coordinator.cleanUpMerge = async (...args) => {
       const result = await cleanup(...args);
@@ -936,6 +950,8 @@ for (const [stage, worktree] of [
       if (result === 'interrupted') await stopped();
 
       results.push(result);
+
+      if (result === true) completed.resolve();
 
       return result;
     };
@@ -956,11 +972,7 @@ for (const [stage, worktree] of [
 
       await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
 
-      await until(
-        'resumed cleanup completion',
-        () => results.includes(true),
-        500,
-      );
+      await completed.promise;
 
       assert.deepEqual(results, ['interrupted', true]);
 
