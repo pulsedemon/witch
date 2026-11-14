@@ -243,6 +243,8 @@ export type AgentEvent =
   | { type: 'command'; command: BackgroundCommand }
   /** the native agent reports whether it runs, which Claude Code also does on its own between turns. */
   | { type: 'running'; running: boolean }
+  /** confirmed exhaustion in a native continuation outside the dispatched turn. */
+  | { type: 'exhausted' }
   /** a transient notice is a diagnostic of this connection, shown but not saved. */
   | { type: 'notice'; text: string; transient?: boolean };
 

@@ -10,8 +10,12 @@ import { compactSession, type Compaction } from './compaction.js';
 import type { SessionCoordination } from './coordination.js';
 import { watchClaimPolicy } from './coordination-policy.js';
 import type { CopilotReviewController } from './copilot-review-controller.js';
-import type { ReviewBatch } from './copilot-reviews.js';
-import { answerNotice, type PeerRequest } from './peer-requests.js';
+import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
+import {
+  answerInstruction,
+  answerNotice,
+  type PeerRequest,
+} from './peer-requests.js';
 import {
   preparePeerAnswers,
   recordPeerAnswers,
@@ -19,7 +23,7 @@ import {
   type PeerAnswerBatch,
 } from './peer-answers.js';
 import { nativePrompt, shellCommand, skillCall } from './prompts.js';
-import type { Repair } from './pr-repair.js';
+import { repairInstruction, type Repair } from './pr-repair.js';
 import type { Conflict } from './repository.js';
 import type { SessionLink } from './session-link.js';
 import type { Snapshot } from './snapshot.js';
@@ -81,10 +85,14 @@ interface TurnHost {
   ended(): void;
   /** sets whether a failed turn holds the queue for the composer. */
   failed(failed: boolean): void;
+  acceptMemory(agent: string): boolean;
+  operate(operation: () => Promise<void>): Promise<void>;
 }
 
 /** runs the open conversation's turns and compactions, and holds the Witch context they have yet to deliver. */
 export class TurnRunner {
+  /** a repair turn takes no steering, so prompts sent during it queue. */
+  repairing = false;
   private readonly pendingContext = new Map<string, string[]>();
 
   constructor(
@@ -96,6 +104,58 @@ export class TurnRunner {
     private readonly copilot: CopilotReviewController,
     private readonly coordination?: SessionCoordination,
   ) {}
+
+  /** a turn that never delivered its input returns its batch unsent, so the batch waits for a later attempt. */
+  async reviewCopilot(batch: ReviewBatch): Promise<TurnResult | undefined> {
+    let result: TurnResult | undefined;
+    let delivered = false;
+    this.host.publish({ reviewing: true });
+    try {
+      await this.host.operate(async () => {
+        result = await this.run(reviewInstruction(batch), 'review', {
+          review: batch,
+          delivered: () => (delivered = true),
+        });
+      });
+    } finally {
+      this.host.publish({ reviewing: false });
+    }
+    return delivered
+      ? result
+      : { status: 'interrupted', text: '', inputUnsent: true };
+  }
+
+  async repairPullRequest(
+    repair: Repair,
+    refused: (error: string) => void,
+  ): Promise<TurnResult | undefined> {
+    let result: TurnResult | undefined;
+    this.repairing = true;
+    try {
+      await this.host.operate(async () => {
+        result = await this.run(repairInstruction(repair), 'repair', {
+          repair,
+          refused,
+        });
+      });
+    } finally {
+      this.repairing = false;
+    }
+    return result;
+  }
+
+  async answerPeers(): Promise<boolean> {
+    let ran = false;
+    this.host.publish({ answering: true });
+    await this.host
+      .operate(async () => {
+        const requests = await this.coordination!.beginAnswer();
+        ran = requests.length > 0;
+        if (ran) await this.run(answerInstruction, 'answer', { requests });
+      })
+      .finally(() => this.host.publish({ answering: false }));
+    return ran;
+  }
 
   /** admitted automatic turns have already spent their attempt, so only queued user input waits behind delivery holds. */
   async run(
@@ -296,11 +356,17 @@ export class TurnRunner {
         else {
           if (generation !== this.link.generation) input = await context();
           // a listener can stop the turn as its row publishes; the review's batch then stays retryable
-          if (this.host.cancelled() || session.closed)
+          if (
+            this.host.cancelled() ||
+            session.closed ||
+            (queued && this.host.deliveryHeld())
+          )
             result = {
               status: 'interrupted',
               text: '',
-              ...(review && { inputUnsent: true }),
+              ...((review || (queued && this.host.deliveryHeld())) && {
+                inputUnsent: true,
+              }),
             };
           else {
             if (!automatic) this.pendingContext.delete(conversation.id);
@@ -482,7 +548,13 @@ export class TurnRunner {
       this.host.notice(result.error ?? 'Turn interrupted');
       if (result.status === 'failed') this.host.failed(true);
     }
-    await endActivity(this.host.workspace(), conversation, activity, completed);
+    await endActivity(
+      this.host.workspace(),
+      conversation,
+      activity,
+      completed,
+      () => this.host.acceptMemory(activity.agent),
+    );
     if (completed) this.usage.others(activity.agent, conversation.cwd);
   }
 

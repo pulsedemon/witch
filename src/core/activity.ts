@@ -105,11 +105,13 @@ export async function endActivity(
   conversation: ConversationRecord,
   activity: Activity,
   completed: boolean,
+  accept = () => true,
 ): Promise<void> {
   if (completed)
     await workspace.commit(
       `chore(memory): save ${activity.agent} notes\n\n${memoryAttribution(conversation.id, activity.id)}`,
+      accept,
     );
-  else if (await workspace.isDirty()) return;
+  if ((!completed || !accept()) && (await workspace.isDirty())) return;
   delete conversation.activity;
 }

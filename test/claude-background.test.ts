@@ -972,3 +972,187 @@ test('Claude leaves exhaustion unset without a current rejection behind a failed
   for (const turns of cases)
     assert.equal(await exhausted(...turns), undefined, JSON.stringify(turns));
 });
+
+test('a native background rejection reports exhaustion once after the ordinary turn completed', async () => {
+  const f = await background();
+  try {
+    await f.emit(state('idle'));
+    assert.equal((await f.turn).status, 'completed');
+    await f.emit(
+      state('running'),
+      limit({ resetsAt: undefined, rateLimitType: undefined }),
+      { ...failed, user_message_uuids: [] },
+      idle,
+    );
+    await f.emit({ ...failed, user_message_uuids: [] });
+    assert.equal(
+      f.events.filter((event) => event.type === 'exhausted').length,
+      1,
+    );
+    assert.equal(f.completions(), 1);
+  } finally {
+    await f.session.close();
+  }
+});
+
+for (const [name, frames] of [
+  ['plain throttling', [failed]],
+  ['expired rejection', [limit({ resetsAt: 1 }), failed]],
+  ['other model family', [limit({ rateLimitType: 'seven_day_opus' }), failed]],
+  ['overage coverage', [limit({ isUsingOverage: true }), failed]],
+  ['success after rejection', [limit(), result('Recovered.'), failed]],
+] as const)
+  test(`native background ${name} does not report exhaustion`, async () => {
+    const f = await background();
+    try {
+      await f.emit(idle);
+      await f.turn;
+      await f.emit(state('running'), ...frames, idle);
+      assert.equal(
+        f.events.some((event) => event.type === 'exhausted'),
+        false,
+      );
+    } finally {
+      await f.session.close();
+    }
+  });
+
+for (const stop of ['interrupt', 'exit'] as const)
+  test(`a background rejection followed by ${stop} ${stop === 'exit' ? 'confirms' : 'does not confirm'} exhaustion`, async () => {
+    const f = await background();
+    try {
+      await f.emit(idle);
+      await f.turn;
+      await f.emit(state('running'), limit());
+      if (stop === 'interrupt') {
+        await f.session.interrupt();
+        await f.emit(failed, idle);
+      } else {
+        f.child.kill();
+        await until('native closure', () =>
+          f.events.some((event) => event.type === 'closed'),
+        );
+      }
+      assert.equal(
+        f.events.filter((event) => event.type === 'exhausted').length,
+        stop === 'exit' ? 1 : 0,
+      );
+    } finally {
+      await f.session.close();
+    }
+  });
+
+test('background exhaustion recovers receipt-proven waiting input without treating it as Escape', async () => {
+  const f = await background();
+  try {
+    await f.emit(idle);
+    await f.turn;
+    await f.emit(state('running'));
+    const next = f.session.send('waiting request');
+    await until(
+      'waiting request sent',
+      async () => (await f.inputs()).length === 2,
+    );
+    await f.steer('waiting follow-up');
+    await f.emit(limit(), { ...failed, user_message_uuids: [] });
+    const outcome = await within(next, 3000, 'waiting input recovery');
+    assert.equal(outcome.status, 'failed');
+    assert.equal(outcome.exhausted, true);
+    assert.equal(outcome.inputUnread, true);
+    assert.deepEqual(outcome.unread, ['waiting follow-up']);
+    assert.equal(f.session.closed, true);
+    assert.equal(
+      f.events.filter((event) => event.type === 'exhausted').length,
+      1,
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('background exhaustion preserves a correlated reply that consumed the waiting input', async () => {
+  const f = await background();
+  try {
+    await f.emit(idle);
+    await f.turn;
+    await f.emit(state('running'));
+    const next = f.session.send('consumed request');
+    await until('next input sent', async () => (await f.inputs()).length === 2);
+    const uuid = (await f.inputs())[1]!.uuid!;
+    await f.emit(
+      limit(),
+      { ...failed, user_message_uuids: [] },
+      lifecycle(uuid, 'started'),
+      result('Already handled.', [uuid]),
+    );
+    const outcome = await within(next, 3000, 'consumed input');
+    assert.equal(outcome.status, 'completed');
+    assert.equal(outcome.text, 'Already handled.');
+    assert.equal(outcome.inputUnread, undefined);
+    assert.deepEqual(outcome.unread, []);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('unverified waiting input stays failed without a speculative replay', async () => {
+  const f = await background();
+  try {
+    await f.emit(idle);
+    await f.turn;
+    await f.emit(state('running'));
+    const next = f.session.send('uncertain request');
+    await until('next input sent', async () => (await f.inputs()).length === 2);
+    await writeFile(join(f.cwd, 'receipt.json'), '[]');
+    await f.emit(limit(), { ...failed, user_message_uuids: [] });
+    const outcome = await within(next, 3000, 'unverified input');
+    assert.equal(outcome.status, 'failed');
+    assert.match(outcome.error!, /consumption could not be verified/);
+    assert.equal(outcome.inputUnread, undefined);
+    assert.equal(outcome.exhausted, undefined);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('background work from an automatic review does not switch the parent runtime', async () => {
+  const f = await background();
+  try {
+    await f.emit(idle);
+    await f.turn;
+    const automatic = f.session.send('review', { purpose: 'pr-review' });
+    await until('review input', async () => (await f.inputs()).length === 2);
+    const uuid = (await f.inputs())[1]!.uuid!;
+    await f.emit(lifecycle(uuid, 'started'), result('Reviewed.', [uuid]), idle);
+    await automatic;
+    await f.emit(state('running'), limit(), failed, idle);
+    assert.equal(
+      f.events.some((event) => event.type === 'exhausted'),
+      false,
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a fresh connection cannot switch from an unsolicited background rejection', async () => {
+  const events: AgentEvent[] = [];
+  const f = await fixture((event) => events.push(event), 'background');
+  const emit = frameWriter(
+    f.cwd,
+    (name) =>
+      events.some(
+        (event) => event.type === 'skills' && event.skills[0]?.name === name,
+      ),
+    f.child,
+  );
+  try {
+    await emit(state('running'), limit(), failed, idle);
+    assert.equal(
+      events.some((event) => event.type === 'exhausted'),
+      false,
+    );
+  } finally {
+    await f.session.close();
+  }
+});

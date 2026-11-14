@@ -33,18 +33,20 @@ type HandoffHost = Pick<
 interface HandoffOptions {
   /** false skips asking the source, which usage exhaustion leaves unable to answer. */
   summarize?: boolean;
+  continueTask?: true;
 }
 
 export async function handoff(
   host: HandoffHost,
   selection: ModelSelection,
-  { summarize = true }: HandoffOptions = {},
+  { summarize = true, continueTask }: HandoffOptions = {},
 ): Promise<void> {
   const { agent } = selection;
   const conversation = host.conversation();
   const from = conversation.agent;
   const outcome = conversation.lastTurn?.status;
-  const unfinished = outcome === 'interrupted' || outcome === 'failed';
+  const unfinished =
+    continueTask || outcome === 'interrupted' || outcome === 'failed';
   const previous = conversation.sessions[agent];
   let activated = false;
   // the handoff this one replaced, which the source may already have consumed while summarizing
@@ -128,23 +130,39 @@ export function transcriptContext(items: readonly DisplayItem[]): string {
       return [`${item.title ?? 'Assistant'}: ${item.text}`];
     if (item.kind === 'tool')
       return [
-        `Tool${item.done === false ? ' (unfinished)' : ''}: ${[item.title, item.path].filter(Boolean).join(' ')}`,
+        `Tool${item.done === false ? ' (unfinished)' : ''}: ${[item.title, item.path].filter(Boolean).join(' ')}${item.done && item.text ? `\n${item.text}` : ''}`,
       ];
     return [];
   });
-  const kept: string[] = [];
+  const kept = new Map<number, string>();
   let size = 0;
-  for (const row of rows) {
-    size += row.length + 2;
-    if (size <= transcriptLimit) kept.unshift(row);
-    // the newest row alone can exceed the limit, and it usually states the task
-    else if (!kept.length)
-      kept.push(`${row.slice(0, transcriptLimit)} [truncated]`);
-    if (size >= transcriptLimit) break;
+  const request = rows.findIndex((row) => row.startsWith('User: '));
+  const keep = (index: number, available: number) => {
+    const row = rows[index]!;
+    const text =
+      row.length > available
+        ? `${row.slice(0, Math.max(0, available - 12))} [truncated]`
+        : row;
+    kept.set(index, text);
+    size += text.length + 2;
+  };
+  // reports can fill the budget, but the destination still needs the request they answer.
+  if (request !== -1) keep(request, transcriptLimit - 2);
+  for (const [index, row] of rows.entries()) {
+    if (index === request) continue;
+    const available = transcriptLimit - size - 2;
+    if (available <= 12) break;
+    if (row.length <= available) keep(index, available);
+    else {
+      if (kept.size === (request === -1 ? 0 : 1)) keep(index, available);
+      break;
+    }
   }
-  const omitted = kept.length < rows.length ? ' Earlier rows are omitted.' : '';
+  const omitted = kept.size < rows.length ? ' Earlier rows are omitted.' : '';
   return [
     `The previous runtime could not summarize, so Witch rebuilt this from the conversation transcript.${omitted}`,
-    ...kept,
+    ...[...kept]
+      .sort(([left], [right]) => right - left)
+      .map(([, text]) => text),
   ].join('\n\n');
 }

@@ -24,6 +24,7 @@ interface Owner {
   failed(): void;
   notice(text: string): void;
   report(error: unknown): void;
+  exhaustion(): Promise<void> | undefined;
 }
 
 /** compacts the session's history, interrupted when cancelled meanwhile; a session with none completes without compacting. */
@@ -120,6 +121,7 @@ export class Compaction {
   ): Promise<boolean> {
     // a synchronous snapshot listener can request compact before the pre-turn check installs its operation
     await Promise.resolve();
+    await this.owner.exhaustion();
     let success: boolean | undefined;
     const state = this.owner.state();
     if (this.running) success = await this.running;
@@ -148,6 +150,7 @@ export class Compaction {
     }
     await parent?.catch(() => {});
     await draining;
+    await this.owner.exhaustion();
     const next = this.owner.state();
     if (
       request.cancelled ||

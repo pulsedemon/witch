@@ -3,12 +3,7 @@ import { RuntimeSwitch } from './runtime-switch.js';
 import { SessionLink, type LinkJobs } from './session-link.js';
 import { TurnRunner } from './turn-runner.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
-import {
-  PullRequestRepair,
-  repairInstruction,
-  type Repair,
-} from './pr-repair.js';
-import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
+import { PullRequestRepair } from './pr-repair.js';
 import { Compaction } from './compaction.js';
 import { Attachments, imagePaste, unnumbered } from './attachments.js';
 import { initialSnapshot, type Snapshot } from './snapshot.js';
@@ -57,7 +52,11 @@ import {
 } from './queue.js';
 import type { WorkTreeChanges } from './work-tree-changes.js';
 import type { SessionCoordination } from './coordination.js';
-import { sessionWorking, witchWorking } from './coordination-state.js';
+import {
+  sessionWorking,
+  witchWorking,
+  taskActivity,
+} from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
@@ -68,7 +67,6 @@ import { ModelCatalog, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
 import type { Conflict, PullRequest } from './repository.js';
 import { watchEventNotices } from './conversation-events.js';
-import { answerInstruction } from './peer-requests.js';
 import { entry, holding } from './pauses.js';
 import {
   applyDisplayUpdate,
@@ -153,7 +151,7 @@ export class Coordinator {
       if (!this.closed && this.record) this.notice(text);
     },
     changed: () => this.drainAfter(),
-    run: (batch) => this.reviewCopilot(batch),
+    run: (batch) => this.turns.reviewCopilot(batch),
     interrupt: () => this.stopCurrent(),
   });
   readonly repair = new PullRequestRepair({
@@ -165,11 +163,9 @@ export class Coordinator {
       if (!this.closed && this.record) this.notice(text);
     },
     changed: () => this.drainAfter(),
-    run: (repair, refused) => this.repairPullRequest(repair, refused),
+    run: (repair, refused) => this.turns.repairPullRequest(repair, refused),
     interrupt: () => this.stopCurrent(),
   });
-  /** a repair turn takes no steering, so prompts sent during it queue. */
-  private repairing = false;
   private readonly runtimes = new RuntimeSwitch({
     conversation: () => this.current(),
     snapshot: () => this.snapshot,
@@ -188,6 +184,8 @@ export class Coordinator {
     notice: (text) => this.notice(text),
     operate: (operation) => this.operate('switching', operation),
     failed: (failed) => (this.turnFailed = failed),
+    prepareBackground: () => this.operate('switching', async () => {}),
+    changed: () => this.drainAfter(),
   });
   private readonly compaction = new Compaction({
     state: () => ({
@@ -214,6 +212,7 @@ export class Coordinator {
     failed: () => (this.turnFailed = true),
     notice: (text) => this.notice(text),
     report: (error) => this.report(error),
+    exhaustion: () => this.runtimes.backgroundSettled,
   });
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
@@ -244,6 +243,11 @@ export class Coordinator {
         workspace: () => this.workspace!,
         snapshot: () => this.snapshot,
         cancelled: () => this.cancelled,
+        exhausted: (session) => {
+          if (this.automaticHeld || this.paused || this.closed) return;
+          this.runtimes.backgroundExhausted(session);
+          this.drainAfter();
+        },
         publish: (update) => this.publish(update),
         display: (update) => this.display(update),
         notice: (text, cwd, save) => this.notice(text, cwd, save),
@@ -267,7 +271,8 @@ export class Coordinator {
         snapshot: () => this.snapshot,
         conflict: () => this.conflict,
         cancelled: () => this.cancelled,
-        deliveryHeld: () => this.deliveryHeld,
+        deliveryHeld: () =>
+          this.deliveryHeld || this.runtimes.backgroundPending,
         publish: (update) => this.publish(update),
         display: (update) => this.display(update),
         notice: (text) => this.notice(text),
@@ -281,8 +286,11 @@ export class Coordinator {
             this.attachments.resolve(prompt),
             this.files!,
           ),
+        operate: (operation) => this.operate('running', operation),
         ended: () => (this.turnEnded = true),
         failed: (failed) => (this.turnFailed = failed),
+        acceptMemory: (agent) =>
+          !this.cancelled && this.runtimes.acceptMemory(agent),
       },
       memory,
       this.link,
@@ -637,6 +645,7 @@ export class Coordinator {
   }
 
   private async steer(prompt: string): Promise<boolean> {
+    if (this.runtimes.backgroundPending) return false;
     const session = this.link.session;
     if (!session || !this.steerable()) return false;
     const command = shellCommand(prompt);
@@ -673,7 +682,8 @@ export class Coordinator {
       this.snapshot.phase === 'running' &&
       !this.snapshot.answering &&
       !this.snapshot.reviewing &&
-      !this.repairing &&
+      !this.turns.repairing &&
+      !this.runtimes.backgroundPending &&
       !this.cancelled &&
       !this.deliveryHeld &&
       !this.halted()
@@ -697,7 +707,10 @@ export class Coordinator {
     return this.snapshot.phase === 'running' && !!this.link.session?.replied;
   }
   private drainAfter(releasedHold = false): void {
-    if (this.closed || this.deliveryHeld || this.halted()) return;
+    if (this.closed) return;
+    if (this.runtimes.backgroundPending) {
+      if (!this.backgroundSwitchReady()) return;
+    } else if (this.deliveryHeld || this.halted()) return;
     if (this.draining && !this.replied) {
       if (releasedHold)
         void this.draining.promise.then(() => {
@@ -707,6 +720,7 @@ export class Coordinator {
     }
     if (
       !this.snapshot.queue.length &&
+      !this.runtimes.backgroundPending &&
       !(
         this.automaticReady() &&
         (this.answerReady() || this.repair.ready() || this.copilot.ready())
@@ -722,6 +736,24 @@ export class Coordinator {
     return !!this.snapshot.error || this.turnFailed;
   }
 
+  private backgroundSwitchReady(): boolean {
+    return (
+      this.snapshot.phase === 'idle' &&
+      !this.task &&
+      !this.admissions &&
+      !this.snapshot.nativeRunning &&
+      !this.runtimes.awaitingRecovery &&
+      !taskActivity(this.snapshot).running &&
+      !this.automaticHeld &&
+      !this.paused &&
+      !this.opening &&
+      !this.closed &&
+      !this.snapshot.error &&
+      (!this.coordination ||
+        this.coordination.events.pauses(this.current().id) !== undefined)
+    );
+  }
+
   private async drain(): Promise<void> {
     if (this.draining) return;
     const draining = (this.draining = Promise.withResolvers<void>());
@@ -730,14 +762,21 @@ export class Coordinator {
     // one that doesn't run either recorded its key or found its candidate changed
     const tried = new Set<string>();
     try {
-      while (!this.deliveryHeld && this.snapshot.phase === 'idle') {
+      while (this.snapshot.phase === 'idle') {
+        if (this.runtimes.backgroundPending) {
+          if (!this.backgroundSwitchReady()) return;
+          if (!(await this.runtimes.continueBackground())) return;
+          if (this.halted()) return;
+          continue;
+        }
+        if (this.deliveryHeld) return;
         if (!this.snapshot.queue.length) {
           if (!this.automaticReady()) return;
           const answers = `answer ${this.answerable().join(' ')}`;
           let ran: boolean;
           if (this.answerReady() && !tried.has(answers)) {
             tried.add(answers);
-            ran = await this.runAutomatic(() => this.answerPeers());
+            ran = await this.runAutomatic(() => this.turns.answerPeers());
           } else if (this.repair.ready())
             ran = await this.runAutomatic(() => this.repair.run());
           else if (!tried.has('copilot') && this.copilot.ready()) {
@@ -779,6 +818,8 @@ export class Coordinator {
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
           }
         }
+        if (result?.status === 'failed' && !result.exhausted)
+          this.runtimes.stop();
         // a pre-turn compaction that ran out left the batch requeued above, for the destination to run
         if (
           result?.status === 'failed' &&
@@ -797,7 +838,8 @@ export class Coordinator {
       this.draining = undefined;
       draining.resolve();
       // a repair that became ready while this drain ran had its wake dropped
-      if (this.repair.ready()) this.drainAfter();
+      if (this.repair.ready() || this.runtimes.backgroundPending)
+        this.drainAfter();
     }
   }
 
@@ -831,58 +873,6 @@ export class Coordinator {
 
   private answerReady(): boolean {
     return this.automaticReady() && this.answerable().length > 0;
-  }
-
-  /** a turn that never delivered its input returns its batch unsent, so the batch waits for a later attempt. */
-  private async reviewCopilot(
-    batch: ReviewBatch,
-  ): Promise<TurnResult | undefined> {
-    let result: TurnResult | undefined;
-    let delivered = false;
-    this.publish({ reviewing: true });
-    try {
-      await this.operate('running', async () => {
-        result = await this.turns.run(reviewInstruction(batch), 'review', {
-          review: batch,
-          delivered: () => (delivered = true),
-        });
-      });
-    } finally {
-      this.publish({ reviewing: false });
-    }
-    return delivered
-      ? result
-      : { status: 'interrupted', text: '', inputUnsent: true };
-  }
-
-  private async repairPullRequest(
-    repair: Repair,
-    refused: (error: string) => void,
-  ): Promise<TurnResult | undefined> {
-    let result: TurnResult | undefined;
-    this.repairing = true;
-    try {
-      await this.operate('running', async () => {
-        result = await this.turns.run(repairInstruction(repair), 'repair', {
-          repair,
-          refused,
-        });
-      });
-    } finally {
-      this.repairing = false;
-    }
-    return result;
-  }
-
-  private async answerPeers(): Promise<boolean> {
-    let ran = false;
-    this.publish({ answering: true });
-    await this.operate('running', async () => {
-      const requests = await this.coordination!.beginAnswer();
-      ran = requests.length > 0;
-      if (ran) await this.turns.run(answerInstruction, 'answer', { requests });
-    }).finally(() => this.publish({ answering: false }));
-    return ran;
   }
 
   /** the prompts queued behind a queued turn's prompt join that turn; a `!` command and what follows it wait. */
@@ -1344,6 +1334,7 @@ export class Coordinator {
     if (!update) return;
     this.publish(update.state);
     for (const row of update.rows) this.display(row);
+    if (this.runtimes.backgroundPending) this.drainAfter();
   }
 
   private display(update: DisplayUpdate, save = true): void {
@@ -1491,8 +1482,10 @@ export class Coordinator {
     // merge cleanup and closing start no agent jobs
     this.jobs?.setActive(sessionWorking(this.snapshot));
     this.coordination?.update(this.snapshot);
-    if ('nativeRunning' in update && !update.nativeRunning)
+    if ('nativeRunning' in update && !update.nativeRunning) {
       this.confirmPauses();
+      if (this.runtimes.backgroundPending) this.drainAfter();
+    }
     for (const listener of this.listeners) listener();
   }
 }

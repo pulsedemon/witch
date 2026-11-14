@@ -13,7 +13,18 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
-import { TurnText } from './turn-text.js';
+import {
+  createTurn,
+  commandLifecycle,
+  pendingInput,
+  uncertainInput,
+  unknownInput,
+  recordResult,
+  idleResult,
+  claudeResult,
+  recoverInput,
+  type Turn,
+} from './claude-turn.js';
 import { accountReading, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCompaction } from './claude-compaction.js';
 import { ClaudeContext } from './claude-context.js';
@@ -81,19 +92,6 @@ const sessionUsage = z.object({
     total_lines_removed: z.number(),
   }),
 });
-const commandLifecycle = z.object({
-  type: z.literal('command_lifecycle'),
-  session_id: z.string(),
-  command_uuid: z.string(),
-  state: z.enum([
-    'queued',
-    'started',
-    'completed',
-    'cancelled',
-    'discarded',
-    'refused',
-  ]),
-});
 
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
@@ -158,28 +156,6 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 }
 
-interface Turn {
-  started: ReturnType<typeof Promise.withResolvers<boolean>>;
-  finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
-  result?: TurnResult;
-  interrupted: boolean;
-  messages: TurnText;
-  /** pending until acknowledged, so a result from Claude Code's own run can't settle the turn; generated context never returns unread. */
-  inputs: Map<
-    string,
-    { prompt?: string; pending: boolean; contextOnly?: true }
-  >;
-  inputError?: string;
-  commandRecords: Map<string, { records: string[]; writeAttempted: boolean }>;
-  initialInput?: string;
-  /** keep native idle from settling the turn before the steered command's reply is queued. */
-  held: boolean;
-  /** native idle can precede delivery of input this turn already accepted. */
-  idle: boolean;
-  answer?: string;
-  compaction?: true;
-}
-
 class ClaudeSession implements AgentSession {
   private readonly answers: AnswerTurn;
   info: SessionInfo;
@@ -205,7 +181,14 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
-  private readonly rateLimit = new RateLimit<Turn>();
+  private readonly rateLimit = new RateLimit<object>();
+  private backgroundRun?: {
+    eligible: boolean;
+    exhausted: boolean;
+    identity: object;
+  };
+  private backgroundEligible = false;
+  private nativeRunning = false;
   private compaction?: ClaudeCompaction;
   private readonly context: ClaudeContext;
   readonly restoreCompactionContext?: AgentSession['restoreCompactionContext'];
@@ -523,6 +506,7 @@ class ClaudeSession implements AgentSession {
     const blocks = readImages(images);
     if (!Array.isArray(blocks)) return blocks;
     const turn = this.beginTurn();
+    this.backgroundEligible = purpose === 'user';
     const stopped = this.process?.killed || this.child?.exited;
     if (this.options.automaticCompaction && !stopped) {
       try {
@@ -596,16 +580,8 @@ class ClaudeSession implements AgentSession {
     if (this.answers.busy) throw new Error('This agent is already running');
     if (this.closed) throw new Error('The Claude session is closed');
     if (this.turn) throw new Error('This agent is already running');
-    const turn: Turn = {
-      started: Promise.withResolvers<boolean>(),
-      finished: Promise.withResolvers<TurnResult>(),
-      interrupted: false,
-      messages: new TurnText(),
-      inputs: new Map(),
-      commandRecords: new Map(),
-      held: false,
-      idle: false,
-    };
+    if (!this.nativeRunning) this.backgroundRun = undefined;
+    const turn = createTurn();
     this.turn = turn;
     return turn;
   }
@@ -797,6 +773,8 @@ class ClaudeSession implements AgentSession {
   };
 
   interrupt(options: AgentStopOptions = {}): Promise<void> {
+    this.backgroundEligible = false;
+    if (this.backgroundRun) this.backgroundRun.eligible = false;
     if (this.answers.busy) return this.answers.interrupt(options);
     this.command?.controller.abort();
     const turn = this.turn;
@@ -992,7 +970,8 @@ class ClaudeSession implements AgentSession {
   private async read(): Promise<void> {
     try {
       for await (const message of this.query) this.receive(message);
-      if (this.turn) await this.end('Claude exited before reporting idle');
+      if (this.turn || this.backgroundRun)
+        await this.end('Claude exited before reporting idle');
     } catch (error) {
       const reason: unknown = this.abort.signal.reason;
       // preserve the dispatch cause when the SDK masks it with AbortError.
@@ -1045,6 +1024,7 @@ class ClaudeSession implements AgentSession {
         const input = turn.inputs.get(lifecycle.data.command_uuid);
         const state = lifecycle.data.state;
         if (input && state !== 'queued') {
+          if (state === 'started') this.backgroundRun = undefined;
           if (state === 'started' && input.pending) turn.result = undefined;
           input.pending = false;
           if (
@@ -1088,6 +1068,13 @@ class ClaudeSession implements AgentSession {
       } else if (message.subtype === 'session_state_changed') {
         this.sessionLifecycle = true;
         const running = message.state !== 'idle';
+        if (running && !this.nativeRunning && !this.turn)
+          this.backgroundRun = {
+            eligible: this.backgroundEligible,
+            exhausted: false,
+            identity: {},
+          };
+        this.nativeRunning = running;
         this.options.onEvent({ type: 'running', running });
         const turn = this.turn;
         if (turn) {
@@ -1268,43 +1255,63 @@ class ClaudeSession implements AgentSession {
         });
       }
     } else if (message.type === 'rate_limit_event') {
-      this.rateLimit.report(message.rate_limit_info, this.turn);
+      if (!this.turn || (this.messageLifecycle && pendingInput(this.turn)))
+        this.backgroundRun ??= {
+          eligible: this.backgroundEligible,
+          exhausted: false,
+          identity: this.turn ?? {},
+        };
+      this.rateLimit.report(
+        message.rate_limit_info,
+        this.backgroundRun?.identity ?? this.turn,
+      );
     } else if (message.type === 'result') {
-      if (!this.turn?.initialInput || this.turn.compaction) return;
-      const success = message.subtype === 'success' && !message.is_error;
-      if (this.messageLifecycle) {
-        const uuids = message.user_message_uuids ?? [message.user_message_uuid];
-        for (const uuid of uuids) {
-          const input =
-            uuid === undefined ? undefined : this.turn.inputs.get(uuid);
-          if (!input) continue;
-          input.pending = false;
-          if (!success && !this.turn.interrupted)
-            this.turn.inputError ??=
-              message.subtype === 'success'
-                ? message.result
-                : message.errors.join('\n');
-        }
+      const result = claudeResult(
+        message,
+        !!this.options.answer,
+        this.turn?.messages.text ?? '',
+      );
+      const success = result.status === 'completed';
+      const uuids = message.user_message_uuids ?? [message.user_message_uuid];
+      const correlated = uuids.some(
+        (uuid) => uuid !== undefined && this.turn?.inputs.has(uuid),
+      );
+      if (!this.turn || (this.backgroundRun && !correlated)) {
+        if (success) this.rateLimit.clear();
+        else if (this.confirmBackgroundExhaustion() && this.turn)
+          void this.recoverBackgroundInput(this.turn);
+        return;
       }
-      this.turn.result = {
-        status: success ? 'completed' : 'failed',
-        text:
-          message.subtype === 'success'
-            ? this.options.answer
-              ? (JSON.stringify(message.structured_output) ?? '')
-              : message.result
-            : this.turn.messages.text,
-        ...(!success
-          ? {
-              error:
-                message.subtype === 'success'
-                  ? message.result
-                  : message.errors.join('\n'),
-            }
-          : {}),
-      };
+      if (!this.turn.initialInput || this.turn.compaction) return;
+      if (correlated) this.backgroundRun = undefined;
+      recordResult(this.turn, result, uuids, this.messageLifecycle);
       if (!this.sessionLifecycle) this.finishIdle(this.turn);
     }
+  }
+
+  private confirmBackgroundExhaustion(): boolean {
+    const run = this.backgroundRun;
+    if (
+      !run?.eligible ||
+      run.exhausted ||
+      this.closed ||
+      !this.rateLimit.rejects(run.identity, this.info.model)
+    )
+      return false;
+    run.exhausted = true;
+    this.options.onEvent({ type: 'exhausted' });
+    return true;
+  }
+
+  private async recoverBackgroundInput(turn: Turn): Promise<void> {
+    turn.exhausting = true;
+    const result = await recoverInput(turn, this.input, this.query);
+    if (this.turn === turn) {
+      this.closed = true;
+      this.finish(turn, result);
+      this.query.close();
+    }
+    turn.exhausting = false;
   }
 
   private subagent(subagent: Subagent): void {
@@ -1378,6 +1385,7 @@ class ClaudeSession implements AgentSession {
   /** ends the turn a stopped CLI leaves, once its stderr is complete. */
   private async end(error: string): Promise<void> {
     const closed = this.closed;
+    if (!closed) this.confirmBackgroundExhaustion();
     this.closed = true;
     this.stopMcpPolling();
     this.stopUntil ??= stopDeadline();
@@ -1400,6 +1408,8 @@ class ClaudeSession implements AgentSession {
       } else error = `${error}: ${errorMessage(failure)}`;
     }
     const text = withTail(error, this.child?.tail() ?? '');
+    const unknown =
+      this.messageLifecycle && this.backgroundRun && uncertainInput(turn);
     if (turn) {
       const unreadContext = [...turn.commandRecords.values()].flatMap(
         ({ records, writeAttempted }) => (writeAttempted ? [] : records),
@@ -1416,12 +1426,13 @@ class ClaudeSession implements AgentSession {
       this.finish(turn, {
         status: 'failed',
         text: this.reportedStopTimeout ? turn.messages.text : '',
-        error: text,
+        error: unknown ? unknownInput : text,
         ...(unread.length ? { unread } : {}),
         ...(unreadContext.length ? { unreadContext } : {}),
         ...(inputUnsent ? { inputUnsent } : {}),
         // a CLI that dies after a rejection confirms it as a failed result would; Witch's own close doesn't
         ...(!closed &&
+        !unknown &&
         !turn.interrupted &&
         this.rateLimit.rejects(turn, this.info.model)
           ? { exhausted: true }
@@ -1439,6 +1450,7 @@ class ClaudeSession implements AgentSession {
       (turn.idle || (!this.sessionLifecycle && !this.holding)) &&
       (turn.result || turn.inputError !== undefined) &&
       !turn.held &&
+      !turn.exhausting &&
       !this.compacting &&
       (!this.messageLifecycle ||
         ![...turn.inputs.values()].some(({ pending }) => pending))
@@ -1450,21 +1462,10 @@ class ClaudeSession implements AgentSession {
           text: 'Claude did not report session state; Witch finished the turn after its result and tracked work settled.',
         });
       }
-      this.finish(turn, {
-        ...(turn.inputError !== undefined
-          ? {
-              status: 'failed',
-              text: turn.result?.text ?? '',
-              error: turn.inputError,
-            }
-          : turn.result!),
-        // only the current turn's failure confirms a rejection
-        ...(turn.result?.status === 'failed' &&
-        !turn.interrupted &&
-        this.rateLimit.rejects(turn, this.info.model)
-          ? { exhausted: true }
-          : {}),
-      });
+      this.finish(
+        turn,
+        idleResult(turn, this.rateLimit.rejects(turn, this.info.model)),
+      );
       this.readUsage();
     }
   }

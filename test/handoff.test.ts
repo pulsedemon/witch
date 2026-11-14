@@ -143,7 +143,7 @@ test('transcript context keeps the newest rows, tool titles and paths with their
       'The previous runtime could not summarize, so Witch rebuilt this from the conversation transcript.',
       'User: migrate the store',
       'claude: started',
-      'Tool: Edit src/store.ts',
+      'Tool: Edit src/store.ts\nfull output',
       'Tool (unfinished): Bash git push',
     ].join('\n\n'),
   );
@@ -198,4 +198,43 @@ test('a newest row over the limit keeps its start instead of leaving no context'
   );
   assert.ok(context.endsWith(' [truncated]'));
   assert.ok(!context.includes('User: earlier'));
+});
+
+test('a background failure continues completed work without changing its recorded outcome', async () => {
+  const { host, conversation, events } = stubHost({
+    status: 'completed',
+    text: 'unused',
+  });
+  conversation.lastTurn = { id: 'completed', status: 'completed' };
+  await handoff(host, selection, { summarize: false, continueTask: true });
+  assert.equal(events.filter((event) => event === 'send turn').length, 1);
+  assert.equal(events.includes('send handoff'), false);
+  assert.equal(conversation.lastTurn.status, 'completed');
+});
+
+test('a large completed report cannot crowd the request out of fallback context', () => {
+  const context = transcriptContext([
+    { id: 'request', kind: 'user', text: 'Check index migration.', cwd: '/w' },
+    {
+      id: 'report',
+      kind: 'tool',
+      title: 'Review completed',
+      done: true,
+      text: `Keep the unique index. ${'x'.repeat(70_000)}`,
+      cwd: '/w',
+    },
+    {
+      id: 'unread',
+      kind: 'user',
+      text: 'Queued request.',
+      unread: true,
+      cwd: '/w',
+    },
+  ]);
+  assert.match(context, /User: Check index migration\./);
+  assert.equal(context.split('User: Check index migration.').length, 2);
+  assert.match(context, /Keep the unique index/);
+  assert.match(context, /\[truncated\]/);
+  assert.ok(context.length <= 60_200);
+  assert.ok(!context.includes('Queued request.'));
 });
