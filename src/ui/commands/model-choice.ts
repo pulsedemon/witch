@@ -27,12 +27,45 @@ export function chooseModel(
     coordinator.snapshot,
   );
 
-  const efforts =
-    models.find(
-      (model) => model.id === selection.id && model.agent === selection.agent,
-    )?.efforts ?? [];
+  const model = models.find(
+    (model) => model.id === selection.id && model.agent === selection.agent,
+  );
+
+  const efforts = model?.efforts ?? [];
 
   const select = async (effort?: string) => {
+    const windows = model?.contextWindows;
+
+    if (live && windows && windows.default !== windows.maximum) {
+      const choices = [
+        {
+          id: 'default',
+          label: `Default (${tokenCount.format(windows.default)})`,
+        },
+        {
+          id: 'maximum',
+          label: `Maximum (${tokenCount.format(windows.maximum)})`,
+        },
+      ];
+
+      if (conversation!.sessions[selection.agent]?.contextWindow === 'maximum')
+        choices.reverse();
+
+      return picker(
+        `Context window for ${selection.id}`,
+        choices,
+        async (id) => {
+          toChat(selection.agent !== active);
+
+          await coordinator.selectModel({
+            ...selection,
+            effort,
+            contextWindow: id === 'maximum' ? 'maximum' : 'default',
+          });
+        },
+      );
+    }
+
     toChat(selection.agent !== active);
 
     await coordinator.selectModel({ ...selection, effort });

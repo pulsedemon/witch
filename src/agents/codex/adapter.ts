@@ -5,6 +5,7 @@ import { readModels } from './models.js';
 import {
   CodexCompactionPolicy,
   readContextCatalog,
+  withContextWindows,
 } from './compaction-policy.js';
 import type { CodexSelection } from './compaction-policy.js';
 import { permissionProfile, sessionInfo } from './session-info.js';
@@ -36,6 +37,7 @@ import type {
   AgentAdapter,
   AccountReading,
   AgentSession,
+  ContextWindowChoice,
   AgentStopOptions,
   FileDiff,
   Model,
@@ -146,7 +148,14 @@ export class CodexAdapter implements AgentAdapter {
   ) {}
 
   models(options: ModelDiscoveryOptions): Promise<Model[]> {
-    return this.probe(options, readModels);
+    return this.probe(options, async (rpc) => {
+      const [models, context] = await Promise.all([
+        readModels(rpc),
+        this.contextCatalog(options),
+      ]);
+
+      return withContextWindows(models, context);
+    });
   }
 
   accountUsage(
@@ -262,6 +271,8 @@ class CodexSession implements AgentSession {
       effort: options.effort,
     };
 
+    this.native.contextWindow = options.contextWindow;
+
     this.familiars = new CodexFamiliars(
       rpc,
       options,
@@ -373,12 +384,15 @@ class CodexSession implements AgentSession {
 
     this.connected = true;
 
+    this.publishContext();
+
     if (!answer) void this.readAccountUsage();
   }
 
   async models(): Promise<Model[]> {
     this.listed = [];
-    this.listed = await readModels(this.rpc);
+    const models = await readModels(this.rpc);
+    this.listed = this.automaticCompaction?.models(models) ?? models;
 
     return this.listed;
   }
@@ -423,11 +437,19 @@ class CodexSession implements AgentSession {
   }
 
   /** Codex can't clear its thread's effort, so `null` only stops requesting one. */
-  async selectModel(model: string, effort?: string | null): Promise<void> {
+  async selectModel(
+    model: string,
+    effort?: string | null,
+    contextWindow: ContextWindowChoice | undefined = this.native.contextWindow,
+  ): Promise<void> {
     if (this.turn || this.answers.busy)
       throw new Error('Stop the current turn before changing models');
 
-    this.automaticCompaction?.assertIdle(model, this.backgroundActive);
+    this.automaticCompaction?.assertIdle(
+      model,
+      this.backgroundActive,
+      contextWindow,
+    );
 
     await this.configureCompaction();
 
@@ -451,6 +473,8 @@ class CodexSession implements AgentSession {
         this.settings = undefined;
       }
     }
+
+    this.native.contextWindow = contextWindow;
 
     await this.configureCompaction();
 
@@ -583,11 +607,33 @@ class CodexSession implements AgentSession {
 
     if (response) this.updateInfo(response);
 
+    this.publishContext();
+
     if (!turn || (!turn.interrupted && this.turn === turn)) return true;
 
     if (this.turn === turn) this.finish('interrupted');
 
     return false;
+  }
+
+  private publishContext(): void {
+    if (!this.automaticCompaction) return;
+
+    const contextWindow = this.automaticCompaction.capacity(
+      this.native.model,
+      this.native.contextWindow,
+    );
+
+    if (contextWindow === undefined) return;
+
+    if (this.info.contextWindow !== this.native.contextWindow) {
+      this.info = { ...this.info, contextWindow: this.native.contextWindow };
+
+      this.options.onEvent({ type: 'info', info: this.info });
+    }
+
+    if (contextWindow !== this.usage.contextWindow)
+      this.report({ context: undefined, contextWindow });
   }
 
   async compact(): Promise<TurnResult> {
@@ -847,6 +893,7 @@ class CodexSession implements AgentSession {
     this.info = sessionInfo(response, this.info);
 
     this.native = {
+      ...this.native,
       model: this.info.model,
       effort: this.info.nativeEffort,
     };
@@ -983,6 +1030,7 @@ class CodexSession implements AgentSession {
           this.report({ context: undefined, contextWindow: undefined });
 
         this.native = {
+          ...this.native,
           model: stringValue.parse(settings.model),
           effort: nullishString.parse(settings.effort) ?? undefined,
         };
@@ -1122,10 +1170,23 @@ class CodexSession implements AgentSession {
       case 'thread/tokenUsage/updated': {
         const { tokenUsage: usage } = tokenUsage.parse(data);
 
-        if (usage.modelContextWindow)
+        const restored =
+          typeof data.turnId === 'string' && data.turnId !== this.turn?.id;
+
+        // keep the applied capacity when resume replays an older turn's usage
+        const applied = restored
+          ? this.automaticCompaction?.capacity(
+              this.native.model,
+              this.native.contextWindow,
+            )
+          : undefined;
+
+        const contextWindow = applied ?? usage.modelContextWindow;
+
+        if (contextWindow)
           this.report({
-            context: (usage.last.totalTokens / usage.modelContextWindow) * 100,
-            contextWindow: usage.modelContextWindow,
+            context: (usage.last.totalTokens / contextWindow) * 100,
+            contextWindow,
           });
 
         break;
