@@ -426,8 +426,8 @@ test('cast animation frames do not announce new messages', async () => {
   }
 });
 
-test('a cramped completion list allows one prompt row of movement while preserving the reading line', async () => {
-  const { ui, update } = mount({ phase: 'running' }, 30, 12);
+test('a completion list keeps the prompt and reading line fixed when new messages arrive', async () => {
+  const { ui, update } = mount({ phase: 'running' }, 30, 24);
   try {
     await readEarlier(ui);
     ui.stdin.write('/');
@@ -439,9 +439,9 @@ test('a cramped completion list allows one prompt row of movement while preservi
       ui.text().includes(label),
     );
     assert.equal(first(ui), reading);
-    assert.equal(rowOf(ui, '┃ /'), prompt + 1);
+    assert.equal(rowOf(ui, '┃ /'), prompt);
     assert.ok(ui.text().includes('/sessions'));
-    assert.equal(ui.text().split('\n').length, 12);
+    assert.equal(ui.text().split('\n').length, 24);
     click(ui);
     await until(
       'latest output with completions retained',
@@ -456,7 +456,7 @@ test('a cramped completion list allows one prompt row of movement while preservi
 
 for (const [columns, rows] of [
   [120, 30],
-  [30, 12],
+  [30, 24],
 ]) {
   test(`the button preserves the composer and reading line at ${columns} by ${rows}`, async () => {
     const { ui, update } = mount(

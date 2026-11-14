@@ -359,7 +359,7 @@ test('a request preserves the page it covers and keeps arrows for selection', as
   const ui = show(
     createElement(App, { coordinator: app, onExit() {} }),
     100,
-    16,
+    24,
   );
   const rows = () =>
     ui

@@ -106,7 +106,7 @@ test('the narrow confirmation retains both its version and paid-check disclosure
       onExit: () => {},
     }),
     30,
-    12,
+    24,
   );
   try {
     await delay(70);

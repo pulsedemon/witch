@@ -135,7 +135,7 @@ test('a cast from history shows final and unanimated, at mount and when publishe
 
 test('selecting a live heading shows and copies its canonical text through settlement', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-  const { ui, copied } = render([cast('review', Date.now())], 60, 20);
+  const { ui, copied } = render([cast('review', Date.now())], 60, 24);
   try {
     await until('the animated title', () => animating(ui));
     const rows = ui.text().split('\n');

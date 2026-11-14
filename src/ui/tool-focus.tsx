@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Box, Text } from 'ink';
 import type { Key } from 'ink';
 import type { DisplayItem } from '../core/state.js';
 import { canExpandDiff } from './diff.js';
 import { useLiveState } from './live-state.js';
-import { piped } from './theme.js';
 import { isExpanded, toggleGroup } from './transcript-layout.js';
 
 /** where a shown row's id leads once grouping hides or regroups it; ungrouped, every id leads to itself. */
@@ -90,21 +88,4 @@ export function useToolFocus(conversation: string | undefined) {
       if (key.return && item) toggle(item, members(item.id));
     },
   };
-}
-
-export function ToolHint({ hint }: { hint?: string }) {
-  return (
-    <Box flexDirection="column">
-      <Text dimColor>
-        {piped([
-          '↑/↓ TOOLS',
-          'ENTER TOGGLE',
-          'TAB COMPOSE',
-          'END LIVE OUTPUT',
-          'ESC LEAVE TOOLS',
-        ])}
-      </Text>
-      {hint && <Text dimColor>{hint}</Text>}
-    </Box>
-  );
 }

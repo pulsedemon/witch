@@ -275,8 +275,8 @@ test('an open list of 8 or more keeps the newest transcript row and its own last
     const text = ui.text();
     assert.ok(text.includes('row 59'));
     assert.ok(text.includes('/x-7') && !text.includes('/x-8'));
-    // above the row the body leaves free and the status line's two
-    assert.match(text.trimEnd().split('\n').at(-4)!, /\/x-7 Skill 7$/);
+    // the status line takes the final two rows
+    assert.match(text.trimEnd().split('\n').at(-3)!, /\/x-7 Skill 7$/);
   } finally {
     ui.unmount();
   }

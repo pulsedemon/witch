@@ -65,11 +65,12 @@ test('Tab and Enter toggle a tool group, and its members are selectable once ope
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
     await until('the group', () => ui.text().includes('+ ✓ 2 tools'));
-    assert.ok(!ui.text().includes('alpha tool'));
+    assert.ok(!ui.text().split('TOOLS')[0]!.includes('alpha tool'));
     ui.stdin.write(`\t${ENTER}`);
     await until('the open group', () => ui.text().includes('− ✓ 2 tools'));
     assert.ok(
-      ui.text().includes('alpha tool') && ui.text().includes('beta tool'),
+      ui.text().split('TOOLS')[0]!.includes('alpha tool') &&
+        ui.text().split('TOOLS')[0]!.includes('beta tool'),
     );
     ui.stdin.write(DOWN);
     await until('alpha selected', () =>
@@ -79,7 +80,7 @@ test('Tab and Enter toggle a tool group, and its members are selectable once ope
     await delay(30);
     ui.stdin.write(ENTER);
     await until('the closed group', () => ui.text().includes('+ ✓ 2 tools'));
-    assert.ok(!ui.text().includes('alpha tool'));
+    assert.ok(!ui.text().split('TOOLS')[0]!.includes('alpha tool'));
   } finally {
     ui.unmount();
   }

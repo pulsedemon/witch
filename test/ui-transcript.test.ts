@@ -192,8 +192,8 @@ test('two page keys in one read scroll two pages, PageDown back to the bottom fo
   try {
     await delay(60);
     ui.stdin.write('\u001b[5~\u001b[5~');
-    // 302 lines in a 33-row transcript start at row 269; two pages up is 203
-    await until('two pages up', () => rows()[1] === 'row 203');
+    // 302 lines in a 29-row transcript start at row 273; two pages up is 215
+    await until('two pages up', () => rows()[1] === 'row 215');
     assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
     ui.stdin.write('\u001b[6~\u001b[6~');
     await until(
@@ -278,7 +278,7 @@ test('the viewport keeps the blank after an image across resizes', async () => {
   const ui = show(
     createElement(App, { coordinator: app, graphics, onExit: () => {} }),
     42,
-    16,
+    24,
   );
   const rows = () =>
     ui
@@ -324,7 +324,7 @@ test('the wheel scrolls a page and a request by rows', async () => {
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
     100,
-    16,
+    24,
   );
   try {
     await delay(60);
@@ -364,8 +364,8 @@ test('the wheel scrolls a page and a request by rows', async () => {
 });
 
 const CMD_C = '\u001b[99;9u';
-/** App at 60 by 20 unless sized, with each text it copies. */
-function mounted(app: Coordinator, columns = 60, rows = 20) {
+/** App at 60 by 24 unless sized, with each text it copies. */
+function mounted(app: Coordinator, columns = 60, rows = 24) {
   const copied: string[] = [];
   const ui = show(
     createElement(App, {
@@ -1086,13 +1086,13 @@ test('Down with tools focused and no tools keeps the reading position, and End r
   try {
     await delay(60);
     ui.stdin.write('\u001b[5~');
-    await until('a page up', () => top() === 'row 236');
+    await until('a page up', () => top() === 'row 244');
     ui.stdin.write(`\t${DOWN}`);
     await delay(60);
-    assert.equal(top(), 'row 236');
+    assert.equal(top(), 'row 244');
     ui.stdin.write('\u001b[F');
     // the tools hint takes a transcript row
-    await until('live output', () => top() === 'row 270');
+    await until('live output', () => top() === 'row 274');
   } finally {
     ui.unmount();
   }

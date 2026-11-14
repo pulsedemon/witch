@@ -27,6 +27,13 @@ import {
 } from './commands.js';
 import type { WitchCommand, CommandName } from './commands.js';
 import { CommandBatches } from './command-batches.js';
+import { CommandWindow } from './command-window.js';
+import {
+  commandWindowRows,
+  minimumColumns,
+  minimumRows,
+  toolHintLines,
+} from './chat-layout.js';
 import { Input } from './input.js';
 import { inputRows } from './input-layout.js';
 import type { InputHandle } from './input.js';
@@ -65,7 +72,7 @@ import { chooseModel } from './model-choice.js';
 import { ScrollPage } from './scroll-page.js';
 import { helpText } from './help.js';
 import { PhaseRow } from './phase-row.js';
-import { ToolHint, useToolFocus } from './tool-focus.js';
+import { useToolFocus } from './tool-focus.js';
 import { useExitConfirm } from './exit-confirm.js';
 import { accent, colors, piped, potion } from './theme.js';
 import { wrapLines } from './wrap.js';
@@ -146,14 +153,15 @@ export function App({
     () => graphics?.version,
   );
   const size = useWindowSize();
-  const columns = Math.max(30, size.columns);
+  const undersized = size.columns < minimumColumns || size.rows < minimumRows;
+  const columns = Math.max(minimumColumns, size.columns);
   const sidebar = columns - sidebarWidth >= 80;
   const width = sidebar ? columns - sidebarWidth : columns;
   /** inside the body's paddingX. */
   const bodyWidth = width - 2;
   /** inside the composer's border and paddingX. */
   const composerWidth = bodyWidth - 4;
-  const height = Math.max(12, size.rows);
+  const height = Math.max(minimumRows, size.rows);
   const statusTime = useStatusTime();
   const usage = usagePlacement(state, sidebar, height, statusTime);
   // the compiler needs the native fallback's string type to memoize its consumers.
@@ -242,7 +250,6 @@ export function App({
   const transcriptBox = useRef<DOMElement>(null);
   const newMessagesBox = useRef<DOMElement>(null);
   const pressedNewMessages = useRef(false);
-  /** where an end is drawn: at the width it was measured at, in an item still shown, while its row reads as it did. */
   const pointOf = (end: RangeEnd): Point | undefined => {
     const row = transcript.rowOf(end.anchor);
     return end.width === width &&
@@ -251,7 +258,6 @@ export function App({
       ? { row, column: end.column }
       : undefined;
   };
-  /** a range's ends in reading order, while both are drawn. */
   const endsOf = (dragged: typeof range) => {
     const from = dragged && pointOf(dragged.from);
     const to = dragged && pointOf(dragged.to);
@@ -285,29 +291,6 @@ export function App({
     return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
   };
   const liveAgent = state.native?.agent ?? state.conversation?.agent;
-  const { lines: status, errors: errorRows } = statusFooter(
-    {
-      ...usage.status,
-      model:
-        state.models.find(
-          ({ id, agent }) => id === model && agent === liveAgent,
-        )?.label ?? model,
-      effort: state.native?.effort ?? state.native?.nativeEffort,
-      usage: state.usage,
-      openedAt: state.openedAt,
-      cwd,
-      repository: repositoryStatus,
-    },
-    statusTime,
-    {
-      width: width - 2,
-      height,
-      error: state.error,
-      bodyRows:
-        6 + Number(agentWorking(state.phase)) + Number(state.pendingCompaction),
-    },
-  );
-  const bodyHeight = height - 1 - status.length - errorRows.length;
   /** a draft belongs to its conversation, so typing waits for the load or a switch to open one. */
   const composerOpen = (snapshot: Snapshot, leaving: string | undefined) =>
     !!snapshot.conversation &&
@@ -369,7 +352,6 @@ export function App({
       return items.length ? { ...token, items } : undefined;
     }
   };
-  /** the selection, clamped to a list that may have shrunk since it moved. */
   const selectedIn = (open: CompletionList, index: number) =>
     Math.min(index, open.items.length - 1);
   const list = listFor(
@@ -393,15 +375,47 @@ export function App({
     toolFocus.focused && selectedTool?.diff && canExpandDiff(selectedTool.diff)
       ? diffExpansionHint(toolFocus.fullDiffs.has(selectedTool.id))
       : undefined;
-  const listRows = list
-    ? Math.min(8, list.items.length, Math.max(1, bodyHeight - 7))
-    : toolFocus.focused
-      ? 1 + Number(!!diffHint)
-      : 0;
-  const listFirst = Math.max(0, listSelected - listRows + 1);
-  const controlsRows =
-    3 + listRows + Number(working) + Number(state.pendingCompaction);
+  const request = state.requests[0];
+  const recovering = state.phase === 'recovery';
+  const chat = view.kind === 'chat' && !request && !recovering;
   const minimumTranscriptRows = 2;
+  const toolHint = toolFocus.focused ? toolHintLines(bodyWidth, diffHint) : [];
+  const minimumListRows = list ? 1 : toolHint.length;
+  const fixedControlsRows =
+    3 + commandWindowRows + Number(working) + Number(state.pendingCompaction);
+  const { lines: status, errors: errorRows } = statusFooter(
+    {
+      ...usage.status,
+      model:
+        state.models.find(
+          ({ id, agent }) => id === model && agent === liveAgent,
+        )?.label ?? model,
+      effort: state.native?.effort ?? state.native?.nativeEffort,
+      usage: state.usage,
+      openedAt: state.openedAt,
+      cwd,
+      repository: repositoryStatus,
+    },
+    statusTime,
+    {
+      width: width - 2,
+      height,
+      error: state.error,
+      bodyRows: chat
+        ? minimumTranscriptRows + 1 + fixedControlsRows + minimumListRows
+        : 6 + Number(working) + Number(state.pendingCompaction),
+    },
+  );
+  const bodyHeight = height - 1 - status.length - errorRows.length;
+  const listRows = list
+    ? Math.min(
+        8,
+        list.items.length,
+        Math.max(1, bodyHeight - fixedControlsRows - minimumTranscriptRows - 1),
+      )
+    : minimumListRows;
+  const listFirst = Math.max(0, listSelected - listRows + 1);
+  const controlsRows = fixedControlsRows + listRows;
   // leave the transcript's minimum height intact when the footer squeezes the body.
   const composerRows = Math.min(
     Math.max(
@@ -426,12 +440,11 @@ export function App({
       anchor !== null &&
       read.conversation === state.conversation?.id &&
       read.items !== state.items;
-    const rows = freeRows - Number(newMessages);
     const queueRows = Math.max(
       0,
-      Math.min(state.queue.length, rows - minimumTranscriptRows),
+      Math.min(state.queue.length, freeRows - minimumTranscriptRows),
     );
-    const availableRows = Math.max(minimumTranscriptRows, rows - queueRows);
+    const availableRows = Math.max(minimumTranscriptRows, freeRows - queueRows);
     const row = anchor === null ? Infinity : transcript.rowOf(anchor);
     // decide before the notice takes a row, so hiding the last old row cannot turn it off
     const unpinnedTop = Math.min(
@@ -483,7 +496,6 @@ export function App({
       );
   const choices = view.kind === 'picker' ? filter(view.choices, query) : [];
   const selected = Math.min(selection, Math.max(0, choices.length - 1));
-  const request = state.requests[0];
   const busy = working || ['editing', 'closing'].includes(state.phase);
 
   const run = (operation: Promise<unknown>) => {
@@ -939,7 +951,6 @@ export function App({
     if (state.phase === 'recovery') setPageScroll(0);
   }, [state.phase]);
 
-  const recovering = state.phase === 'recovery';
   const recovery = recovering ? state.recovery : undefined;
   const conflict = recovery?.kind === 'conflict';
   const pageView = recovering ? undefined : view;
@@ -990,9 +1001,11 @@ export function App({
       scroll={pageScroll}
       setScroll={setPageScroll}
       arrows
+      active={!undersized}
     />
   );
   usePointer((pointer, { column, row }) => {
+    if (undersized) return;
     // a press or release ends the drag even while another view covers the transcript
     if (pointer !== 'drag') {
       pressedAt.current = undefined;
@@ -1021,7 +1034,6 @@ export function App({
     const shown = Math.min(height, transcript.lines.length - first);
     // a queued scroll can move the notice before Ink moves the content box
     const origin = box.y + Number(currentPinned) - Number(pinned);
-    // past the top or bottom, the row a drag scrolls in
     const offset = Math.max(-1, Math.min(shown, row - origin));
     const at = Math.max(
       0,
@@ -1043,6 +1055,7 @@ export function App({
     }
   });
   useClick(() => {
+    if (undersized) return;
     if (
       pressedNewMessages.current &&
       newMessagesBox.current &&
@@ -1063,7 +1076,8 @@ export function App({
       toolFocus.toggle(item, transcript.members(item.id));
   });
   useWheel((rows) => {
-    if (!request && !recovering && view.kind === 'chat') scrollBy(rows);
+    if (!undersized && !request && !recovering && view.kind === 'chat')
+      scrollBy(rows);
   });
 
   useInput((input, key) => {
@@ -1076,6 +1090,7 @@ export function App({
         batches.cancel();
         dismissPicker(false);
       } else if (
+        !undersized &&
         viewRef.current.kind === 'chat' &&
         !toolFocus.focusedRef.current &&
         composerOpen(state, leavingRef.current) &&
@@ -1085,6 +1100,7 @@ export function App({
       else exit.press();
       return;
     }
+    if (undersized) return;
     if (key.super && input === 'c') {
       // nothing copies while another view covers the transcript, and blank rows or images hold no text to replace the clipboard with
       const selected = endsOf(rangeRef.current);
@@ -1178,6 +1194,7 @@ export function App({
       <Request
         key={request.id}
         request={request}
+        active={!undersized}
         width={bodyWidth}
         height={bodyHeight}
         cwd={cwd}
@@ -1241,7 +1258,7 @@ export function App({
           key={view.title}
           width={bodyWidth}
           height={1}
-          active
+          active={!undersized}
           multiline={false}
           placeholder="Filter, then Enter"
           onChange={(text) => {
@@ -1363,16 +1380,17 @@ export function App({
             ))}
           </Box>
         )}
+        <CommandWindow items={state.items} />
         {working && <Activity />}
-        {newMessages && (
-          <Box height={1} justifyContent="center">
+        <Box height={1} flexShrink={0} justifyContent="center">
+          {newMessages && (
             <Box ref={newMessagesBox}>
               <Text color={accent} inverse>
                 {' ↓ New messages '}
               </Text>
             </Box>
-          </Box>
-        )}
+          )}
+        </Box>
         <Box
           borderStyle="bold"
           borderColor={
@@ -1386,12 +1404,11 @@ export function App({
           paddingX={1}
         >
           <Input
-            // Input reads its initial value only when it mounts
             key={state.conversation?.id ?? 'initial'}
             width={composerWidth}
             height={composerRows}
             shell
-            active={!toolFocus.focused && composerPhase}
+            active={!undersized && !toolFocus.focused && composerPhase}
             ref={composer}
             initialValue={draftOf(drafts, state) ?? ''}
             placeholder={
@@ -1431,40 +1448,53 @@ export function App({
               ))}
           </Box>
         ) : (
-          toolFocus.focused && <ToolHint hint={diffHint} />
+          toolFocus.focused && <Text dimColor>{toolHint.join('\n')}</Text>
         )}
       </Box>
     );
   }
   return (
-    <Box width={columns} height={height}>
-      <Box flexDirection="column" width={width} height={height}>
-        <PhaseRow
-          state={state}
-          reading={top !== null && view.kind === 'chat'}
-          counts={!sidebar}
-          exitArmed={exit.armed}
-        />
-        <Box flexDirection="column" paddingX={1}>
-          {body}
-        </Box>
-        {errorRows.length > 0 && (
-          <Box height={errorRows.length} paddingX={1} overflow="hidden">
-            <Text color="red">{errorRows.join('\n')}</Text>
-          </Box>
-        )}
-        <StatusLine lines={status} />
-      </Box>
-      {sidebar && (
-        <Sidebar
-          height={height}
-          activity={coordinator.pentacle}
-          brews={state.backgroundCommands}
-          subagents={state.subagents}
-          peers={coordination?.peers}
-          usage={usage.sidebar}
-        />
+    <Box width={size.columns} height={size.rows} overflow="hidden">
+      {undersized && (
+        <Text>
+          {exit.armed
+            ? 'Press Ctrl+C again to quit.'
+            : `Resize terminal to at least ${minimumColumns} columns × ${minimumRows} rows.`}
+        </Text>
       )}
+      <Box
+        display={undersized ? 'none' : 'flex'}
+        width={columns}
+        height={height}
+      >
+        <Box flexDirection="column" width={width} height={height}>
+          <PhaseRow
+            state={state}
+            reading={top !== null && view.kind === 'chat'}
+            counts={!sidebar}
+            exitArmed={exit.armed}
+          />
+          <Box flexDirection="column" paddingX={1}>
+            {body}
+          </Box>
+          {errorRows.length > 0 && (
+            <Box height={errorRows.length} paddingX={1} overflow="hidden">
+              <Text color="red">{errorRows.join('\n')}</Text>
+            </Box>
+          )}
+          <StatusLine lines={status} />
+        </Box>
+        {sidebar && (
+          <Sidebar
+            height={height}
+            activity={coordinator.pentacle}
+            brews={state.backgroundCommands}
+            subagents={state.subagents}
+            peers={coordination?.peers}
+            usage={usage.sidebar}
+          />
+        )}
+      </Box>
     </Box>
   );
 }

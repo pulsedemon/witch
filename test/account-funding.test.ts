@@ -583,8 +583,8 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
   for (const [width, height] of [
     [115, 40],
     [80, 40],
-    [115, 15],
-    [30, 20],
+    [115, 24],
+    [30, 24],
   ] as const) {
     const ui = show(
       createElement(App, { coordinator: app, onExit() {} }),
@@ -610,9 +610,19 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
   );
 });
 
-test('a tiny terminal preserves the composer and live balance beside two accounts and a long error', async () => {
+test('the minimum terminal preserves the composer and live balance beside two accounts and a long error', async () => {
   const now = Date.now();
   const { app, coordinator, calls } = fake({
+    items: [
+      {
+        id: 'turn/codex/live',
+        kind: 'tool',
+        title: 'live command',
+        text: '',
+        cwd: '/work',
+        done: false,
+      },
+    ],
     error:
       'A long error which wraps onto several rows in a narrow terminal. '.repeat(
         3,
@@ -657,13 +667,13 @@ test('a tiny terminal preserves the composer and live balance beside two account
   const ui = show(
     createElement(App, { coordinator: app, onExit() {} }),
     30,
-    12,
+    24,
   );
   try {
     await until('live balance', () =>
       ui.text().includes('42886.6046410000 credits'),
     );
-    assert.equal(ui.text().split('\n').length, 12);
+    assert.equal(ui.text().split('\n').length, 24);
     assert.match(ui.text(), /Ask the agent/);
     assert.match(ui.text(), /\/delegation/);
     for (const [funding, expected] of [
@@ -690,7 +700,7 @@ test('a tiny terminal preserves the composer and live balance beside two account
         'blocked live balance',
         () => ui.text().includes(expected) && ui.text().includes('BLOCKED'),
       );
-      assert.equal(ui.text().split('\n').length, 12);
+      assert.equal(ui.text().split('\n').length, 24);
       assert.match(ui.text(), /Ask the agent/);
     }
     const draft = 'first line\nsecond line\nthird line\nfourth line';
@@ -731,7 +741,9 @@ test('a tiny terminal preserves the composer and live balance beside two account
           )
         );
       });
-      assert.equal(ui.text().split('\n').length, 12);
+      assert.equal(ui.text().split('\n').length, 24);
+      assert.match(ui.text(), /live command/);
+      if (phase === 'running') assert.match(ui.text(), /[A-Z]+ \| \d+S/);
       assert.match(ui.text(), /^ ┃ fourth line\s+┃$/m);
       assert.match(ui.text(), /^ ┗━+┛$/m);
       if (pendingCompaction) assert.match(ui.text(), /^ Pending: \/compact$/m);

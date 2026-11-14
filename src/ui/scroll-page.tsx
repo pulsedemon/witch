@@ -8,6 +8,7 @@ interface Props {
   scroll: number;
   setScroll: Dispatch<SetStateAction<number>>;
   arrows?: boolean;
+  active?: boolean;
 }
 
 export function ScrollPage({
@@ -16,6 +17,7 @@ export function ScrollPage({
   scroll,
   setScroll,
   arrows = false,
+  active = true,
 }: Props) {
   const last = Math.max(0, lines.length - height);
   const top = Math.min(scroll, last);
@@ -25,9 +27,11 @@ export function ScrollPage({
       Math.max(0, Math.min(last, Math.min(value, last) + rows)),
     );
   // request input guards do not block scrolling.
-  useWheel(scrollBy);
+  useWheel((rows) => {
+    if (active) scrollBy(rows);
+  });
   useInput((_, key) => {
-    if (key.eventType === 'release') return;
+    if (!active || key.eventType === 'release') return;
     const rows = key.pageDown
       ? height
       : arrows && key.downArrow

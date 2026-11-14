@@ -3,6 +3,7 @@ import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { Snapshot } from '../src/core/snapshot.js';
+import { SidebarView } from './fixtures/ui.js';
 import { App } from '../src/ui/app.js';
 import { show, forgedLink, fake } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
@@ -275,7 +276,7 @@ for (const height of [20, 19, 15])
       ],
     });
     const ui = show(
-      createElement(App, { coordinator: app, onExit: () => {} }),
+      createElement(SidebarView, { coordinator: app, height }),
       115,
       height,
     );
@@ -346,7 +347,7 @@ for (const height of [21, 20, 16])
     ];
     const { app, coordinator } = fake({ subagents });
     const ui = show(
-      createElement(App, { coordinator: app, onExit: () => {} }),
+      createElement(SidebarView, { coordinator: app, height }),
       115,
       height,
     );
@@ -408,7 +409,7 @@ test('a long task name does not consume the observed model row and late model id
   };
   const { app, coordinator } = fake({ subagents: [subagent] });
   const ui = show(
-    createElement(App, { coordinator: app, onExit: () => {} }),
+    createElement(SidebarView, { coordinator: app, height: 20 }),
     115,
     20,
   );
@@ -627,7 +628,7 @@ test('familiars that overflow the sidebar show the last whole familiars in tree 
     })),
   });
   const ui = show(
-    createElement(App, { coordinator: app, onExit: () => {} }),
+    createElement(SidebarView, { coordinator: app, height: 19 }),
     115,
     19,
   );
@@ -699,7 +700,7 @@ test('brews take the sidebar rows first and show their last whole brews under a 
     backgroundCommands: [1, 2, 3, 4, 5, 6, 7, 8].map(brew),
   });
   const ui = show(
-    createElement(App, { coordinator: app, onExit: () => {} }),
+    createElement(SidebarView, { coordinator: app, height: 19 }),
     115,
     19,
   );
@@ -829,7 +830,7 @@ test('while the agent works, a row above the composer names a verb and counts th
     const composer = lines.findIndex((line) =>
       line.trimStart().startsWith('┏'),
     );
-    return lines[composer - 1]?.trim() ?? '';
+    return lines[composer - 2]?.trim() ?? '';
   };
   const activity =
     /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (CONJURING|SCRYING|BREWING|DIVINING|INCANTING|SUMMONING|HEXING|TRANSMUTING) \| (\d+)S \| ESC TO INTERRUPT$/;
@@ -958,13 +959,21 @@ test('a terminal too short for the usage block leaves usage to the status line',
   const { app } = fake({
     accounts: {
       a: { limits: [window('5H', 20), window('7D', 75)] },
-      b: { limits: [window('5H', 12), window('7D', 40)] },
+      b: {
+        limits: [
+          window('5H', 12),
+          window('7D', 40),
+          ...Array.from({ length: 10 }, (_, index) =>
+            window(`model ${index}`, index),
+          ),
+        ],
+      },
     },
   });
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
     115,
-    15,
+    24,
   );
   try {
     await until('the status line', () => ui.text().includes('B 5H 12% 7D 40%'));
