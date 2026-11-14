@@ -284,6 +284,11 @@ for (const relative of ['.git', 'gitdir'])
     const report = await f.repair('w/main');
     assert.deepEqual(report.blocked, []);
     assert.deepEqual(report.unresolved, []);
+    assert.ok(
+      (await git(f.at('w/main'), 'worktree', 'list', '--porcelain')).includes(
+        `worktree ${f.at('w/main-1')}\n`,
+      ),
+    );
   });
 
 for (const [move, to, main] of [
