@@ -54,6 +54,7 @@ test('absorption uses a fixed number of Git processes for growing reports and re
   for (const count of [1, 100, 400]) {
     const calls: string[][] = [];
     const indexes: string[] = [];
+    const pathspecs: string[] = [];
 
     const names = Array.from(
       { length: 400 },
@@ -65,6 +66,9 @@ test('absorption uses a fixed number of Git processes for growing reports and re
 
       if (args.includes('update-index'))
         indexes.push(options.env!.GIT_INDEX_FILE!);
+
+      if (args.includes('--pathspec-from-file=-'))
+        pathspecs.push(...options.input!.split('\0').filter(Boolean));
 
       return execute(command, args, options);
     };
@@ -116,6 +120,8 @@ test('absorption uses a fixed number of Git processes for growing reports and re
       ),
       [['-reported', '+later']],
     );
+
+    assert.deepEqual(pathspecs, []);
   }
 
   assert.equal(new Set(counts).size, 1);
@@ -802,4 +808,103 @@ test('packed binary versions are reclaimed and deleting the last private blob le
   });
 
   assert.equal(await size(), 0);
+});
+
+test('sparse checkout changes preserve omitted tracked files and still report included edits', async () => {
+  const { work, git, changes } = await repository({
+    'keep.txt': 'kept\n',
+    'omit.txt': 'omitted\n',
+  });
+
+  await changes.watch(work);
+
+  await git('sparse-checkout', 'init', '--no-cone');
+
+  await git('sparse-checkout', 'set', '/keep.txt');
+
+  assert.deepEqual(await changes.read(work), {
+    files: [],
+    withHead: 0,
+    more: 0,
+  });
+
+  await writeFile(join(work, 'keep.txt'), 'edited\n');
+
+  assert.deepEqual(
+    (await changes.read(work)).files.map((file) => ({
+      path: file.path,
+      lines: file.hunks.flatMap((hunk) => hunk.lines),
+    })),
+    [{ path: join(work, 'keep.txt'), lines: ['-kept', '+edited'] }],
+  );
+
+  await git('sparse-checkout', 'disable');
+
+  assert.deepEqual(await changes.read(work), {
+    files: [],
+    withHead: 0,
+    more: 0,
+  });
+});
+
+test('text edits retain an unchanged private pack without rewriting its payload', async () => {
+  const calls: string[][] = [];
+  let directory = '';
+
+  const run: GitRun = (command, args, options) => {
+    calls.push(args);
+
+    directory = options.env?.GIT_OBJECT_DIRECTORY ?? directory;
+
+    return execute(command, args, options);
+  };
+
+  const { work, git, changes } = await repository({ 'a.txt': 'base\n' }, run);
+
+  await git('config', 'core.bigFileThreshold', '1k');
+
+  await changes.watch(work);
+
+  await writeFile(join(work, 'data.bin'), binary(1));
+
+  await changes.read(work);
+
+  await changes.read(work);
+
+  const names = (await readdir(join(directory, 'pack'))).filter((name) =>
+    name.endsWith('.pack'),
+  );
+
+  assert.ok(names.length > 0);
+
+  const before = await Promise.all(
+    names.map((name) => stat(join(directory, 'pack', name), { bigint: true })),
+  );
+
+  calls.length = 0;
+
+  await writeFile(join(work, 'a.txt'), 'edited\n');
+
+  assert.deepEqual(
+    (await changes.read(work)).files.map((file) =>
+      file.hunks.flatMap((hunk) => hunk.lines),
+    ),
+    [['-base', '+edited']],
+  );
+
+  assert.deepEqual(await changes.read(work), {
+    files: [],
+    withHead: 0,
+    more: 0,
+  });
+
+  assert.equal(calls.filter((args) => args.includes('pack-objects')).length, 0);
+
+  for (const [index, name] of names.entries()) {
+    const after = await stat(join(directory, 'pack', name), { bigint: true });
+
+    assert.equal(after.ino, before[index]!.ino);
+
+    assert.equal(after.mtimeNs, before[index]!.mtimeNs);
+  }
 });

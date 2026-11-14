@@ -1062,6 +1062,9 @@ for (const wording of ['the installed', 'a newer'])
 test('a path Git could not add fails the snapshot and is the one named, beside a nested repository with no commit', async () => {
   const { root, work } = await repository({ 'a.txt': 'a\n' });
 
+  for (const name of ['nested', 'locked'])
+    await execute('git', ['init', '-q', join(work, name)]);
+
   // what `add --ignore-errors` says and exits with when it also met a file it couldn't open
   const run: Run = (command, args, options) =>
     args.includes('add')

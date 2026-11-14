@@ -57,7 +57,7 @@ interface SnapshotState {
   latest?: Baseline;
   source?: string;
   configuration?: string;
-  tracked: Map<string, TreeEntry>;
+  tracked: Map<string, TreeEntry & { skipped: boolean }>;
   entries: Map<string, TreeEntry>;
   metadata: Map<string, FileState | undefined>;
   attributes: Map<string, string>;
@@ -618,12 +618,17 @@ export class WorkTreeChanges {
     if (reset) {
       state.tracked = new Map(
         fields(
-          await this.git(original, ['ls-files', '-s', '-z'], listBuffer),
+          await this.git(original, ['ls-files', '-s', '-t', '-z'], listBuffer),
         ).map((row) => {
           const tab = row.indexOf('\t');
-          const [mode, id] = row.slice(0, tab).split(' ') as [string, string];
 
-          return [row.slice(tab + 1), { mode, id }];
+          const [status, mode, id] = row.slice(0, tab).split(' ') as [
+            string,
+            string,
+            string,
+          ];
+
+          return [row.slice(tab + 1), { mode, id, skipped: status === 'S' }];
         }),
       );
     }
@@ -718,7 +723,11 @@ export class WorkTreeChanges {
 
       metadata.set(path, current);
 
-      if (state.tracked.get(path)?.mode === gitlink || ignored.has(path))
+      if (
+        state.tracked.get(path)?.mode === gitlink ||
+        state.tracked.get(path)?.skipped ||
+        ignored.has(path)
+      )
         continue;
 
       if (
@@ -732,8 +741,8 @@ export class WorkTreeChanges {
     }
 
     const remove = new Set(ignored);
-    const force: string[] = [];
-    const normal: string[] = [];
+    const files: string[] = [];
+    const directories: string[] = [];
     const input: string[] = [];
     const zero = '0'.repeat(state.hashLength);
 
@@ -761,14 +770,14 @@ export class WorkTreeChanges {
         input.push(`${originalEntry.mode} ${originalEntry.id}\t${path}\0`);
       else if (entry) remove.add(path);
 
-      (state.tracked.has(path) ? force : normal).push(path);
+      (current.directory ? directories : files).push(path);
     }
 
     const indexInput =
       [...remove].map((path) => `0 ${zero}\t${path}\0`).join('') +
       input.join('');
 
-    if (reset || indexInput.length || force.length || normal.length)
+    if (reset || indexInput.length || files.length || directories.length)
       state.objectsChanged = true;
 
     if (indexInput.length)
@@ -779,15 +788,21 @@ export class WorkTreeChanges {
         indexInput,
       );
 
-    await this.add(checkout, force, true);
+    if (files.length)
+      await this.git(
+        checkout,
+        ['update-index', '--add', '--replace', '-z', '--stdin'],
+        undefined,
+        `${files.join('\0')}\0`,
+      );
 
-    await this.add(checkout, normal, false);
+    await this.add(checkout, directories);
 
     const tree =
       reset ||
       indexInput.length ||
-      force.length ||
-      normal.length ||
+      files.length ||
+      directories.length ||
       !state.latest
         ? (await this.git(checkout, ['write-tree'])).trim()
         : state.latest.tree;
@@ -863,11 +878,7 @@ export class WorkTreeChanges {
     );
   }
 
-  private async add(
-    checkout: Checkout,
-    paths: string[],
-    force: boolean,
-  ): Promise<void> {
+  private async add(checkout: Checkout, paths: string[]): Promise<void> {
     if (!paths.length) return;
 
     try {
@@ -878,7 +889,7 @@ export class WorkTreeChanges {
           'add',
           '-A',
           '--ignore-errors',
-          ...(force ? ['-f'] : []),
+          '-f',
           '--pathspec-from-file=-',
           '--pathspec-file-nul',
         ],
@@ -935,7 +946,24 @@ export class WorkTreeChanges {
     const directory = checkout.env.GIT_OBJECT_DIRECTORY!;
     const objectName = new RegExp(`^[0-9a-f]{${state.hashLength - 2}}$`);
     const directories = await readdir(directory, { withFileTypes: true });
-    let repacked = false;
+    const loose: string[] = [];
+
+    for (const fanout of directories) {
+      if (!fanout.isDirectory() || !/^[0-9a-f]{2}$/.test(fanout.name)) continue;
+
+      for (const file of await readdir(join(directory, fanout.name), {
+        withFileTypes: true,
+      })) {
+        this.closing.signal.throwIfAborted();
+
+        if (!file.isFile() || !objectName.test(file.name)) continue;
+
+        const path = join(directory, fanout.name, file.name);
+
+        if (reachable.has(fanout.name + file.name)) loose.push(path);
+        else await unlink(path);
+      }
+    }
 
     if (
       directories.some((entry) => entry.name === 'pack' && entry.isDirectory())
@@ -951,48 +979,52 @@ export class WorkTreeChanges {
       );
 
       if (previous.some((name) => name.endsWith('.pack'))) {
-        const ids = new Set(
-          (
-            await this.git(
-              checkout,
-              [
-                'pack-objects',
-                '--revs',
-                '--local',
-                '--non-empty',
-                '--window=0',
-                join(packDirectory, 'pack'),
-              ],
-              listBuffer,
-              `${roots.join('\n')}\n`,
-            )
-          )
-            .trim()
-            .split('\n'),
+        const stored = await this.git(
+          {
+            ...checkout,
+            env: { ...checkout.env, GIT_ALTERNATE_OBJECT_DIRECTORIES: '' },
+          },
+          [
+            'cat-file',
+            '--batch-all-objects',
+            '--batch-check=%(objectname)',
+            '--unordered',
+          ],
+          listBuffer,
         );
 
-        for (const name of previous)
-          if (!ids.has(packName.exec(name)![1]!))
-            await unlink(join(packDirectory, name));
-
-        repacked = true;
-      }
-    }
-
-    for (const fanout of directories) {
-      if (!fanout.isDirectory() || !/^[0-9a-f]{2}$/.test(fanout.name)) continue;
-
-      for (const file of await readdir(join(directory, fanout.name), {
-        withFileTypes: true,
-      })) {
-        this.closing.signal.throwIfAborted();
-
         if (
-          file.isFile() &&
-          objectName.test(file.name) &&
-          (repacked || !reachable.has(fanout.name + file.name))
-        )
-          await unlink(join(directory, fanout.name, file.name));
+          stored
+            .trim()
+            .split('\n')
+            .some((id) => !reachable.has(id))
+        ) {
+          const ids = new Set(
+            (
+              await this.git(
+                checkout,
+                [
+                  'pack-objects',
+                  '--revs',
+                  '--local',
+                  '--non-empty',
+                  '--window=0',
+                  join(packDirectory, 'pack'),
+                ],
+                listBuffer,
+                `${roots.join('\n')}\n`,
+              )
+            )
+              .trim()
+              .split('\n'),
+          );
+
+          for (const name of previous)
+            if (!ids.has(packName.exec(name)![1]!))
+              await unlink(join(packDirectory, name));
+
+          for (const path of loose) await unlink(path);
+        }
       }
     }
 
