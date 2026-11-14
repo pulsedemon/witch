@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
+import { open } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
-import { onTestFinished, test } from 'vitest';
+import { onTestFinished, test, vi } from 'vitest';
 import { refreshInstall } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
+import { sharedRebuild } from '../../../src/core/repository/shared-rebuild.js';
 import { git } from '../../fixtures/git.js';
 import { merged } from '../../fixtures/merged.js';
 import { configureGitEnvironment } from '../../fixtures/merged-environment.js';
+import { scratch } from '../../fixtures/scratch.js';
 import { until, within } from '../../fixtures/within.js';
 
 configureGitEnvironment();
@@ -258,4 +262,89 @@ test('a completed joined rebuild resumes without fetching or reporting an interv
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
 
   assert.deepEqual(calls, []);
+});
+
+test('a failed receipt write releases its waiter and allows a later rebuild', async () => {
+  const root = await scratch('witch-rebuild-receipt-');
+  const sample = await open(join(root, 'sample'), 'w');
+  const prototype = Object.getPrototypeOf(sample) as FileHandle;
+  const write = prototype.writeFile;
+
+  await sample.close();
+
+  const publish = vi
+    .spyOn(prototype, 'writeFile')
+    .mockImplementation(async function (this: FileHandle, data, options) {
+      if (typeof data === 'string' && data.startsWith('{"result":'))
+        throw new Error('ENOSPC: receipt publication failed');
+
+      return write.call(this, data, options);
+    });
+
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const waiting = Promise.withResolvers<void>();
+  const abort = new AbortController();
+
+  const options = {
+    signal: abort.signal,
+    waiting: () => waiting.resolve(),
+    failure: (error: unknown) => error as Error,
+  };
+
+  const builder = sharedRebuild(
+    root,
+    async () => {
+      entered.resolve();
+
+      await release.promise;
+
+      return { text: 'rebuilt', built: true };
+    },
+    options,
+  );
+
+  void builder.catch(() => {});
+
+  await entered.promise;
+
+  const waiter = sharedRebuild(
+    root,
+    async () => assert.fail('the waiter must not rebuild'),
+    options,
+  );
+
+  void waiter.catch(() => {});
+
+  try {
+    await waiting.promise;
+
+    release.resolve();
+
+    await assert.rejects(builder, /ENOSPC/);
+
+    await assert.rejects(
+      within(waiter, 5000, 'the failed publication'),
+      /without reporting a result.*unconfirmed/,
+    );
+
+    publish.mockRestore();
+
+    assert.deepEqual(
+      await sharedRebuild(
+        root,
+        async () => ({ text: 'later rebuild', built: true }),
+        options,
+      ),
+      { text: 'later rebuild', built: true },
+    );
+  } finally {
+    publish.mockRestore();
+
+    release.resolve();
+
+    abort.abort();
+
+    await Promise.allSettled([builder, waiter]);
+  }
 });

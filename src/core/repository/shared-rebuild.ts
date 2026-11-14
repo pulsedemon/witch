@@ -59,7 +59,7 @@ async function waitForResult(
   for (;;) {
     signal?.throwIfAborted();
 
-    const { size } = await receipt.stat();
+    const { size, nlink } = await receipt.stat();
 
     const { buffer, bytesRead } = await receipt.read(
       Buffer.alloc(size),
@@ -83,7 +83,7 @@ async function waitForResult(
         'Another Witch stopped rebuilding without reporting a result; the rebuild outcome is unconfirmed.',
       );
 
-    ended = !(await runs(attempt.owner));
+    ended = nlink === 0 || !(await runs(attempt.owner));
 
     if (!ended) await pause(signal);
   }
@@ -171,12 +171,14 @@ export async function sharedRebuild(
     const completion = await admission(directory);
 
     try {
-      // the final newline publishes a complete receipt; already-open readers survive its unlink.
-      await receipt.writeFile(`${JSON.stringify(outcome)}\n`);
+      try {
+        // the final newline publishes a complete receipt; already-open readers survive its unlink.
+        await receipt.writeFile(`${JSON.stringify(outcome)}\n`);
+      } finally {
+        await rm(state);
 
-      await rm(state);
-
-      await rm(pathFor(attempt.id));
+        await rm(pathFor(attempt.id));
+      }
     } finally {
       await completion.close();
     }
