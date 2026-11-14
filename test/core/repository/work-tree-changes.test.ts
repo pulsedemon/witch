@@ -18,6 +18,7 @@ import { test } from 'vitest';
 import type { Run } from '../../../src/core/repository/repository.js';
 import { WorkTreeChanges } from '../../../src/core/repository/work-tree-changes.js';
 import type { Changes } from '../../../src/core/repository/work-tree-changes.js';
+import { execute as executeGit } from '../../../src/core/repository/work-tree-git.js';
 import { scratch } from '../../fixtures/scratch.js';
 
 const execute = promisify(execFile);
@@ -196,44 +197,52 @@ test('a tracked file that an ignore rule matches stays covered, also when only s
   ]);
 });
 
-test("the repository's Git directory keeps its contents through a watch, a read and an absorb", async () => {
-  const { work, git, changes } = await repository({
-    'a.txt': 'a\n',
-    'b.txt': 'b\n',
+for (const packed of [false, true])
+  test(`the repository Git directory keeps its contents with ${packed ? 'packed' : 'loose'} private objects through watch, read and absorb`, async () => {
+    const { work, git, changes } = await repository({
+      'a.txt': 'a\n',
+      'b.txt': 'b\n',
+    });
+
+    await git('config', 'core.splitIndex', 'true');
+
+    if (packed) await git('config', 'core.bigFileThreshold', '1');
+
+    const hook = join(work, '.git', 'hooks', 'post-index-change');
+
+    await mkdir(join(work, '.git', 'hooks'), { recursive: true });
+
+    await writeFile(
+      hook,
+      '#!/bin/sh\ntouch "$(git rev-parse --git-dir)/RAN"\n',
+    );
+
+    await chmod(hook, 0o755);
+
+    await appendFile(join(work, 'a.txt'), 'staged\n');
+
+    await git('add', 'a.txt');
+
+    await rm(join(work, '.git', 'RAN'), { force: true });
+
+    const before = await contents(join(work, '.git'));
+
+    await changes.watch(work);
+
+    await appendFile(join(work, 'a.txt'), 'edited\n');
+
+    await appendFile(join(work, 'b.txt'), 'edited\n');
+
+    await changes.absorb(work, [join(work, 'a.txt')]);
+
+    assert.deepEqual(changed(work, await changes.read(work)), [
+      packed
+        ? { path: 'b.txt', kind: 'update', lines: [], unshown: 'binary' }
+        : { path: 'b.txt', kind: 'update', lines: ['+edited'] },
+    ]);
+
+    assert.deepEqual(await contents(join(work, '.git')), before);
   });
-
-  await git('config', 'core.splitIndex', 'true');
-
-  const hook = join(work, '.git', 'hooks', 'post-index-change');
-
-  await mkdir(join(work, '.git', 'hooks'), { recursive: true });
-
-  await writeFile(hook, '#!/bin/sh\ntouch "$(git rev-parse --git-dir)/RAN"\n');
-
-  await chmod(hook, 0o755);
-
-  await appendFile(join(work, 'a.txt'), 'staged\n');
-
-  await git('add', 'a.txt');
-
-  await rm(join(work, '.git', 'RAN'), { force: true });
-
-  const before = await contents(join(work, '.git'));
-
-  await changes.watch(work);
-
-  await appendFile(join(work, 'a.txt'), 'edited\n');
-
-  await appendFile(join(work, 'b.txt'), 'edited\n');
-
-  await changes.absorb(work, [join(work, 'a.txt')]);
-
-  assert.deepEqual(changed(work, await changes.read(work)), [
-    { path: 'b.txt', kind: 'update', lines: ['+edited'] },
-  ]);
-
-  assert.deepEqual(await contents(join(work, '.git')), before);
-});
 
 test('a read from a subdirectory of a linked worktree covers the whole worktree', async () => {
   const { root, work, git, changes } = await repository();
@@ -597,6 +606,16 @@ test('an equal-length edit made in the second the index was written shows', asyn
   assert.deepEqual(changed(work, await changes.read(work)), [
     { path: 'a.txt', kind: 'update', lines: ['-aaaa', '+bbbb'] },
   ]);
+
+  await changes.read(work);
+
+  await writeFile(join(work, 'a.txt'), 'cccc\n');
+
+  await utimes(join(work, 'a.txt'), second, second);
+
+  assert.deepEqual(changed(work, await changes.read(work)), [
+    { path: 'a.txt', kind: 'update', lines: ['-bbbb', '+cccc'] },
+  ]);
 });
 
 test('a file past the line budget, a binary file and a type change keep their header without lines', async () => {
@@ -741,7 +760,7 @@ test('files past the hundredth are counted, and only the listed files have their
     if (args.includes('--numstat'))
       counted.push(args.slice(args.indexOf('--') + 1));
 
-    return execute(command, args, options);
+    return executeGit(command, args, options);
   };
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
@@ -772,7 +791,7 @@ test('a file whose content Git fails to hand over keeps its header, and the rest
   const run: Run = (command, args, options) =>
     args.includes('cat-file')
       ? Promise.reject(Object.assign(new Error('failed'), { code: 128 }))
-      : execute(command, args, options);
+      : executeGit(command, args, options);
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
 
@@ -917,7 +936,7 @@ test('settled waits for the operations already asked for', async () => {
       order.push('snapshot');
     }
 
-    return execute(command, args, options);
+    return executeGit(command, args, options);
   };
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
@@ -941,7 +960,7 @@ test('close stops the Git call in flight and fails what is queued behind it with
   const run: Run = (command, args, options) => {
     calls.push(args);
 
-    if (!args.includes('write-tree')) return execute(command, args, options);
+    if (!args.includes('write-tree')) return executeGit(command, args, options);
 
     inFlight.resolve();
 
@@ -1022,7 +1041,7 @@ for (const wording of ['the installed', 'a newer'])
     const followed = "error: unable to index file 'nested/'\n";
 
     const run: Run = (command, args, options) =>
-      execute(command, args, options).catch((error: { stderr: string }) => {
+      executeGit(command, args, options).catch((error: { stderr: string }) => {
         if (wording === 'a newer' && !error.stderr.includes(followed))
           error.stderr += followed;
 
@@ -1053,7 +1072,7 @@ test('a path Git could not add fails the snapshot and is the one named, beside a
               "error: 'nested/' does not have a commit checked out\nerror: unable to index file 'nested/'\nerror: open(\"locked\"): Permission denied\nerror: unable to index file 'locked'\n",
           }),
         )
-      : execute(command, args, options);
+      : executeGit(command, args, options);
 
   await assert.rejects(
     new WorkTreeChanges(join(root, 'failing'), run).watch(work),
@@ -1108,7 +1127,7 @@ test('a failed read keeps its baseline, so the next read still shows the change'
       );
     }
 
-    return execute(command, args, options);
+    return executeGit(command, args, options);
   };
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);

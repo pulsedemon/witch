@@ -1,10 +1,21 @@
-import { copyFile, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  readdir,
+  rm,
+  stat,
+  unlink,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { delimiter, join, relative, sep } from 'node:path';
 import { hunks, wholeFile } from '../../agents/file-diff.js';
 import { errorMessage } from '../../errors.js';
 import type { FileDiff } from '../../agents/types.js';
-import { execute, statusEnv } from './repository.js';
-import type { Run } from './repository.js';
+import { statusEnv } from './repository.js';
+import { execute } from './work-tree-git.js';
+import type { GitRun } from './work-tree-git.js';
 
 export interface Changes {
   files: FileDiff[];
@@ -23,9 +34,35 @@ interface Baseline {
 
 interface Checkout {
   top: string;
-  /** the repository's own index, which each snapshot copies. */
   index: string;
   env: NodeJS.ProcessEnv;
+  state: SnapshotState;
+}
+
+interface TreeEntry {
+  mode: string;
+  id: string;
+}
+
+interface FileState {
+  signature: string;
+  directory: boolean;
+}
+
+interface SnapshotState {
+  identity: string;
+  directory: string;
+  hashLength: number;
+  baseline?: Baseline;
+  latest?: Baseline;
+  source?: string;
+  configuration?: string;
+  tracked: Map<string, TreeEntry>;
+  entries: Map<string, TreeEntry>;
+  metadata: Map<string, FileState | undefined>;
+  attributes: Map<string, string>;
+  objectsChanged: boolean;
+  swept?: string;
 }
 
 interface Entry {
@@ -116,15 +153,16 @@ const unindexed = /^error: unable to index file '(.*)'$/;
  * a change shows on the next `read` whatever ran in between.
  */
 export class WorkTreeChanges {
-  private readonly baselines = new Map<string, Baseline>();
+  private readonly checkouts = new Map<string, SnapshotState>();
+  private nextCheckout = 0;
   private chain: Promise<unknown> = Promise.resolve();
   private readonly closing = new AbortController();
-  private readonly run: Run;
+  private readonly run: GitRun;
 
   /** `directory` holds the index copy and the objects; it is created on first use. */
   constructor(
     private readonly directory: string,
-    run: Run = execute,
+    run: GitRun = execute,
   ) {
     const { signal } = this.closing;
 
@@ -142,8 +180,13 @@ export class WorkTreeChanges {
     return this.queue(async () => {
       const checkout = await this.checkout(cwd);
 
-      if (checkout && !this.baselines.has(checkout.top))
-        this.baselines.set(checkout.top, await this.snapshot(checkout));
+      if (checkout && !checkout.state.baseline) {
+        const baseline = await this.snapshot(checkout);
+
+        await this.reclaim(checkout);
+
+        checkout.state.baseline = baseline;
+      }
     });
   }
 
@@ -151,55 +194,56 @@ export class WorkTreeChanges {
   absorb(cwd: string, paths: readonly string[]): Promise<void> {
     return this.queue(async () => {
       const checkout = await this.checkout(cwd);
-      const baseline = checkout && this.baselines.get(checkout.top);
+      const baseline = checkout?.state.baseline;
 
       if (!baseline) return;
 
-      const inside = paths
-        .map((path) => relative(checkout.top, path))
-        .filter(
-          (path) => path && path !== '..' && !path.startsWith(`..${sep}`),
-        );
-
-      if (!inside.length) return;
-
-      const snapshot = await this.snapshot(checkout);
-      const git = (...args: string[]) => this.git(checkout, args);
-
-      await rm(checkout.env.GIT_INDEX_FILE!, { force: true });
-
-      await git('read-tree', baseline.tree);
-
-      for (const path of inside) {
-        const [entry] = fields(
-          await git(
-            '--literal-pathspecs',
-            'ls-tree',
-            '-z',
-            '--full-tree',
-            snapshot.tree,
-            '--',
-            path,
+      const inside = new Set(
+        paths
+          .map((path) => relative(checkout.top, path))
+          .filter(
+            (path) => path && path !== '..' && !path.startsWith(`..${sep}`),
           ),
-        );
+      );
 
-        const [mode, type, id] = entry?.split('\t')[0]!.split(' ') ?? [];
+      if (!inside.size) return;
 
-        if (type === 'blob')
-          await git(
-            'update-index',
-            '--add',
-            // a path the baseline holds as a file can be a directory by now, or the reverse
-            '--replace',
-            '--cacheinfo',
-            `${mode},${id},${path}`,
-          );
-        else await git('update-index', '--force-remove', '--', path);
+      await this.snapshot(checkout);
+
+      const absorption = {
+        ...checkout,
+        env: {
+          ...checkout.env,
+          GIT_INDEX_FILE: join(checkout.state.directory, 'absorb-index'),
+        },
+      };
+
+      const zero = '0'.repeat(checkout.state.hashLength);
+      const input = [...inside].map((path) => `0 ${zero}\t${path}\0`);
+
+      for (const [path, entry] of checkout.state.entries) {
+        if (entry.mode !== gitlink && inside.has(path))
+          input.push(`${entry.mode} ${entry.id}\t${path}\0`);
       }
 
-      const tree = (await git('write-tree')).trim();
+      checkout.state.objectsChanged = true;
 
-      this.baselines.set(checkout.top, { ...baseline, tree });
+      await rm(absorption.env.GIT_INDEX_FILE, { force: true });
+
+      await this.git(absorption, ['read-tree', baseline.tree]);
+
+      await this.git(
+        absorption,
+        ['update-index', '-z', '--index-info'],
+        undefined,
+        input.join(''),
+      );
+
+      const tree = (await this.git(absorption, ['write-tree'])).trim();
+
+      await this.reclaim(checkout, tree);
+
+      checkout.state.baseline = { ...baseline, tree };
     });
   }
 
@@ -211,11 +255,13 @@ export class WorkTreeChanges {
 
       if (!checkout) return none;
 
-      const baseline = this.baselines.get(checkout.top);
+      const baseline = checkout.state.baseline;
       const snapshot = await this.snapshot(checkout);
 
       if (!baseline) {
-        this.baselines.set(checkout.top, snapshot);
+        await this.reclaim(checkout);
+
+        checkout.state.baseline = snapshot;
 
         return none;
       }
@@ -305,7 +351,9 @@ export class WorkTreeChanges {
         files.push(file);
       }
 
-      this.baselines.set(checkout.top, snapshot);
+      await this.reclaim(checkout);
+
+      checkout.state.baseline = snapshot;
 
       return { files, withHead, more: entries.length - shown.length };
     });
@@ -469,21 +517,54 @@ export class WorkTreeChanges {
       path('objects'),
     ]);
 
-    const store = join(this.directory, 'objects');
+    const objectDirectory = await stat(objects, { bigint: true });
+    const identity = `${index}\0${objects}\0${objectDirectory.dev}:${objectDirectory.ino}`;
+    let state = this.checkouts.get(top);
 
-    await mkdir(store, { recursive: true });
+    if (state?.identity !== identity) {
+      if (!this.checkouts.size) {
+        await mkdir(this.directory, { recursive: true });
 
-    // a state directory can sit inside the checkout, and a snapshot must not take in its own storage
-    await writeFile(join(this.directory, '.gitignore'), '*\n');
+        // storage inside the checkout must stay out of its own snapshots.
+        await writeFile(join(this.directory, '.gitignore'), '*\n');
+      }
+
+      state = {
+        identity,
+        directory: join(this.directory, String(this.nextCheckout++)),
+        hashLength:
+          (
+            await this.run(
+              'git',
+              [...options, 'rev-parse', '--show-object-format'],
+              { cwd: top, timeout, env },
+            )
+          ).stdout.trim() === 'sha256'
+            ? 64
+            : 40,
+        tracked: new Map(),
+        entries: new Map(),
+        metadata: new Map(),
+        attributes: new Map(),
+        objectsChanged: false,
+      };
+
+      await mkdir(join(state.directory, 'objects'), { recursive: true });
+
+      this.checkouts.set(top, state);
+    }
+
+    const store = join(state.directory, 'objects');
 
     const inherited = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
 
     return {
       top,
       index,
+      state,
       env: {
         ...env,
-        GIT_INDEX_FILE: join(this.directory, 'index'),
+        GIT_INDEX_FILE: join(state.directory, 'index'),
         GIT_OBJECT_DIRECTORY: store,
         // quoted, since the list splits at a bare `:`
         GIT_ALTERNATE_OBJECT_DIRECTORIES:
@@ -495,6 +576,19 @@ export class WorkTreeChanges {
 
   /** the checkout as a tree: what the repository's index tracks plus untracked files that aren't ignored. */
   private async snapshot(checkout: Checkout): Promise<Baseline> {
+    try {
+      return await this.refresh(checkout);
+    } catch (error) {
+      checkout.state.source = undefined;
+
+      checkout.state.metadata.clear();
+
+      throw error;
+    }
+  }
+
+  private async refresh(checkout: Checkout): Promise<Baseline> {
+    const { state } = checkout;
     const at = Math.floor(Date.now() / 1000);
     let head: string | undefined;
 
@@ -511,39 +605,286 @@ export class WorkTreeChanges {
       if (exitCode(error) !== 1) throw error;
     }
 
-    const copy = checkout.env.GIT_INDEX_FILE!;
+    const original = {
+      ...checkout,
+      env: { ...checkout.env, GIT_INDEX_FILE: checkout.index },
+    };
 
-    await rm(copy, { force: true });
+    const source =
+      (await this.fileState(checkout.index))?.signature ?? 'missing';
 
-    try {
-      const { atime, mtime } = await stat(checkout.index);
+    let reset = state.source !== source;
 
-      await copyFile(checkout.index, copy);
+    if (reset) {
+      state.tracked = new Map(
+        fields(
+          await this.git(original, ['ls-files', '-s', '-z'], listBuffer),
+        ).map((row) => {
+          const tab = row.indexOf('\t');
+          const [mode, id] = row.slice(0, tab).split(' ') as [string, string];
 
-      // Git rechecks an entry as old as its index, which catches an edit made in the second the index was written
-      await utimes(copy, atime, mtime);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          return [row.slice(tab + 1), { mode, id }];
+        }),
+      );
     }
 
-    // `add` asks a nested repository the index tracks whether it changed, which can run a filter that repository's
-    // own config names, so each stays out of the add and keeps the commit the index holds
-    const tracked = fields(
-      await this.git(checkout, ['ls-files', '-s', '-z'], listBuffer),
-    )
-      .filter((entry) => entry.startsWith(gitlink))
-      .map(
-        (entry) =>
-          `:(top,exclude,literal)${entry.slice(entry.indexOf('\t') + 1)}`,
+    const discovered = new Set(
+      fields(
+        await this.git(
+          checkout,
+          ['ls-files', '--others', '--exclude-standard', '-z'],
+          listBuffer,
+        ),
+      ).map((path) => path.replace(/\/$/, '')),
+    );
+
+    const ignored = new Set(
+      fields(
+        await this.git(
+          checkout,
+          ['ls-files', '--cached', '--ignored', '--exclude-standard', '-z'],
+          listBuffer,
+        ),
+      ).filter((path) => !state.tracked.has(path)),
+    );
+
+    const paths = new Set([
+      ...state.tracked.keys(),
+      ...state.entries.keys(),
+      ...discovered,
+    ]);
+
+    const configuration = await this.git(
+      checkout,
+      ['config', '--null', '--list'],
+      listBuffer,
+    );
+
+    const attributes = new Map([...paths].map((path) => [path, '']));
+
+    if (paths.size) {
+      const rows = fields(
+        await this.git(
+          original,
+          ['check-attr', '--all', '-z', '--stdin'],
+          listBuffer,
+          `${[...paths].join('\0')}\0`,
+        ),
       );
 
+      for (let index = 0; index + 2 < rows.length; index += 3) {
+        const path = rows[index]!;
+
+        attributes.set(
+          path,
+          `${attributes.get(path) ?? ''}${rows[index + 1]}\0${rows[index + 2]}\0`,
+        );
+      }
+    }
+
+    reset ||=
+      state.configuration !== configuration ||
+      [...state.attributes].some(
+        ([path, value]) => paths.has(path) && attributes.get(path) !== value,
+      );
+
+    let entries = state.entries;
+
+    if (reset) {
+      const copy = checkout.env.GIT_INDEX_FILE!;
+
+      await rm(copy, { force: true });
+
+      try {
+        const { atime, mtime } = await stat(checkout.index);
+
+        await copyFile(checkout.index, copy);
+
+        await utimes(copy, atime, mtime);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+
+      entries = state.tracked;
+    }
+
+    const metadata = new Map<string, FileState | undefined>();
+    const selected = new Set<string>();
+
+    for (const path of paths) {
+      this.closing.signal.throwIfAborted();
+
+      const current = await this.fileState(join(checkout.top, path));
+
+      metadata.set(path, current);
+
+      if (state.tracked.get(path)?.mode === gitlink || ignored.has(path))
+        continue;
+
+      if (
+        reset ||
+        discovered.has(path) ||
+        !state.metadata.has(path) ||
+        state.metadata.get(path)?.signature !== current?.signature ||
+        entries.get(path)?.mode === gitlink
+      )
+        selected.add(path);
+    }
+
+    const remove = new Set(ignored);
+    const force: string[] = [];
+    const normal: string[] = [];
+    const input: string[] = [];
+    const zero = '0'.repeat(state.hashLength);
+
+    for (const path of selected) {
+      const current = metadata.get(path);
+      const entry = entries.get(path);
+
+      const nested =
+        current?.directory &&
+        (await this.fileState(join(checkout.top, path, '.git')));
+
+      if (
+        !current ||
+        (current.directory && state.tracked.has(path) && !nested)
+      ) {
+        if (entry) remove.add(path);
+
+        continue;
+      }
+
+      // conversion must see the real index's content, including its CRLF decisions.
+      const originalEntry = state.tracked.get(path);
+
+      if (originalEntry)
+        input.push(`${originalEntry.mode} ${originalEntry.id}\t${path}\0`);
+      else if (entry) remove.add(path);
+
+      (state.tracked.has(path) ? force : normal).push(path);
+    }
+
+    const indexInput =
+      [...remove].map((path) => `0 ${zero}\t${path}\0`).join('') +
+      input.join('');
+
+    if (reset || indexInput.length || force.length || normal.length)
+      state.objectsChanged = true;
+
+    if (indexInput.length)
+      await this.git(
+        checkout,
+        ['update-index', '-z', '--index-info'],
+        undefined,
+        indexInput,
+      );
+
+    await this.add(checkout, force, true);
+
+    await this.add(checkout, normal, false);
+
+    const tree =
+      reset ||
+      indexInput.length ||
+      force.length ||
+      normal.length ||
+      !state.latest
+        ? (await this.git(checkout, ['write-tree'])).trim()
+        : state.latest.tree;
+
+    if (tree !== state.latest?.tree)
+      state.entries = await this.treeEntries(checkout, tree);
+
+    for (const path of selected)
+      if (
+        metadata.get(path)?.signature !==
+        (await this.fileState(join(checkout.top, path)))?.signature
+      )
+        metadata.delete(path);
+
+    state.source = source;
+    state.configuration = configuration;
+    state.attributes = attributes;
+    state.metadata = metadata;
+    state.latest = { tree, head, at };
+
+    return state.latest;
+  }
+
+  private async fileState(path: string): Promise<FileState | undefined> {
     try {
-      await this.git(checkout, [
-        'add',
-        '-A',
-        '--ignore-errors',
-        ...(tracked.length ? ['--', ':(top)', ...tracked] : []),
-      ]);
+      const data = await lstat(path, { bigint: true });
+
+      return {
+        signature: [
+          data.dev,
+          data.ino,
+          data.mode,
+          data.size,
+          data.mtimeNs,
+          data.ctimeNs,
+        ].join(':'),
+        directory: data.isDirectory(),
+      };
+    } catch (error) {
+      if (
+        ['ENOENT', 'ENOTDIR'].includes(
+          (error as NodeJS.ErrnoException).code ?? '',
+        )
+      )
+        return undefined;
+
+      throw error;
+    }
+  }
+
+  private async treeEntries(
+    checkout: Checkout,
+    tree: string,
+  ): Promise<Map<string, TreeEntry>> {
+    return new Map(
+      fields(
+        await this.git(
+          checkout,
+          ['ls-tree', '-r', '-z', '--full-tree', tree],
+          listBuffer,
+        ),
+      ).map((row) => {
+        const tab = row.indexOf('\t');
+
+        const [mode, , id] = row.slice(0, tab).split(' ') as [
+          string,
+          string,
+          string,
+        ];
+
+        return [row.slice(tab + 1), { mode, id }];
+      }),
+    );
+  }
+
+  private async add(
+    checkout: Checkout,
+    paths: string[],
+    force: boolean,
+  ): Promise<void> {
+    if (!paths.length) return;
+
+    try {
+      await this.git(
+        checkout,
+        [
+          '--literal-pathspecs',
+          'add',
+          '-A',
+          '--ignore-errors',
+          ...(force ? ['-f'] : []),
+          '--pathspec-from-file=-',
+          '--pathspec-file-nul',
+        ],
+        undefined,
+        `${paths.join('\0')}\0`,
+      );
     } catch (error) {
       if (exitCode(error) !== 1) throw error;
 
@@ -559,29 +900,118 @@ export class WorkTreeChanges {
         return !unborn.test(line) && (path === undefined || !nested.has(path));
       });
 
-      // 1 with no other error says only nested repositories with no commit stayed out. another path Git couldn't
-      // add would keep what the index holds and show as changed back, so that fails the snapshot
       if (said.some((line) => line.startsWith('error:')))
         throw Object.assign(error as object, { stderr: said.join('\n') });
     }
+  }
 
-    return {
-      tree: (await this.git(checkout, ['write-tree'])).trim(),
-      head,
-      at,
-    };
+  private async reclaim(checkout: Checkout, proposed?: string): Promise<void> {
+    const { state } = checkout;
+
+    const roots = [
+      ...new Set(
+        [state.baseline?.tree, state.latest?.tree, proposed].filter(
+          (tree): tree is string => tree !== undefined,
+        ),
+      ),
+    ].sort();
+
+    const key = roots.join('\n');
+
+    if (state.swept === key && !state.objectsChanged) return;
+
+    const reachable = new Set(
+      (
+        await this.git(
+          checkout,
+          ['rev-list', '--objects', '--no-object-names', ...roots],
+          listBuffer,
+        )
+      )
+        .trim()
+        .split('\n'),
+    );
+
+    const directory = checkout.env.GIT_OBJECT_DIRECTORY!;
+    const objectName = new RegExp(`^[0-9a-f]{${state.hashLength - 2}}$`);
+    const directories = await readdir(directory, { withFileTypes: true });
+    let repacked = false;
+
+    if (
+      directories.some((entry) => entry.name === 'pack' && entry.isDirectory())
+    ) {
+      const packDirectory = join(directory, 'pack');
+
+      const packName = new RegExp(
+        `^pack-([0-9a-f]{${state.hashLength}})\\.(?:pack|idx|rev|bitmap)$`,
+      );
+
+      const previous = (await readdir(packDirectory)).filter((name) =>
+        packName.test(name),
+      );
+
+      if (previous.some((name) => name.endsWith('.pack'))) {
+        const ids = new Set(
+          (
+            await this.git(
+              checkout,
+              [
+                'pack-objects',
+                '--revs',
+                '--local',
+                '--non-empty',
+                '--window=0',
+                join(packDirectory, 'pack'),
+              ],
+              listBuffer,
+              `${roots.join('\n')}\n`,
+            )
+          )
+            .trim()
+            .split('\n'),
+        );
+
+        for (const name of previous)
+          if (!ids.has(packName.exec(name)![1]!))
+            await unlink(join(packDirectory, name));
+
+        repacked = true;
+      }
+    }
+
+    for (const fanout of directories) {
+      if (!fanout.isDirectory() || !/^[0-9a-f]{2}$/.test(fanout.name)) continue;
+
+      for (const file of await readdir(join(directory, fanout.name), {
+        withFileTypes: true,
+      })) {
+        this.closing.signal.throwIfAborted();
+
+        if (
+          file.isFile() &&
+          objectName.test(file.name) &&
+          (repacked || !reachable.has(fanout.name + file.name))
+        )
+          await unlink(join(directory, fanout.name, file.name));
+      }
+    }
+
+    state.swept = key;
+    state.objectsChanged = false;
   }
 
   private async git(
     checkout: Checkout,
     args: string[],
     maxBuffer?: number,
+    input?: string,
   ): Promise<string> {
     const { stdout } = await this.run('git', [...options, ...args], {
       cwd: checkout.top,
       timeout,
       env: checkout.env,
       ...(maxBuffer ? { maxBuffer } : {}),
+      ...(input === undefined ? {} : { input }),
     });
 
     return stdout;
