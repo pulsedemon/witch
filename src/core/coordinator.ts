@@ -63,7 +63,7 @@ import { ModelCatalog, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
 import type { Conflict, PullRequest } from './repository.js';
 import { watchEventNotices } from './conversation-events.js';
-import { entry, holding } from './pauses.js';
+import { ConversationPauses } from './conversation-pauses.js';
 import {
   applyDisplayUpdate,
   createConversation,
@@ -118,22 +118,18 @@ export class Coordinator {
   readonly reviewers = new Reviewers((event) => this.background(event));
   /** a stop holds automatic turns until the user's next send or another conversation. */
   private automaticHeld = false;
-  /** the pauses holding the open conversation in this visit, and the delivery hold they share. */
-  private paused?: {
-    conversation: string;
-    applied: Set<string>;
-    confirming: Set<string>;
-    release: () => void;
-    /** a stop is in flight; confirmation waits for it. */
-    stopping: boolean;
-    /** a pause arrived during that stop, so another pass follows it. */
-    again: boolean;
-    retry?: ReturnType<typeof setTimeout>;
-  };
-  /** `conversation/pause` pairs the user lifted with a prompt, which hold no more even before the store records it. */
-  private readonly userResumed = new Set<string>();
-  /** when the user last prompted each conversation, which resumes any pause issued before it, even one not read yet. */
-  private readonly promptedAt = new Map<string, number>();
+  private readonly pauses = new ConversationPauses({
+    conversation: () => this.record?.id,
+    coordination: () => this.coordination,
+    closed: () => this.closed,
+    nativeRunning: () => this.snapshot.nativeRunning,
+    task: () => this.task,
+    draining: () => this.draining?.promise,
+    holdDelivery: () => this.holdPromptDelivery(),
+    stop: () => this.stopCurrent(),
+    changed: () => this.drainAfter(),
+    notice: (text) => this.notice(text, undefined, false),
+  });
   readonly copilot = new CopilotReviewController({
     record: () => this.record,
     coordination: () => this.coordination,
@@ -244,7 +240,7 @@ export class Coordinator {
         snapshot: () => this.snapshot,
         cancelled: () => this.cancelled,
         exhausted: (session) => {
-          if (this.automaticHeld || this.paused || this.closed) return;
+          if (this.automaticHeld || this.pauses.held || this.closed) return;
           this.runtimes.backgroundExhausted(session);
           this.drainAfter();
         },
@@ -310,7 +306,7 @@ export class Coordinator {
       },
     );
     coordination?.subscribe(() => {
-      this.applyPauses();
+      this.pauses.apply();
       this.copilot.checkBinding();
       this.repair.checkBinding();
       if (!this.snapshot.queue.length) this.drainAfter();
@@ -455,14 +451,7 @@ export class Coordinator {
     this.repair.resume();
     // counted before the pause releases, so the automatic work its release wakes can't run ahead of this prompt
     this.admissions++;
-    if (this.record) this.promptedAt.set(this.record.id, Date.now());
-    const paused = this.paused;
-    if (paused) {
-      for (const id of paused.applied)
-        this.userResumed.add(`${paused.conversation}/${id}`);
-      this.releasePause();
-      this.coordination?.resumePauses(paused.conversation, [...paused.applied]);
-    }
+    this.pauses.resumeForPrompt();
     const arriving = { prompt };
     this.arriving.push(arriving);
     // the composer clears once this returns, so the prompt leaves the draft in the same save
@@ -526,115 +515,6 @@ export class Coordinator {
       this.publish({});
       this.drainAfter(true);
     };
-  }
-
-  /** holds the open conversation for each pause naming it, and lifts the hold once every applied pause reads resumed. */
-  private applyPauses(): void {
-    const conversation = this.record?.id;
-    // a visit ends when its conversation does
-    if (this.paused && this.paused.conversation !== conversation)
-      this.releasePause();
-    const pauses =
-      conversation && !this.closed
-        ? this.coordination?.events.pauses(conversation)
-        : undefined;
-    if (!conversation || !pauses) return;
-    const prompted = this.promptedAt.get(conversation);
-    const lifted = holding(pauses, conversation).filter(
-      ({ id, issuedAt }) =>
-        prompted !== undefined &&
-        Date.parse(issuedAt) <= prompted &&
-        !this.userResumed.has(`${conversation}/${id}`),
-    );
-    if (lifted.length) {
-      for (const { id } of lifted)
-        this.userResumed.add(`${conversation}/${id}`);
-      this.coordination?.resumePauses(
-        conversation,
-        lifted.map(({ id }) => id),
-      );
-    }
-    const held = holding(pauses, conversation).filter(
-      ({ id }) => !this.userResumed.has(`${conversation}/${id}`),
-    );
-    if (!held.length) {
-      this.releasePause();
-      return;
-    }
-    const paused = (this.paused ??= {
-      conversation,
-      applied: new Set<string>(),
-      confirming: new Set<string>(),
-      release: this.holdPromptDelivery(),
-      stopping: false,
-      again: false,
-    });
-    const fresh = held.filter(({ id }) => !paused.applied.has(id));
-    for (const { id } of fresh) paused.applied.add(id);
-    // an operation the user started while held may run, so each new pause stops it again
-    if (fresh.length && paused.stopping) paused.again = true;
-    else if (fresh.length) {
-      paused.stopping = true;
-      void this.stopForPause(paused);
-    }
-    this.confirmPauses();
-  }
-
-  /** confirms once the stop succeeded and the operation it stopped has settled; a failed stop retries until the visit ends. */
-  private async stopForPause(
-    paused: NonNullable<Coordinator['paused']>,
-  ): Promise<void> {
-    const task = this.task;
-    try {
-      // stopCurrent leaves the user's own Escape hold to the user
-      await this.stopCurrent();
-      await task?.catch(() => {});
-    } catch (error) {
-      if (this.paused !== paused || this.closed) return;
-      this.notice(
-        `Witch could not stop this conversation for its pause and will retry: ${errorMessage(error)}`,
-        undefined,
-        false,
-      );
-      paused.retry = setTimeout(() => void this.stopForPause(paused), 2000);
-      return;
-    }
-    if (paused.again && this.paused === paused) {
-      paused.again = false;
-      return this.stopForPause(paused);
-    }
-    paused.stopping = false;
-    this.confirmPauses();
-  }
-
-  /** Escape can't stop a native run outside a turn, so confirmation waits for it to end. */
-  private confirmPauses(): void {
-    const paused = this.paused;
-    if (!paused || paused.stopping || this.snapshot.nativeRunning) return;
-    const pauses = this.coordination?.events.pauses(paused.conversation) ?? [];
-    for (const pause of pauses) {
-      const recipient = entry(pause, paused.conversation);
-      if (
-        paused.applied.has(pause.id) &&
-        !recipient?.confirmedAt &&
-        !paused.confirming.has(pause.id)
-      ) {
-        paused.confirming.add(pause.id);
-        this.coordination?.confirmPause(paused.conversation, pause.id);
-      }
-    }
-  }
-
-  /** the hold's own wake skips a drain the pause cancelled, so this wakes after it. */
-  private releasePause(): void {
-    const paused = this.paused;
-    if (!paused) return;
-    this.paused = undefined;
-    clearTimeout(paused.retry);
-    paused.release();
-    void (this.draining?.promise ?? Promise.resolve()).then(() =>
-      this.drainAfter(),
-    );
   }
 
   private get deliveryHeld(): boolean {
@@ -745,7 +625,7 @@ export class Coordinator {
       !this.runtimes.backgroundBusy &&
       !this.runtimes.awaitingRecovery &&
       !this.automaticHeld &&
-      !this.paused &&
+      !this.pauses.held &&
       !this.opening &&
       !this.closed &&
       !this.snapshot.error &&
@@ -1255,7 +1135,7 @@ export class Coordinator {
   async close(options: { restart?: boolean } = {}): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    clearTimeout(this.paused?.retry);
+    this.pauses.close();
     this.copilot.close();
     const stop = { ...options, deadline: stopDeadline() };
     this.coordination?.attach(undefined);
@@ -1484,7 +1364,7 @@ export class Coordinator {
     this.jobs?.setActive(sessionWorking(this.snapshot));
     this.coordination?.update(this.snapshot);
     if ('nativeRunning' in update && !update.nativeRunning) {
-      this.confirmPauses();
+      this.pauses.confirm();
       if (this.runtimes.backgroundPending) this.drainAfter();
     }
     for (const listener of this.listeners) listener();
