@@ -1,4 +1,4 @@
-import type { Row } from '../../src/core/jobs.js';
+import type { Row } from '../../src/core/jobs/jobs.js';
 
 /** an agent whose pid is above macOS's highest, since a command with the agent's pid would be its own parent and never end a read. */
 export const agentRow: Row = {

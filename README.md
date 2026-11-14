@@ -34,7 +34,7 @@ Agents delegate work through the [familiar reporting path](docs/rules.md#native-
 
 Witch repairs a directory moved on the same volume on its own the next time it starts there or anywhere else: its conversations, prompt history, spawned worktrees' Git links and shared-memory paths. For a move it can't prove, such as a copy to another volume, its startup notice gives the `--recover-directory` command to run from the new location.
 
-Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns eligibility and title selection. [Desktop scheduling](src/persistence/notifications.ts) spaces alerts across sessions sharing a state directory; bursts can wait, and stale alerts cancel. Titles and bells keep their timing.
+Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal/terminal.ts) owns eligibility and title selection. [Desktop scheduling](src/persistence/notifications.ts) spaces alerts across sessions sharing a state directory; bursts can wait, and stale alerts cancel. Titles and bells keep their timing.
 
 Ghostty controls banners, sound and dock attention. It suppresses notifications for its focused tab in the active window; macOS notification permission and Focus settings also apply. Other state directories and unrelated programs can still collide with Witch's sends. Terminal buffering or a crash between output and schedule persistence can also defeat spacing. Manual tab titles can override Witch's title, and notification forwarding through tmux is not guaranteed.
 
@@ -59,23 +59,23 @@ Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which 
 
 `pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Keep `TMPDIR` outside that copy so fixtures that model non-repositories do not inherit its Git identity. Running the app and native checks requires the [installation prerequisites](#install).
 
-The CLI tests, the [desktop CLI test](test/cli-desktop.test.ts) included, share one build per run through the same [build script](scripts/build.mjs), so the desktop test's startup deadline measures the compiled executable.
+The CLI tests, the [desktop CLI test](test/cli/cli-desktop.test.ts) included, share one build per run through the same [build script](scripts/build.mjs), so the desktop test's startup deadline measures the compiled executable.
 
 `pnpm test` runs the suite with Vitest. [vitest.config.ts](vitest.config.ts) owns discovery, worker policy, global setup and the React compiler transform.
 
 Run a file or one of its named tests with Vitest:
 
 ```sh
-pnpm exec vitest run test/memory.test.ts
-pnpm exec vitest run test/coordinator-session.test.ts -t 'completion in a later turn'
-pnpm exec vitest run test/coordinator-turns.test.ts -t '^pending command context waits until a prompt is dispatched > turn: connect$'
+pnpm exec vitest run test/memory/memory.test.ts
+pnpm exec vitest run test/core/coordinator/coordinator-session.test.ts -t 'completion in a later turn'
+pnpm exec vitest run test/core/coordinator/coordinator-turns.test.ts -t '^pending command context waits until a prompt is dispatched > turn: connect$'
 ```
 
 Watch a selected file, or pause its worker for a source debugger:
 
 ```sh
-pnpm exec vitest --watch test/rpc.test.ts --clearScreen=false
-pnpm exec vitest run test/rpc.test.ts --inspect-brk=127.0.0.1:9229 --no-file-parallelism --testTimeout=0 --hookTimeout=0
+pnpm exec vitest --watch test/agents/codex/rpc.test.ts --clearScreen=false
+pnpm exec vitest run test/agents/codex/rpc.test.ts --inspect-brk=127.0.0.1:9229 --no-file-parallelism --testTimeout=0 --hookTimeout=0
 ```
 
 Fixture edits rerun the selected watch set, including fixtures loaded only by spawned children. Press `q` to quit watch mode. Attach a Node Inspector client to the printed address to set TypeScript source breakpoints and inspect locals, then resume execution. The timeout flags turn off the configured test and hook timeouts, which keep counting while a breakpoint pauses the worker.
@@ -89,7 +89,7 @@ For native macOS verification, run `pnpm check` locally to exercise Darwin locks
 Then run both scratch-lifetime checks below. They use fixture agents and private tmux sessions with no account usage, and verify scratch retention, reclamation and uncertainty after exit and repeated `/restart`. They require Python 3, tmux and a writable `TMPDIR` short enough for a tmux socket, and wait through a maintenance interval. Use `--case` to select a scenario. Evidence is retained under `TMPDIR`; inspect it and the recorded processes before removing it.
 
 ```sh
-python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.tsx"
+python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.ts"
 python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
 ```
 
@@ -115,7 +115,7 @@ Witch uses these experimental or undeclared native interfaces:
 
 ### Native protocol fixtures
 
-`pnpm exec vitest run test/native-protocol.test.ts test/native-wire.test.ts` runs offline. It replays recorded JSONL through the production adapters and the installed SDK dependency, checks outgoing Codex requests against the generated schema, and retains the separate scripted fixtures for error and race cases. Schema validation checks wire shape; live captures establish the recorded native behavior.
+`pnpm exec vitest run test/agents/native-protocol.test.ts test/agents/native-wire.test.ts` runs offline. It replays recorded JSONL through the production adapters and the installed SDK dependency, checks outgoing Codex requests against the generated schema, and retains the separate scripted fixtures for error and race cases. Schema validation checks wire shape; live captures establish the recorded native behavior.
 
 The Claude recording verifies that a result waits for native idle. Its result also acknowledges the original and steered inputs, so scripted fixtures remain responsible for isolating pending-input lifecycle acknowledgements.
 

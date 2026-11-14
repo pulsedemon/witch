@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { Box, Text } from 'ink';
-import { ScrollPage } from './scroll-page.js';
+import { ScrollPage } from './ScrollPage.js';
 import { piped } from './theme.js';
 import { wrapLines } from './wrap.js';
 

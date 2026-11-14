@@ -9,19 +9,19 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { createElement } from 'react';
 import { render } from 'ink';
-import { CodexAdapter } from '../src/agents/codex.js';
+import { CodexAdapter } from '../src/agents/codex/adapter.js';
 import { installedAgents } from '../src/agents/registry.js';
-import { controlPrefix } from '../src/cli-control.js';
-import { SessionCoordination } from '../src/core/coordination.js';
+import { controlPrefix } from '../src/cli/cli-control.js';
+import { SessionCoordination } from '../src/core/coordination/coordination.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import { JobWatch } from '../src/core/jobs.js';
+import { JobWatch } from '../src/core/jobs/jobs.js';
 import { Memory } from '../src/memory/memory.js';
 import { callControl } from '../src/persistence/control.js';
 import { writeJson } from '../src/persistence/json.js';
 import { identifyProcess, ps } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 import { quote } from '../src/shell.js';
-import { App } from '../src/ui/app.js';
+import { App } from '../src/ui/App.js';
 
 const execute = promisify(execFile);
 
@@ -58,7 +58,7 @@ await writeFile(
 
 const state = await StateStore.open(join(root, 'state'));
 const memory = new Memory(join(root, 'state/memory.git'));
-const entry = fileURLToPath(new URL('../src/cli.tsx', import.meta.url));
+const entry = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 
 const coordination = await SessionCoordination.open(
   state,

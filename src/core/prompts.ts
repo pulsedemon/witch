@@ -11,15 +11,15 @@ import { indexByteLimit, indexNote } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { Conversation } from './state.js';
-import type { SessionCoordination } from './coordination.js';
-import { mergeContext } from './merge-events.js';
-import type { MergeEvent } from './merge-events.js';
-import { answerContext, requestContext } from './peer-requests.js';
-import type { PeerRequest } from './peer-requests.js';
-import type { PeerAnswerBatch } from './peer-answers.js';
-import { conflictContext } from './pr-repair.js';
-import type { Conflict } from './repository.js';
-import type { ReviewWatch } from './copilot-review-controller.js';
+import type { SessionCoordination } from './coordination/coordination.js';
+import { mergeContext } from './repository/merge-events.js';
+import type { MergeEvent } from './repository/merge-events.js';
+import { answerContext, requestContext } from './coordination/peer-requests.js';
+import type { PeerRequest } from './coordination/peer-requests.js';
+import type { PeerAnswerBatch } from './coordination/peer-answers.js';
+import { conflictContext } from './repository/pr-repair.js';
+import type { Conflict } from './repository/repository.js';
+import type { ReviewWatch } from './review/copilot-review-controller.js';
 
 // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
 export const ranCommand =

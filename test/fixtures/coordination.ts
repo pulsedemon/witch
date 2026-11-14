@@ -9,9 +9,9 @@ import { syncBuiltinESMExports } from 'node:module';
 import { vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { controlPrefix } from '../../src/cli-control.js';
+import { controlPrefix } from '../../src/cli/cli-control.js';
 import { Coordinator } from '../../src/core/coordinator.js';
-import { SessionCoordination } from '../../src/core/coordination.js';
+import { SessionCoordination } from '../../src/core/coordination/coordination.js';
 import { CoordinationStore } from '../../src/persistence/coordination.js';
 import { callControl } from '../../src/persistence/control.js';
 import { openLocked } from '../../src/persistence/lock.js';
@@ -27,7 +27,7 @@ const execute = promisify(execFile);
 export const git = (...args: string[]) => execute('git', args);
 // a local origin costs every project read three more git processes to follow its repository
 const origin = 'https://example.com/witch/origin.git';
-const entry = fileURLToPath(new URL('../../src/cli.tsx', import.meta.url));
+const entry = fileURLToPath(new URL('../../src/cli.ts', import.meta.url));
 
 /** keeps mailbox polling live while tests control periodic session discovery. */
 export function pauseDiscovery(spyOn: typeof vi.spyOn) {

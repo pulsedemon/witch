@@ -2,10 +2,10 @@ import type { TurnResult } from '../agents/types.js';
 import type { ConversationStore } from '../persistence/store.js';
 import type { Attachments } from './attachments.js';
 import type { Compaction } from './compaction.js';
-import type { SessionCoordination } from './coordination.js';
-import type { ConversationPauses } from './conversation-pauses.js';
-import type { CopilotReviewController } from './copilot-review-controller.js';
-import type { PullRequestRepair } from './pr-repair.js';
+import type { SessionCoordination } from './coordination/coordination.js';
+import type { ConversationPauses } from './coordination/conversation-pauses.js';
+import type { CopilotReviewController } from './review/copilot-review-controller.js';
+import type { PullRequestRepair } from './repository/pr-repair.js';
 import { shellCommand, skillCall, ranCommand } from './prompts.js';
 import {
   joining,

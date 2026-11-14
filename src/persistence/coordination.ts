@@ -12,7 +12,7 @@ import {
   selectionStates,
   taskClaimSchema,
   taskReference,
-} from '../core/coordination-state.js';
+} from '../core/coordination/coordination-state.js';
 import type {
   ClaimInput,
   ClaimOwner,
@@ -24,16 +24,26 @@ import type {
   Transfer,
   TransferField,
   TransferTarget,
-} from '../core/coordination-state.js';
+} from '../core/coordination/coordination-state.js';
 import type { ProcessIdentity } from '../core/state.js';
-import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
-import type { MergeEvent } from '../core/merge-events.js';
-import { answerable, peerRequestSchema } from '../core/peer-requests.js';
-import type { PeerRequest } from '../core/peer-requests.js';
-import type { PeerAnswer } from '../core/peer-answers.js';
-import { entry, pauseSchema, sameRequest } from '../core/pauses.js';
-import type { Pause, PauseRecipient } from '../core/pauses.js';
-import type { PullRequest } from '../core/repository.js';
+import {
+  mergeEventId,
+  mergeEventSchema,
+} from '../core/repository/merge-events.js';
+import type { MergeEvent } from '../core/repository/merge-events.js';
+import {
+  answerable,
+  peerRequestSchema,
+} from '../core/coordination/peer-requests.js';
+import type { PeerRequest } from '../core/coordination/peer-requests.js';
+import type { PeerAnswer } from '../core/coordination/peer-answers.js';
+import {
+  entry,
+  pauseSchema,
+  sameRequest,
+} from '../core/coordination/pauses.js';
+import type { Pause, PauseRecipient } from '../core/coordination/pauses.js';
+import type { PullRequest } from '../core/repository/repository.js';
 import { identifyProcesses, sameProcess } from './process.js';
 import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
 import { readJson, writeJson } from './json.js';

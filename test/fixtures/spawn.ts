@@ -1,8 +1,8 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { vi } from 'vitest';
-import { runCommand } from '../../src/core/command.js';
-import type { Run } from '../../src/core/repository.js';
+import { runCommand } from '../../src/core/repository/command.js';
+import type { Run } from '../../src/core/repository/repository.js';
 import { scratch } from './scratch.js';
 import { git } from './git.js';
 

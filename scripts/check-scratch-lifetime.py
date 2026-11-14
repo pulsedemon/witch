@@ -393,7 +393,7 @@ def main():
              ('periodic', 0, 'node'), ('uncertain-old-pane', 1, 'older-tmux'),
              ('legacy-owner', 0, 'none')]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('cli', type=Path, help='source cli.tsx or built cli.js')
+    parser.add_argument('cli', type=Path, help='source cli.ts or built cli.js')
     parser.add_argument('--case', dest='selected', action='append',
                         choices=[name for name, _, _ in cases], help='run only this case; repeat to select several')
     args = parser.parse_args()
@@ -403,7 +403,7 @@ def main():
     tmux = shutil.which('tmux')
     assert node and tmux, 'node and tmux must be on PATH'
     command = [node]
-    if entry.suffix == '.tsx':
+    if entry.suffix in ('.ts', '.tsx'):
         command += ['--import', str(repo / 'scripts/register.mjs')]
     command.append(str(entry))
     # indexing fixture files can create orphaned processes during reclamation checks.

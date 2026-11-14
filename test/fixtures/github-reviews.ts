@@ -1,4 +1,4 @@
-import type { GitHubReviews } from '../../src/core/github-reviews.js';
+import type { GitHubReviews } from '../../src/core/review/github-reviews.js';
 
 export function reviewSource(): GitHubReviews {
   const url = 'https://github.com/team/project/pull/12';
