@@ -6,8 +6,15 @@ import type { FileDiff } from '../../../src/agents/types.js';
 import { canExpandDiff, prepareDiff } from '../../../src/ui/transcript/diff.js';
 import { syntaxSpans } from '../../../src/ui/transcript/syntax.js';
 
+const prepareText = (...args: Parameters<typeof prepareDiff>) => {
+  const render = prepareDiff(...args);
+
+  return (width: number) =>
+    render(width).map((rows) => rows.map(({ text }) => text));
+};
+
 const rows = (files: FileDiff[], width = 30) =>
-  prepareDiff(files, '/work')(width).flat();
+  prepareText(files, '/work')(width).flat();
 
 const plainRows = (files: FileDiff[], width = 30) =>
   rows(files, width).map((row) => stripAnsi(row).trimEnd());
@@ -113,7 +120,7 @@ test('a prepared diff preserves earlier rows while rendering new widths', () => 
   const original = structuredClone(files);
 
   for (const full of [false, true]) {
-    const render = prepareDiff(files, '/work', full);
+    const render = prepareText(files, '/work', full);
     const earlier = render(78);
     const saved = structuredClone(earlier);
 
@@ -168,7 +175,7 @@ test('whole-file expansion exposes every supplied line without changing updates 
     assert.equal(canExpandDiff([file]), true);
 
     const full = stripAnsi(
-      prepareDiff([file], '/work', true)(30).flat().join('\n'),
+      prepareText([file], '/work', true)(30).flat().join('\n'),
     );
 
     assert.match(full, /line_11[\s\S]*line_12/);
@@ -182,8 +189,8 @@ test('whole-file expansion exposes every supplied line without changing updates 
     assert.equal(canExpandDiff([update]), false);
 
     assert.deepEqual(
-      prepareDiff([update], '/work', true)(30),
-      prepareDiff([update], '/work')(30),
+      prepareText([update], '/work', true)(30),
+      prepareText([update], '/work')(30),
     );
 
     const short: FileDiff = {
@@ -822,7 +829,7 @@ test("a long line past the highlighting budget draws plain while shorter lines k
   const long = (name: string) =>
     `+const ${name} = [` + 'a, '.repeat(1000) + '];';
 
-  const [, first, second, short, , later, , , next, , , indented] = prepareDiff(
+  const [, first, second, short, , later, , , next, , , indented] = prepareText(
     [
       {
         path: '/work/a.ts',

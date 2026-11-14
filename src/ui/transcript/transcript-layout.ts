@@ -31,6 +31,7 @@ type Append =
 interface Row {
   text: string;
   anchor: Anchor;
+  copyBreak?: boolean;
 }
 
 interface Content {
@@ -254,15 +255,19 @@ function ending(
 
   const next = rendered.next;
 
-  // row offsets preserve diff and image rows across resizes and when copying, and an image without rows yet
-  // keeps its line, so the images after it keep theirs when it loads.
+  // empty images keep their source line so later images retain their anchors.
   const ended = rendered.rows.concat(
-    diff.concat(images).flatMap((rows, index) =>
-      rows.map((text, offset) => ({
-        text,
-        anchor: { line: next + index, offset },
-      })),
-    ),
+    diff
+      .concat(
+        images.map((rows) => rows.map((text, offset) => ({ text, offset }))),
+      )
+      .flatMap((rows, index) =>
+        rows.map(({ text, offset }) => ({
+          text,
+          anchor: { line: next + index, offset },
+          copyBreak: true,
+        })),
+      ),
     {
       text: '',
       anchor: { line: next + diff.length + images.length, offset: 0 },
@@ -591,6 +596,33 @@ export class TranscriptLayout {
       }),
       blocks,
       starts,
+      joinBefore(row: number): string {
+        const here = positionAt(row);
+        const above = positionAt(row - 1);
+
+        if (!here || !above || here[0] !== above[0]) return '\n';
+
+        const current = rendered.get(here[0])!.row(row - here[1]);
+        const previous = rendered.get(above[0])!.row(row - 1 - above[1]);
+
+        if (
+          !current ||
+          !previous ||
+          current.copyBreak ||
+          current.anchor.line !== previous.anchor.line
+        )
+          return '\n';
+
+        // a wrap that changed more than trimming has no source offset to reconstruct.
+        if (current.anchor.offset < 0 || previous.anchor.offset < 0) return ' ';
+
+        const trimmed =
+          current.anchor.offset -
+          previous.anchor.offset -
+          stripAnsi(previous.text).length;
+
+        return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
+      },
       anchorAt(row: number): ScrollAnchor | undefined {
         const entry = positionAt(row);
 
@@ -626,10 +658,14 @@ export class TranscriptLayout {
           else high = middle;
         }
 
+        let first: number | undefined;
+
         for (let index = low - 1; index >= 0; index--) {
           const row = current.row(index)!.anchor;
 
           if (row.line !== anchor.line) break;
+
+          first = index;
 
           if (
             row.offset === anchor.offset ||
@@ -638,7 +674,7 @@ export class TranscriptLayout {
             return start + index;
         }
 
-        return start;
+        return start + (first ?? 0);
       },
     };
   }

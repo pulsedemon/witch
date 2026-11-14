@@ -378,7 +378,8 @@ function prepareFile(
   };
 }
 
-function prepareDiffContent(
+/** each source line retains its wrapped rows and offsets independently of display decorations. */
+export function prepareDiff(
   files: readonly FileDiff[],
   cwd: string,
   full = false,
@@ -390,24 +391,4 @@ function prepareDiffContent(
       ...(index ? [[{ text: '', offset: 0 }]] : []),
       ...render(width),
     ]);
-}
-
-/** each file's header and numbered lines, a blank line apart, as the rows each line wraps into. every row fits `width` while it leaves the code two cells, the widest a character takes. */
-export function prepareDiff(
-  files: readonly FileDiff[],
-  cwd: string,
-  full = false,
-): (width: number) => string[][] {
-  const render = prepareDiffContent(files, cwd, full);
-
-  return (width) => render(width).map((rows) => rows.map(({ text }) => text));
-}
-
-export function diffRows(
-  files: readonly FileDiff[],
-  width: number,
-  cwd: string,
-  full = false,
-): WrappedRow[][] {
-  return prepareDiffContent(files, cwd, full)(width);
 }

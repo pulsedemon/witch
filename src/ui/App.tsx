@@ -7,7 +7,6 @@ import {
 } from 'react';
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
-import stripAnsi from 'strip-ansi';
 import { textCommands } from '../agents/claude/spells.js';
 import type { CompletionList } from './input/completion.js';
 import type { Coordinator } from '../core/coordinator.js';
@@ -288,26 +287,6 @@ export function App({
     if (pressedAt.current && !pointOf(pressedAt.current))
       pressedAt.current = undefined;
   });
-
-  /** what joins a row to the one above: a line break, or for a wrapped row the spaces its wrap trimmed. */
-  const joint = (row: number) => {
-    const here = transcript.anchorAt(row);
-    const above = transcript.anchorAt(row - 1);
-
-    if (!here || !above || here.item !== above.item || here.line !== above.line)
-      return '\n';
-
-    // a row its wrap changed beyond trimming is not found in its line and has offset -1, so take the break as a space
-    if (here.offset < 0 || above.offset < 0) return ' ';
-
-    const trimmed =
-      here.offset -
-      above.offset -
-      stripAnsi(transcript.lines.at(row - 1)!).length;
-
-    // a diff row's offset counts rows, not characters, so it leaves no room for the row above
-    return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
-  };
 
   const liveAgent = state.native?.agent ?? state.conversation?.agent;
 
@@ -940,7 +919,7 @@ export function App({
       const text =
         transcriptBox.current &&
         selected &&
-        selectedText(transcript.lines, ...selected, joint);
+        selectedText(transcript.lines, ...selected, transcript.joinBefore);
 
       if (text?.trim()) copy?.(text);
 

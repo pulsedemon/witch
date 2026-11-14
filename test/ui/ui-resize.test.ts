@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import stringWidth from 'string-width';
-import type { UserRequest } from '../../src/agents/types.js';
+import type { FileDiff, UserRequest } from '../../src/agents/types.js';
 import { applyDisplayUpdate } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
 import {
@@ -244,55 +244,75 @@ for (const [mode, expected] of [
   });
 }
 
-test('approval diff positions ignore gutters and padding inside a wrapped source line', async () => {
-  const code = Array.from(
-    { length: 900 },
-    (_, index) => `word${String(index + 1).padStart(4, '0')}`,
-  ).join(' ');
+for (const [mode, expected, nextWord] of [
+  ['approval', 'word0261', 'word0262'],
+  ['transcript', 'word0331', 'word0332'],
+] as const) {
+  test(`${mode} diff positions ignore gutters and padding inside a wrapped source line`, async () => {
+    const code = Array.from(
+      { length: 900 },
+      (_, index) => `word${String(index + 1).padStart(4, '0')}`,
+    ).join(' ');
 
-  const { app } = fake({
-    requests: [
+    const diff: FileDiff[] = [
       {
-        ...approval,
-        diff: [
-          {
-            path: '/work/a.ts',
-            kind: 'add',
-            hunks: [{ oldStart: 0, newStart: 1, lines: [`+${code}`] }],
-          },
-        ],
+        path: '/work/a.ts',
+        kind: 'add',
+        hunks: [{ oldStart: 0, newStart: 1, lines: [`+${code}`] }],
       },
-    ],
-  });
+    ];
 
-  const ui = show(createElement(App, { coordinator: app, onExit() {} }));
-  const firstWord = () => ui.text().match(/word\d{4}/)?.[0];
+    const { app } = fake(
+      mode === 'approval'
+        ? { requests: [{ ...approval, diff }] }
+        : {
+            items: [
+              {
+                id: 'edit',
+                kind: 'tool',
+                title: 'Edit',
+                cwd: '/work',
+                done: true,
+                text: '',
+                diff,
+              },
+            ],
+          },
+    );
 
-  try {
-    await until('first word', () => firstWord() === 'word0001');
+    const ui = show(createElement(App, { coordinator: app, onExit() {} }));
+    const firstWord = () => ui.text().match(/word\d{4}/)?.[0];
 
-    ui.stdin.write('\u001b[6~');
+    try {
+      await until('diff content', () =>
+        mode === 'approval'
+          ? firstWord() === 'word0001'
+          : ui.text().includes('word0900'),
+      );
 
-    await until('scrolled source text', () => firstWord() === 'word0261');
+      ui.stdin.write(mode === 'approval' ? '\u001b[6~' : '\u001b[5~');
 
-    for (const width of [20, 100]) {
-      ui.resize(width, 40);
+      await until('scrolled source text', () => firstWord() === expected);
 
-      await until('rewrapped source text', () => {
-        const line = ui
-          .text()
-          .split('\n')
-          .find((row) => row.includes('word0261'));
+      for (const width of [20, 100]) {
+        ui.resize(width, 40);
 
-        return !!line && line.includes('word0262') === (width === 100);
-      });
+        await until('rewrapped source text', () => {
+          const line = ui
+            .text()
+            .split('\n')
+            .find((row) => row.includes(expected));
 
-      assert.equal(firstWord(), 'word0261');
+          return !!line && line.includes(nextWord) === (width === 100);
+        });
+
+        assert.equal(firstWord(), expected);
+      }
+    } finally {
+      ui.unmount();
     }
-  } finally {
-    ui.unmount();
-  }
-});
+  });
+}
 
 for (const covered of [false, true]) {
   test(`a ${covered ? 'covered ' : ''}command page retains its paragraph offset through width changes`, async () => {

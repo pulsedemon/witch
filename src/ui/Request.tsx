@@ -13,7 +13,7 @@ import { piped } from './theme.js';
 import {
   canExpandDiff,
   diffExpansionHint,
-  diffRows,
+  prepareDiff,
 } from './transcript/diff.js';
 import { wrapLines, wrapSourceLines } from './wrap.js';
 import { ScrollPage } from './ScrollPage.js';
@@ -118,18 +118,26 @@ export function Request({
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
     : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
 
+  const differences = request.diff;
+
+  const renderDiff = useMemo(
+    () =>
+      differences?.length ? prepareDiff(differences, cwd, full) : undefined,
+    [differences, cwd, full],
+  );
+
   const lines = useMemo(() => {
     const wrap = (text: string) => wrapSourceLines(linkify(text, cwd), width);
 
-    if (question || !request.diff?.length) return wrap(detail);
+    if (question || !renderDiff) return wrap(detail);
 
     return [
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
-      ...diffRows(request.diff, width, cwd, full),
+      ...renderDiff(width),
       [{ text: '', offset: 0 }],
       ...wrap(fields),
     ];
-  }, [request, detail, fields, question, width, cwd, full]);
+  }, [request, detail, fields, question, width, cwd, renderDiff]);
 
   const selectedRow =
     question && options[selection] !== undefined
