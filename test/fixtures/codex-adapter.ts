@@ -3,8 +3,8 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CodexAdapter } from '../../src/agents/codex/codex.js';
-import type { readContextCatalog } from '../../src/agents/codex/codex-compaction-policy.js';
+import { CodexAdapter } from '../../src/agents/codex/adapter.js';
+import type { readContextCatalog } from '../../src/agents/codex/compaction-policy.js';
 import type {
   AgentEvent,
   AgentSession,

@@ -2,10 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import {
-  castIndex,
-  castSkills,
-} from '../../../src/agents/codex/codex-spells.js';
+import { castIndex, castSkills } from '../../../src/agents/codex/spells.js';
 import type { AgentEvent, Cast, Subagent } from '../../../src/agents/types.js';
 import { close, fixture } from '../../fixtures/codex-adapter.js';
 import { scratch } from '../../fixtures/scratch.js';

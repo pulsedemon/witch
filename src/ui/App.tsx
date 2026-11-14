@@ -8,7 +8,7 @@ import {
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
 import stripAnsi from 'strip-ansi';
-import { textCommands } from '../agents/claude/claude-spells.js';
+import { textCommands } from '../agents/claude/spells.js';
 import type { CompletionList } from './input/completion.js';
 import type { Coordinator } from '../core/coordinator.js';
 import type { Snapshot } from '../core/snapshot.js';

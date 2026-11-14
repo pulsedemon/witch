@@ -4,10 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { setImmediate as tick } from 'node:timers/promises';
-import {
-  proposedDiff,
-  reportedDiff,
-} from '../../../src/agents/claude/claude-diff.js';
+import { proposedDiff, reportedDiff } from '../../../src/agents/claude/diff.js';
 import type { AgentEvent, UserRequest } from '../../../src/agents/types.js';
 import { fixture } from '../../fixtures/claude-adapter.js';
 import { scratch } from '../../fixtures/scratch.js';

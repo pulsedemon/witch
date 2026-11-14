@@ -14,7 +14,7 @@ import { test } from 'vitest';
 import { createElement } from 'react';
 import { render } from 'ink-testing-library';
 import stripAnsi from 'strip-ansi';
-import { CodexAdapter } from '../../src/agents/codex/codex.js';
+import { CodexAdapter } from '../../src/agents/codex/adapter.js';
 import { Coordinator } from '../../src/core/coordinator.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { App } from '../../src/ui/App.js';

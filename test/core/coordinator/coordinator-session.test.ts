@@ -4,7 +4,7 @@ import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, test, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { CodexAdapter } from '../../../src/agents/codex/codex.js';
+import { CodexAdapter } from '../../../src/agents/codex/adapter.js';
 import { unreportedContextCatalog } from '../../fixtures/codex-adapter.js';
 import type { RpcMessage } from '../../../src/agents/codex/json-rpc.js';
 import type {

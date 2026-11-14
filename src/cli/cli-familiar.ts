@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { ClaudeTask } from '../agents/claude/claude-task.js';
+import { ClaudeTask } from '../agents/claude/task.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import { running, terminateGraceMs } from '../agents/shutdown.js';
 import { errorMessage } from '../errors.js';

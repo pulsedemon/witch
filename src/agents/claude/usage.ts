@@ -1,8 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { promptlessQuery } from './claude-side.js';
-import type { ClaudeLaunch } from './claude-side.js';
+import { promptlessQuery } from './side.js';
+import type { ClaudeLaunch } from './side.js';
 import { InputQueue } from '../input-queue.js';
 import { watchChild } from '../stderr.js';
 import type { ChildExit } from '../stderr.js';

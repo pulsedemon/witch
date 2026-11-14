@@ -4,12 +4,12 @@ import { appendFileSync } from 'node:fs';
 import { lstat, mkdir, symlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { ClaudeAdapter } from '../claude/claude.js';
-import { CodexAdapter } from '../codex/codex.js';
+import { ClaudeAdapter } from '../claude/adapter.js';
+import { CodexAdapter } from '../codex/adapter.js';
 import type { NativeRuntime } from './runtime-updates.js';
 import type { AgentAdapter } from '../types.js';
 import { unlessGone } from '../../persistence/json.js';
-import { withoutModelPins } from '../claude/claude-side.js';
+import { withoutModelPins } from '../claude/side.js';
 
 export type VerificationLaunch = (
   command: string,

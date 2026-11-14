@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { CodexAdapter } from '../agents/codex/codex.js';
+import { CodexAdapter } from '../agents/codex/adapter.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import type {
   FamiliarAction,

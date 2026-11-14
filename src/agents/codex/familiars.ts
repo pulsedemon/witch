@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { object } from './codex-config.js';
-import { completedTurn, itemTitle, turnId, untooled } from './codex-items.js';
-import { castSkills } from './codex-spells.js';
+import { object } from './config.js';
+import { completedTurn, itemTitle, turnId, untooled } from './items.js';
+import { castSkills } from './spells.js';
 import { mergeCasts } from '../familiar-report.js';
-import type { Notification } from './codex-commands.js';
+import type { Notification } from './commands.js';
 import type { JsonRpc } from './json-rpc.js';
 import type { SessionOptions, Subagent } from '../types.js';
 

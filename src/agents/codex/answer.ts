@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { pages } from './json-rpc.js';
 import type { JsonRpc } from './json-rpc.js';
-import { object, readConfig, withoutMcp } from './codex-config.js';
+import { object, readConfig, withoutMcp } from './config.js';
 
 const servers = z.object({
   data: z.array(

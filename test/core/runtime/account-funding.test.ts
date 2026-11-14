@@ -3,7 +3,7 @@ import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createElement } from 'react';
 import { test, vi } from 'vitest';
-import { accountReading } from '../../../src/agents/claude/claude-usage.js';
+import { accountReading } from '../../../src/agents/claude/usage.js';
 import type { AccountReading } from '../../../src/agents/types.js';
 import {
   AccountUsage,

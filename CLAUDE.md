@@ -33,7 +33,7 @@ Temp directories come from `scratch()` in `test/fixtures/scratch.ts`, which remo
 
 ## Conventions
 
-Group files by responsibility within their existing layer; keep JSX files in PascalCase and JSX-free helpers in `.ts`. [ESLint](eslint.config.js) enforces filenames; [the rules](docs/rules.md#ownership) define ownership.
+Name runtime helpers for their responsibility without repeating the runtime folder name. Group files by responsibility within their existing layer; keep JSX files in PascalCase and JSX-free helpers in `.ts`. [ESLint](eslint.config.js) enforces filenames; [the rules](docs/rules.md#ownership) define ownership.
 
 - ESM with `NodeNext`: relative imports end in `.js`, including imports of `.ts` and `.tsx` sources.
 - `verbatimModuleSyntax` and `consistent-type-imports` require `import type` for type-only imports. `no-floating-promises` is an error, so detached promises are marked with `void`.

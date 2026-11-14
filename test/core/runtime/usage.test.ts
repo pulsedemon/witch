@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import { NativeStop } from '../../../src/agents/shutdown.js';
-import { CodexAccount } from '../../../src/agents/codex/codex-limits.js';
+import { CodexAccount } from '../../../src/agents/codex/limits.js';
 import type {
   AccountReading,
   AgentSession,

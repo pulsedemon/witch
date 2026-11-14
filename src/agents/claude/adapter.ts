@@ -1,8 +1,8 @@
 import { AnswerTurn } from '../answer-turn.js';
-import { ClaudeRequests } from './claude-permissions.js';
-import { ClaudeMcp } from './claude-mcp.js';
-import { ClaudeProjection } from './claude-projection.js';
-import { content, readImages } from './claude-content.js';
+import { ClaudeRequests } from './permissions.js';
+import { ClaudeMcp } from './mcp.js';
+import { ClaudeProjection } from './projection.js';
+import { content, readImages } from './content.js';
 import { spawn } from 'node:child_process';
 import { nativeLaunch } from '../native-launch.js';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -26,20 +26,20 @@ import {
   claudeResult,
   recoverInput,
   type Turn,
-} from './claude-turn.js';
-import { accountReading, ClaudeUsage } from './claude-usage.js';
-import { ClaudeCompaction } from './claude-compaction.js';
-import { ClaudeContext } from './claude-context.js';
+} from './turn.js';
+import { accountReading, ClaudeUsage } from './usage.js';
+import { ClaudeCompaction } from './compaction.js';
+import { ClaudeContext } from './context.js';
 import {
   promptless,
   sideQuery,
   startupFailure,
   withoutModelPins,
-} from './claude-side.js';
-import type { ClaudeLaunch } from './claude-side.js';
-import { ClaudeCommands } from './claude-commands.js';
-import type { ClaudeTaskControl } from './claude-commands.js';
-import type { UsageSource } from './claude-usage.js';
+} from './side.js';
+import type { ClaudeLaunch } from './side.js';
+import { ClaudeCommands } from './commands.js';
+import type { ClaudeTaskControl } from './commands.js';
+import type { UsageSource } from './usage.js';
 import { errorMessage } from '../../errors.js';
 import { watchChild, withTail, type ChildExit } from '../stderr.js';
 import {
@@ -52,10 +52,10 @@ import {
   terminateChild,
   terminationReserveMs,
 } from '../shutdown.js';
-import { modelsOf } from './claude-models.js';
-import { skillsOf } from './claude-spells.js';
+import { modelsOf } from './models.js';
+import { skillsOf } from './spells.js';
 import { bashRecord, runShell, shellFailed } from '../user-shell.js';
-import { RateLimit } from './claude-limits.js';
+import { RateLimit } from './limits.js';
 import type {
   AgentAdapter,
   AgentSession,

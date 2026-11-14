@@ -1,4 +1,4 @@
-import { CodexAdapter } from '../../src/agents/codex/codex.js';
+import { CodexAdapter } from '../../src/agents/codex/adapter.js';
 
 // awaited at module top level, where connect's catch runs before Node's spawn error
 await new CodexAdapter()

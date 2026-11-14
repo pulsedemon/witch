@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { test, vi } from 'vitest';
 import type { FamiliarAction } from '../../src/agents/familiar-report.js';
 import { familiarMarker } from '../../src/agents/familiar-report.js';
-import { ClaudeCommands } from '../../src/agents/claude/claude-commands.js';
+import { ClaudeCommands } from '../../src/agents/claude/commands.js';
 import type {
   AgentEvent,
   UserRequest,

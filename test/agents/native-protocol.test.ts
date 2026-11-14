@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { test } from 'vitest';
 import { CodexSchema } from '../fixtures/codex-schema.js';
-import { CodexAdapter } from '../../src/agents/codex/codex.js';
-import { ClaudeAdapter } from '../../src/agents/claude/claude.js';
+import { CodexAdapter } from '../../src/agents/codex/adapter.js';
+import { ClaudeAdapter } from '../../src/agents/claude/adapter.js';
 import { nativeScenario } from '../../src/agents/updates/native-scenario.js';
 import type { NativeScenario } from '../../src/agents/updates/native-scenario.js';
 import { replayWire, observeWire } from '../fixtures/native-wire.js';
@@ -511,8 +511,9 @@ test('every Codex request method in production is covered by the native schema a
   const exercised = new Set(requests.map(({ method }) => method));
   const agents = new URL('../../src/agents/codex/', import.meta.url);
 
-  const files = readdirSync(agents).filter((name) =>
-    /^codex.*\.ts$/.test(name),
+  // the transport forwards method names; adapter files own the concrete calls
+  const files = readdirSync(agents).filter(
+    (name) => name.endsWith('.ts') && name !== 'json-rpc.ts',
   );
 
   assert.ok(

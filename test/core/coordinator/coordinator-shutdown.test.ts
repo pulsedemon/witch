@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
-import { CodexAdapter } from '../../../src/agents/codex/codex.js';
+import { CodexAdapter } from '../../../src/agents/codex/adapter.js';
 import { Coordinator } from '../../../src/core/coordinator.js';
 import { StateStore } from '../../../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from '../../fixtures/agent.js';

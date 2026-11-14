@@ -9,7 +9,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
-import { CodexAdapter } from '../../../src/agents/codex/codex.js';
+import { CodexAdapter } from '../../../src/agents/codex/adapter.js';
 import {
   checkRuntimeUpdate,
   earlierArtifact,

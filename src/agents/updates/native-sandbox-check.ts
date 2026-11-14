@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
-import { CodexAdapter } from '../codex/codex.js';
+import { CodexAdapter } from '../codex/adapter.js';
 import type { AgentSession } from '../types.js';
 import { unlessGone, writeJson } from '../../persistence/json.js';
 import { quote } from '../../shell.js';

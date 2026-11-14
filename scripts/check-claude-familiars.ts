@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { createElement } from 'react';
 import { render } from 'ink';
-import { CodexAdapter } from '../src/agents/codex/codex.js';
+import { CodexAdapter } from '../src/agents/codex/adapter.js';
 import { installedAgents } from '../src/agents/registry.js';
 import { controlPrefix } from '../src/cli/cli-control.js';
 import { SessionCoordination } from '../src/core/coordination/coordination.js';
