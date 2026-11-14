@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { access } from 'node:fs/promises';
-
 import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 
 export async function within<T>(

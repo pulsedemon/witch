@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { execFile, spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { once } from 'node:events';
-
 import { existsSync } from 'node:fs';
-
 import files, {
   chmod,
   mkdir,
@@ -18,34 +13,21 @@ import files, {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { basename, dirname, join } from 'node:path';
-
 import { createInterface } from 'node:readline';
-
 import { test, vi } from 'vitest';
-
 import type { TestContext } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { promisify } from 'node:util';
-
 import type { ProcessIdentity } from '../src/core/state.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { ScratchSpace } from '../src/persistence/scratch.js';
-
 import type {
   ScratchCandidate,
   ScratchUse,
 } from '../src/persistence/scratch-usage.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { settled, until, within } from './fixtures/within.js';
 
 const execute = promisify(execFile);

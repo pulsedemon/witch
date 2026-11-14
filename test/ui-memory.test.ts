@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import {
   access,
   mkdir,
@@ -10,37 +8,21 @@ import {
   writeFile,
   unlink,
 } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import { createElement } from 'react';
-
 import { render } from 'ink-testing-library';
-
 import stripAnsi from 'strip-ansi';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { App } from '../src/ui/app.js';
-
 import { FixtureAgent } from './fixtures/agent.js';
-
 import { hookedGit, passThrough } from './fixtures/git.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { show, forgedLink, fake, ENTER, openCommand } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 /** a stored conversation whose memory worktree is ready for notes, before it opens. */

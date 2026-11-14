@@ -1,17 +1,10 @@
 import { execFile } from 'node:child_process';
-
 import { accessSync, constants, readFileSync, statSync } from 'node:fs';
-
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-
 import { tmpdir } from 'node:os';
-
 import { isAbsolute, join } from 'node:path';
-
 import { resolveFile, unescapePath } from '../paths.js';
-
 import { shellCommand } from './prompts.js';
-
 import type { ConversationStore } from '../persistence/store.js';
 
 const markerPattern = /\[Image #(\d+)\]/g;

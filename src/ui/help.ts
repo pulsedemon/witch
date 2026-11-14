@@ -1,5 +1,4 @@
 import { commands } from './commands.js';
-
 import { accent, colors } from './theme.js';
 
 const heading = (text: string) => colors.hex(accent).bold(text);

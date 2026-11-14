@@ -1,5 +1,4 @@
 import type { AccountReading } from '../agents/types.js';
-
 import {
   defaultPolicy,
   family,
@@ -7,13 +6,9 @@ import {
   ruleFor,
   work,
 } from '../core/routing.js';
-
 import type { Catalog, Policy } from '../core/routing.js';
-
 import type { Coordinator } from '../core/coordinator.js';
-
 import { describeReading } from '../core/usage.js';
-
 import type { DelegationStore } from '../persistence/delegation.js';
 
 const delegationUsage =

@@ -1,11 +1,7 @@
 import { randomUUID } from 'node:crypto';
-
 import type { CanUseTool, OnElicitation } from '@anthropic-ai/claude-agent-sdk';
-
 import { z } from 'zod';
-
 import { proposedDiff } from './claude-diff.js';
-
 import type { SessionOptions, UserRequest, UserResponse } from './types.js';
 
 const questions = z.object({

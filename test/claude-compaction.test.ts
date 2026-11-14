@@ -1,24 +1,16 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import {
   fixture,
   content,
   frameWriter,
   jsonLines,
 } from './fixtures/claude-adapter.js';
-
 import { settled, until, within } from './fixtures/within.js';
 
 async function scripted(sessionState = true) {

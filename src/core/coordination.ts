@@ -1,78 +1,50 @@
 import { isFamiliarAction } from '../agents/familiar-report.js';
-
 import { randomUUID } from 'node:crypto';
-
 import { join } from 'node:path';
-
 import type { AgentSession } from '../agents/types.js';
-
 import { errorMessage } from '../errors.js';
-
 import type { Memory } from '../memory/memory.js';
-
 import {
   CoordinationStore,
   checkDeadline,
 } from '../persistence/coordination.js';
-
 import type { Ledger, Verify } from '../persistence/coordination.js';
-
 import { ControlHost } from '../persistence/control.js';
-
 import type {
   ControlBinding,
   ControlOutcome,
   ControlRequest,
 } from '../persistence/control.js';
-
 import { identifyProcess, sameProcess } from '../persistence/process.js';
-
 import type { StateStore } from '../persistence/store.js';
-
 import {
   checkTaskRelease,
   emptySnapshot,
   type CoordinationSnapshot,
   type SelectionScope,
 } from './coordination-state.js';
-
 import type { Reviewers } from './reviewers.js';
-
 import type { router } from './router.js';
-
 import type { Snapshot } from './snapshot.js';
-
 import {
   coordinationContext,
   coordinationInstructions,
 } from './coordination-policy.js';
-
 import { configStamp, discover, projectDiscovery } from './discovery.js';
-
 import { movedNotices, transferRefusal } from './task-transfer.js';
-
 import type { Discovery } from './discovery.js';
-
 import { assignGitHubTask } from './github-assignment.js';
-
 import { ReviewOwnership } from './review-ownership.js';
-
 import type { Repository } from './repository.js';
-
 import { ConversationEvents } from './conversation-events.js';
-
 import {
   activationOwner,
   dispatchControl,
   type DispatchHost,
 } from './control-dispatch.js';
-
 import { PresencePublisher } from './presence.js';
-
 import type { PeerRequest } from './peer-requests.js';
-
 import type { PeerAnswer } from './peer-answers.js';
-
 import type { Conversation, ProcessIdentity } from './state.js';
 
 export interface Activation {

@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { dirname, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { pathToFileURL } from 'node:url';
-
 import { promisify } from 'node:util';
-
 import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
-
 import stripAnsi from 'strip-ansi';
-
 import wrapAnsi from 'wrap-ansi';
-
 import {
   clickTarget,
   hyperlink,
@@ -28,11 +17,8 @@ import {
   linkTarget,
   plain,
 } from '../src/ui/links.js';
-
 import { markdown } from '../src/ui/markdown.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { unreadable } from './fixtures/unreadable.js';
 
 const execute = promisify(execFile);

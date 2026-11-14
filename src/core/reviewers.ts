@@ -1,16 +1,11 @@
 import { spawn } from 'node:child_process';
-
 import { readFile } from 'node:fs/promises';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import type {
   FamiliarAction,
   FamiliarOutcome,
 } from '../agents/familiar-report.js';
-
 import { FamiliarRun } from '../agents/familiar-requests.js';
-
 import {
   beforeDeadline,
   graceDeadline,
@@ -19,9 +14,7 @@ import {
   signalGroup,
   stopDeadline,
 } from '../agents/shutdown.js';
-
 import { errorMessage } from '../errors.js';
-
 import type { AgentEvent, TaskStatus } from '../agents/types.js';
 
 export interface Reviewer {

@@ -1,21 +1,12 @@
 import { execFile } from 'node:child_process';
-
 import { constants } from 'node:fs';
-
 import { lstat, realpath, stat } from 'node:fs/promises';
-
 import { basename, dirname, join } from 'node:path';
-
 import { promisify } from 'node:util';
-
 import { z } from 'zod';
-
 import { errorMessage } from '../errors.js';
-
 import { within } from '../paths.js';
-
 import { readJson, unlessGone, writeJson } from './json.js';
-
 import { openLocked } from './lock.js';
 
 const execute = promisify(execFile);

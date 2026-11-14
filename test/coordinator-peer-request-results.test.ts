@@ -1,58 +1,32 @@
 import { randomUUID } from 'node:crypto';
-
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { mkdirSync } from 'node:fs';
-
 import { access, readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { test, vi } from 'vitest';
-
 import { ClaudeAdapter } from '../src/agents/claude.js';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
-
 import { answerInstruction } from '../src/core/peer-requests.js';
-
 import type { PeerRequest } from '../src/core/peer-requests.js';
-
 import type { PullRequest } from '../src/core/repository.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { NotificationSchedule } from '../src/persistence/notifications.js';
-
 import { watchTerminal } from '../src/ui/terminal.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
-
 import {
   pauseDiscovery,
   unitCoordinationFixture,
 } from './fixtures/coordination.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { repositoryRead } from './fixtures/repository.js';
-
 import type { Client } from './fixtures/coordinator-peer-requests.js';
-
 import {
   answerTurns,
   ask,

@@ -1,9 +1,6 @@
 import { z } from 'zod';
-
 import type { ControlBinding } from '../persistence/control.js';
-
 import { checkDeadline } from '../persistence/coordination.js';
-
 import {
   addFamiliar,
   admitFamiliar,
@@ -12,21 +9,15 @@ import {
   findFamiliar,
   respondFamiliar,
 } from './familiar-report.js';
-
 import { FamiliarRun } from './familiar-requests.js';
-
 import type {
   FamiliarAction,
   FamiliarOutcome,
   FamiliarSlot,
 } from './familiar-report.js';
-
 import { pages } from './json-rpc.js';
-
 import type { JsonRpc, RpcMessage } from './json-rpc.js';
-
 import { errorMessage } from '../errors.js';
-
 import type { AgentEvent, BackgroundCommand, UserResponse } from './types.js';
 
 interface Command {

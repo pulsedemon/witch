@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { createElement } from 'react';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import { App } from '../src/ui/app.js';
-
 import { parseCommands } from '../src/ui/commands.js';
-
 import type { WitchCommand } from '../src/ui/commands.js';
-
 import type { StateStore } from '../src/persistence/store.js';
-
 import { unitFixture } from './fixtures/coordinator.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { show, fake, prompts, ENTER, UP } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const cases: [string, WitchCommand[] | undefined][] = [

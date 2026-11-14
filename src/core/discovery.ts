@@ -1,20 +1,13 @@
 import { statSync } from 'node:fs';
-
 import type { Memory } from '../memory/memory.js';
-
 import { checkDeadline } from '../persistence/coordination.js';
-
 import type { CoordinationStore, Ledger } from '../persistence/coordination.js';
-
 import { identifyProcesses, sameProcess } from '../persistence/process.js';
-
 import type { StateStore } from '../persistence/store.js';
-
 import {
   conversationSummarySchema,
   selectionStates,
 } from './coordination-state.js';
-
 import type {
   CoordinationSnapshot,
   SessionPresence,

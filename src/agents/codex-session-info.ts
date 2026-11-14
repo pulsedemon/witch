@@ -1,5 +1,4 @@
 import { z } from 'zod';
-
 import type { SessionInfo } from './types.js';
 
 const activePermissionProfile = z.object({ id: z.string() }).nullish();

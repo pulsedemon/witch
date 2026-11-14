@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test, vi } from 'vitest';
-
 import { TurnText } from '../src/agents/turn-text.js';
-
 import { jsonLines, launcher, working } from './fixtures/claude-adapter.js';
-
 import { appears, settled, until, within } from './fixtures/within.js';
-
 import {
   background,
   lifecycle,

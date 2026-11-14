@@ -5,116 +5,68 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
-
 import type { DOMElement } from 'ink';
-
 import stripAnsi from 'strip-ansi';
-
 import { textCommands } from '../agents/claude-spells.js';
-
 import type { CompletionList } from './completion.js';
-
 import type { Coordinator } from '../core/coordinator.js';
-
 import type { Snapshot } from '../core/snapshot.js';
-
 import type { JobWatch } from '../core/jobs.js';
-
 import type { RepositoryWatch } from '../core/repository.js';
-
 import { agentWorking, contextStart } from '../core/state.js';
-
 import type { StateStore } from '../persistence/store.js';
-
 import {
   commands,
   claimedCommands,
   parseCommands,
   safeQueueMerge,
 } from './commands.js';
-
 import { CommandView, useCommandViews } from './command-views.js';
-
 import { CommandWindow } from './command-window.js';
-
 import {
   commandWindowRows,
   minimumColumns,
   minimumRows,
   toolHintLines,
 } from './chat-layout.js';
-
 import { Input } from './input.js';
-
 import { inputRows } from './input-layout.js';
-
 import type { InputHandle } from './input.js';
-
 import type { InputBuffer } from './input-buffer.js';
-
 import {
   activeToken,
   rankCommands,
   rankFiles,
   tokenKey,
 } from './completion.js';
-
 import { Request } from './request.js';
-
 import { canExpandDiff, diffExpansionHint } from './diff.js';
-
 import type { Graphics } from './images.js';
-
 import { TranscriptLayout } from './transcript-layout.js';
-
 import type { ScrollAnchor } from './transcript-layout.js';
-
 import { linkify, oneLine, plain } from './links.js';
-
 import { useKeysReady } from './keys-ready.js';
-
 import { useLiveState } from './live-state.js';
-
 import { useDrafts } from './drafts.js';
-
 import type { Browsing } from './drafts.js';
-
 import { useClick, usePointer, useWheel } from './mouse.js';
-
 import { highlight, selectedText } from './selection.js';
-
 import type { Point, RangeEnd } from './selection.js';
-
 import { Activity } from './activity.js';
-
 import { castTitle, useCasting } from './cast.js';
-
 import { Sidebar } from './sidebar.js';
-
 import { sidebarWidth, usagePlacement } from './sidebar-layout.js';
-
 import type { delegation } from './delegation.js';
-
 import { StatusLine, useStatusTime } from './status-line.js';
-
 import { statusFooter } from './status-rows.js';
-
 import { ScrollPage } from './scroll-page.js';
-
 import { PhaseRow } from './phase-row.js';
-
 import { useToolFocus } from './tool-focus.js';
-
 import { useExitConfirm } from './exit-confirm.js';
-
 import { accent, colors, piped, potion } from './theme.js';
-
 import { wrapLines } from './wrap.js';
-
 import type { RuntimeUpdates } from '../core/runtime-updates.js';
-
 import { useRuntimeUpdates } from './updates.js';
 
 const unwatched = () => () => {};

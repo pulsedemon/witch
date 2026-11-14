@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import type { AccountReading, Limit } from '../src/agents/types.js';
-
 import type { Catalog, Policy, Route, Work } from '../src/core/routing.js';
-
 import { defaultPolicy, family, resolve, route } from '../src/core/routing.js';
-
 import { USAGE_CURRENT_MS } from '../src/core/usage.js';
 
 const now = 2_000_000_000_000;

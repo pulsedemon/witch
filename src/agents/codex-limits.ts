@@ -1,7 +1,5 @@
 import { z } from 'zod';
-
 import type { JsonRpc } from './json-rpc.js';
-
 import type { AccountReading, Limit } from './types.js';
 
 const rateWindow = z

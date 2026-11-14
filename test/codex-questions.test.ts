@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import { fixture, close } from './fixtures/codex-adapter.js';
-
 import { within } from './fixtures/within.js';
 
 test('native async question messages produce one shared request with choices and free-text questions', async () => {

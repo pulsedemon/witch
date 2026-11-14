@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-
 import { useLiveState } from './live-state.js';
 
 /** exits on a second press within a second, so one stray Ctrl+C doesn't end Witch. */

@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { createServer } from 'node:http';
-
 import { join } from 'node:path';
-
 import { CodexAdapter } from './codex.js';
-
 import type { AgentSession } from './types.js';
-
 import { unlessGone, writeJson } from '../persistence/json.js';
-
 import { quote } from '../shell.js';
 
 /** a deterministic local model forces the real native tool to exercise the answer's sandbox. */

@@ -1,9 +1,6 @@
 import { Box, Text } from 'ink';
-
 import type { DisplayItem } from '../core/state.js';
-
 import { oneLine } from './links.js';
-
 import { commandWindowRows } from './chat-layout.js';
 
 export function CommandWindow({ items }: { items: readonly DisplayItem[] }) {

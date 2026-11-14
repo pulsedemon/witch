@@ -1,27 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { readFile, unlink, writeFile } from 'node:fs/promises';
-
 import { test, vi } from 'vitest';
-
 import * as github from '../src/core/github-reviews.js';
-
 import type { GitHubReviews } from '../src/core/github-reviews.js';
-
 import type { ReviewBatch, ReviewResult } from '../src/core/copilot-reviews.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { answerInstruction } from '../src/core/peer-requests.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { git } from './fixtures/coordination.js';
-
 import { autoReply, record, reply, setup } from './fixtures/copilot-reviews.js';
-
 import { reviewSource } from './fixtures/github-reviews.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('a missing result after restart stays blocked until a user prompt reconciles the existing reply', async (t) => {

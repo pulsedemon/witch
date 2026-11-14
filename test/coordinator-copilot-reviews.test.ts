@@ -1,33 +1,18 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { execFile } from 'node:child_process';
-
 import { join } from 'node:path';
-
 import { promisify } from 'node:util';
-
 import { test, vi } from 'vitest';
-
 import * as github from '../src/core/github-reviews.js';
-
 import type { GitHubReviews } from '../src/core/github-reviews.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { RepositoryWatch } from '../src/core/repository.js';
-
 import { watchCopilotReviews } from '../src/core/copilot-review-watch.js';
-
 import { answerInstruction } from '../src/core/peer-requests.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { git } from './fixtures/coordination.js';
-
 import { autoReply, record, reply, setup } from './fixtures/copilot-reviews.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('delayed feedback runs once, verifies the reply and pushed commit, and preserves ordinary-turn metadata', async (t) => {

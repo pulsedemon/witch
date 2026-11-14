@@ -1,9 +1,6 @@
 import { availableParallelism } from 'node:os';
-
 import { fileURLToPath } from 'node:url';
-
 import { transformSync } from '@babel/core';
-
 import { configDefaults, defineConfig } from 'vitest/config';
 
 const ui = fileURLToPath(new URL('./src/ui/', import.meta.url));

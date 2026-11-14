@@ -1,31 +1,17 @@
 import { useMemo, useRef, useState } from 'react';
-
 import { Box, Text, useInput } from 'ink';
-
 import { z } from 'zod';
-
 import { Ajv2020 } from 'ajv/dist/2020.js';
-
 import { fullFormats } from 'ajv-formats/dist/formats.js';
-
 import type { UserRequest, UserResponse } from '../agents/types.js';
-
 import { errorMessage } from '../errors.js';
-
 import { Input } from './input.js';
-
 import { useKeysReady } from './keys-ready.js';
-
 import { linkify, plain } from './links.js';
-
 import { useLiveState } from './live-state.js';
-
 import { piped } from './theme.js';
-
 import { canExpandDiff, diffExpansionHint, diffRows } from './diff.js';
-
 import { wrapLines } from './wrap.js';
-
 import { ScrollPage } from './scroll-page.js';
 
 interface Props {

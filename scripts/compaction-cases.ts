@@ -1,14 +1,9 @@
 // writes one grading packet per compaction in real Witch conversations; docs/compaction-check.md owns the procedure.
 import assert from 'node:assert/strict';
-
 import { createReadStream } from 'node:fs';
-
 import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { join, resolve } from 'node:path';
-
 import { parseArgs } from 'node:util';
 
 const { values } = parseArgs({

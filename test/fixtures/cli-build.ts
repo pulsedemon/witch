@@ -1,11 +1,7 @@
 import { rm, symlink } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import type { TestProject } from 'vitest/node';
-
 import { cleanScratch, scratch } from './scratch.js';
 
 declare module 'vitest' {

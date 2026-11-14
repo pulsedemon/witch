@@ -1,22 +1,14 @@
 import { randomUUID } from 'node:crypto';
-
 import { promises as files } from 'node:fs';
-
 import { join } from 'node:path';
-
 import { vi } from 'vitest';
-
 import { ControlHost } from '../../src/persistence/control.js';
-
 import type {
   ControlBinding,
   ControlRequest,
 } from '../../src/persistence/control.js';
-
 import { identifyProcess } from '../../src/persistence/process.js';
-
 import { scratch } from './scratch.js';
-
 import { until } from './within.js';
 
 export const identity = (await identifyProcess(process.pid))!;

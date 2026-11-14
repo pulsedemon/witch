@@ -1,7 +1,5 @@
 import process from 'node:process';
-
 import { readFile } from 'node:fs/promises';
-
 import { installNative } from '../../src/agents/native-install.ts';
 
 await installNative(

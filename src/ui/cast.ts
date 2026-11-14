@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
-
 import type { DisplayItem } from '../core/state.js';
-
 import { accent, accentDim, colors } from './theme.js';
 
 const stepMs = 100;

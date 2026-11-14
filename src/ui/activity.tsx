@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
-
 import { Text } from 'ink';
-
 import { elapsed } from './elapsed.js';
-
 import { accent, colors, piped } from './theme.js';
 
 const verbs = [

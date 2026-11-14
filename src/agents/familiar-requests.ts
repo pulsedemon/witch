@@ -1,5 +1,4 @@
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
-
 import type { AgentEvent, Subagent, UserResponse } from './types.js';
 
 interface Request {

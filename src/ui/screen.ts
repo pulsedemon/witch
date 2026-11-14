@@ -1,5 +1,4 @@
 import stringWidth from 'string-width';
-
 import { imageFile } from './images.js';
 
 const escape =

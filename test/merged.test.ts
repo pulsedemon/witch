@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { constants } from 'node:fs';
-
 import {
   chmod,
   mkdir,
@@ -10,15 +8,10 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { cleanUpMerge } from '../src/core/merged.js';
-
 import { openLocked } from '../src/persistence/lock.js';
-
 import {
   branches,
   idle,
@@ -27,11 +20,8 @@ import {
   pullRequest,
   write,
 } from './fixtures/merged.js';
-
 import { git } from './fixtures/git.js';
-
 import { exists } from './fixtures/within.js';
-
 import {
   configureGitEnvironment,
   execute,

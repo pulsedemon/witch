@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
-
 import { constants } from 'node:fs';
-
 import {
   mkdir,
   open,
@@ -10,38 +8,26 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { z } from 'zod';
-
 import { errorMessage } from '../errors.js';
-
 import { unnumbered } from '../core/attachments.js';
-
 import {
   conversationRecordSchema,
   displayUpdateSchema,
   foldDisplayUpdates,
 } from '../core/state.js';
-
 import type {
   Conversation,
   ConversationRecord,
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
-
 import { mapper, newestMoveTime, readLedger } from './directories.js';
-
 import { within } from '../paths.js';
-
 import { gone, replaceFile, unlessGone, writeJson } from './json.js';
-
 import { nativeProcessKeys, stopLeftProcesses } from './process.js';
-
 import { lockedFiles, tryOpenLocked } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });

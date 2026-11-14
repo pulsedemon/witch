@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { watchConflicts } from '../src/core/pr-repair.js';
-
 import { RepositoryWatch } from '../src/core/repository.js';
-
 import { statusLines } from '../src/ui/status-rows.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { git, unitCoordinationFixture } from './fixtures/coordination.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { record as savedRecord } from './fixtures/copilot-reviews.js';
-
 import { head, repairPrefix, setup } from './fixtures/pr-repair.js';
 
 test('fresh resolution or an uncertain read skips the cached conflict without recording an attempt', async (t) => {

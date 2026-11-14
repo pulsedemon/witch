@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { access, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { describe, test } from 'vitest';
-
 import { appears, until, within } from './fixtures/within.js';
-
 import {
   fixture,
   close,

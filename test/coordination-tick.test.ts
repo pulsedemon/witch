@@ -1,41 +1,22 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { once } from 'node:events';
-
 import { mkdir } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test, vi } from 'vitest';
-
 import type { SessionCoordination } from '../src/core/coordination.js';
-
 import type { SessionPresence } from '../src/core/coordination-state.js';
-
 import type { PullRequest } from '../src/core/repository.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import type { Ledger } from '../src/persistence/coordination.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { unitCoordinationFixture, git } from './fixtures/coordination.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { countProbes } from './fixtures/probes.js';
-
 import { until } from './fixtures/within.js';
 
 /** waits for every refresh a tick started, including those a project change starts after it. */

@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { test } from 'vitest';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { unitFixture, readRecord } from './fixtures/coordinator.js';
-
 import { until } from './fixtures/within.js';
 
 test('usage process registration preserves the main identity and ignores reports after its conversation closes', async () => {

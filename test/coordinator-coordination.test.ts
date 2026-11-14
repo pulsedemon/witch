@@ -1,48 +1,27 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { readFile, rename, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setImmediate as nextTick } from 'node:timers/promises';
-
 import { test, vi } from 'vitest';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import { fileURLToPath } from 'node:url';
-
 import { ClaudeAdapter } from '../src/agents/claude.js';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
-
 import { boundCommandTitle } from '../src/agents/tool-title.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { Workspace } from '../src/memory/workspace.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-
 import { frameWriter } from './fixtures/claude-adapter.js';
-
 import {
   coordinationFixture,
   unitCoordinationFixture,
 } from './fixtures/coordination.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { appears, until, within } from './fixtures/within.js';
 
 test('a peer joining and leaving updates ongoing work without adding user input', async (t) => {

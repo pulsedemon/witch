@@ -1,30 +1,18 @@
 import { execFile } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { constants, promises as files, watch } from 'node:fs';
-
 import type { FSWatcher } from 'node:fs';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { promisify } from 'node:util';
-
 import { z } from 'zod';
-
 import { errorMessage } from '../errors.js';
-
 import {
   familiarActionSchema,
   familiarOutcomeSchema,
 } from '../agents/familiar-report.js';
-
 import type { FamiliarAction } from '../agents/familiar-report.js';
-
 import {
   coordinationActionSchema,
   coordinationSnapshotSchema,
@@ -32,18 +20,13 @@ import {
   taskClaimSchema,
   selectionStateSchema,
 } from '../core/coordination-state.js';
-
 import type { CoordinationAction } from '../core/coordination-state.js';
-
 import {
   peerRequestSchema,
   peerRequestStatusSchema,
 } from '../core/peer-requests.js';
-
 import { pauseSchema, pauseStatusSchema } from '../core/pauses.js';
-
 import { ClaimConflict, checkDeadline } from './coordination.js';
-
 import { writeJson } from './json.js';
 
 const execute = promisify(execFile);

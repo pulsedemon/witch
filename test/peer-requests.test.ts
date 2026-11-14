@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { utimes } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { ClaimOwner } from '../src/core/coordination-state.js';
-
 import { peerRequestStatus } from '../src/core/peer-requests.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { expireAfterLock } from './fixtures/coordination.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const identity = (await identifyProcess(process.pid))!;

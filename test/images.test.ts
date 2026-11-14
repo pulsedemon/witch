@@ -1,31 +1,17 @@
 import assert from 'node:assert/strict';
-
 import childProcess, { execFileSync, spawn } from 'node:child_process';
-
 import fs, { existsSync, readFileSync, writeFileSync } from 'node:fs';
-
 import { truncate, writeFile } from 'node:fs/promises';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { homedir } from 'node:os';
-
 import { dirname, join, relative } from 'node:path';
-
 import { setImmediate } from 'node:timers/promises';
-
 import { pathToFileURL } from 'node:url';
-
 import type { TestContext } from 'vitest';
-
 import { test, vi } from 'vitest';
-
 import { Graphics } from '../src/ui/images.js';
-
 import { loaded } from './fixtures/graphics.js';
-
 import { png } from './fixtures/png.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const placeholder = '\u{10EEEE}';

@@ -1,5 +1,4 @@
 import { readFile, readdir } from 'node:fs/promises';
-
 import {
   basename,
   dirname,
@@ -8,24 +7,17 @@ import {
   relative,
   resolve as resolvePath,
 } from 'node:path';
-
 import { errorMessage } from '../errors.js';
-
 import {
   caseDestination,
   identify,
   present,
   sameIdentity,
 } from '../persistence/directories.js';
-
 import type { Ledger } from '../persistence/directories.js';
-
 import { replaceFile, unlessGone } from '../persistence/json.js';
-
 import type { MoveReport } from './move-repair.js';
-
 import { statusArgs, statusEnv } from './repository.js';
-
 import type { Run } from './repository.js';
 
 interface Registration {

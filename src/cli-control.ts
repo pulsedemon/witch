@@ -1,28 +1,17 @@
 import { dirname, resolve } from 'node:path';
-
 import { parseArgs } from 'node:util';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { aborted, errorMessage } from './errors.js';
-
 import { claudeArguments } from './cli-familiar.js';
-
 import { codexArguments } from './cli-codex-familiar.js';
-
 import {
   coordinationActionSchema,
   selectionStatus,
 } from './core/coordination-state.js';
-
 import { callControl, controlBindingSchema } from './persistence/control.js';
-
 import type { ControlBinding, ControlOutcome } from './persistence/control.js';
-
 import { quote } from './shell.js';
-
 import { oneLine } from './ui/links.js';
-
 import { peerStatus } from './ui/peers.js';
 
 /** `<runtime>:<model>`, splitting at the first colon so a model ID keeps its own. */

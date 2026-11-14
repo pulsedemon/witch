@@ -1,13 +1,8 @@
 import type { SessionCoordination } from '../core/coordination.js';
-
 import type { Coordinator } from '../core/coordinator.js';
-
 import { sessionStatus } from '../core/coordination-state.js';
-
 import type { Snapshot } from '../core/snapshot.js';
-
 import type { NotificationSchedule } from '../persistence/notifications.js';
-
 import { oneLine } from './links.js';
 
 function bounded(text: string): string {

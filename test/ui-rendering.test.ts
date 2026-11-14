@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement, Profiler } from 'react';
-
 import { Lexer } from 'marked';
-
 import type { Coordinator } from '../src/core/coordinator.js';
-
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
-
 import type { Memory } from '../src/memory/memory.js';
-
 import { App } from '../src/ui/app.js';
-
 import { fake, show, openCommand, ENTER } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 function peerUpdates(coordinator: ReturnType<typeof fake>['coordinator']) {

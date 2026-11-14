@@ -1,15 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { errorMessage } from '../errors.js';
-
 import type { DelegationStore } from '../persistence/delegation.js';
-
 import type { ControlOutcome } from '../persistence/control.js';
-
 import type { RouteAction } from './coordination-state.js';
-
 import type { Coordinator } from './coordinator.js';
-
 import { route } from './routing.js';
 
 /** the longest a route waits for usage reads, since claims queue behind it in the control mailbox. */

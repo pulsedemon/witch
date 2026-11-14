@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { once } from 'node:events';
-
 import {
   chmod,
   mkdir,
@@ -15,21 +11,13 @@ import {
   writeFile,
   utimes,
 } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
-
 import { FixtureAgent, holdConnect } from './fixtures/agent.js';
-
 import {
   record,
   activity,
@@ -38,15 +26,10 @@ import {
   unitFixture,
   stranded,
 } from './fixtures/coordinator.js';
-
 import { passThrough } from './fixtures/git.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { main } from '../src/memory/memory.js';
 
 async function relocatedFixture() {

@@ -1,11 +1,7 @@
 import { z } from 'zod';
-
 import { isAbsolute } from 'node:path';
-
 import type { ControlBinding } from '../persistence/control.js';
-
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
-
 import type { CommandPrefixes } from './tool-title.js';
 
 export interface Model {

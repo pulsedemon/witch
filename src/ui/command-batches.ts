@@ -1,5 +1,4 @@
 import type { Coordinator } from '../core/coordinator.js';
-
 import type { WitchCommand } from './commands.js';
 
 type Execute = (

@@ -1,18 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-
 import {
   controlledFixture,
   close,
   commandFrame,
   turnFrame,
 } from './fixtures/codex-adapter.js';
-
 import { appears, settled, within } from './fixtures/within.js';
 
 test('child model observations survive delayed reads and restarts', async () => {

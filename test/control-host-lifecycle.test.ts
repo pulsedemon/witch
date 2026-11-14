@@ -1,31 +1,17 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import fs, { constants, promises as files } from 'node:fs';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { basename, join } from 'node:path';
-
 import { onTestFinished, test, vi } from 'vitest';
-
 import { callControl, ControlHost } from '../src/persistence/control.js';
-
 import type { ControlRequest } from '../src/persistence/control.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import { openLocked } from '../src/persistence/lock.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { exists, until, within } from './fixtures/within.js';
-
 import {
   binding,
   countingHost,

@@ -6,7 +6,6 @@ import type {
   SessionOptions,
   TurnResult,
 } from './types.js';
-
 import { NativeStop } from './shutdown.js';
 
 /** the owner remains connected while a restricted process answers from its history. */

@@ -1,9 +1,6 @@
 import type { AgentRegistration } from '../agents/registry.js';
-
 import { errorMessage } from '../errors.js';
-
 import type { AgentSession, Model } from '../agents/types.js';
-
 import type { Catalog } from './routing.js';
 
 export interface ModelChoice extends Model {

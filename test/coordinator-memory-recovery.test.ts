@@ -1,34 +1,21 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { promisify } from 'node:util';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { main } from '../src/memory/memory.js';
-
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
-
 import {
   activity,
   fixture,
   readRecord,
   stranded,
 } from './fixtures/coordinator.js';
-
 import { passThrough } from './fixtures/git.js';
-
 import { within } from './fixtures/within.js';
-
 import {
   assertMemoryBaseline,
   publishOutside,

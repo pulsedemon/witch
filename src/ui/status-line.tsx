@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-
 import { Box, Text } from 'ink';
 
 /** redrawn every 5 seconds, as Claude Code refreshes a status line, so the duration and resets keep time. */

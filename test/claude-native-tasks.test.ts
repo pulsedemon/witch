@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import { fixture, frameWriter } from './fixtures/claude-adapter.js';
 
 test('native familiar model-only frames preserve task state', async () => {

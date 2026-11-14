@@ -1,23 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { readFile } from 'node:fs/promises';
-
 import { Ajv } from 'ajv';
-
 import { test } from 'vitest';
-
 import {
   parsePeerAnswers,
   peerAnswerOutputSchema,
   preparePeerAnswers,
 } from '../src/core/peer-answers.js';
-
 import type { PeerRequest } from '../src/core/peer-requests.js';
-
 import { requestContext } from '../src/core/peer-requests.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const first: PeerRequest = {

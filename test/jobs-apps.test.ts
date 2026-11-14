@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { existsSync } from 'node:fs';
-
 import { mkdir, readFile, symlink } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { JobWatch } from '../src/core/jobs.js';
-
 import type { Row } from '../src/core/jobs.js';
-
 import * as processes from '../src/persistence/process.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until } from './fixtures/within.js';
 
 /** a process launchd adopted, alone in a group of its own. */

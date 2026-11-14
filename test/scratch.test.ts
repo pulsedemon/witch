@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { existsSync } from 'node:fs';
-
 import { chmod, mkdir, stat, writeFile } from 'node:fs/promises';
-
 import { basename, dirname, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { within } from './fixtures/within.js';
 
 const fixture = fileURLToPath(

@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process';
-
 import { createHash, randomUUID } from 'node:crypto';
-
 import {
   lstat,
   mkdir,
@@ -10,13 +8,9 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-
 import { basename, dirname, join, posix } from 'node:path';
-
 import { Workspace } from './workspace.js';
-
 import { present } from '../persistence/directories.js';
-
 import { gone } from '../persistence/json.js';
 
 export interface MemoryScope {

@@ -1,31 +1,17 @@
 import { execFile } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { promisify } from 'node:util';
-
 import type { AgentSession } from '../../src/agents/types.js';
-
 import { Coordinator } from '../../src/core/coordinator.js';
-
 import type { Conversation, ConversationRecord } from '../../src/core/state.js';
-
 import { ConversationStore, StateStore } from '../../src/persistence/store.js';
-
 import { FixtureAgent } from './agent.js';
-
 import { hookedGit, passThrough } from './git.js';
-
 import { scratch } from './scratch.js';
-
 import { seededMemory } from './seeded-memory.js';
-
 import { EmptyMemory } from './empty-memory.js';
-
 import { ephemeralFiles } from './ephemeral-files.js';
 
 export function record(id: string, cwd: string, agent = 'a'): Conversation {

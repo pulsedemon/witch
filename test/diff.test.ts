@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import stringWidth from 'string-width';
-
 import stripAnsi from 'strip-ansi';
-
 import type { FileDiff } from '../src/agents/types.js';
-
 import { canExpandDiff, diffRows, prepareDiff } from '../src/ui/diff.js';
-
 import { syntaxSpans } from '../src/ui/syntax.js';
 
 const rows = (files: FileDiff[], width = 30) =>

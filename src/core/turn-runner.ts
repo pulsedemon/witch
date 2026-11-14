@@ -1,52 +1,32 @@
 import { randomUUID } from 'node:crypto';
-
 import { rm } from 'node:fs/promises';
-
 import { aborted, errorMessage } from '../errors.js';
-
 import type { AgentSession, TurnResult } from '../agents/types.js';
-
 import type { Memory, MemoryScope } from '../memory/memory.js';
-
 import type { Workspace } from '../memory/workspace.js';
-
 import type { ConversationStore } from '../persistence/store.js';
-
 import { endActivity, type Activity } from './activity.js';
-
 import { compactSession, type Compaction } from './compaction.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import { watchClaimPolicy } from './coordination-policy.js';
-
 import type { CopilotReviewController } from './copilot-review-controller.js';
-
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
-
 import {
   answerInstruction,
   answerNotice,
   type PeerRequest,
 } from './peer-requests.js';
-
 import {
   preparePeerAnswers,
   recordPeerAnswers,
   peerAnswerOutputSchema,
   type PeerAnswerBatch,
 } from './peer-answers.js';
-
 import { nativePrompt, shellCommand, skillCall } from './prompts.js';
-
 import { repairInstruction, type Repair } from './pr-repair.js';
-
 import type { Conflict } from './repository.js';
-
 import type { SessionLink } from './session-link.js';
-
 import type { Snapshot } from './snapshot.js';
-
 import {
   recordDelivery,
   unreadRows,
@@ -54,9 +34,7 @@ import {
   type ConversationRecord,
   type DisplayUpdate,
 } from './state.js';
-
 import type { AccountUsage } from './usage.js';
-
 import {
   compactionThreshold,
   defaultCompactionPercent,

@@ -1,25 +1,14 @@
 import stripAnsi from 'strip-ansi';
-
 import wrapAnsi from 'wrap-ansi';
-
 import type { DisplayItem } from '../core/state.js';
-
 import { appendedDisplayText } from '../core/state.js';
-
 import { prepareDiff } from './diff.js';
-
 import { markdown, markdownAppend } from './markdown.js';
-
 import { accent, colors } from './theme.js';
-
 import { castTitle } from './cast.js';
-
 import type { Graphics } from './images.js';
-
 import { hyperlink, linkify, linkifyAppend, plain } from './links.js';
-
 import type { LinkedAppend } from './links.js';
-
 import { normalizeText, wrapLines } from './wrap.js';
 
 export interface ScrollAnchor {

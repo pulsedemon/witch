@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
-
 import { delimiter, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { installedAgents } from '../src/agents/registry.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 test('an agent is installed when a later PATH directory holds an executable of its name, and a file without execute permission or a directory of that name does not count', async () => {

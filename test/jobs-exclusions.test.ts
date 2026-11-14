@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { JobWatch } from '../src/core/jobs.js';
-
 import type { Row } from '../src/core/jobs.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { agentRow, commandRows, leaders, orphanRow } from './fixtures/jobs.js';
 
 for (const admission of ['direct', 'handed', 'reported', 'marked']) {

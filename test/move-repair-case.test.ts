@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-
 import {
   chmod,
   mkdir,
@@ -8,13 +7,9 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-
 import { test } from 'vitest';
-
 import { setup } from './fixtures/move-repair.js';
-
 import { git } from './fixtures/git.js';
-
 import { identify, readLedger } from '../src/persistence/directories.js';
 
 test('a child renamed in case with its parent is repaired on the first pass', async (t) => {

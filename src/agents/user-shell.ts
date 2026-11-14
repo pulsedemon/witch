@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process';
-
 import type { Socket } from 'node:net';
-
 import { signalGroup } from './shutdown.js';
 
 /** the output Witch keeps of a command, as Codex keeps 1 MiB of its own. */

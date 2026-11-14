@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { PentacleActivity } from '../src/core/pentacle-activity.js';
 
 test('pentacle activity belongs to its sources and publishes only aggregate changes', () => {

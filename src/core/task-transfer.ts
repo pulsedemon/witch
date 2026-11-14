@@ -1,17 +1,12 @@
 import { setTimeout as delay } from 'node:timers/promises';
-
 import type { Ledger } from '../persistence/coordination.js';
-
 import { taskActivity, taskReference } from './coordination-state.js';
-
 import type {
   ClaimInput,
   TaskClaim,
   TransferField,
 } from './coordination-state.js';
-
 import type { Snapshot } from './snapshot.js';
-
 import { creditCapacity } from './usage.js';
 
 /** keeps the previous owner from continuing work after its claim moves. */

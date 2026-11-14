@@ -1,23 +1,13 @@
 import { execFile } from 'node:child_process';
-
 import { createHash } from 'node:crypto';
-
 import { createReadStream } from 'node:fs';
-
 import { lstat, readFile, readdir, readlink, realpath } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { basename, dirname, join } from 'node:path';
-
 import { promisify } from 'node:util';
-
 import { z } from 'zod';
-
 import { unlessGone } from '../persistence/json.js';
-
 import type { AgentRegistration } from './registry.js';
-
 import { nativeInstallationRoot } from './executable.js';
 
 const execute = promisify(execFile);

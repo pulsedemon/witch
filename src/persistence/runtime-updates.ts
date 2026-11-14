@@ -1,29 +1,18 @@
 import { createHash } from 'node:crypto';
-
 import { closeSync, constants, mkdirSync, readFileSync } from 'node:fs';
-
 import { mkdir, readdir } from 'node:fs/promises';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { z } from 'zod';
-
 import {
   installationSchema,
   runtimeCheckSchema,
   versionSchema,
 } from '../agents/runtime-updates.js';
-
 import type { RuntimeInstallation } from '../agents/runtime-updates.js';
-
 import { gone, readJson, unlessGone, writeJson } from './json.js';
-
 import { openLocked, tryOpenLocked, tryOpenLockedSync } from './lock.js';
 
 const cachedCheckSchema = runtimeCheckSchema.extend({

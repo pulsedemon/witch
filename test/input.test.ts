@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { editInput, initialInput } from '../src/ui/input-buffer.js';
-
 import type { Step } from '../src/ui/input-buffer.js';
 
 test('an insert stores CRLF and lone CR line endings as newlines', () => {

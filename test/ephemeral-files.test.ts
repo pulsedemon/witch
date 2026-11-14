@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
-
 import { ephemeralFiles } from './fixtures/ephemeral-files.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { settled, within } from './fixtures/within.js';
 
 test('unit files remain readable while sibling files and restored files retain their durability barrier', async () => {

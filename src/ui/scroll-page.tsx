@@ -1,7 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-
 import { Box, Text, useInput } from 'ink';
-
 import { useWheel } from './mouse.js';
 
 interface Props {

@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { AnswerTurn } from '../src/agents/answer-turn.js';
-
 import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
-
 import type {
   AgentSession,
   SessionOptions,

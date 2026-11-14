@@ -1,17 +1,10 @@
 import { aborted } from '../errors.js';
-
 import { main } from '../memory/memory.js';
-
 import type { Memory, MemoryScope } from '../memory/memory.js';
-
 import type { Workspace } from '../memory/workspace.js';
-
 import type { editInVSCode } from './editor.js';
-
 import { memoryAttribution } from './prompts.js';
-
 import type { Recovery } from './snapshot.js';
-
 import type { ConversationRecord } from './state.js';
 
 /** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */

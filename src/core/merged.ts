@@ -1,33 +1,18 @@
 import { constants } from 'node:fs';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { readFile, readdir, rm } from 'node:fs/promises';
-
 import { basename, join, resolve } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { errorMessage } from '../errors.js';
-
 import type { Memory } from '../memory/memory.js';
-
 import { within } from '../paths.js';
-
 import { unlessGone } from '../persistence/json.js';
-
 import { tryOpenLocked } from '../persistence/lock.js';
-
 import { runs } from '../persistence/process.js';
-
 import type { StateStore } from '../persistence/store.js';
-
 import { runCommand } from './command.js';
-
 import type { Conversation } from './state.js';
-
 import { gitHubRepository, parseStatus, statusArgs } from './repository.js';
-
 import type { PullRequest, Repository, Run } from './repository.js';
 
 /** a password prompt would draw over the TUI, and nothing could answer it. */

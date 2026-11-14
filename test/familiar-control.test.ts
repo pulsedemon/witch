@@ -1,38 +1,26 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { test, vi } from 'vitest';
-
 import type { FamiliarAction } from '../src/agents/familiar-report.js';
-
 import { familiarMarker } from '../src/agents/familiar-report.js';
-
 import { ClaudeCommands } from '../src/agents/claude-commands.js';
-
 import type {
   AgentEvent,
   UserRequest,
   UserResponse,
 } from '../src/agents/types.js';
-
 import {
   callControl,
   ControlHost,
   controlRequestSchema,
 } from '../src/persistence/control.js';
-
 import { checkDeadline } from '../src/persistence/coordination.js';
-
 import {
   coordinationFixture,
   pauseDiscovery,
 } from './fixtures/coordination.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { within } from './fixtures/within.js';
 
 test('familiar request parsing enforces the absolute diff path contract', () => {

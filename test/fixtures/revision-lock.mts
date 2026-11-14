@@ -1,9 +1,6 @@
 import { spawnSync } from 'node:child_process';
-
 import { constants } from 'node:fs';
-
 import { writeFile } from 'node:fs/promises';
-
 import { openLocked } from '../../src/persistence/lock.js';
 
 const [directory, marker, git, failing, ...args] = process.argv.slice(2) as [

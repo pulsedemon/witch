@@ -1,50 +1,28 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import type { ChildProcess } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { subscribe, unsubscribe } from 'node:diagnostics_channel';
-
 import { once } from 'node:events';
-
 import { constants } from 'node:fs';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { SessionCoordination } from '../src/core/coordination.js';
-
 import type {
   SelectionTicket,
   TaskClaim,
 } from '../src/core/coordination-state.js';
-
 import { Memory } from '../src/memory/memory.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { tryOpenLocked } from '../src/persistence/lock.js';
-
 import { identifyProcess, ps } from '../src/persistence/process.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
-
 import { git, legacyLock } from './fixtures/coordination.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { within } from './fixtures/within.js';
 
 const identity = (await identifyProcess(process.pid))!;

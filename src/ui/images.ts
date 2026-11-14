@@ -1,17 +1,10 @@
 import { randomUUID } from 'node:crypto';
-
 import { rmSync } from 'node:fs';
-
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-
 import { tmpdir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
 import { convertImage, startsLikePng } from '../core/attachments.js';
-
 import { resolveFile } from '../paths.js';
 
 // the start of the Kitty protocol's row/column diacritics; a placeholder's diacritic gives its row in the image

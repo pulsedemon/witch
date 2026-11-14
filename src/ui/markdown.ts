@@ -1,13 +1,8 @@
 import { decodeHTMLStrict } from 'entities';
-
 import { Marked, Parser, Renderer } from 'marked';
-
 import type { Token } from 'marked';
-
 import stripAnsi from 'strip-ansi';
-
 import { markdownLink, linkify, plain } from './links.js';
-
 import { accent, colors } from './theme.js';
 
 function terminalRenderer(cwd: string, hrefs: string | null): Renderer {

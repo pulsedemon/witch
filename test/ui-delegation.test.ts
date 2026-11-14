@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { createElement } from 'react';
-
 import { test } from 'vitest';
-
 import { defaultPolicy } from '../src/core/routing.js';
-
 import type { Catalog } from '../src/core/routing.js';
-
 import { DelegationStore } from '../src/persistence/delegation.js';
-
 import { App } from '../src/ui/app.js';
-
 import { changeDelegation, delegationPage } from '../src/ui/delegation.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { ENTER, fake, show } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const catalog: Catalog = {

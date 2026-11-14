@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import { InputQueue } from '../src/agents/input-queue.js';
-
 import { familiarMarker } from '../src/agents/familiar-report.js';
-
 import { frameWriter, jsonLines, launcher } from './fixtures/claude-adapter.js';
-
 import { until, within } from './fixtures/within.js';
 
 for (const phase of ['dispatch', 'response', 'idle', 'late response'])

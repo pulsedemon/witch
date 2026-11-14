@@ -1,7 +1,5 @@
 import { errorMessage } from '../errors.js';
-
 import type { AgentSession, TurnResult } from '../agents/types.js';
-
 import type { Phase } from './state.js';
 
 interface Request {

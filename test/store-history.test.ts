@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { promises as files } from 'node:fs';
-
 import {
   access,
   appendFile,
@@ -15,33 +11,23 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { test, vi } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import {
   applyDisplayUpdate,
   displayUpdateSchema,
   foldDisplayUpdates,
 } from '../src/core/state.js';
-
 import type {
   ConversationRecord,
   DisplayItem,
   DisplayUpdate,
 } from '../src/core/state.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { within } from './fixtures/within.js';
-
 import { conversation } from './fixtures/store.js';
 
 async function recordedHistory(directory: string): Promise<DisplayUpdate[]> {

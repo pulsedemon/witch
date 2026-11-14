@@ -1,31 +1,17 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-
 import { Box, Text } from 'ink';
-
 import { basename } from 'node:path';
-
 import type { BackgroundCommand } from '../agents/types.js';
-
 import type { TimedSubagent } from '../core/snapshot.js';
-
 import { familiarIdentity } from '../core/familiars.js';
-
 import type { CoordinationSnapshot } from '../core/coordination-state.js';
-
 import type { PentacleActivity } from '../core/pentacle-activity.js';
-
 import { elapsed } from './elapsed.js';
-
 import { hyperlink, oneLine } from './links.js';
-
 import { peerStatus, peerTitle } from './peers.js';
-
 import { pentacle } from './pentacle.js';
-
 import { columns, rows, sidebarWidth } from './sidebar-layout.js';
-
 import { accent, accentDim, piped } from './theme.js';
-
 import { wrapLines } from './wrap.js';
 
 /** turned a little, so the pentacle shows its depth at rest. */

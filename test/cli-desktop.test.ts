@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import stripAnsi from 'strip-ansi';
-
 import { execFile, spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { existsSync } from 'node:fs';
-
 import {
   mkdir,
   readFile,
@@ -16,29 +11,17 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
 import { promisify } from 'node:util';
-
 import { compiledCli } from './fixtures/compiled-cli.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { Screen } from '../src/ui/screen.js';
-
 import { turnFrame } from './fixtures/codex-adapter.js';
-
 import { png } from './fixtures/png.js';
 
 interface DesktopEvent {

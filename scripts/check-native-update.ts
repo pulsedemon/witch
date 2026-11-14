@@ -1,27 +1,18 @@
 import assert from 'node:assert/strict';
-
 import { mkdir } from 'node:fs/promises';
-
 import { resolve } from 'node:path';
-
 import { parseArgs } from 'node:util';
-
 import { installedAgents } from '../src/agents/registry.js';
-
 import {
   inspectRuntime,
   runtimeSchema,
 } from '../src/agents/runtime-updates.js';
-
 import {
   prepareNativeUpdate,
   verifyNativeUpdate,
 } from '../src/agents/native-verification.js';
-
 import { verificationAdapter } from '../src/agents/native-verification-profile.js';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import { runtimeBuildIdentity } from '../src/core/runtime-updates.js';
 
 const { values } = parseArgs({

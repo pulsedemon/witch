@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { join } from 'node:path';
-
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import type { AgentEvent } from '../../src/agents/types.js';
-
 import { fixture, frameWriter, jsonLines } from './claude-adapter.js';
-
 import { until } from './within.js';
 
 export const state = (state: string) => ({

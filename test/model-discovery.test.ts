@@ -1,31 +1,17 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { ClaudeAdapter } from '../src/agents/claude.js';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { within } from './fixtures/within.js';
-
 import { untimed } from './fixtures/limits.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 async function discovery(

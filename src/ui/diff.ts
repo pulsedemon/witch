@@ -1,19 +1,11 @@
 import { diffArrays } from 'diff';
-
 import stringWidth from 'string-width';
-
 import { shortPath } from '../agents/tool-title.js';
-
 import type { FileDiff } from '../agents/types.js';
-
 import { hyperlink, oneLine, plain } from './links.js';
-
 import type { Span } from './syntax.js';
-
 import { languageOf, syntaxSpans } from './syntax.js';
-
 import { wrapLines } from './wrap.js';
-
 import {
   colors,
   diffAdded,

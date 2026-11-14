@@ -1,15 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
-
 import { tmpdir } from 'node:os';
-
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-
 import { unlessGone } from '../persistence/json.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import {
   afterCorrection,
   brief,
@@ -20,19 +14,12 @@ import {
   reviewerCommand,
   scopeFor,
 } from './review.js';
-
 import type { Finding, Review, SitOut, Texts } from './review.js';
-
 import { checkTargets } from './review-checks.js';
-
 import type { CheckFailure } from './review-checks.js';
-
 import type { Reviewer, Reviewers } from './reviewers.js';
-
 import type { Routed } from './routing.js';
-
 import { untitled } from './state.js';
-
 import type { ConversationRecord, DisplayUpdate } from './state.js';
 
 /** what a review needs from the coordinator. */

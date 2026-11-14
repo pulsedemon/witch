@@ -1,5 +1,4 @@
 import { piped } from './theme.js';
-
 import { wrapLines } from './wrap.js';
 
 export const minimumColumns = 30;

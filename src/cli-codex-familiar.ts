@@ -1,30 +1,18 @@
 import { spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { open } from 'node:fs/promises';
-
 import { resolve } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { CodexAdapter } from './agents/codex.js';
-
 import { nativeLaunch } from './agents/native-launch.js';
-
 import type {
   FamiliarAction,
   FamiliarProgress,
 } from './agents/familiar-report.js';
-
 import { mergeCasts } from './agents/familiar-report.js';
-
 import { errorMessage } from './errors.js';
-
 import { watchChild, withTail } from './agents/stderr.js';
-
 import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
-
 import {
   callFamiliar,
   exitCode,
@@ -32,9 +20,7 @@ import {
   registerFamiliar,
   saveReport,
 } from './familiar-run.js';
-
 import { questionReply } from './core/prompts.js';
-
 import type { ControlBinding } from './persistence/control.js';
 
 /** the wrapper owns transport and input; native configuration remains Codex's. */

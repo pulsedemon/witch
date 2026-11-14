@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { App } from '../src/ui/app.js';
-
 import { show, fake, approval } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 // /ex runs from the list; a trailing space opens no list, so /quit resolves as an alias in submit

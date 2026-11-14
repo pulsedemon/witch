@@ -1,34 +1,21 @@
 import { spawn } from 'node:child_process';
-
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { CodexAdapter } from '../../src/agents/codex.js';
-
 import type { readContextCatalog } from '../../src/agents/codex-compaction-policy.js';
-
 import type {
   AgentEvent,
   AgentSession,
   CommandMark,
   SessionOptions,
 } from '../../src/agents/types.js';
-
 import type { RpcMessage } from '../../src/agents/json-rpc.js';
-
 import { writeJson } from '../../src/persistence/json.js';
-
 import { appears, until } from './within.js';
-
 import { scratch } from './scratch.js';
-
 import type { ControlBinding } from '../../src/persistence/control.js';
-
 import type { CommandPrefixes } from '../../src/agents/tool-title.js';
 
 const codex = fileURLToPath(new URL('codex.mjs', import.meta.url));

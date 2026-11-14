@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { App } from '../src/ui/app.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { fixture, turns } from './fixtures/coordinator.js';
-
 import { png } from './fixtures/png.js';
-
 import {
   show,
   fake,
@@ -28,7 +18,6 @@ import {
   UP,
   tools,
 } from './fixtures/ui.js';
-
 import { until, within } from './fixtures/within.js';
 
 /** a small PNG written into `directory`, with the bracketed paste a terminal sends for its path. */

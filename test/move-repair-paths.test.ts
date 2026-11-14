@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-
 import {
   cp,
   mkdir,
@@ -9,23 +8,14 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-
 import { test } from 'vitest';
-
 import { runCommand } from '../src/core/command.js';
-
 import { repairMoves } from '../src/core/move-repair.js';
-
 import { readLedger } from '../src/persistence/directories.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { quote } from '../src/shell.js';
-
 import { git } from './fixtures/git.js';
-
 import { setup } from './fixtures/move-repair.js';
-
 import { darwin } from './fixtures/move-repair.js';
 
 test('history rewriting keeps unmatched lines byte for byte', async () => {

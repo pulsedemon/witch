@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import stripAnsi from 'strip-ansi';
-
 import { markdown, markdownAppend } from '../src/ui/markdown.js';
 
 test('nested lists and task lists render indented with each checkbox inline', () => {

@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { AgentEvent, UserRequest } from '../src/agents/types.js';
-
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-
 import { close, fixture, frameWriter } from './fixtures/codex-adapter.js';
-
 import { until } from './fixtures/within.js';
 
 const proposal = (

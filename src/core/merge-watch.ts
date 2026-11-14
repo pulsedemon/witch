@@ -1,9 +1,6 @@
 import type { Coordinator } from './coordinator.js';
-
 import { changed } from './merged.js';
-
 import type { MergeCleanup } from './merged.js';
-
 import type { PullRequest, RepositoryWatch } from './repository.js';
 
 /**

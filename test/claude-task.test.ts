@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { ClaudeTask } from '../src/agents/claude-task.js';
-
 import type { FamiliarProgress } from '../src/agents/familiar-report.js';
 
 const init = {

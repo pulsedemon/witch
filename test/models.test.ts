@@ -1,20 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { setImmediate } from 'node:timers/promises';
-
 import {
   LATEST_READ_MS,
   ModelCatalog,
   modelKey,
   modelTarget,
 } from '../src/core/models.js';
-
 import { FixtureAgent } from './fixtures/agent.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { settled, within } from './fixtures/within.js';
 
 test('catalogs preserve runtime order and identity, and reuse inactive lists until a refresh, without connecting inactive agents', async () => {

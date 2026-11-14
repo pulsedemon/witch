@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import chalk from 'chalk';
-
 import { createElement } from 'react';
-
 import type { Snapshot } from '../src/core/snapshot.js';
-
 import { App } from '../src/ui/app.js';
-
 import {
   show,
   forgedLink,
@@ -25,7 +18,6 @@ import {
   TAB,
   commands,
 } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const skills = [

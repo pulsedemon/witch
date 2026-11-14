@@ -1,64 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-
 import { Box, Text } from 'ink';
-
 import type { Key } from 'ink';
-
 import { dirname, join } from 'node:path';
-
 import type { Coordinator } from '../core/coordinator.js';
-
 import type { JobWatch } from '../core/jobs.js';
-
 import { modelKey } from '../core/models.js';
-
 import type {
   RuntimeUpdates,
   RuntimeUpdateSnapshot,
 } from '../core/runtime-updates.js';
-
 import type { Snapshot } from '../core/snapshot.js';
-
 import type { CoordinationSnapshot } from '../core/coordination-state.js';
-
 import { errorMessage } from '../errors.js';
-
 import { CommandBatches } from './command-batches.js';
-
 import { commands } from './commands.js';
-
 import type { WitchCommand, CommandName } from './commands.js';
-
 import type { Choice, Picker, View } from './choices.js';
-
 import { conversationLabel } from './conversations.js';
-
 import { delegation } from './delegation.js';
-
 import { elapsed } from './elapsed.js';
-
 import { helpText } from './help.js';
-
 import { Input } from './input.js';
-
 import type { InputHandle } from './input.js';
-
 import { hyperlink, linkify, oneLine, plain } from './links.js';
-
 import { useLiveState } from './live-state.js';
-
 import { markdown } from './markdown.js';
-
 import { chooseModel } from './model-choice.js';
-
 import { coordinationText } from './peers.js';
-
 import { ScrollPage } from './scroll-page.js';
-
 import { piped } from './theme.js';
-
 import { showUpdates, updatesText } from './updates.js';
-
 import { wrapLines } from './wrap.js';
 
 export function useCommandViews({

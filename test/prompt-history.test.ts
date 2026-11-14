@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import type * as Directories from '../src/persistence/directories.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 // counts what mapping prompts costs once the mapper is built: map calls, moves read and elements filtered

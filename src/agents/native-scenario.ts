@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { writeFile, readFile } from 'node:fs/promises';
-
 import { basename, join } from 'node:path';
-
 import type {
   AgentAdapter,
   AgentEvent,
@@ -13,22 +10,16 @@ import type {
   UserRequest,
   UserResponse,
 } from './types.js';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { familiarMarker } from './familiar-report.js';
-
 import { skillCall } from '../core/prompts.js';
-
 import type { ProcessIdentity } from '../core/state.js';
-
 import {
   identifyProcesses,
   processArguments,
   ps,
   sameProcess,
 } from '../persistence/process.js';
-
 import { errorMessage } from '../errors.js';
 
 export type NativeScenario =

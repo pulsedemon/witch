@@ -1,33 +1,18 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { randomUUID } from 'node:crypto';
-
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { compiledCli } from './fixtures/compiled-cli.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { ControlHost } from '../src/persistence/control.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { controlPrefix } from '../src/cli-control.js';
-
 import { quote } from '../src/shell.js';
 
 const identity = (await identifyProcess(process.pid))!;

@@ -1,13 +1,8 @@
 import { existsSync } from 'node:fs';
-
 import { chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'node:test';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { scratch } from './scratch.js';
 
 // a test process for test/scratch.test.ts, which reads the `scratch <path>` lines it prints

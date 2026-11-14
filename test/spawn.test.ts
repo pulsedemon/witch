@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-
 import {
   chmod,
   mkdir,
@@ -10,25 +9,15 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { Run } from '../src/core/repository.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { runSpawn, sessionsIn, spawnWorktrees } from '../src/spawn.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { git } from './fixtures/git.js';
-
 import { unreadable } from './fixtures/unreadable.js';
-
 import { exists } from './fixtures/within.js';
-
 import { checkout, printed, recording } from './fixtures/spawn.js';
 
 const worktrees = async (main: string) =>

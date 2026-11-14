@@ -1,19 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-
 import { mkdir, readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { installedAgents } from '../agents/registry.js';
-
 import type { AgentRegistration } from '../agents/registry.js';
-
 import { nativeInstallationRoot } from '../agents/executable.js';
-
 import {
   assessRuntimeUpdate,
   checkRuntimeUpdate,
@@ -23,37 +15,28 @@ import {
   inspectRuntime,
   runtimeSchema,
 } from '../agents/runtime-updates.js';
-
 import type {
   NativeRuntime,
   RuntimeInstallation,
   RuntimeUpdateCheck,
 } from '../agents/runtime-updates.js';
-
 import { installNative } from '../agents/native-install.js';
-
 import {
   prepareNativeUpdate,
   requiredNativeChecks,
   verificationProfile,
   verifyNativeUpdate,
 } from '../agents/native-verification.js';
-
 import { verificationAdapter } from '../agents/native-verification-profile.js';
-
 import { errorMessage } from '../errors.js';
-
 import {
   holdRuntime,
   pendingUpdate,
   qualifiedBy,
   RuntimeUpdateStore,
 } from '../persistence/runtime-updates.js';
-
 import type { UpdateJournal } from '../persistence/runtime-updates.js';
-
 import { writeJson } from '../persistence/json.js';
-
 import { runtimeUpdateUsers } from './runtime-update-users.js';
 
 export interface RuntimeUpdateEntry {

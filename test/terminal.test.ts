@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { setImmediate as next } from 'node:timers/promises';
-
 import { join } from 'node:path';
-
 import { NotificationSchedule } from '../src/persistence/notifications.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import type { UserRequest } from '../src/agents/types.js';
-
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
-
 import type { Snapshot } from '../src/core/snapshot.js';
-
 import { watchTerminal } from '../src/ui/terminal.js';
-
 import {
   record,
   unitFixture as coordinatorFixture,

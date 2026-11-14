@@ -1,31 +1,19 @@
 import assert from 'node:assert/strict';
-
 import type { TestContext } from 'vitest';
-
 import { test, vi } from 'vitest';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import type { TransferField } from '../src/core/coordination-state.js';
-
 import { transferRefusal } from '../src/core/task-transfer.js';
-
 import { USAGE_CURRENT_MS } from '../src/core/usage.js';
-
 import type { Snapshot } from '../src/core/snapshot.js';
-
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
-
 import {
   coordinationFixture,
   unitCoordinationFixture,
   pauseDiscovery,
 } from './fixtures/coordination.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { until, within } from './fixtures/within.js';
 
 async function transfer(

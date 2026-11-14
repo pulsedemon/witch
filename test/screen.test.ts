@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { EventEmitter } from 'node:events';
-
 import { test, vi } from 'vitest';
-
 import { Box, Text, render } from 'ink';
-
 import { createElement } from 'react';
-
 import { hyperlink } from '../src/ui/links.js';
-
 import { Screen, recorded } from '../src/ui/screen.js';
-
 import { until } from './fixtures/within.js';
 
 /** a terminal Ink treats as interactive, so it draws with cursor movement and erasing. */

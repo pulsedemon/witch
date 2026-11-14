@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { access, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { content, fixture, jsonLines } from './fixtures/claude-adapter.js';
-
 import { until, within } from './fixtures/within.js';
 
 const block = (media_type: string, data: string) => ({

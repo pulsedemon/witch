@@ -1,9 +1,6 @@
 import 'tsx';
-
 import { registerHooks } from 'node:module';
-
 import { fileURLToPath, URL } from 'node:url';
-
 import { transformFileSync } from '@babel/core';
 
 const ui = new URL('../src/ui/', import.meta.url).href;

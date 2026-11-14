@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import { fixture, frameWriter, jsonLines } from './fixtures/claude-adapter.js';
-
 import { until, within } from './fixtures/within.js';
-
 import {
   background,
   lifecycle,

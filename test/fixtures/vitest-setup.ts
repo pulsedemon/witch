@@ -1,11 +1,7 @@
 import { execFileSync } from 'node:child_process';
-
 import { symlink } from 'node:fs/promises';
-
 import { delimiter, join } from 'node:path';
-
 import { afterAll, beforeEach, vi } from 'vitest';
-
 import { cleanScratch, scratch } from './scratch.js';
 
 // each PATH directory before git's costs every git spawn a failed execve

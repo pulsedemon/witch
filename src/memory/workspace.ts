@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-
 import {
   lstat,
   mkdir,
@@ -8,23 +7,14 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { errorMessage } from '../errors.js';
-
 import { branchOf, indexNote, main, notePath, printable } from './memory.js';
-
 import type { Memory, MemoryScope } from './memory.js';
-
 import { within } from '../paths.js';
-
 import { mapper, present } from '../persistence/directories.js';
-
 import type { Ledger } from '../persistence/directories.js';
 
 export interface MemoryConflict {

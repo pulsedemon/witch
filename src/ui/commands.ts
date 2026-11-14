@@ -1,5 +1,4 @@
 import type { Skill } from '../agents/types.js';
-
 import { skillCall } from '../core/prompts.js';
 
 const catalog = [

@@ -1,43 +1,27 @@
 import { randomUUID } from 'node:crypto';
-
 import { taskActivity } from './coordination-state.js';
-
 import type { NativeRuntime } from '../agents/runtime-updates.js';
-
 import { errorMessage, failureOf } from '../errors.js';
-
 import type {
   AgentEvent,
   AgentSession,
   AgentStopOptions,
 } from '../agents/types.js';
-
 import type { MemoryScope } from '../memory/memory.js';
-
 import type { Workspace } from '../memory/workspace.js';
-
 import { processReports } from '../persistence/process.js';
-
 import type { ConversationStore } from '../persistence/store.js';
-
 import { stoppedActivity } from './background-activity.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import type { JobWatch } from './jobs.js';
-
 import {
   modelEffort,
   type ModelCatalog,
   type ModelSelection,
 } from './models.js';
-
 import type { Reviewers } from './reviewers.js';
-
 import type { Snapshot } from './snapshot.js';
-
 import { castRow } from './spells.js';
-
 import {
   agentDisplay,
   clearDelivery,
@@ -46,9 +30,7 @@ import {
   type ConversationRecord,
   type DisplayUpdate,
 } from './state.js';
-
 import type { AccountUsage } from './usage.js';
-
 import type { WorkTreeChanges } from './work-tree-changes.js';
 
 export type LinkJobs = Pick<

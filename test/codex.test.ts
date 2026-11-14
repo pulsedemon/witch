@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { access, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import type { AgentEvent, Usage } from '../src/agents/types.js';
-
 import { appears, settled, until, within } from './fixtures/within.js';
-
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-
 import { untimed } from './fixtures/limits.js';
-
 import { fixture, close } from './fixtures/codex-adapter.js';
 
 test("threads start with the mark in Codex's shell environment policy", async () => {

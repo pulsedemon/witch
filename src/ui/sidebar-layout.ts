@@ -1,9 +1,6 @@
 import type { Snapshot } from '../core/snapshot.js';
-
 import { accountRows } from './status-rows.js';
-
 import type { Account, Status } from './status-rows.js';
-
 import { wrapLines } from './wrap.js';
 
 /** the text's width; the pentacle centers in it, sized by `rows`, its shorter side. */

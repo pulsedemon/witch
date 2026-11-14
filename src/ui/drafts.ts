@@ -1,7 +1,5 @@
 import type { Coordinator } from '../core/coordinator.js';
-
 import type { Snapshot } from '../core/snapshot.js';
-
 import { useLiveState } from './live-state.js';
 
 /** where ↑/↓ stand among earlier prompts, -1 being the draft, with the composer's text at each place they left. */

@@ -3,13 +3,11 @@ import type {
   SelectionState,
   TaskClaim,
 } from '../core/coordination-state.js';
-
 import {
   githubReference,
   presenceStatus,
   selectionStatus,
 } from '../core/coordination-state.js';
-
 import { hyperlink, oneLine, plain } from './links.js';
 
 function referenceTarget(reference: string): string | undefined {

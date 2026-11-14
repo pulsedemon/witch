@@ -1,40 +1,23 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import type { AccountReading } from '../src/agents/types.js';
-
 import type { Coordinator } from '../src/core/coordinator.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import type { FixtureAgent } from './fixtures/agent.js';
-
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import {
   pauseDiscovery,
   unitCoordinationFixture,
 } from './fixtures/coordination.js';
-
 import { passThrough } from './fixtures/git.js';
-
 import { png } from './fixtures/png.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { setup } from './fixtures/copilot-reviews.js';
-
 import { notices } from './fixtures/coordinator.js';
-
 import {
   continuation,
   exhaustion,

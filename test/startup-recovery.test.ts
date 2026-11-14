@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { recoverConversations } from '../src/core/startup-recovery.js';
-
 import { activity, fixture, stranded } from './fixtures/coordinator.js';
-
 import { unreadable } from './fixtures/unreadable.js';
 
 test('the launch sweep says when it cannot look at a directory and still reports the other conversations', async (t) => {

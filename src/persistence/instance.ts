@@ -1,7 +1,5 @@
 import { spawnSync } from 'node:child_process';
-
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
-
 import { join } from 'node:path';
 
 /**

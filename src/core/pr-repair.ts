@@ -1,26 +1,19 @@
 import { errorMessage } from '../errors.js';
-
 import type { TurnResult } from '../agents/types.js';
-
 import { taskReference } from './coordination-state.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import type { Coordinator } from './coordinator.js';
-
 import type {
   Conflict,
   PullRequest,
   Repository,
   RepositoryWatch,
 } from './repository.js';
-
 import {
   bindingChanged,
   revoke,
   type PullRequestBinding,
 } from './review-ownership.js';
-
 import type { ConversationRecord } from './state.js';
 
 function conflictNotice(conflict: Conflict): string {

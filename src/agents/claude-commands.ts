@@ -1,11 +1,7 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import { z } from 'zod';
-
 import type { ControlBinding } from '../persistence/control.js';
-
 import { checkDeadline } from '../persistence/coordination.js';
-
 import {
   addFamiliar,
   admitFamiliar,
@@ -14,15 +10,12 @@ import {
   findFamiliar,
   respondFamiliar,
 } from './familiar-report.js';
-
 import { FamiliarRun } from './familiar-requests.js';
-
 import type {
   FamiliarAction,
   FamiliarOutcome,
   FamiliarSlot,
 } from './familiar-report.js';
-
 import type { AgentEvent, TaskStatus, UserResponse } from './types.js';
 
 export interface ClaudeTaskControl {

@@ -1,7 +1,5 @@
 import type { AgentRegistration } from '../agents/registry.js';
-
 import { NativeStop } from '../agents/shutdown.js';
-
 import type {
   AccountReading,
   AgentSession,

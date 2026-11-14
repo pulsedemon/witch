@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { once } from 'node:events';
-
 import { access, readFile, writeFile } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { AbortError } from '@anthropic-ai/claude-agent-sdk';
-
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import type { AgentEvent, Usage, UserRequest } from '../src/agents/types.js';
-
 import {
   content,
   fixture,
@@ -23,9 +14,7 @@ import {
   launcher,
   working,
 } from './fixtures/claude-adapter.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { untimed } from './fixtures/limits.js';
 
 test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {

@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, rename, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { repairMoves } from '../src/core/move-repair.js';
-
 import { projectKey } from '../src/memory/memory.js';
-
 import { identify } from '../src/persistence/directories.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
 
 /**

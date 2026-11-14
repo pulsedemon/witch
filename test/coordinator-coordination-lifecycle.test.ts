@@ -1,34 +1,22 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import {
   ConversationStore,
   LockedElsewhere,
 } from '../src/persistence/store.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import {
   git,
   pauseDiscovery,
   unitCoordinationFixture,
 } from './fixtures/coordination.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { selectionTurn } from './fixtures/task-selection.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('switch revokes old authority before native close and releases the departed claim', async (t) => {

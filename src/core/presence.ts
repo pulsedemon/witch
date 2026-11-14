@@ -1,11 +1,7 @@
 import type { CoordinationStore } from '../persistence/coordination.js';
-
 import type { Activation } from './coordination.js';
-
 import { taskActivity, type SessionPresence } from './coordination-state.js';
-
 import type { Snapshot } from './snapshot.js';
-
 import type { ProcessIdentity } from './state.js';
 
 interface PresenceHost {

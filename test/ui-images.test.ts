@@ -1,29 +1,16 @@
 import assert from 'node:assert/strict';
-
 import childProcess from 'node:child_process';
-
 import { rm, writeFile } from 'node:fs/promises';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { join } from 'node:path';
-
 import { createElement } from 'react';
-
 import { test, vi } from 'vitest';
-
 import { App } from '../src/ui/app.js';
-
 import { Graphics, placeholder } from '../src/ui/images.js';
-
 import { unitFixture } from './fixtures/coordinator.js';
-
 import { png } from './fixtures/png.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { fake, show } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 test('typing stays responsive while an image converts, and the image shows once the conversion finishes', async (t) => {

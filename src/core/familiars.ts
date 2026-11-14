@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
-
 import type { Subagent } from '../agents/types.js';
-
 import type { TimedSubagent } from './snapshot.js';
 
 export function familiarIdentity(subagent: Subagent): string {

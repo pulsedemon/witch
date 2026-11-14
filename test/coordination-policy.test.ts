@@ -1,26 +1,17 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import {
   unitCoordinationFixture,
   git,
   legacyLock,
   pauseDiscovery,
 } from './fixtures/coordination.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { selectionTurn } from './fixtures/task-selection.js';
-
 import { until } from './fixtures/within.js';
 
 test('solo context retains PR claims and selection without requiring other task claims', async (t) => {

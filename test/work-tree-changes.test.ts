@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { createHash } from 'node:crypto';
-
 import {
   appendFile,
   chmod,
@@ -15,19 +12,12 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { promisify } from 'node:util';
-
 import { test } from 'vitest';
-
 import type { Run } from '../src/core/repository.js';
-
 import { WorkTreeChanges } from '../src/core/work-tree-changes.js';
-
 import type { Changes } from '../src/core/work-tree-changes.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);

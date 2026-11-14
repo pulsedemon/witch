@@ -1,39 +1,21 @@
 import assert from 'node:assert/strict';
-
 import { execFileSync } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { fileURLToPath } from 'node:url';
-
 import { test, vi } from 'vitest';
-
 import type { FamiliarAction } from '../src/agents/familiar-report.js';
-
 import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
-
 import { reviewerCommand } from '../src/core/review.js';
-
 import { Reviewers } from '../src/core/reviewers.js';
-
 import type { Reviewer } from '../src/core/reviewers.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { quote } from '../src/shell.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { unitCoordinationFixture } from './fixtures/coordination.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
 
 /** a coordinator whose familiar mailbox asks its reviewers first, with `claude` and `codex` fixtures on a private PATH. */

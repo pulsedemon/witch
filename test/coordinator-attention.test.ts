@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { setImmediate as next } from 'node:timers/promises';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import type { ConversationRecord } from '../src/core/state.js';
-
 import { ConversationStore } from '../src/persistence/store.js';
-
 import { watchTerminal } from '../src/ui/terminal.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { fixture, unitFixture, readRecord } from './fixtures/coordinator.js';
-
 import { passThrough } from './fixtures/git.js';
-
 import { within } from './fixtures/within.js';
 
 test('completion identifies the successful activity only after its final save', async () => {

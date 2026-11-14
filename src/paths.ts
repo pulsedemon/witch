@@ -1,5 +1,4 @@
 import { homedir } from 'node:os';
-
 import { resolve } from 'node:path';
 
 /** a path as a terminal types or drops it, where a backslash escapes the next character. */

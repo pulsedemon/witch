@@ -1,33 +1,18 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { mkdir } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { fileURLToPath } from 'node:url';
-
 import { test } from 'vitest';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
-
 import { unitFixture } from './fixtures/coordinator.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { appears, settled, within } from './fixtures/within.js';
 
 for (const restart of [false, true])

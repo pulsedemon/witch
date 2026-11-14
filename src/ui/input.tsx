@@ -5,23 +5,14 @@ import {
   useRef,
   useState,
 } from 'react';
-
 import type { Ref } from 'react';
-
 import { Box, Text, measureElement, useCursor, useInput, usePaste } from 'ink';
-
 import type { DOMElement } from 'ink';
-
 import stringWidth from 'string-width';
-
 import stripAnsi from 'strip-ansi';
-
 import { boundaries, editInput, initialInput, lineAt } from './input-buffer.js';
-
 import type { Edit, InputBuffer, Step } from './input-buffer.js';
-
 import { split, visible, wrap } from './input-layout.js';
-
 import { useLiveState } from './live-state.js';
 
 const backward = new Set<Edit['type']>([

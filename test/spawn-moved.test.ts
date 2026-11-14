@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { cp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { describe, test, vi } from 'vitest';
-
 import type { Run } from '../src/core/repository.js';
-
 import { readLedger } from '../src/persistence/directories.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { runSpawn, sessionsIn } from '../src/spawn.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { git } from './fixtures/git.js';
-
 import { exists } from './fixtures/within.js';
-
 import { checkout, printed, recording } from './fixtures/spawn.js';
 
 describe('moved checkouts', () => {

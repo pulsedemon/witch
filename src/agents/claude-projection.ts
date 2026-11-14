@@ -1,17 +1,10 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import { commandLifecycle } from './claude-turn.js';
-
 import { acknowledged, skillCasts } from './claude-spells.js';
-
 import { reportedDiff } from './claude-diff.js';
-
 import { claudeTitle } from './tool-title.js';
-
 import { mergeCasts } from './familiar-report.js';
-
 import type { TurnText } from './turn-text.js';
-
 import type { Cast, SessionOptions, Subagent } from './types.js';
 
 export class ClaudeProjection {

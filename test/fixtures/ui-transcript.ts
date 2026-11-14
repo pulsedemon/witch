@@ -1,9 +1,6 @@
 import { createElement } from 'react';
-
 import type { Coordinator } from '../../src/core/coordinator.js';
-
 import { App } from '../../src/ui/app.js';
-
 import { show } from './ui.js';
 
 /** the transcript must overflow for scroll tests. */

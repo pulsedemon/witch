@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { promises as files } from 'node:fs';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { z } from 'zod';
-
 import { readJson, replaceFile } from '../src/persistence/json.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 test('a JSON file under a stray file, as under a Finder .DS_Store, reads as missing', async () => {

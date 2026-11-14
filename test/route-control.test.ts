@@ -1,27 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { parseCommand } from '../src/cli-control.js';
-
 import type { Limit } from '../src/agents/types.js';
-
 import { router } from '../src/core/router.js';
-
 import { defaultPolicy } from '../src/core/routing.js';
-
 import type { Policy } from '../src/core/routing.js';
-
 import { USAGE_CURRENT_MS } from '../src/core/usage.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { unitCoordinationFixture } from './fixtures/coordination.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { until } from './fixtures/within.js';
 
 const policy: Policy = {

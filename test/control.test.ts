@@ -1,33 +1,20 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { promises as files } from 'node:fs';
-
 import { basename, join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { setImmediate } from 'node:timers/promises';
-
 import {
   callControl,
   ControlHost,
   ControlTimeoutError,
 } from '../src/persistence/control.js';
-
 import type { ControlBinding } from '../src/persistence/control.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { settled, until, within } from './fixtures/within.js';
-
 import {
   binding,
   countingHost,

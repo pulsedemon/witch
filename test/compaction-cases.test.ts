@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import {
   appendFile,
   mkdir,
@@ -9,15 +7,10 @@ import {
   readFile,
   writeFile,
 } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { promisify } from 'node:util';
-
 import { test } from 'vitest';
-
 import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);

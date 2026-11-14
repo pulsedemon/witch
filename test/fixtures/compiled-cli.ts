@@ -1,21 +1,12 @@
 import { execFile } from 'node:child_process';
-
 import { constants } from 'node:fs';
-
 import { rename } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { promisify } from 'node:util';
-
 import { inject } from 'vitest';
-
 import { openLocked } from '../../src/persistence/lock.js';
-
 import { scratch } from './scratch.js';
-
 import { exists } from './within.js';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));

@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import type { fixture } from './coordinator.js';
 
 /** publishes a change to main from a workspace no conversation owns. */

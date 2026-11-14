@@ -1,20 +1,14 @@
 import { readFile, realpath } from 'node:fs/promises';
-
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-
 import { parseCommand } from '../cli-control.js';
-
 import { lockedFiles } from '../persistence/lock.js';
-
 import {
   processArguments,
   processDirectory,
   processExecutable,
   ps,
 } from '../persistence/process.js';
-
 import { unlessGone } from '../persistence/json.js';
-
 import { listParticipants } from '../persistence/runtime-updates.js';
 
 interface RuntimeUser {

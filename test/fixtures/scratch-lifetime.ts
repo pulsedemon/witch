@@ -1,29 +1,16 @@
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { constants, existsSync, writeSync } from 'node:fs';
-
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { runShell } from '../../src/agents/user-shell.js';
-
 import { JobWatch } from '../../src/core/jobs.js';
-
 import { instanceDirectory } from '../../src/persistence/instance.js';
-
 import { writeJson } from '../../src/persistence/json.js';
-
 import { openLocked } from '../../src/persistence/lock.js';
-
 import { identifyProcess } from '../../src/persistence/process.js';
-
 import { ScratchSpace } from '../../src/persistence/scratch.js';
-
 import { until } from './within.js';
 
 const [mode, parent, value] = process.argv.slice(2) as [string, string, string];

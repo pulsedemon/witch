@@ -2,9 +2,7 @@
 // process in a group of its own, which exits once its parent has, and the other moves to a group of its own and exits
 // once the agent has. prints the command's group id.
 import { spawn } from 'node:child_process';
-
 import process from 'node:process';
-
 import { setInterval } from 'node:timers';
 
 const command = spawn(

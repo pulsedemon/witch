@@ -1,9 +1,6 @@
 import { execFile } from 'node:child_process';
-
 import { promisify } from 'node:util';
-
 import { runGit } from '../../src/memory/memory.js';
-
 import type {
   GitOptions,
   GitResult,

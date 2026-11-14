@@ -1,13 +1,8 @@
 import { spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { readFile, symlink, writeFile } from 'node:fs/promises';
-
 import { tmpdir } from 'node:os';
-
 import { join } from 'node:path';
-
 import type {
   AgentAdapter,
   AgentSession,
@@ -24,9 +19,7 @@ import type {
   Usage,
   UserResponse,
 } from '../../src/agents/types.js';
-
 import { peerRequestSchema } from '../../src/core/peer-requests.js';
-
 import type { PeerRequest } from '../../src/core/peer-requests.js';
 
 /** holds gated turns until `open()`, which releases the current turn and every later one. */

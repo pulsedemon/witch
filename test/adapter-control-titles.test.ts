@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import { agentDisplay, applyDisplayUpdate } from '../src/core/state.js';
-
 import type { DisplayItem } from '../src/core/state.js';
-
 import { quote } from '../src/shell.js';
-
 import { frameWriter, launcher } from './fixtures/claude-adapter.js';
-
 import { controlledFixture } from './fixtures/codex-adapter.js';
-
 import { until } from './fixtures/within.js';
 
 const prefixes = {

@@ -1,21 +1,16 @@
 import { z } from 'zod';
-
 import { noticeText } from '../memory/memory.js';
-
 import type { ControlOutcome } from '../persistence/control.js';
-
 import type {
   CoordinationStore,
   Ledger,
   Verify,
 } from '../persistence/coordination.js';
-
 import type {
   ClaimOwner,
   CoordinationAction,
   TaskClaim,
 } from './coordination-state.js';
-
 import type { PeerAnswerBatch } from './peer-answers.js';
 
 export const peerRequestSchema = z.object({

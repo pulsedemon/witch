@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { autoReply, record, setup } from './fixtures/copilot-reviews.js';
-
 import { until } from './fixtures/within.js';
 
 for (const exit of [

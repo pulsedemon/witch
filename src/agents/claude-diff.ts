@@ -1,13 +1,8 @@
 import fs from 'node:fs/promises';
-
 import { structuredPatch } from 'diff';
-
 import { z } from 'zod';
-
 import { resolveFile } from '../paths.js';
-
 import type { FileDiff } from './types.js';
-
 import { wholeFile } from './file-diff.js';
 
 /** what Claude Code's Edit and Write report of the file they changed. */

@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { access, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { close, fixture } from './fixtures/codex-adapter.js';
-
 import { appears, within } from './fixtures/within.js';
 
 async function inserted(cwd: string) {

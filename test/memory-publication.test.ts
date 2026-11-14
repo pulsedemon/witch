@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
-
 import { join, resolve } from 'node:path';
-
 import { test } from 'vitest';
-
 import { main, Memory } from '../src/memory/memory.js';
-
 import { passThrough } from './fixtures/git.js';
-
 import { fixture, git, save } from './fixtures/memory.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { unreadable } from './fixtures/unreadable.js';
 
 const lines = (changes: Record<number, string> = {}) =>

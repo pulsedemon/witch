@@ -1,11 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import type { PullRequest } from '../../src/core/repository.js';
-
 import { git } from './git.js';
-
 import { scratch } from './scratch.js';
 
 export const write = async (path: string, text: string) => {

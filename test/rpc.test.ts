@@ -1,27 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { tmpdir } from 'node:os';
-
 import { test } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { ClaudeAdapter } from '../src/agents/claude.js';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { JsonRpc } from '../src/agents/json-rpc.js';
-
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { settled, within } from './fixtures/within.js';
 
 function server(ignoreTerm = false) {

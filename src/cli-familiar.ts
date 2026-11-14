@@ -1,28 +1,18 @@
 import { spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { open } from 'node:fs/promises';
-
 import { resolve } from 'node:path';
-
 import { ClaudeTask } from './agents/claude-task.js';
-
 import { nativeLaunch } from './agents/native-launch.js';
-
 import { running, terminateGraceMs } from './agents/shutdown.js';
-
 import { errorMessage } from './errors.js';
-
 import { readLines } from './agents/stderr.js';
-
 import {
   exitCode,
   FamiliarReports,
   registerFamiliar,
   saveReport,
 } from './familiar-run.js';
-
 import type { ControlBinding } from './persistence/control.js';
 
 /** outranks user, project and local settings, so the routed model runs as named and an overload doesn't switch it. */

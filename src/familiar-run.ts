@@ -1,20 +1,13 @@
 import type { FileHandle } from 'node:fs/promises';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { familiarMarker } from './agents/familiar-report.js';
-
 import type {
   FamiliarAction,
   FamiliarProgress,
 } from './agents/familiar-report.js';
-
 import type { TaskStatus } from './agents/types.js';
-
 import { errorMessage } from './errors.js';
-
 import { callControl, ControlTimeoutError } from './persistence/control.js';
-
 import type { ControlBinding, ControlResult } from './persistence/control.js';
 
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */

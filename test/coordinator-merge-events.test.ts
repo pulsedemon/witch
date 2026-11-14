@@ -1,39 +1,21 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { mkdirSync } from 'node:fs';
-
 import { readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { test, vi } from 'vitest';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
-
 import { ClaudeAdapter } from '../src/agents/claude.js';
-
 import type { Coordinator } from '../src/core/coordinator.js';
-
 import type { SessionCoordination } from '../src/core/coordination.js';
-
 import type { MergeEvent } from '../src/core/merge-events.js';
-
 import type { PullRequest, Repository } from '../src/core/repository.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { coordinationFixture, git } from './fixtures/coordination.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { repositoryRead } from './fixtures/repository.js';
 
 const merged: PullRequest = {

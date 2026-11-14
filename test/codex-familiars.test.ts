@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import { fixture } from './fixtures/codex-adapter.js';
-
 import { until, within } from './fixtures/within.js';
 
 async function reportedFixture() {

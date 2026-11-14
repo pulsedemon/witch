@@ -1,37 +1,22 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import { CommandBatches } from '../src/ui/command-batches.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { Workspace } from '../src/memory/workspace.js';
-
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import {
   coordinationFixture,
   unitCoordinationFixture,
   pauseDiscovery,
 } from './fixtures/coordination.js';
-
 import { FixtureAgent } from './fixtures/agent.js';
-
 import { launcher, frameWriter, jsonLines } from './fixtures/claude-adapter.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
 
 for (const timing of ['queued', 'waiting', 'late', 'exit'] as const)

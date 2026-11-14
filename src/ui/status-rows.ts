@@ -1,22 +1,15 @@
 import { basename } from 'node:path';
-
 import stringWidth from 'string-width';
-
 import type { AccountReading, Funding, Limit, Usage } from '../agents/types.js';
-
 import {
   creditCapacity,
   current,
   fundingText,
   untilReset,
 } from '../core/usage.js';
-
 import type { Repository } from '../core/repository.js';
-
 import { hyperlink, linkify, oneLine, plain } from './links.js';
-
 import { colors, piped } from './theme.js';
-
 import { wrapLines } from './wrap.js';
 
 export interface Account {

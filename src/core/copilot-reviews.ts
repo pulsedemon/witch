@@ -1,11 +1,7 @@
 import { createHash } from 'node:crypto';
-
 import { z } from 'zod';
-
 import { isCopilot } from './github-reviews.js';
-
 import type { GitHubReviews } from './github-reviews.js';
-
 import { pullRequestSchema } from './repository.js';
 
 const itemIdentity = z.object({ id: z.string(), version: z.string() });

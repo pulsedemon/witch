@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { ranCommand } from '../src/core/prompts.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { readRecord, turns, unitFixture } from './fixtures/coordinator.js';
-
 import { within } from './fixtures/within.js';
 
 test('an unsent follow-up prompt never reruns an executed command', async () => {

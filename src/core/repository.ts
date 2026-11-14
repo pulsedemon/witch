@@ -1,15 +1,9 @@
 import { execFile } from 'node:child_process';
-
 import { realpathSync, watch } from 'node:fs';
-
 import type { FSWatcher } from 'node:fs';
-
 import { promisify } from 'node:util';
-
 import { z } from 'zod';
-
 import { errorMessage, issuesText } from '../errors.js';
-
 import { within } from '../paths.js';
 
 export const execute = promisify(execFile);

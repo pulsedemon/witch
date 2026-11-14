@@ -1,7 +1,5 @@
 import { readdir } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { runGit } from '../memory/memory.js';
 
 const unreadable = new Set(['EACCES', 'EPERM', 'ENOENT', 'ENOTDIR']);

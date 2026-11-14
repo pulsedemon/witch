@@ -1,7 +1,5 @@
 import process from 'node:process';
-
 import { existsSync, writeFileSync } from 'node:fs';
-
 import { setTimeout as delay } from 'node:timers/promises';
 
 const restartGate = process.env.WITCH_TEST_RESTART_GATE;

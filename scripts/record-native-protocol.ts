@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { spawn, execFileSync } from 'node:child_process';
-
 import { mkdir, writeFile } from 'node:fs/promises';
-
 import { join, resolve } from 'node:path';
-
 import { parseArgs } from 'node:util';
-
 import { homedir } from 'node:os';
-
 import { verificationAdapter } from '../src/agents/native-verification-profile.js';
-
 import { observeWire, normalizeWire } from '../test/fixtures/native-wire.js';
-
 import { nativeScenario } from '../src/agents/native-scenario.js';
 
 const { values } = parseArgs({

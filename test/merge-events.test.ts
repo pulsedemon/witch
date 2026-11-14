@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import type { PullRequest } from '../src/core/repository.js';
-
 import { expireAfterLock } from './fixtures/coordination.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const merged: PullRequest = {

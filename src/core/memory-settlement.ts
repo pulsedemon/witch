@@ -1,7 +1,5 @@
 import { errorMessage } from '../errors.js';
-
 import type { MemoryConflict, Workspace } from '../memory/workspace.js';
-
 import type { Recovery } from './snapshot.js';
 
 /** publish clean memory and retain unfinished writes or conflicting accepted history for recovery. */

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-
 import {
   access,
   chmod,
@@ -8,21 +7,15 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import {
   checkRuntimeUpdate,
   earlierArtifact,
   inspectRuntime,
 } from '../src/agents/runtime-updates.js';
-
 import type { RuntimeInstallation } from '../src/agents/runtime-updates.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const installation: RuntimeInstallation = {

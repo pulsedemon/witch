@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { JobWatch } from '../src/core/jobs.js';
-
 import type { Row } from '../src/core/jobs.js';
 
 test.each([

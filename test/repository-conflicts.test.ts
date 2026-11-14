@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { RepositoryWatch, parseStatus } from '../src/core/repository.js';
-
 import type { Run } from '../src/core/repository.js';
-
 import { view } from './fixtures/repository.js';
-
 import { until } from './fixtures/within.js';
 
 /** a watch on `main` whose pull request reads answer with `answer`, recording each tip lookup's arguments. */

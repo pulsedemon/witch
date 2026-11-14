@@ -1,50 +1,30 @@
 import assert from 'node:assert/strict';
-
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { once } from 'node:events';
-
 import { writeFileSync } from 'node:fs';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { createInterface } from 'node:readline';
-
 import { test, vi } from 'vitest';
-
 import type {
   Query,
   SDKControlGetUsageResponse,
 } from '@anthropic-ai/claude-agent-sdk';
-
 import { createElement } from 'react';
-
 import type {
   AgentEvent,
   AgentSession,
   SessionOptions,
 } from '../src/agents/types.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { App } from '../src/ui/app.js';
-
 import { frameWriter, jsonLines, launcher } from './fixtures/claude-adapter.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { show } from './fixtures/ui.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { untimed } from './fixtures/limits.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const timeout = 10_000;

@@ -1,13 +1,8 @@
 import { mkdir } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { defaultPolicy, policySchema } from '../core/routing.js';
-
 import type { Policy } from '../core/routing.js';
-
 import { errorMessage } from '../errors.js';
-
 import { readJson, writeJson } from './json.js';
 
 /** one policy per state directory, so every Witch on it routes the same way. */

@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { EmptyMemory } from './fixtures/empty-memory.js';
-
 import { git } from './fixtures/git.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 test('empty memory keeps real project identity while refusing memory repository operations', async () => {

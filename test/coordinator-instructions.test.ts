@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { unitFixture, readRecord } from './fixtures/coordinator.js';
 
 for (const outcome of ['interrupted', 'failed'] as const) {

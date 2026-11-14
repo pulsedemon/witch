@@ -1,27 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import type { AgentSession } from '../src/agents/types.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { jsonLines, launcher } from './fixtures/claude-adapter.js';
-
 import { unitFixture as fixture, readRecord } from './fixtures/coordinator.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('a model chosen to keep the current effort stores the effort in force', async () => {

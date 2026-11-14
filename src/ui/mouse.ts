@@ -1,7 +1,5 @@
 import { EventEmitter } from 'node:events';
-
 import { useEffect } from 'react';
-
 import { useStdin } from 'ink';
 
 /** button reports and all motion, with SGR coordinates. Shift+drag still selects text natively. */

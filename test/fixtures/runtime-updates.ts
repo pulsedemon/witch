@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import {
   chmod,
   mkdir,
@@ -10,32 +8,23 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import {
   artifactDigest,
   earlierArtifact,
 } from '../../src/agents/runtime-updates.js';
-
 import type {
   RuntimeInstallation,
   RuntimeUpdateCheck,
 } from '../../src/agents/runtime-updates.js';
-
 import {
   verificationProfile,
   requiredNativeChecks,
 } from '../../src/agents/native-verification.js';
-
 import { RuntimeUpdates } from '../../src/core/runtime-updates.js';
-
 import type { NativeUpdateOperations } from '../../src/core/runtime-updates.js';
-
 import { RuntimeUpdateStore } from '../../src/persistence/runtime-updates.js';
-
 import { FixtureAgent } from './agent.js';
-
 import { scratch } from './scratch.js';
 
 export async function runtimeUpdateFixture(

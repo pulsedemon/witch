@@ -1,5 +1,4 @@
 import { accessSync, constants, realpathSync, statSync } from 'node:fs';
-
 import {
   basename,
   delimiter,

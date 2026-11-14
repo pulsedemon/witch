@@ -1,35 +1,19 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { randomBytes } from 'node:crypto';
-
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { promisify } from 'node:util';
-
 import { verificationAdapter } from './native-verification-profile.js';
-
 import type { VerificationLaunch } from './native-verification-profile.js';
-
 import { checkNativeAnswer } from './native-answer-check.js';
-
 import { checkCodexAnswerSandbox } from './native-sandbox-check.js';
-
 import { checkNativeSettings } from './native-settings-check.js';
-
 import { nativeScenario } from './native-scenario.js';
-
 import type { NativeScenario } from './native-scenario.js';
-
 import { artifactDigest } from './runtime-updates.js';
-
 import type { NativeRuntime, RuntimeInstallation } from './runtime-updates.js';
-
 import type {
   AgentEvent,
   AgentSession,
@@ -37,9 +21,7 @@ import type {
   TurnResult,
   UserRequest,
 } from './types.js';
-
 import { unlessGone, writeJson } from '../persistence/json.js';
-
 import { errorMessage } from '../errors.js';
 
 export const verificationProfile = 'native-update-1';

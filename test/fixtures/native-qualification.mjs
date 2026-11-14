@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 import process from 'node:process';
-
 import {
   appendFileSync,
   existsSync,
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-
 import { dirname, join } from 'node:path';
-
 import { createInterface } from 'node:readline';
 
 const mode = process.argv[2];

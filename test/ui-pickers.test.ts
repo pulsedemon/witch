@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import type { JobWatch } from '../src/core/jobs.js';
-
 import { App } from '../src/ui/app.js';
-
 import { unitFixture as coordinatorFixture } from './fixtures/coordinator.js';
-
 import {
   show,
   forgedLink,
@@ -22,7 +15,6 @@ import {
   openCommand,
   commands,
 } from './fixtures/ui.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('Escape during model refresh keeps chat usable', async () => {

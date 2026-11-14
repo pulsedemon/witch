@@ -1,15 +1,9 @@
 import { realpath } from 'node:fs/promises';
-
 import { isAbsolute, join } from 'node:path';
-
 import { errorMessage } from '../errors.js';
-
 import { within } from '../paths.js';
-
 import type { Memory } from '../memory/memory.js';
-
 import { projectKey } from '../memory/memory.js';
-
 import {
   adoptIdentity,
   caseDestination,
@@ -25,7 +19,6 @@ import {
   resolve,
   updateLedger,
 } from '../persistence/directories.js';
-
 import type {
   DirectoryEntry,
   Identity,
@@ -34,23 +27,14 @@ import type {
   Move,
   Owner,
 } from '../persistence/directories.js';
-
 import { stopLeftProcesses } from '../persistence/process.js';
-
 import { LockedElsewhere, moveHistory } from '../persistence/store.js';
-
 import type { StateStore } from '../persistence/store.js';
-
 import { quote } from '../shell.js';
-
 import { runCommand } from './command.js';
-
 import type { Run } from './repository.js';
-
 import { conversationRecordSchema } from './state.js';
-
 import type { ConversationRecord } from './state.js';
-
 import { repairRepositories, worktreeList } from './worktree-repair.js';
 
 export interface MoveReport {

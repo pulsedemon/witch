@@ -2,7 +2,6 @@ import type {
   ChildProcess,
   ChildProcessWithoutNullStreams,
 } from 'node:child_process';
-
 import type { AgentStopOptions } from './types.js';
 
 const nativeStopTimeoutMs = 8000;

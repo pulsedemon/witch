@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { shellWords } from '../src/agents/tool-title.js';
-
 import {
   afterCorrection,
   brief,
@@ -14,7 +11,6 @@ import {
   reviewerCommand,
   scopeFor,
 } from '../src/core/review.js';
-
 import type { Finding, Review, Round } from '../src/core/review.js';
 
 const finding = (

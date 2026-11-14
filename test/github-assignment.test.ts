@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { assignGitHubTask } from '../src/core/github-assignment.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { unitCoordinationFixture } from './fixtures/coordination.js';
-
 import { selectionTurn } from './fixtures/task-selection.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 async function fixture(register: RegisterCleanup, assign = assignGitHubTask) {

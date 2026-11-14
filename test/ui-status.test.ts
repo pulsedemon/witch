@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import type { Snapshot } from '../src/core/snapshot.js';
-
 import { SidebarView } from './fixtures/ui.js';
-
 import { App } from '../src/ui/app.js';
-
 import { show, forgedLink, fake } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
-
 import { unitFixture as coordinatorFixture } from './fixtures/coordinator.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { ENTER } from './fixtures/ui.js';
 
 test('the status line waits for a live model and uses its runtime label, and the phase row shows its permission mode', async () => {

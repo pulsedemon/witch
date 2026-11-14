@@ -1,7 +1,5 @@
 import { errorMessage } from '../errors.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import { entry, holding } from './pauses.js';
 
 interface PauseHost {

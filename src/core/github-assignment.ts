@@ -1,11 +1,7 @@
 import { z } from 'zod';
-
 import { errorMessage } from '../errors.js';
-
 import { runCommand } from './command.js';
-
 import { githubReference } from './coordination-state.js';
-
 import type { TaskClaim } from './coordination-state.js';
 
 /** resolves the references GitHub confirmed and any failure so the caller can warn while retaining ownership. */

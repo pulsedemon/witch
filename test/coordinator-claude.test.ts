@@ -1,32 +1,20 @@
 import assert from 'node:assert/strict';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import type { AgentSession, TurnResult } from '../src/agents/types.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import {
   content,
   frameWriter,
   jsonLines,
   launcher,
 } from './fixtures/claude-adapter.js';
-
 import { holdSettlement, notices, readRecord } from './fixtures/coordinator.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { until, within } from './fixtures/within.js';
 
 async function claudeCoordinator(mode: string) {

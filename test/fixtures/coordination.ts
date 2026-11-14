@@ -1,49 +1,26 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { constants } from 'node:fs';
-
 import { promises as files } from 'node:fs';
-
 import { cp, readFile } from 'node:fs/promises';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { vi } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { promisify } from 'node:util';
-
 import { controlPrefix } from '../../src/cli-control.js';
-
 import { Coordinator } from '../../src/core/coordinator.js';
-
 import { SessionCoordination } from '../../src/core/coordination.js';
-
 import { CoordinationStore } from '../../src/persistence/coordination.js';
-
 import { callControl } from '../../src/persistence/control.js';
-
 import { openLocked } from '../../src/persistence/lock.js';
-
 import { StateStore } from '../../src/persistence/store.js';
-
 import { FixtureAgent } from './agent.js';
-
 import { scratch } from './scratch.js';
-
 import { seededMemory } from './seeded-memory.js';
-
 import { EmptyMemory } from './empty-memory.js';
-
 import { ephemeralFiles } from './ephemeral-files.js';
-
 import type { RegisterCleanup } from './cleanup.js';
 
 const execute = promisify(execFile);

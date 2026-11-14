@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process';
-
 import { createHash } from 'node:crypto';
-
 import {
   chmod,
   lstat,
@@ -11,19 +9,12 @@ import {
   readlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { dirname, join, resolve } from 'node:path';
-
 import { gone, unlessGone } from '../persistence/json.js';
-
 import { signalGroup } from './shutdown.js';
-
 import { versionSchema } from './runtime-updates.js';
-
 import type { RuntimeInstallation } from './runtime-updates.js';
-
 import { nativeInstallationRoot } from './executable.js';
 
 // exact selection, retention and noninteractive cleanup were checked against this installer revision.

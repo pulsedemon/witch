@@ -1,19 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import { ConversationStore } from '../src/persistence/store.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import {
   unitFixture,
   holdSettlement,
   readRecord,
 } from './fixtures/coordinator.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('a same-runtime model choice made while a finished turn settles waits and applies once', async () => {

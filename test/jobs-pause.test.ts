@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test, vi } from 'vitest';
-
 import { JobWatch } from '../src/core/jobs.js';
-
 import type { Row } from '../src/core/jobs.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until } from './fixtures/within.js';
 
 /** the read count once it has stayed put for 100 ms, failing after a second. */

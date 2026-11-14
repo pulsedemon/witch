@@ -1,13 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { z } from 'zod';
-
 import { readLines, watchChild, withTail } from './stderr.js';
-
 import type { ChildExit } from './stderr.js';
-
 import { running, stopDeadline, terminateChild } from './shutdown.js';
-
 import type { AgentStopOptions } from './types.js';
 
 const envelope = z.object({

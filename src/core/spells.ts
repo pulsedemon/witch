@@ -1,5 +1,4 @@
 import type { Cast } from '../agents/types.js';
-
 import type { DisplayUpdate } from './state.js';
 
 export function castRow(

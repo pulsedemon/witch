@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { setImmediate } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import type { AgentEvent, FileDiff } from '../src/agents/types.js';
-
 import type { Coordinator } from '../src/core/coordinator.js';
-
 import { WorkTreeChanges } from '../src/core/work-tree-changes.js';
-
 import type { Changes } from '../src/core/work-tree-changes.js';
-
 import type { FixtureAgent } from './fixtures/agent.js';
-
 import { fixture } from './fixtures/coordinator.js';
-
 import { until } from './fixtures/within.js';
 
 const none: Changes = { files: [], withHead: 0, more: 0 };

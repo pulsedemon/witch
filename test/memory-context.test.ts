@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { fixture, save } from './fixtures/memory.js';
-
 import { passThrough } from './fixtures/git.js';
 
 async function context() {

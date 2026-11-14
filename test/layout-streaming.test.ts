@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { Lexer } from 'marked';
-
 import stripAnsi from 'strip-ansi';
-
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
-
 import type { DisplayItem, DisplayUpdate } from '../src/core/state.js';
-
 import { applyDisplayUpdate, foldDisplayUpdates } from '../src/core/state.js';
 
 interface Frame {

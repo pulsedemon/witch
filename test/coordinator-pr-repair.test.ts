@@ -1,35 +1,19 @@
 import assert from 'node:assert/strict';
-
 import { readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import * as github from '../src/core/github-reviews.js';
-
 import { answerInstruction } from '../src/core/peer-requests.js';
-
 import { watchConflicts } from '../src/core/pr-repair.js';
-
 import { conversationRecordSchema } from '../src/core/state.js';
-
 import type { PullRequest, Repository } from '../src/core/repository.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { reviewSource } from './fixtures/github-reviews.js';
-
 import { unitFixture } from './fixtures/coordinator.js';
-
 import { git } from './fixtures/coordination.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { pullRequest as openPullRequest } from './fixtures/repository.js';
-
 import { head, repairPrefix, setup } from './fixtures/pr-repair.js';
 
 test("every turn carries the branch's pull request conflict until it clears", async () => {

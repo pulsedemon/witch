@@ -1,31 +1,17 @@
 import assert from 'node:assert/strict';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { vi } from 'vitest';
-
 import type { TestContext } from 'vitest';
-
 import * as github from '../../src/core/github-reviews.js';
-
 import type { GitHubReviews } from '../../src/core/github-reviews.js';
-
 import type { ReviewResult } from '../../src/core/copilot-reviews.js';
-
 import { conversationRecordSchema } from '../../src/core/state.js';
-
 import { orderedCleanup } from './cleanup.js';
-
 import { unitCoordinationFixture, git } from './coordination.js';
-
 import { reviewSource } from './github-reviews.js';
-
 import { scratch } from './scratch.js';
-
 import { until } from './within.js';
-
 import { repositoryRead } from './repository.js';
 
 type Fixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;

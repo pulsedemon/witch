@@ -1,22 +1,16 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, open, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import {
   classifyScratch,
   inspectScratch,
 } from '../src/persistence/scratch-usage.js';
-
 import type {
   ScratchCandidate,
   ScratchObservation,
   ScratchUse,
 } from '../src/persistence/scratch-usage.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const directory = '/fixture/scratch/root space';

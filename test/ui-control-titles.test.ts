@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { createElement } from 'react';
-
 import { agentDisplay, applyDisplayUpdate } from '../src/core/state.js';
-
 import { boundCommandTitle, claudeTitle } from '../src/agents/tool-title.js';
-
 import { App } from '../src/ui/app.js';
-
 import { show, fake, drag, TAB, ENTER } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const CMD_C = '\u001b[99;9u';

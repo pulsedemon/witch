@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import stripAnsi from 'strip-ansi';
-
 import stringWidth from 'string-width';
-
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
-
 import type { FileDiff } from '../src/agents/types.js';
-
 import type { DisplayItem } from '../src/core/state.js';
-
 import { applyDisplayUpdate } from '../src/core/state.js';
 
 test('single-line tool titles fit the viewport while expansion retains the full command across resizes', () => {

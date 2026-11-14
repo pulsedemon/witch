@@ -1,26 +1,17 @@
 import { randomUUID } from 'node:crypto';
-
 import { writeFile } from 'node:fs/promises';
-
 import { tmpdir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { errorMessage } from '../errors.js';
-
 import type { TurnResult } from '../agents/types.js';
-
 import { readJson } from '../persistence/json.js';
-
 import {
   blockReviewBatch,
   observeReviews,
   reconcileReviews,
   reviewResultSchema,
 } from './copilot-reviews.js';
-
 import type { CopilotReviewState, ReviewBatch } from './copilot-reviews.js';
-
 import {
   copilotChecks,
   copilotRequested,
@@ -28,15 +19,10 @@ import {
   readGitHubReviews,
   reviewCommitPushed,
 } from './github-reviews.js';
-
 import type { GitHubReviews } from './github-reviews.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import type { Repository } from './repository.js';
-
 import { bindingChanged, revoke } from './review-ownership.js';
-
 import type { ConversationRecord } from './state.js';
 
 export interface ReviewWatch {

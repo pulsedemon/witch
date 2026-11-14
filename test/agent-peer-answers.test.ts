@@ -1,39 +1,26 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { AnswerTurn } from '../src/agents/answer-turn.js';
-
 import type { AgentEvent, AgentSession } from '../src/agents/types.js';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import {
   peerAnswerOutputSchema,
   preparePeerAnswers,
   parsePeerAnswers,
 } from '../src/core/peer-answers.js';
-
 import {
   answerInstruction,
   requestContext,
 } from '../src/core/peer-requests.js';
-
 import {
   fixture as codex,
   controlledFixture,
 } from './fixtures/codex-adapter.js';
-
 import { launcher as claude } from './fixtures/claude-adapter.js';
-
 import { until } from './fixtures/within.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 async function input(cwd: string) {

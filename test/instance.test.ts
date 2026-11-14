@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { scratch } from './fixtures/scratch.js';
 
 const instance = fileURLToPath(

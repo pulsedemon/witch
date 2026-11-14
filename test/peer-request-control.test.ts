@@ -1,22 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { writeControl } from '../src/cli-control.js';
-
 import type { SessionPresence } from '../src/core/coordination-state.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import type { ControlOutcome } from '../src/persistence/control.js';
-
 import {
   unitCoordinationFixture,
   pauseDiscovery,
 } from './fixtures/coordination.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
 
 type Client = Awaited<

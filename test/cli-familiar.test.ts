@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { promises as files } from 'node:fs';
-
 import {
   chmod,
   copyFile,
@@ -14,32 +10,20 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { fileURLToPath } from 'node:url';
-
 import { test, vi } from 'vitest';
-
 import { parseCommand } from '../src/cli-control.js';
-
 import { FamiliarReports } from '../src/familiar-run.js';
-
 import { ControlHost } from '../src/persistence/control.js';
-
 import type {
   ControlRequest,
   ControlOutcome,
 } from '../src/persistence/control.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { compiledCli } from './fixtures/compiled-cli.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
 
 async function fixture(

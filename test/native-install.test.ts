@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import {
   access,
   chmod,
@@ -10,15 +8,10 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { promisify } from 'node:util';
-
 import { test } from 'vitest';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until } from './fixtures/within.js';
 
 const execute = promisify(execFile);

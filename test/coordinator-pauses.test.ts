@@ -1,41 +1,26 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test, vi } from 'vitest';
-
 import type {
   CoordinationAction,
   SessionPresence,
   TaskClaim,
 } from '../src/core/coordination-state.js';
-
 import { pauseStatuses } from '../src/core/pauses.js';
-
 import type { Pause } from '../src/core/pauses.js';
-
 import { SessionCoordination } from '../src/core/coordination.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import {
   unitCoordinationFixture,
   legacyLock,
   pauseDiscovery,
 } from './fixtures/coordination.js';
-
 import { holdSettlement, record } from './fixtures/coordinator.js';
-
 import { until } from './fixtures/within.js';
 
 type Fixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;

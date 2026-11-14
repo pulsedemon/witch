@@ -1,11 +1,7 @@
 import type { AgentSession } from '../agents/types.js';
-
 import type { ModelSelection } from './models.js';
-
 import type { SwitchHost } from './runtime-switch.js';
-
 import { contextStart } from './state.js';
-
 import type { ConversationRecord, DisplayItem } from './state.js';
 
 /** keeps a long transcript within the destination's context. */

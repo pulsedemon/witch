@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { chmod, readFile, rename, writeFile } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { cleanUpMerge } from '../src/core/merged.js';
-
 import type { MergeCleanup } from '../src/core/merged.js';
-
 import {
   branches,
   idle,
@@ -18,9 +12,7 @@ import {
   pullRequest,
   write,
 } from './fixtures/merged.js';
-
 import { git } from './fixtures/git.js';
-
 import { exists, until } from './fixtures/within.js';
 
 // a developer's own git config would take part in the fixtures' switches and fetches

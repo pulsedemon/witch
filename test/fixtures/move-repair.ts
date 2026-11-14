@@ -1,23 +1,13 @@
 import { mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { runCommand } from '../../src/core/command.js';
-
 import { repairMoves } from '../../src/core/move-repair.js';
-
 import type { Run } from '../../src/core/repository.js';
-
 import type { ConversationRecord } from '../../src/core/state.js';
-
 import { StateStore } from '../../src/persistence/store.js';
-
 import { record } from './coordinator.js';
-
 import { git } from './git.js';
-
 import { scratch } from './scratch.js';
-
 import { seededMemory } from './seeded-memory.js';
 
 /** a main checkout `w/main` with a worktree `w/main-1`, a state directory, and one repair already run there. */

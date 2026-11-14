@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import stripAnsi from 'strip-ansi';
-
 import { Graphics, placeholder } from '../src/ui/images.js';
-
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
-
 import type { DisplayItem } from '../src/core/state.js';
-
 import { applyDisplayUpdate } from '../src/core/state.js';
-
 import { loaded } from './fixtures/graphics.js';
-
 import { png } from './fixtures/png.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const tool = (text: string, done = false): DisplayItem => ({

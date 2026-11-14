@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { test } from 'vitest';
-
 import type { DisplayItem } from '../src/core/state.js';
-
 import { App } from '../src/ui/app.js';
-
 import { Screen } from '../src/ui/screen.js';
-
 import { unitFixture } from './fixtures/coordinator.js';
-
 import { show, fake, drag, left, ENTER, SHIFT_ENTER } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const reminder = 'Earlier messages shown here';

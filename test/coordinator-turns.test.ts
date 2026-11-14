@@ -1,27 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { join } from 'node:path';
-
 import { describe, test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import type { DisplayItem } from '../src/core/state.js';
-
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
-
 import type { FixtureAgent } from './fixtures/agent.js';
-
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-
 import { fixture, turns, unitFixture } from './fixtures/coordinator.js';
-
 import { passThrough } from './fixtures/git.js';
-
 import type { GitHook } from './fixtures/git.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('a tool row keeps the path its title shows and its expanded title through its result and a reopen', async () => {

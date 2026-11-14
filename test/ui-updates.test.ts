@@ -1,46 +1,26 @@
 import assert from 'node:assert/strict';
-
 import { createElement } from 'react';
-
 import { chmod, mkdir } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import { App } from '../src/ui/app.js';
-
 import { updateChoice, updatesText } from '../src/ui/updates.js';
-
 import {
   holdRuntime,
   NativeUpdatePending,
 } from '../src/persistence/runtime-updates.js';
-
 import type { UpdateJournal } from '../src/persistence/runtime-updates.js';
-
 import { RuntimeUpdates } from '../src/core/runtime-updates.js';
-
 import type { RuntimeUpdateSnapshot } from '../src/core/runtime-updates.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { runtimeUpdateFixture } from './fixtures/runtime-updates.js';
-
 import { unitFixture } from './fixtures/coordinator.js';
-
 import { EmptyMemory } from './fixtures/empty-memory.js';
-
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { show, ENTER, DOWN } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const agents = [{ id: 'codex', label: 'Fixture Codex', installed: true }];

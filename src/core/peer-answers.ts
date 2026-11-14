@@ -1,17 +1,10 @@
 import { randomUUID } from 'node:crypto';
-
 import { tmpdir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { z } from 'zod';
-
 import { writeJson } from '../persistence/json.js';
-
 import type { TurnResult } from '../agents/types.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import type { PeerRequest } from './peer-requests.js';
 
 const peerAnswerSchema = z.strictObject({

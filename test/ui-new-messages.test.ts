@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { test } from 'vitest';
-
 import type { Snapshot } from '../src/core/snapshot.js';
-
 import { applyDisplayUpdate } from '../src/core/state.js';
-
 import type { DisplayUpdate } from '../src/core/state.js';
-
 import { App } from '../src/ui/app.js';
-
 import {
   approval,
   ENTER,
@@ -24,7 +16,6 @@ import {
   show,
   TAB,
 } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const label = '↓ New messages';

@@ -1,8 +1,6 @@
 // commands lead sessions, but the MCP server only leads a group, so its detached helper must stay untracked
 import { spawn } from 'node:child_process';
-
 import process from 'node:process';
-
 import { setInterval } from 'node:timers';
 
 const command = (script) =>

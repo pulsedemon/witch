@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { createElement } from 'react';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import type { DisplayItem } from '../src/core/state.js';
-
 import { App } from '../src/ui/app.js';
-
 import { fake, left, show, DOWN, ENTER, UP } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const tool = (id: string): DisplayItem => ({

@@ -1,9 +1,6 @@
 import type { Query, Options } from '@anthropic-ai/claude-agent-sdk';
-
 import { z } from 'zod';
-
 import { compactionThreshold } from '../core/compaction-policy.js';
-
 import type { Usage } from './types.js';
 
 export interface ClaudeCompactionControl extends Pick<

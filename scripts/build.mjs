@@ -1,13 +1,8 @@
 import { execFileSync } from 'node:child_process';
-
 import { createHash } from 'node:crypto';
-
 import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-
 import { join, resolve } from 'node:path';
-
 import process from 'node:process';
-
 import { fileURLToPath, URL } from 'node:url';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));

@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { act, createElement, createRef, type ReactElement } from 'react';
-
 import { render } from 'ink-testing-library';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { Input, type InputHandle } from '../src/ui/input.js';
-
 import { Request } from '../src/ui/request.js';
-
 import { render as renderTerminal, Box } from 'ink';
-
 import { PassThrough, Writable } from 'node:stream';
-
 import type { UserRequest, UserResponse } from '../src/agents/types.js';
 
 // act returns once React has committed and run effects, so a key never races a handler still attaching

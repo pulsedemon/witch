@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { Text } from 'ink';
-
 import stringWidth from 'string-width';
-
 import stripAnsi from 'strip-ansi';
-
 import { test, vi } from 'vitest';
-
 import type { DisplayItem } from '../src/core/state.js';
-
 import { App } from '../src/ui/app.js';
-
 import { castFrames, castMs, castTitle, useCasting } from '../src/ui/cast.js';
-
 import { drag, fake, show } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const cast = (id: string, at: number): DisplayItem => ({

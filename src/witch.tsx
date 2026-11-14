@@ -1,73 +1,38 @@
 import { execFile } from 'node:child_process';
-
 import { access, readFile, realpath } from 'node:fs/promises';
-
 import { dirname, isAbsolute, join, normalize } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { render } from 'ink';
-
 import { installedAgents } from './agents/registry.js';
-
 import { registerNativeParticipant } from './agents/native-launch.js';
-
 import { RuntimeUpdates } from './core/runtime-updates.js';
-
 import { errorMessage } from './errors.js';
-
 import { controlPrefix } from './cli-control.js';
-
 import type { parseCommand } from './cli-control.js';
-
 import { Coordinator } from './core/coordinator.js';
-
 import { describeMoves, repairMoves } from './core/move-repair.js';
-
 import { SessionCoordination } from './core/coordination.js';
-
 import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
-
 import { watchMerges } from './core/merge-watch.js';
-
 import { watchConflicts } from './core/pr-repair.js';
-
 import { RepositoryWatch } from './core/repository.js';
-
 import { WorkTreeChanges } from './core/work-tree-changes.js';
-
 import { watchCopilotReviews } from './core/copilot-review-watch.js';
-
 import { keepAwake } from './core/wake.js';
-
 import { Memory, memoryRepository } from './memory/memory.js';
-
 import { instanceDirectory } from './persistence/instance.js';
-
 import { writeJson } from './persistence/json.js';
-
 import { DelegationStore } from './persistence/delegation.js';
-
 import { router } from './core/router.js';
-
 import { NotificationSchedule } from './persistence/notifications.js';
-
 import { ScratchSpace } from './persistence/scratch.js';
-
 import { StateStore } from './persistence/store.js';
-
 import { App } from './ui/app.js';
-
 import { Graphics } from './ui/images.js';
-
 import { clickTarget } from './ui/links.js';
-
 import { MouseInput, captureMouse, releaseMouse } from './ui/mouse.js';
-
 import type { Cell, Pointer } from './ui/mouse.js';
-
 import { Screen, recorded } from './ui/screen.js';
-
 import { watchTerminal } from './ui/terminal.js';
 
 // a built Witch rebuilds the checkout it runs from; Node resolves the bin symlink to the real path

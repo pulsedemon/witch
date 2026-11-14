@@ -1,23 +1,13 @@
 import { lstat, mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
-
 import { basename, dirname, join, relative } from 'node:path';
-
 import { errorMessage } from './errors.js';
-
 import { within } from './paths.js';
-
 import { runCommand } from './core/command.js';
-
 import { planDirectories } from './core/merged.js';
-
 import type { Run } from './core/repository.js';
-
 import { describeMoves, repairMoves, savedBefore } from './core/move-repair.js';
-
 import { listWorktrees } from './core/worktree-repair.js';
-
 import { Memory, memoryRepository } from './memory/memory.js';
-
 import {
   adoptIdentity,
   identify,
@@ -27,11 +17,8 @@ import {
   sameIdentity,
   updateLedger,
 } from './persistence/directories.js';
-
 import { unlessGone } from './persistence/json.js';
-
 import { StateStore } from './persistence/store.js';
-
 import { oneLine } from './ui/links.js';
 
 interface Spawned {

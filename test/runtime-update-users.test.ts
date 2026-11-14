@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { mkdir, writeFile } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { runtimeUpdateUsers } from '../src/core/runtime-update-users.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until } from './fixtures/within.js';
 
 test('process inspection distinguishes old Witch, participating Witch and an installer helper', async () => {

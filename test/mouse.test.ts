@@ -1,24 +1,16 @@
 import assert from 'node:assert/strict';
-
 import { EventEmitter } from 'node:events';
-
 import { test, vi } from 'vitest';
-
 import { act, createElement } from 'react';
-
 import { Text, useInput } from 'ink';
-
 import type { Cell, Pointer } from '../src/ui/mouse.js';
-
 import {
   MouseInput,
   captureMouse,
   releaseMouse,
   usePointer,
 } from '../src/ui/mouse.js';
-
 import { show } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

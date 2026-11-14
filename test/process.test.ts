@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { execFile, spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { readFile } from 'node:fs/promises';
-
 import { test } from 'vitest';
-
 import { promisify } from 'node:util';
-
 import type { ProcessIdentity } from '../src/core/state.js';
-
 import {
   bootSession,
   identifyProcess,
@@ -19,9 +12,7 @@ import {
   processArguments,
   stopLeftProcesses,
 } from '../src/persistence/process.js';
-
 import { countProbes } from './fixtures/probes.js';
-
 import { within } from './fixtures/within.js';
 
 test('process arguments preserve boundaries and omit exited processes', async (t) => {

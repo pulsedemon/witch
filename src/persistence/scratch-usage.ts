@@ -1,13 +1,8 @@
 import { execFile } from 'node:child_process';
-
 import { realpath } from 'node:fs/promises';
-
 import { promisify } from 'node:util';
-
 import type { ProcessIdentity } from '../core/state.js';
-
 import { within } from '../paths.js';
-
 import { ps, sameProcess } from './process.js';
 
 const execute = promisify(execFile);

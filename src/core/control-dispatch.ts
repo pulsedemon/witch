@@ -1,22 +1,15 @@
 import { isFamiliarAction } from '../agents/familiar-report.js';
-
 import type { assignGitHubTask } from './github-assignment.js';
-
 import { recordTaskAssignment } from './github-assignment.js';
-
 import {
   ClaimConflict,
   type CoordinationStore,
   type Ledger,
   type Verify,
 } from '../persistence/coordination.js';
-
 import type { ControlOutcome, ControlRequest } from '../persistence/control.js';
-
 import type { StateStore } from '../persistence/store.js';
-
 import type { Activation, LedgerView, RequestState } from './coordination.js';
-
 import {
   checkTaskRelease,
   conversationSummarySchema,
@@ -27,11 +20,8 @@ import {
   type SelectionScope,
   type TransferTarget,
 } from './coordination-state.js';
-
 import { projectDiscovery, type Discovery } from './discovery.js';
-
 import { checkAnswering, isPeerAction, peerOutcome } from './peer-requests.js';
-
 import {
   isPauseAction,
   pauseRecipients,
@@ -39,11 +29,8 @@ import {
   type Pause,
   type PauseAction,
 } from './pauses.js';
-
 import type { Snapshot } from './snapshot.js';
-
 import type { ProcessIdentity } from './state.js';
-
 import {
   awaitTransfer,
   takeReference,

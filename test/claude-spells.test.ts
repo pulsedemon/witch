@@ -1,22 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import type { AgentEvent, SkillCall } from '../src/agents/types.js';
-
 import {
   fixture,
   frameWriter,
   jsonLines,
   launcher,
 } from './fixtures/claude-adapter.js';
-
 import { until, within } from './fixtures/within.js';
 
 const probe: SkillCall = { name: 'probe', args: 'later' };

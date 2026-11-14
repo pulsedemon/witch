@@ -1,33 +1,21 @@
 import assert from 'node:assert/strict';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import type {
   CoordinationAction,
   TaskClaim,
 } from '../src/core/coordination-state.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import type { Ledger } from '../src/persistence/coordination.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import {
   pauseDiscovery,
   unitCoordinationFixture,
 } from './fixtures/coordination.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { resume } from './fixtures/coordination-request-races.js';
 
 /** a discovery read that, once armed, signals `observed` and waits for `finish` before returning. */

@@ -1,5 +1,4 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import type { TurnResult } from './types.js';
 
 /** a manual compact has its own input/result identity even while the ordinary turn stays open. */

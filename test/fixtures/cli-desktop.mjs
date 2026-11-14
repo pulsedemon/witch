@@ -1,17 +1,10 @@
 import childProcess from 'node:child_process';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import process from 'node:process';
-
 import { promisify } from 'node:util';
-
 import { setImmediate } from 'node:timers';
-
 import { subscribe } from 'node:diagnostics_channel';
-
 import { performance } from 'node:perf_hooks';
-
 import { pathToFileURL, URL } from 'node:url';
 
 Object.defineProperty(process.stdin, 'isTTY', { value: true });

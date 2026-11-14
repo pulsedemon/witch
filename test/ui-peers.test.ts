@@ -1,37 +1,22 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { createElement } from 'react';
-
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { SidebarView } from './fixtures/ui.js';
-
 import { App } from '../src/ui/app.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import {
   unitCoordinationFixture,
   git,
   pauseDiscovery,
 } from './fixtures/coordination.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { turns } from './fixtures/coordinator.js';
-
 import { selectionTurn } from './fixtures/task-selection.js';
-
 import { fake, forgedLink, show } from './fixtures/ui.js';
-
 import { until, within } from './fixtures/within.js';
 
 function peer(index: number): CoordinationSnapshot['peers'][number] {

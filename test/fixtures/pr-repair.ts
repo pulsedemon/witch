@@ -1,17 +1,10 @@
 import type { TestContext } from 'vitest';
-
 import type { PullRequest, Repository } from '../../src/core/repository.js';
-
 import { orderedCleanup } from './cleanup.js';
-
 import { notices } from './coordinator.js';
-
 import { git, unitCoordinationFixture } from './coordination.js';
-
 import { until } from './within.js';
-
 import { record as savedRecord } from './copilot-reviews.js';
-
 import {
   pullRequest as openPullRequest,
   repositoryRead,

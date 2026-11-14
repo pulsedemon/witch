@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import {
   chmod,
   mkdir,
@@ -12,15 +10,10 @@ import {
   symlink,
   utimes,
 } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { promisify } from 'node:util';
-
 import { test } from 'vitest';
-
 import {
   adoptIdentity,
   findMoves,
@@ -31,15 +24,12 @@ import {
   resolve,
   updateLedger,
 } from '../src/persistence/directories.js';
-
 import type {
   DirectoryEntry,
   Ledger,
   LedgerMove,
 } from '../src/persistence/directories.js';
-
 import { countProbes } from './fixtures/probes.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);

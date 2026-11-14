@@ -1,31 +1,17 @@
 import assert from 'node:assert/strict';
-
 import childProcess, { execFileSync } from 'node:child_process';
-
 import fs, { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-
 import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { homedir } from 'node:os';
-
 import { dirname, join, relative } from 'node:path';
-
 import type { TestContext } from 'vitest';
-
 import { test, vi } from 'vitest';
-
 import { Attachments, imagePaste } from '../src/core/attachments.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { unitFixture, record } from './fixtures/coordinator.js';
-
 import { png } from './fixtures/png.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { within } from './fixtures/within.js';
 
 const pngSignature = Buffer.from([

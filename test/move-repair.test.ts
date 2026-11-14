@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-
 import {
   appendFile,
   chmod,
@@ -13,31 +12,18 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises';
-
 import { rmSync } from 'node:fs';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { runCommand } from '../src/core/command.js';
-
 import { describeMoves, repairMoves } from '../src/core/move-repair.js';
-
 import { projectKey } from '../src/memory/memory.js';
-
 import { readLedger, updateLedger } from '../src/persistence/directories.js';
-
 import type * as Directories from '../src/persistence/directories.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { quote } from '../src/shell.js';
-
 import { git } from './fixtures/git.js';
-
 import { setup } from './fixtures/move-repair.js';
-
 import { darwin } from './fixtures/move-repair.js';
 
 const ledgerCalls = vi.hoisted(() => ({

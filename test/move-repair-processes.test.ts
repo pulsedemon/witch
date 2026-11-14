@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { mkdir, rename } from 'node:fs/promises';
-
 import { test } from 'vitest';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { setup } from './fixtures/move-repair.js';
-
 import { within } from './fixtures/within.js';
 
 for (const race of ['source', 'parent', 'destination'])

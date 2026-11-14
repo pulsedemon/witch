@@ -1,17 +1,10 @@
 import { spawn } from 'node:child_process';
-
 import type { ChildProcess } from 'node:child_process';
-
 import { running } from '../agents/shutdown.js';
-
 import { errorMessage } from '../errors.js';
-
 import { witchWorking } from './coordination-state.js';
-
 import type { Coordinator } from './coordinator.js';
-
 import type { JobWatch } from './jobs.js';
-
 import type { Conversation } from './state.js';
 
 export interface WakeOptions {

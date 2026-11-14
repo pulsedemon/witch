@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import type { AgentSession } from '../src/agents/types.js';
-
 import type { Coordinator } from '../src/core/coordinator.js';
-
 import { fixture, unitFixture, readRecord } from './fixtures/coordinator.js';
-
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('clear starts a new native session while retaining the conversation, settings, transcript and memory workspace', async () => {

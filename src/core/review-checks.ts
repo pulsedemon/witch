@@ -1,13 +1,8 @@
 import { execFile } from 'node:child_process';
-
 import { readFile, stat } from 'node:fs/promises';
-
 import { dirname, extname, join, relative, resolve } from 'node:path';
-
 import { promisify } from 'node:util';
-
 import { decodeHTMLStrict } from 'entities';
-
 import { unlessGone } from '../persistence/json.js';
 
 const execute = promisify(execFile);

@@ -1,19 +1,11 @@
 import { tokenize } from '@alcalzone/ansi-tokenize';
-
 import LinkifyIt from 'linkify-it';
-
 import { realpath, stat } from 'node:fs/promises';
-
 import { basename, dirname, join } from 'node:path';
-
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
 import { present } from '../persistence/directories.js';
-
 import { resolveFile, unescapePath } from '../paths.js';
-
 import { imageFile } from './images.js';
-
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();

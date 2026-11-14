@@ -1,19 +1,11 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { z } from 'zod';
-
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import { promptlessQuery } from './claude-side.js';
-
 import type { ClaudeLaunch } from './claude-side.js';
-
 import { InputQueue } from './input-queue.js';
-
 import { watchChild } from './stderr.js';
-
 import type { ChildExit } from './stderr.js';
-
 import {
   beforeDeadline,
   NativeStopTimeout,
@@ -21,7 +13,6 @@ import {
   terminateChild,
   terminationReserveMs,
 } from './shutdown.js';
-
 import type {
   AccountReading,
   AgentStopOptions,

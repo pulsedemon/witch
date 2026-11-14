@@ -1,11 +1,7 @@
 import { z } from 'zod';
-
 import { hunks, wholeFile } from './file-diff.js';
-
 import { boundCommandTitle, shortPath, toolTitle } from './tool-title.js';
-
 import type { CommandPrefixes, ToolTitle } from './tool-title.js';
-
 import type { AgentEvent, FileDiff } from './types.js';
 
 export function fileDiffs(changes: z.infer<typeof fileChanges>): FileDiff[] {

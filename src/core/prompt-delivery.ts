@@ -1,21 +1,12 @@
 import type { TurnResult } from '../agents/types.js';
-
 import type { ConversationStore } from '../persistence/store.js';
-
 import type { Attachments } from './attachments.js';
-
 import type { Compaction } from './compaction.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import type { ConversationPauses } from './conversation-pauses.js';
-
 import type { CopilotReviewController } from './copilot-review-controller.js';
-
 import type { PullRequestRepair } from './pr-repair.js';
-
 import { shellCommand, skillCall, ranCommand } from './prompts.js';
-
 import {
   joining,
   nextTurn,
@@ -25,15 +16,10 @@ import {
   without,
   type Pending,
 } from './queue.js';
-
 import type { RuntimeSwitch } from './runtime-switch.js';
-
 import type { SessionLink } from './session-link.js';
-
 import type { Snapshot } from './snapshot.js';
-
 import type { ConversationRecord } from './state.js';
-
 import type { TurnRunner } from './turn-runner.js';
 
 interface DeliveryHost {

@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, readdir } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { Memory } from '../../src/memory/memory.js';
-
 import type { MemoryScope } from '../../src/memory/memory.js';
-
 import { Workspace } from '../../src/memory/workspace.js';
 
 const revision = '0'.repeat(40);

@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import stripAnsi from 'strip-ansi';
-
 import { TranscriptLayout, toggleGroup } from '../src/ui/transcript-layout.js';
-
 import type { DisplayItem } from '../src/core/state.js';
 
 /** an agent tool row, whose id has the `<activity>/<agent>/<native id>` shape grouping relies on. */

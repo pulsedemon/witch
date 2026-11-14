@@ -1,27 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { repairMoves } from '../src/core/move-repair.js';
-
 import { createConversation } from '../src/core/state.js';
-
 import { identify } from '../src/persistence/directories.js';
-
 import type * as Directories from '../src/persistence/directories.js';
-
 import type { LedgerMove } from '../src/persistence/directories.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
 
 const ledgerCalls = vi.hoisted(() => ({

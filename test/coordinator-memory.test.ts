@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { readFile, symlink, unlink, writeFile } from 'node:fs/promises';
-
 import { tmpdir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { describe, test } from 'vitest';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { editorEnvironment } from '../src/core/editor.js';
-
 import { main } from '../src/memory/memory.js';
-
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-
 import { fixture, readRecord, turns } from './fixtures/coordinator.js';
-
 import { until, within } from './fixtures/within.js';
-
 import {
   assertMemoryBaseline,
   publishOutside,

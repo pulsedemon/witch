@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { existsSync } from 'node:fs';
-
 import {
   copyFile,
   mkdir,
@@ -14,19 +10,12 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { fileURLToPath } from 'node:url';
-
 import { test } from 'vitest';
-
 import stripAnsi from 'strip-ansi';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));

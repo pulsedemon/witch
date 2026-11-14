@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { RateLimit } from '../src/agents/claude-limits.js';
 
 test('a rejection of the Fable limit blocks Fable and no other family', () => {

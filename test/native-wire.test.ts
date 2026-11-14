@@ -1,21 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { test } from 'vitest';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import {
   observeWire,
   replayWire,
   normalizeWire,
 } from './fixtures/native-wire.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { probeApproval } from '../src/agents/native-scenario.js';
 
 test('wire capture retains split JSON lines in both directions without consuming the streams', async () => {

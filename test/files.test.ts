@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { access, chmod, mkdir, rm, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { promisify } from 'node:util';
-
 import { listFiles } from '../src/core/files.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);

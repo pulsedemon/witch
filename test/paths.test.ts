@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { within } from '../src/paths.js';
 
 test('within holds for a path itself and the paths under it', () => {

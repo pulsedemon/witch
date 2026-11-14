@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { tmpdir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { promisify } from 'node:util';
-
 import { installedAgents } from '../src/agents/registry.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { Memory } from '../src/memory/memory.js';
-
 import { StateStore } from '../src/persistence/store.js';
 
 const execute = promisify(execFile);

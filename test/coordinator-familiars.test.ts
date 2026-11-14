@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { unitFixture } from './fixtures/coordinator.js';
 
 test('a reported familiar replaces its brew and retitles observed identity without duplicating reports', async () => {

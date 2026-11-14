@@ -1,13 +1,10 @@
 import { z } from 'zod';
-
 import { sessionList, unregisteredList } from './coordination-state.js';
-
 import type {
   ClaimOwner,
   CoordinationAction,
   SessionPresence,
 } from './coordination-state.js';
-
 import type { Discovery } from './discovery.js';
 
 const pauseRecipientSchema = z.object({

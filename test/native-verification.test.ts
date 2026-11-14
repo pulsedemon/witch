@@ -1,32 +1,19 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { chmod, copyFile, readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import {
   prepareNativeUpdate,
   verifyNativeUpdate,
 } from '../src/agents/native-verification.js';
-
 import { verificationAdapter } from '../src/agents/native-verification-profile.js';
-
 import { nativeScenario } from '../src/agents/native-scenario.js';
-
 import { runtimeUpdateFixture } from './fixtures/runtime-updates.js';
-
 import { FixtureAgent } from './fixtures/agent.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { checkNativeAnswer } from '../src/agents/native-answer-check.js';
-
 import { checkCodexAnswerSandbox } from '../src/agents/native-sandbox-check.js';
-
 import { unlessGone } from '../src/persistence/json.js';
 
 for (const [mode, expected] of [

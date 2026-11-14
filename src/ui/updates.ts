@@ -1,19 +1,13 @@
 import { homedir } from 'node:os';
-
 import { useSyncExternalStore } from 'react';
-
 import type {
   RuntimeUpdateEntry,
   RuntimeUpdates,
   RuntimeUpdateSnapshot,
 } from '../core/runtime-updates.js';
-
 import type { Snapshot } from '../core/snapshot.js';
-
 import type { Picker } from './choices.js';
-
 import { pendingUpdate, qualifiedBy } from '../persistence/runtime-updates.js';
-
 import { plain } from './links.js';
 
 type Agents = Snapshot['agents'];

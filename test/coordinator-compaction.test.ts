@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { Workspace } from '../src/memory/workspace.js';
-
 import { fixture, readRecord, unitFixture } from './fixtures/coordinator.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { until, within } from './fixtures/within.js';
-
 import type { TurnResult } from '../src/agents/types.js';
 
 test('manual compaction preserves the conversation and makes persisted resume receive full accepted memory', async () => {

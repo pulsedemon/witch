@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setImmediate } from 'node:timers/promises';
-
 import { InputQueue } from '../src/agents/input-queue.js';
-
 import { within } from './fixtures/within.js';
 
 test('flush waits for queued inputs to finish consumer processing', async () => {

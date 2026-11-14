@@ -1,37 +1,20 @@
 import assert from 'node:assert/strict';
-
 import { readdirSync, readFileSync } from 'node:fs';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { randomUUID } from 'node:crypto';
-
 import { test } from 'vitest';
-
 import { CodexSchema } from './fixtures/codex-schema.js';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { ClaudeAdapter } from '../src/agents/claude.js';
-
 import { nativeScenario } from '../src/agents/native-scenario.js';
-
 import type { NativeScenario } from '../src/agents/native-scenario.js';
-
 import { replayWire, observeWire } from './fixtures/native-wire.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { fileURLToPath } from 'node:url';
-
 import ts from 'typescript';
-
 import { fixture, close } from './fixtures/codex-adapter.js';
-
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-
 import type {
   AgentEvent,
   Limit,
@@ -39,17 +22,13 @@ import type {
   UserRequest,
   UserResponse,
 } from '../src/agents/types.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { untimed } from './fixtures/limits.js';
-
 import {
   peerAnswerOutputSchema,
   preparePeerAnswers,
   parsePeerAnswers,
 } from '../src/core/peer-answers.js';
-
 import {
   answerInstruction,
   requestContext,

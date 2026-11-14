@@ -1,40 +1,23 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { randomUUID } from 'node:crypto';
-
 import { constants, promises as files } from 'node:fs';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import type {
   SelectionTicket,
   TaskClaim,
 } from '../src/core/coordination-state.js';
-
 import { SessionCoordination } from '../src/core/coordination.js';
-
 import { Memory } from '../src/memory/memory.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { openLocked } from '../src/persistence/lock.js';
-
 import { ConversationStore } from '../src/persistence/store.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import {
   git,
   legacyLock,
@@ -42,15 +25,10 @@ import {
   pauseDiscovery,
   unitCoordinationFixture,
 } from './fixtures/coordination.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { selectionTurn } from './fixtures/task-selection.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { countProbes } from './fixtures/probes.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
 
 test('a live legacy owner blocks new work until its lock closes, and a reused identity is never treated as registered', async (t) => {

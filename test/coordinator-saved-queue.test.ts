@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import type { AgentSession } from '../src/agents/types.js';
-
 import type { ConversationRecord } from '../src/core/state.js';
-
 import { ConversationStore } from '../src/persistence/store.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { unitFixture, readRecord, turns } from './fixtures/coordinator.js';
-
 import { until, within } from './fixtures/within.js';
 
 const review = { name: 'review', description: 'Review changes' };

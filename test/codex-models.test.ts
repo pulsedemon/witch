@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { close, fixture } from './fixtures/codex-adapter.js';
 
 test("a model missing from Codex's catalog is refused, while a hidden one passes", async () => {

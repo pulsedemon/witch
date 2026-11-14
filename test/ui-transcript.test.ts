@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { applyDisplayUpdate } from '../src/core/state.js';
-
 import { App } from '../src/ui/app.js';
-
 import { Graphics, placeholder } from '../src/ui/images.js';
-
 import { png } from './fixtures/png.js';
-
 import {
   DOWN,
   ENTER,
@@ -25,9 +17,7 @@ import {
   show,
   tools,
 } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
-
 import {
   CMD_C,
   first,

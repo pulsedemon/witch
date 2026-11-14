@@ -1,9 +1,6 @@
 import fs from 'node:fs';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { vi } from 'vitest';
-
 import type { TestContext } from 'vitest';
 
 /** makes `stat` of `path` alone fail as the OS refusing to look, until the test ends. chmod can't stand in for it, since root ignores modes. */

@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
-
 import { CoordinationStore } from '../../src/persistence/coordination.js';
-
 import { StateStore } from '../../src/persistence/store.js';
-
 import { identifyProcess } from '../../src/persistence/process.js';
 
 const [root, conversation] = process.argv.slice(2);

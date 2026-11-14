@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import type { Subagent } from '../src/agents/types.js';
-
 import type { Coordinator } from '../src/core/coordinator.js';
-
 import { unitFixture } from './fixtures/coordinator.js';
 
 const tdd = { id: 's1', name: 'tdd' };

@@ -1,11 +1,7 @@
 import { Box, Text } from 'ink';
-
 import { sessionStatus, taskActivity } from '../core/coordination-state.js';
-
 import type { Snapshot } from '../core/snapshot.js';
-
 import { plain } from './links.js';
-
 import { piped } from './theme.js';
 
 /** the top row: what the session is doing, its permission mode, and what the user must do to go on. */

@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-
 import { execFile, spawn } from 'node:child_process';
-
 import { realpath, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { promisify } from 'node:util';
-
 import { bashRecord, runShell } from '../src/agents/user-shell.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
 
 const execute = promisify(execFile);

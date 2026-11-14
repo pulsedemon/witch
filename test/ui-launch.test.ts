@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import type { Snapshot } from '../src/core/snapshot.js';
-
 import { App } from '../src/ui/app.js';
-
 import { show, fake } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
-
 import { unitFixture, record } from './fixtures/coordinator.js';
 
 test('startup reports missing conversation directories without blocking the initial prompt', async () => {

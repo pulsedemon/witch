@@ -1,16 +1,10 @@
 #!/usr/bin/env node
 import { homedir } from 'node:os';
-
 import { resolve, join } from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-
 import { errorMessage } from './errors.js';
-
 import { parseCommand, runControl, writeControl } from './cli-control.js';
-
 import { runClaudeFamiliar } from './cli-familiar.js';
-
 import { runCodexFamiliar } from './cli-codex-familiar.js';
 
 const defaultState = join(homedir(), '.witch');

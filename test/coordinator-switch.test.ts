@@ -1,34 +1,21 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { writeFile, readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { main } from '../src/memory/memory.js';
-
 import type { SessionInfo } from '../src/agents/types.js';
-
 import type { ConversationRecord } from '../src/core/state.js';
-
 import { ConversationStore } from '../src/persistence/store.js';
-
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-
 import {
   record,
   readRecord,
   fixture,
   unitFixture,
 } from './fixtures/coordinator.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('handoff returns to the original native session with updated context, and a switch to the current or an uninstalled agent sends nothing', async () => {

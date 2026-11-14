@@ -1,24 +1,16 @@
 import assert from 'node:assert/strict';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { Workspace } from '../src/memory/workspace.js';
-
 import {
   fixture,
   holdSettlement,
   readRecord,
   unitFixture,
 } from './fixtures/coordinator.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { settled, until, within } from './fixtures/within.js';
-
 import type { TurnResult } from '../src/agents/types.js';
 
 test('a direct busy compact coalesces callers and holds later input until the original turn and compact finish', async () => {

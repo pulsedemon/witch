@@ -1,9 +1,6 @@
 import { z } from 'zod';
-
 import { createHash } from 'node:crypto';
-
 import { pullRequestSchema } from './repository.js';
-
 import type { PullRequest } from './repository.js';
 
 export const mergeEventSchema = z.object({

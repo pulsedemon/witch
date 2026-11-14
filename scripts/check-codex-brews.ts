@@ -1,49 +1,26 @@
 import assert from 'node:assert/strict';
-
 import { execFile, spawn } from 'node:child_process';
-
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-
 import { createServer } from 'node:http';
-
 import type { ServerResponse } from 'node:http';
-
 import { tmpdir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { createInterface } from 'node:readline';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { promisify } from 'node:util';
-
 import { Ajv } from 'ajv';
-
 import { z } from 'zod';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { readContextCatalog } from '../src/agents/codex-compaction-policy.js';
-
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-
 import { installedAgents } from '../src/agents/registry.js';
-
 import type { AgentEvent, SessionOptions } from '../src/agents/types.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import type { Snapshot } from '../src/core/snapshot.js';
-
 import type { ProcessIdentity } from '../src/core/state.js';
-
 import { Memory } from '../src/memory/memory.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { StateStore } from '../src/persistence/store.js';
 
 const execute = promisify(execFile);

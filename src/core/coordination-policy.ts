@@ -1,5 +1,4 @@
 import type { CoordinationSnapshot } from './coordination-state.js';
-
 import type { SessionCoordination } from './coordination.js';
 
 function requiresClaim(snapshot: CoordinationSnapshot): boolean {

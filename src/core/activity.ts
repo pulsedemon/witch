@@ -1,21 +1,12 @@
 import { randomUUID } from 'node:crypto';
-
 import { errorMessage } from '../errors.js';
-
 import { projectKey } from '../memory/memory.js';
-
 import type { Memory, MemoryScope } from '../memory/memory.js';
-
 import { within } from '../paths.js';
-
 import { formerPaths, readLedger } from '../persistence/directories.js';
-
 import type { Ledger } from '../persistence/directories.js';
-
 import type { Workspace } from '../memory/workspace.js';
-
 import { memoryAttribution } from './prompts.js';
-
 import type { ConversationRecord } from './state.js';
 
 export type Activity = NonNullable<ConversationRecord['activity']>;

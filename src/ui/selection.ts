@@ -1,17 +1,12 @@
 import type { ScrollAnchor } from './transcript-layout.js';
-
 import {
   styledCharsFromTokens,
   styledCharsToString,
   tokenize,
 } from '@alcalzone/ansi-tokenize';
-
 import type { StyledChar } from '@alcalzone/ansi-tokenize';
-
 import stringWidth from 'string-width';
-
 import { placeholder } from './images.js';
-
 import { colors } from './theme.js';
 
 /** a transcript row and a column in it. */

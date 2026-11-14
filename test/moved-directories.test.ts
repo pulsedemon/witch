@@ -1,37 +1,20 @@
 import assert from 'node:assert/strict';
-
 import { mkdir, rename, rm, utimes, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { runCommand } from '../src/core/command.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import type { Run } from '../src/core/repository.js';
-
 import { main as accepted } from '../src/memory/memory.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { identify } from '../src/persistence/directories.js';
-
 import { quote } from '../src/shell.js';
-
 import { runSpawn } from '../src/spawn.js';
-
 import { FixtureAgent } from './fixtures/agent.js';
-
 import { notices, record } from './fixtures/coordinator.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { until } from './fixtures/within.js';
-
 import { git } from './fixtures/git.js';
 
 /** runs git for real and stands in for `pnpm` and `osascript`. */

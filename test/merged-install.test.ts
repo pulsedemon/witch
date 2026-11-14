@@ -1,33 +1,18 @@
 import assert from 'node:assert/strict';
-
 import { constants } from 'node:fs';
-
 import { chmod, readFile, symlink, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { quote } from '../src/shell.js';
-
 import { runCommand } from '../src/core/command.js';
-
 import { cleanUpMerge, refreshInstall } from '../src/core/merged.js';
-
 import type { Run } from '../src/core/repository.js';
-
 import { openLocked } from '../src/persistence/lock.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { idle, merged, pullRequest, write } from './fixtures/merged.js';
-
 import { git } from './fixtures/git.js';
-
 import { exists, within } from './fixtures/within.js';
-
 import {
   configureGitEnvironment,
   execute,

@@ -1,17 +1,10 @@
 import { randomUUID } from 'node:crypto';
-
 import { constants, statSync } from 'node:fs';
-
 import { mkdir, readdir, rm } from 'node:fs/promises';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { z } from 'zod';
-
 import {
   claimInputSchema,
   sessionPresenceSchema,
@@ -20,7 +13,6 @@ import {
   taskClaimSchema,
   taskReference,
 } from '../core/coordination-state.js';
-
 import type {
   ClaimInput,
   ClaimOwner,
@@ -33,31 +25,18 @@ import type {
   TransferField,
   TransferTarget,
 } from '../core/coordination-state.js';
-
 import type { ProcessIdentity } from '../core/state.js';
-
 import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
-
 import type { MergeEvent } from '../core/merge-events.js';
-
 import { answerable, peerRequestSchema } from '../core/peer-requests.js';
-
 import type { PeerRequest } from '../core/peer-requests.js';
-
 import type { PeerAnswer } from '../core/peer-answers.js';
-
 import { entry, pauseSchema, sameRequest } from '../core/pauses.js';
-
 import type { Pause, PauseRecipient } from '../core/pauses.js';
-
 import type { PullRequest } from '../core/repository.js';
-
 import { identifyProcesses, sameProcess } from './process.js';
-
 import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
-
 import { readJson, writeJson } from './json.js';
-
 import type { StateStore } from './store.js';
 
 const ledgerSchema = z.discriminatedUnion('version', [

@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { Ajv } from 'ajv';
-
 import type { ValidateFunction } from 'ajv';
 
 interface Schema {

@@ -1,12 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-
 import { join } from 'node:path';
-
 import process from 'node:process';
-
 import { clearInterval, setInterval } from 'node:timers';
-
 import { spawn } from 'node:child_process';
 
 const mode = process.env.WITCH_FAMILIAR_FIXTURE;

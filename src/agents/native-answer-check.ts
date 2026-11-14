@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { readLines } from './stderr.js';
-
 import { verificationAdapter } from './native-verification-profile.js';
-
 import type { RuntimeInstallation } from './runtime-updates.js';
-
 import type { AgentEvent, AgentSession } from './types.js';
-
 import { unlessGone, writeJson } from '../persistence/json.js';
 
 const serverSource = `import { createInterface } from 'node:readline';

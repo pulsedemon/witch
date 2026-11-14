@@ -1,29 +1,18 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { access, appendFile, mkdir, utimes, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { promisify } from 'node:util';
-
 import { pathToFileURL } from 'node:url';
-
 import {
   RepositoryWatch,
   parsePullRequest,
   parseStatus,
 } from '../src/core/repository.js';
-
 import { view } from './fixtures/repository.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until } from './fixtures/within.js';
 
 const execute = promisify(execFile);

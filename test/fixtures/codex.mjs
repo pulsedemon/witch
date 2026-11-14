@@ -1,13 +1,8 @@
 import { peerAnswer } from './peer-answer.mjs';
-
 import { clearInterval, setInterval, setTimeout } from 'node:timers';
-
 import process from 'node:process';
-
 import readline from 'node:readline';
-
 import { spawn } from 'node:child_process';
-
 import {
   appendFileSync,
   existsSync,
@@ -16,9 +11,7 @@ import {
   renameSync,
   writeFileSync,
 } from 'node:fs';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
 
 if (process.argv.includes('debug') && process.argv.includes('models')) {

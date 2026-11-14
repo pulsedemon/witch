@@ -1,37 +1,20 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { existsSync } from 'node:fs';
-
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
-
 import type { UserRequest } from '../src/agents/types.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-
 import { unitFixture, turns } from './fixtures/coordinator.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { frameWriter } from './fixtures/codex-adapter.js';
 
 const question = (id = 'choice'): UserRequest => ({

@@ -1,11 +1,7 @@
 import { promises as files } from 'node:fs';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { sep } from 'node:path';
-
 import { onTestFinished, vi } from 'vitest';
-
 import type { RegisterCleanup } from './cleanup.js';
 
 const open = files.open;

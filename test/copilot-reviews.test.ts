@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import {
   blockReviewBatch,
   observeReviews,
@@ -15,18 +10,13 @@ import {
   reviewInstruction,
   reviewResultSchema,
 } from '../src/core/copilot-reviews.js';
-
 import type { ReviewBatch, ReviewResult } from '../src/core/copilot-reviews.js';
-
 import {
   clearConversationContext,
   conversationRecordSchema,
 } from '../src/core/state.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { reviewSource } from './fixtures/github-reviews.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 function fixture() {

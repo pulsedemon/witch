@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { createHash, randomUUID } from 'node:crypto';
-
 import {
   chmod,
   mkdir,
@@ -17,23 +14,14 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises';
-
 import { tmpdir } from 'node:os';
-
 import { basename, join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { promisify } from 'node:util';
-
 import { branchOf, main, Memory } from '../src/memory/memory.js';
-
 import { hookedGit, passThrough } from './fixtures/git.js';
-
 import { fixture, git, repository, save } from './fixtures/memory.js';
-
 import type { GitHook } from './fixtures/git.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);

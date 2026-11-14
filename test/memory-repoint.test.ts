@@ -1,25 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
-
 import { chmod, mkdir, readFile, rename } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { main } from '../src/memory/memory.js';
-
 import { repointText } from '../src/memory/workspace.js';
-
 import { identify, mapper } from '../src/persistence/directories.js';
-
 import type { Ledger, LedgerMove } from '../src/persistence/directories.js';
-
 import { fixture, save } from './fixtures/memory.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 async function moves(...pairs: Array<[string, string]>): Promise<Ledger> {

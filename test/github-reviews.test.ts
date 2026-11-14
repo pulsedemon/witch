@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import {
   isCopilot,
   readGitHubReviews,
   reviewCommitPushed,
 } from '../src/core/github-reviews.js';
-
 import type { PullRequest, Run } from '../src/core/repository.js';
 
 const pr: PullRequest = {

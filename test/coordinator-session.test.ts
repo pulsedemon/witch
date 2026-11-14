@@ -1,49 +1,28 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { describe, test, vi } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { CodexAdapter } from '../src/agents/codex.js';
-
 import { unreportedContextCatalog } from './fixtures/codex-adapter.js';
-
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-
 import type {
   BackgroundCommand,
   FileDiff,
   Subagent,
 } from '../src/agents/types.js';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { unitFixture as fixture, readRecord } from './fixtures/coordinator.js';
-
 import { fixture as integrationFixture } from './fixtures/coordinator.js';
-
 import { passThrough } from './fixtures/git.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { seededMemory } from './fixtures/seeded-memory.js';
-
 import { until, within } from './fixtures/within.js';
 
 test('the pentacle follows foreground work and every running local task', async () => {

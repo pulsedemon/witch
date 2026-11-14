@@ -1,23 +1,15 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { appendFile, rm } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import type { NativeVerificationReport } from '../src/agents/native-verification.js';
-
 import { artifactDigest } from '../src/agents/runtime-updates.js';
-
 import {
   holdRuntime,
   NativeUpdatePending,
   pendingUpdate,
 } from '../src/persistence/runtime-updates.js';
-
 import { RuntimeUpdates } from '../src/core/runtime-updates.js';
-
 import { runtimeUpdateFixture } from './fixtures/runtime-updates.js';
 
 test('an update selects and verifies the confirmed artifact before releasing admission', async () => {

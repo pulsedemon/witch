@@ -1,5 +1,4 @@
 import type { ChildProcess } from 'node:child_process';
-
 import {
   closeSync,
   constants,
@@ -9,16 +8,13 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-
 import { findExecutable, nativeInstallationRoot } from './executable.js';
-
 import {
   holdRuntime,
   nativeUpdateDirectory,
   participantFile,
   participantsDirectory,
 } from '../persistence/runtime-updates.js';
-
 import { tryOpenLockedSync } from '../persistence/lock.js';
 
 const participants = new Map<string, () => void>();

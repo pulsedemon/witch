@@ -1,14 +1,10 @@
 import { writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { identifyProcess } from '../../src/persistence/process.js';
-
 import {
   ClaimConflict,
   CoordinationStore,
 } from '../../src/persistence/coordination.js';
-
 import { StateStore } from '../../src/persistence/store.js';
 
 const [root, conversation] = process.argv.slice(2);

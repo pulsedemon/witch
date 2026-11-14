@@ -1,11 +1,7 @@
 import { cp } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { Memory } from '../../src/memory/memory.js';
-
 import type { GitRunner } from '../../src/memory/memory.js';
-
 import { scratch } from './scratch.js';
 
 let template: Promise<string> | undefined;

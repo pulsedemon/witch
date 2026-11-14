@@ -1,24 +1,16 @@
 import { errorMessage } from '../errors.js';
-
 import { runCommand } from './command.js';
-
 import { taskReference } from './coordination-state.js';
-
 import type {
   ClaimInput,
   ClaimOwner,
   CoordinationSnapshot,
   TaskClaim,
 } from './coordination-state.js';
-
 import { recordTaskAssignment } from './github-assignment.js';
-
 import type { assignGitHubTask } from './github-assignment.js';
-
 import type { Verify } from '../persistence/coordination.js';
-
 import type { SessionCoordination } from './coordination.js';
-
 import type { PullRequest, Repository } from './repository.js';
 
 interface ReviewScope {

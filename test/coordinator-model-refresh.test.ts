@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import type { BackgroundCommand, Model } from '../src/agents/types.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { ConversationStore } from '../src/persistence/store.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { unitFixture, readRecord } from './fixtures/coordinator.js';
-
 import { settled, until, within } from './fixtures/within.js';
 
 test('interrupting inactive model discovery keeps the connected session', async () => {

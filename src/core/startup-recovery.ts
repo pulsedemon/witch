@@ -1,19 +1,11 @@
 import type { AgentRegistration } from '../agents/registry.js';
-
 import { errorMessage } from '../errors.js';
-
 import { branchOf } from '../memory/memory.js';
-
 import type { Memory } from '../memory/memory.js';
-
 import { present } from '../persistence/directories.js';
-
 import { LockedElsewhere } from '../persistence/store.js';
-
 import type { ConversationStore, StateStore } from '../persistence/store.js';
-
 import { createConversation } from './state.js';
-
 import type { Conversation } from './state.js';
 
 /** a new conversation in `cwd` continues on the latest conversation's agent while it is installed. */

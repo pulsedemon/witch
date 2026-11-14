@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { readFileSync } from 'node:fs';
-
 import { createInterface } from 'node:readline';
-
 import { homedir } from 'node:os';
-
 import process from 'node:process';
 
 const frames = readFileSync(process.argv[2], 'utf8')

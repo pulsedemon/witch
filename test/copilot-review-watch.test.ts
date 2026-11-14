@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import { CopilotReviewWatch } from '../src/core/copilot-review-watch.js';
-
 import type { GitHubReviews } from '../src/core/github-reviews.js';
-
 import { reviewSource } from './fixtures/github-reviews.js';
 
 test('polling speeds up for requests and outstanding feedback, then returns to quiet reads', async (t) => {

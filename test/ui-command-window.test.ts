@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { test } from 'vitest';
-
 import { applyDisplayUpdate } from '../src/core/state.js';
-
 import type { DisplayItem } from '../src/core/state.js';
-
 import { App } from '../src/ui/app.js';
-
 import { approval, ENTER, fake, left, show } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const call = (name: string, done = false): DisplayItem => ({

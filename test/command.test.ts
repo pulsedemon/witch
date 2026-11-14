@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-
 import { readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { runCommand } from '../src/core/command.js';
-
 import { scratch } from './fixtures/scratch.js';
 
 for (const cancellable of [false, true])

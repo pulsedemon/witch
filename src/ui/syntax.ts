@@ -1,7 +1,5 @@
 import { basename, extname } from 'node:path';
-
 import { all, createLowlight } from 'lowlight';
-
 import { syntax, storage } from './theme.js';
 
 const lowlight = createLowlight({

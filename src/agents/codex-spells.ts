@@ -1,9 +1,6 @@
 import { realpathSync } from 'node:fs';
-
 import { basename, dirname, extname, resolve, sep } from 'node:path';
-
 import { z } from 'zod';
-
 import { shellWords } from './tool-title.js';
 
 const readers = ['cat', 'head', 'tail', 'sed', 'nl', 'bat'];

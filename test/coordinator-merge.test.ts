@@ -1,37 +1,20 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { constants } from 'node:fs';
-
 import type { FileHandle } from 'node:fs/promises';
-
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { promisify } from 'node:util';
-
 import { Coordinator } from '../src/core/coordinator.js';
-
 import { watchMerges } from '../src/core/merge-watch.js';
-
 import type { MergeCleanup } from '../src/core/merged.js';
-
 import type { Repository } from '../src/core/repository.js';
-
 import { openLocked } from '../src/persistence/lock.js';
-
 import { identifyProcess, ps } from '../src/persistence/process.js';
-
 import type { ConversationStore } from '../src/persistence/store.js';
-
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
-
 import {
   activity,
   fixture,
@@ -39,15 +22,10 @@ import {
   record,
   turns,
 } from './fixtures/coordinator.js';
-
 import { until, within } from './fixtures/within.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
-
 import { git } from './fixtures/git.js';
-
 import { repositoryRead } from './fixtures/repository.js';
-
 import { pullRequest } from './fixtures/merged.js';
 
 const kept =

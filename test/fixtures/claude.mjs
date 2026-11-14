@@ -1,15 +1,9 @@
 import { peerAnswer } from './peer-answer.mjs';
-
 import { setInterval, clearInterval, setTimeout } from 'node:timers';
-
 import process from 'node:process';
-
 import { Buffer } from 'node:buffer';
-
 import readline from 'node:readline';
-
 import { spawn } from 'node:child_process';
-
 import {
   appendFileSync,
   writeFileSync,
@@ -17,11 +11,8 @@ import {
   existsSync,
   readFileSync,
 } from 'node:fs';
-
 import { join } from 'node:path';
-
 import { randomUUID } from 'node:crypto';
-
 import { URL } from 'node:url';
 
 // modes that a prompt can't reach come from the command line

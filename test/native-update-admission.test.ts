@@ -1,23 +1,16 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
-
 import { test } from 'vitest';
-
 import {
   nativeLaunch,
   registerNativeParticipant,
 } from '../src/agents/native-launch.js';
-
 import {
   holdRuntime,
   NativeUpdatePending,
 } from '../src/persistence/runtime-updates.js';
-
 import { runtimeUpdateFixture } from './fixtures/runtime-updates.js';
-
 import { until } from './fixtures/within.js';
 
 test('a native lease in another process excludes the updater until that process releases it', async () => {

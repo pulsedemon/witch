@@ -1,9 +1,6 @@
 import { Buffer } from 'node:buffer';
-
 import process from 'node:process';
-
 import readline from 'node:readline';
-
 import { setInterval } from 'node:timers';
 
 const pending = [];

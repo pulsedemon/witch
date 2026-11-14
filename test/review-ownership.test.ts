@@ -1,25 +1,16 @@
 import assert from 'node:assert/strict';
-
 import { test, vi } from 'vitest';
-
 import * as commands from '../src/core/command.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { selectionTurn } from './fixtures/task-selection.js';
-
 import type { GitHubReviews } from '../src/core/github-reviews.js';
-
 import {
   unitCoordinationFixture,
   git,
   pauseDiscovery,
 } from './fixtures/coordination.js';
-
 import { reviewSource } from './fixtures/github-reviews.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import { repositoryRead } from './fixtures/repository.js';
 
 type Fixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;

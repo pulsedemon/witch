@@ -1,35 +1,19 @@
 import assert from 'node:assert/strict';
-
 import { promises as files } from 'node:fs';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import type { TaskStatus } from '../src/agents/types.js';
-
 import { parseStatus } from '../src/core/repository.js';
-
 import { presenceStatus } from '../src/core/coordination-state.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { unitCoordinationFixture } from './fixtures/coordination.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { selectionTurn } from './fixtures/task-selection.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { countProbes } from './fixtures/probes.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
 
 test('discovery batches conversation ownership and keeps only open peers', async (t) => {

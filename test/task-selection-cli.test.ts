@@ -1,35 +1,19 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { appendFile, readFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { fileURLToPath } from 'node:url';
-
 import { promisify } from 'node:util';
-
 import { controlPrefix, parseCommand } from '../src/cli-control.js';
-
 import { ControlHost, callControl } from '../src/persistence/control.js';
-
 import type { ControlOutcome } from '../src/persistence/control.js';
-
 import { coordinationFixture } from './fixtures/coordination.js';
-
 import { selectionTurn } from './fixtures/task-selection.js';
-
 import { until, within } from './fixtures/within.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const execute = promisify(execFile);

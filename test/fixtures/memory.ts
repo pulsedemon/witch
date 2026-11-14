@@ -1,17 +1,10 @@
 import { execFile } from 'node:child_process';
-
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { promisify } from 'node:util';
-
 import type { Workspace } from '../../src/memory/workspace.js';
-
 import { hookedGit, passThrough } from './git.js';
-
 import { scratch } from './scratch.js';
-
 import { seededMemory } from './seeded-memory.js';
 
 // a developer's `url.<base>.insteadOf` would rewrite the origins these tests key

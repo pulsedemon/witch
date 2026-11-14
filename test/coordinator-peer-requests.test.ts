@@ -1,42 +1,24 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { access } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import type { UserRequest } from '../src/agents/types.js';
-
 import {
   answerInstruction,
   peerRequestStatus,
 } from '../src/core/peer-requests.js';
-
 import type { PeerRequest } from '../src/core/peer-requests.js';
-
 import { untitled } from '../src/core/state.js';
-
 import { CoordinationStore } from '../src/persistence/coordination.js';
-
 import { callControl } from '../src/persistence/control.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { TurnGate } from './fixtures/agent.js';
-
 import { coordinationFixture, git } from './fixtures/coordination.js';
-
 import { readRecord } from './fixtures/coordinator.js';
-
 import { until } from './fixtures/within.js';
-
 import type { Client, Fixture } from './fixtures/coordinator-peer-requests.js';
-
 import {
   answerTurns,
   ask,

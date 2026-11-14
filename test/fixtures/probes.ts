@@ -1,5 +1,4 @@
 import type { ChildProcess } from 'node:child_process';
-
 import { subscribe, unsubscribe } from 'node:diagnostics_channel';
 
 export async function countProbes<T>(run: () => Promise<T>) {

@@ -1,25 +1,14 @@
 import { spawn } from 'node:child_process';
-
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 import { appendFileSync } from 'node:fs';
-
 import { lstat, mkdir, symlink } from 'node:fs/promises';
-
 import { homedir } from 'node:os';
-
 import { join } from 'node:path';
-
 import { ClaudeAdapter } from './claude.js';
-
 import { CodexAdapter } from './codex.js';
-
 import type { NativeRuntime } from './runtime-updates.js';
-
 import type { AgentAdapter } from './types.js';
-
 import { unlessGone } from '../persistence/json.js';
-
 import { withoutModelPins } from './claude-side.js';
 
 export type VerificationLaunch = (

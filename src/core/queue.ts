@@ -1,7 +1,5 @@
 import type { ConversationRecord } from './state.js';
-
 import type { Skill } from '../agents/types.js';
-
 import { shellCommand, skillCall } from './prompts.js';
 
 /**

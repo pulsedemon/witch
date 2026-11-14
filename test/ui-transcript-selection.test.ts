@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { App } from '../src/ui/app.js';
-
 import { ENTER, drag, fake, left, openCommand, show } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
-
 import {
   CMD_C,
   first,

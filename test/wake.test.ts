@@ -1,39 +1,21 @@
 import assert from 'node:assert/strict';
-
 import { execFile, spawn } from 'node:child_process';
-
 import type { ChildProcess } from 'node:child_process';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { promisify } from 'node:util';
-
 import { test } from 'vitest';
-
 import { running } from '../src/agents/shutdown.js';
-
 import { JobWatch } from '../src/core/jobs.js';
-
 import type { Row } from '../src/core/jobs.js';
-
 import { initialSnapshot } from '../src/core/snapshot.js';
-
 import type { Snapshot } from '../src/core/snapshot.js';
-
 import { keepAwake } from '../src/core/wake.js';
-
 import type { WakeOptions } from '../src/core/wake.js';
-
 import { notices, record, unitFixture } from './fixtures/coordinator.js';
-
 import { git } from './fixtures/git.js';
-
 import { pullRequest } from './fixtures/merged.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
 
 type Launch = NonNullable<WakeOptions['launch']>;

@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { rm, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { createElement } from 'react';
-
 import { test, vi } from 'vitest';
-
 import { accountReading } from '../src/agents/claude-usage.js';
-
 import type { AccountReading } from '../src/agents/types.js';
-
 import {
   AccountUsage,
   creditCapacity,
@@ -19,15 +12,10 @@ import {
   usageContext,
   USAGE_CURRENT_MS,
 } from '../src/core/usage.js';
-
 import { App } from '../src/ui/app.js';
-
 import { accountRows } from '../src/ui/status-rows.js';
-
 import { close, controlledFixture } from './fixtures/codex-adapter.js';
-
 import { ENTER, fake, show } from './fixtures/ui.js';
-
 import { appears, until } from './fixtures/within.js';
 
 test('native Codex credit states reach both rendered layouts beside a full weekly window', async () => {

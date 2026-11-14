@@ -1,9 +1,6 @@
 import { readFileSync } from 'node:fs';
-
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-
 import { errorMessage } from '../errors.js';
-
 import type { SkillCall, TurnResult } from './types.js';
 
 type Content = SDKUserMessage['message']['content'];

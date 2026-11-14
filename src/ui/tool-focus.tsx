@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react';
-
 import type { Key } from 'ink';
-
 import type { DisplayItem } from '../core/state.js';
-
 import { canExpandDiff } from './diff.js';
-
 import { useLiveState } from './live-state.js';
-
 import { isExpanded, toggleGroup } from './transcript-layout.js';
 
 /** where a shown row's id leads once grouping hides or regroups it; ungrouped, every id leads to itself. */

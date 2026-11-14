@@ -1,7 +1,5 @@
 import { z } from 'zod';
-
 import type { SlashCommand } from '@anthropic-ai/claude-agent-sdk';
-
 import type { Cast, Skill } from './types.js';
 
 export const acknowledged = z.object({

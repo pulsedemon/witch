@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-
 import { crc32, deflateSync } from 'node:zlib';
 
 /** a valid grayscale PNG of noise, which deflate cannot shrink, so a large one spans several protocol chunks. */

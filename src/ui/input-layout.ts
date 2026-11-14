@@ -1,7 +1,5 @@
 import stripAnsi from 'strip-ansi';
-
 import type { InputBuffer } from './input-buffer.js';
-
 import { normalizeText, wrapLines } from './wrap.js';
 
 export const visible = (value: string, secret = false) =>

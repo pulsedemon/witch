@@ -1,50 +1,28 @@
 import assert from 'node:assert/strict';
-
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-
 import { getEventListeners } from 'node:events';
-
 import { join } from 'node:path';
-
 import { test, vi } from 'vitest';
-
 import type { TestContext } from 'vitest';
-
 import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
-
 import type { Usage } from '../src/agents/types.js';
-
 import type { ControlOutcome } from '../src/persistence/control.js';
-
 import { router } from '../src/core/router.js';
-
 import type { Reviewer, ReviewerResult } from '../src/core/reviewers.js';
-
 import type { Routed } from '../src/core/routing.js';
-
 import { main } from '../src/memory/memory.js';
-
 import { Workspace } from '../src/memory/workspace.js';
-
 import { ConversationStore } from '../src/persistence/store.js';
-
 import { CommandBatches } from '../src/ui/command-batches.js';
-
 import type { WitchCommand } from '../src/ui/commands.js';
-
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import {
   coordinationFixture,
   unitCoordinationFixture,
 } from './fixtures/coordination.js';
-
 import { png } from './fixtures/png.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
 
 const claudeRoute: Routed = {

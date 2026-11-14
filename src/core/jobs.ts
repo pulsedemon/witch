@@ -1,17 +1,10 @@
 import { writeFileSync } from 'node:fs';
-
 import { readdir, rm } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { z } from 'zod';
-
 import { processArguments, ps } from '../persistence/process.js';
-
 import { quote } from '../shell.js';
-
 import { isEmacsDaemon } from './emacs.js';
 
 const mark = 'WITCH_JOBS';

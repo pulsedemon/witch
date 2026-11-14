@@ -1,35 +1,19 @@
 import assert from 'node:assert/strict';
-
 import { spawn, execFile } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { randomUUID } from 'node:crypto';
-
 import { test } from 'vitest';
-
 import { writeJson } from '../src/persistence/json.js';
-
 import { fileURLToPath } from 'node:url';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { compiledCli } from './fixtures/compiled-cli.js';
-
 import { readRecord } from './fixtures/coordinator.js';
-
 import { exists, until, within } from './fixtures/within.js';
-
 import { promisify, stripVTControlCharacters } from 'node:util';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { identifyProcess, sameProcess } from '../src/persistence/process.js';
-
 import type { ProcessIdentity } from '../src/core/state.js';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));

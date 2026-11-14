@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { App } from '../src/ui/app.js';
-
 import type { UserRequest } from '../src/agents/types.js';
-
 import {
   show,
   fake,
@@ -18,7 +12,6 @@ import {
   approval,
   openCommand,
 } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 const fileApproval = (id: string, title: string): UserRequest => ({

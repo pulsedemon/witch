@@ -1,31 +1,17 @@
 import assert from 'node:assert/strict';
-
 import { spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { constants, promises as files } from 'node:fs';
-
 import { access, chmod, readFile, writeFile } from 'node:fs/promises';
-
 import { dirname, join } from 'node:path';
-
 import { syncBuiltinESMExports } from 'node:module';
-
 import { test, vi } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import { openLocked } from '../src/persistence/lock.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { appears, settled, until, within } from './fixtures/within.js';
-
 import { conversation } from './fixtures/store.js';
 
 /** a detached shell like a `!` command's, and the pid of the sleep it runs in the background. both ignore SIGTERM, as a command can. */

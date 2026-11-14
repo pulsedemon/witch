@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { compactionThreshold } from '../src/core/compaction-policy.js';
 
 test('automatic compaction retains smaller windows and caps larger ones at 600k tokens', () => {

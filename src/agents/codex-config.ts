@@ -1,5 +1,4 @@
 import { z } from 'zod';
-
 import type { JsonRpc } from './json-rpc.js';
 
 export const object = z.record(z.string(), z.unknown());

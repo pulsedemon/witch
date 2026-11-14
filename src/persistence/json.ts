@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
-
 import { open, readFile, rename, rm } from 'node:fs/promises';
-
 import type { ZodType } from 'zod';
 
 /** readers see the complete old or new value, and private files never inherit permissive defaults. */

@@ -1,33 +1,18 @@
 import assert from 'node:assert/strict';
-
 import { execFile, spawn } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { existsSync } from 'node:fs';
-
 import { chmod, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { promisify } from 'node:util';
-
 import { runShell } from '../src/agents/user-shell.js';
-
 import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
-
 import type { Job, Row } from '../src/core/jobs.js';
-
 import { ps } from '../src/persistence/process.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
-
 import {
   agentRow,
   commandRows,

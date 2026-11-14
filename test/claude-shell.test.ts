@@ -1,26 +1,16 @@
 import assert from 'node:assert/strict';
-
 import { execFile } from 'node:child_process';
-
 import { once } from 'node:events';
-
 import { access, readFile, realpath, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { test } from 'vitest';
-
 import { setImmediate as tick } from 'node:timers/promises';
-
 import { isDeepStrictEqual, promisify } from 'node:util';
-
 import type {
   SDKControlRequest,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-
 import type { AgentEvent } from '../src/agents/types.js';
-
 import {
   launcher,
   fixture,
@@ -28,9 +18,7 @@ import {
   jsonLines,
   content,
 } from './fixtures/claude-adapter.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { until, within } from './fixtures/within.js';
 
 const execute = promisify(execFile);

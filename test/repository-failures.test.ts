@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { RepositoryWatch } from '../src/core/repository.js';
-
 import { view } from './fixtures/repository.js';
 
 /** a watch on branch `main` whose every `gh` call gets what `gh` returns now. */

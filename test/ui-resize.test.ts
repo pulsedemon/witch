@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-
 import { test } from 'vitest';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { createElement } from 'react';
-
 import { applyDisplayUpdate } from '../src/core/state.js';
-
 import { App } from '../src/ui/app.js';
-
 import { fake, show } from './fixtures/ui.js';
-
 import { until } from './fixtures/within.js';
 
 test('the sidebar width transition preserves the reading line and draft', async () => {

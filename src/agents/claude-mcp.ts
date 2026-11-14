@@ -1,5 +1,4 @@
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
-
 import type { AgentEvent } from './types.js';
 
 export class ClaudeMcp {

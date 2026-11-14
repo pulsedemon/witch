@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-
 import { fork, spawn } from 'node:child_process';
-
 import { randomUUID } from 'node:crypto';
-
 import { once } from 'node:events';
-
 import { constants } from 'node:fs';
-
 import { access, chmod, readFile, readdir, writeFile } from 'node:fs/promises';
-
 import { join } from 'node:path';
-
 import { setTimeout as delay } from 'node:timers/promises';
-
 import { test } from 'vitest';
-
 import { fileURLToPath } from 'node:url';
-
 import type {
   ClaimInput,
   ClaimOwner,
@@ -26,30 +16,19 @@ import type {
   TaskClaim,
   TransferField,
 } from '../src/core/coordination-state.js';
-
 import {
   ClaimConflict,
   CoordinationStore,
 } from '../src/persistence/coordination.js';
-
 import { StateStore } from '../src/persistence/store.js';
-
 import { entry, pauseStatuses } from '../src/core/pauses.js';
-
 import { identifyProcess } from '../src/persistence/process.js';
-
 import { openLocked, lockedFiles } from '../src/persistence/lock.js';
-
 import { record } from './fixtures/coordinator.js';
-
 import { scratch } from './fixtures/scratch.js';
-
 import { countProbes } from './fixtures/probes.js';
-
 import { within } from './fixtures/within.js';
-
 import { orderedCleanup } from './fixtures/cleanup.js';
-
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const identity = (await identifyProcess(process.pid))!;

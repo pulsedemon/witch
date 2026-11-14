@@ -1,9 +1,6 @@
 import type { Coordinator } from '../core/coordinator.js';
-
 import { modelTarget } from '../core/models.js';
-
 import type { Picker } from './choices.js';
-
 import { tokenCount } from './status-rows.js';
 
 interface ModelChoiceHost {
