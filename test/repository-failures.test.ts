@@ -81,6 +81,36 @@ test('a gh that could not be started for another reason says why on the snapshot
   }
 });
 
+test('a project lookup that fails says why on the snapshot and clears once it works', async () => {
+  let project = (): Promise<string> =>
+    Promise.reject(new Error('directories.json: unreadable'));
+  const watch = new RepositoryWatch(
+    '/work',
+    async (command) => ({
+      stdout:
+        command === 'gh'
+          ? view({ state: 'OPEN', statusCheckRollup: [] })
+          : '# branch.head main\n',
+    }),
+    () => project(),
+  );
+  const read = async () => {
+    await watch.readPullRequest();
+    const { pullRequest, pullRequestFailure } = watch.snapshot!;
+    return { number: pullRequest?.number, failure: pullRequestFailure };
+  };
+  try {
+    assert.deepEqual(await read(), {
+      number: undefined,
+      failure: 'directories.json: unreadable',
+    });
+    project = async () => 'project-a';
+    assert.deepEqual(await read(), { number: 4, failure: undefined });
+  } finally {
+    watch.close();
+  }
+});
+
 test('a checks or base tip read that fails unexpectedly keeps its fallback and says why, and one gh refuses stays quiet', async () => {
   const refused = (): string => {
     throw rejection('HTTP 404', 1);
