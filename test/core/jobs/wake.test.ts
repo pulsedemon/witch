@@ -678,7 +678,7 @@ test("the hold has no gap between a turn's end and the read that finds its job",
 });
 
 test.skipIf(process.platform !== 'darwin')(
-  'the default holder prevents idle sleep for its pid and ends with it',
+  'the default holder prevents system and display idle sleep for its pid and ends with it',
   async () => {
     const watched = idler();
     const closed = closing(watched);
@@ -719,20 +719,29 @@ test.skipIf(process.platform !== 'darwin')(
     try {
       wake.start();
 
+      await eventually('no assertions before work', 0);
+
       wake.familiar('running');
 
-      const [type] = await eventually('one holder', 1);
+      const types = (await eventually('both idle-sleep assertions', 2)).join(
+        '\n',
+      );
 
       assert.match(
-        type!,
+        types,
         /PreventUserIdleSystemSleep named: "caffeinate command-line tool"/,
+      );
+
+      assert.match(
+        types,
+        /PreventUserIdleDisplaySleep named: "caffeinate command-line tool"/,
       );
 
       // in Witch's group, a hangup from a closing terminal would end the holder while Witch still shuts down
       const holder = (
         await promisify(execFile)('/usr/bin/pgrep', [
           '-f',
-          `caffeinate -i -w ${watched.pid}$`,
+          `caffeinate -d -i -w ${watched.pid}$`,
         ])
       ).stdout.trim();
 
@@ -747,15 +756,15 @@ test.skipIf(process.platform !== 'darwin')(
 
       wake.familiar('completed');
 
-      await eventually('no holder at idle', 0);
+      await eventually('no assertions at idle', 0);
 
       wake.familiar('running');
 
-      await eventually('one holder again', 1);
+      await eventually('both idle-sleep assertions again', 2);
 
       watched.kill('SIGKILL');
 
-      await eventually('no holder once the watched process died', 0);
+      await eventually('no assertions once the watched process died', 0);
 
       await until(
         'the holder to report its exit',
@@ -773,7 +782,7 @@ test.skipIf(process.platform !== 'darwin')(
 
       await wake.close();
 
-      await eventually('no holder left behind', 0);
+      await eventually('no assertions left behind', 0);
     }
   },
 );
