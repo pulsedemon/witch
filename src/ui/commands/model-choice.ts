@@ -10,7 +10,7 @@ interface ModelChoiceHost {
   toChat(handoff: boolean): void;
 }
 
-/** `live` is the picker path's batch check; that path also asks for effort and, on a same-runtime change, the context window. */
+/** `live` checks whether the interactive picker still belongs to the active command batch. */
 export function chooseModel(
   { coordinator, picker, toChat }: ModelChoiceHost,
   id: string,

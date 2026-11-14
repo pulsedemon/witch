@@ -149,12 +149,9 @@ export class CodexAdapter implements AgentAdapter {
 
   models(options: ModelDiscoveryOptions): Promise<Model[]> {
     return this.probe(options, async (rpc) => {
-      const [models, context] = await Promise.all([
-        readModels(rpc),
-        this.contextCatalog(options),
-      ]);
+      const models = await readModels(rpc);
 
-      return withContextWindows(models, context);
+      return withContextWindows(models, await this.contextCatalog(options));
     });
   }
 

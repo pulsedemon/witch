@@ -65,3 +65,42 @@ test('standalone model discovery includes native usable context choices', async 
     await close(f.session, f.cwd);
   }
 });
+
+test('failed standalone discovery settles with no catalog read still active', async () => {
+  const finished = Promise.withResolvers<void>();
+  let active = false;
+
+  const f = await fixture(undefined, {
+    contextCatalog: async ({ signal }) => {
+      active = true;
+      const stop = () => finished.resolve();
+
+      signal?.addEventListener('abort', stop, { once: true });
+
+      try {
+        await finished.promise;
+
+        return { models: [] };
+      } finally {
+        active = false;
+
+        signal?.removeEventListener('abort', stop);
+      }
+    },
+  });
+
+  try {
+    await writeFile(join(f.cwd, 'models-fail'), '');
+
+    await assert.rejects(
+      f.adapter.models({ cwd: f.cwd, executable: 'codex' }),
+      /model\/list failed/,
+    );
+
+    assert.equal(active, false);
+  } finally {
+    finished.resolve();
+
+    await close(f.session, f.cwd);
+  }
+});
