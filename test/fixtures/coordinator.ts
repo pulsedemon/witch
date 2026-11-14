@@ -54,7 +54,6 @@ export function holdSettlement(session: AgentSession) {
     if (!armed) return save.call(this, record);
 
     armed = false;
-
     entered.resolve();
 
     return held.promise.then(() => save.call(this, record));
@@ -67,7 +66,6 @@ export function holdSettlement(session: AgentSession) {
     /** releases a pending hold, so close() can't wait on it. */
     restore: () => {
       held.resolve();
-
       ConversationStore.prototype.save = save;
     },
   };
@@ -97,9 +95,7 @@ export async function fixture(
   if (unit) ephemeralFiles(root);
 
   const project = join(root, 'project');
-
   await mkdir(project);
-
   const store = await StateStore.open(join(root, 'state'));
   const hook = { current: passThrough };
   const memoryRoot = join(store.root, 'memory.git');
@@ -134,7 +130,6 @@ export async function fixture(
   );
 
   prepare?.(a, b);
-
   await coordinator.initialize(project);
 
   const workspace = (id = coordinator.snapshot.conversation!.id) =>
@@ -152,11 +147,8 @@ export async function fixture(
   /** another conversation's workspace, for publishing to main from outside. */
   const outsider = async (id = randomUUID()) => {
     await mkdir(join(root, 'state', 'conversations', id), { recursive: true });
-
     const other = workspace(id);
-
     await other.ensureWorktree();
-
     await other.scope(project);
 
     return other;
@@ -215,16 +207,12 @@ export async function stranded(
   const { store, workspace } = context;
   const created = await store.create(record(randomUUID(), cwd));
   const id = created.record.id;
-
   await created.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });
-
   const memory = workspace(id);
-
   await memory.ensureWorktree();
 
   for (const [path, text] of Object.entries(files)) {
     await mkdir(join(memory.root, path, '..'), { recursive: true });
-
     await writeFile(join(memory.root, path), text);
   }
 

@@ -16,12 +16,10 @@ export async function selectionTurn(register: RegisterCleanup, client: Client) {
 
   register(async () => {
     gate.open();
-
     await sending;
   });
 
   await within(gate.entered, 5000, 'selection turn');
-
   const input = client.a.inputs.at(-1)!;
   const context = input.context!;
   const turn = /^Selection turn: (.+)$/m.exec(context)?.[1];
@@ -32,13 +30,9 @@ export async function selectionTurn(register: RegisterCleanup, client: Client) {
   );
 
   const prefix = /^Control command: (.+)$/m.exec(delivered?.context ?? '')?.[1];
-
   assert.ok(turn);
-
   assert.ok(prefix);
-
   const binding = await client.binding();
-
   assert.ok(prefix.includes(binding.activation));
 
   return {
@@ -69,7 +63,6 @@ export async function selectionTurn(register: RegisterCleanup, client: Client) {
     },
     async finish() {
       gate.open();
-
       await sending;
     },
   };

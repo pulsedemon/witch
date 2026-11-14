@@ -54,72 +54,40 @@ test('the pentacle follows foreground work and every running local task', async 
 
   try {
     assert.equal(new Coordinator(store, memory, []).pentacle.active, true);
-
     assert.equal(activity.active, false);
-
     a.gate = gate;
     const turn = coordinator.send('hello');
-
     await within(gate.entered, 2000, 'the gated turn');
-
     assert.equal(activity.active, true);
-
     brew('first', 'running');
-
     brew('second', 'running');
-
     gate.open();
-
     await turn;
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.equal(activity.active, true);
-
     brew('first', 'completed');
-
     assert.equal(activity.active, true);
-
     familiar('running');
-
     brew('second', 'completed');
-
     assert.equal(activity.active, true);
-
     familiar('completed');
-
     assert.equal(coordinator.snapshot.subagents[0]!.status, 'completed');
-
     assert.equal(activity.active, false);
-
     activity.set(source, true);
-
     await coordinator.send('hello again');
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.equal(activity.active, true);
-
     activity.set(source, false);
-
     assert.equal(activity.active, false);
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.ok(switching.length > 0);
-
     assert.ok(switching.every(Boolean));
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.equal(activity.active, false);
   } finally {
     unsubscribe();
-
     activity.set(source, false);
-
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -133,15 +101,10 @@ test("a session's usage at connect and while it lists its models reaches the sna
 
   try {
     assert.deepEqual(coordinator.snapshot.usage, { context: 1 });
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.deepEqual(coordinator.snapshot.usage, { context: 3 });
-
     a.sessions[0]!.options.onEvent({ type: 'usage', usage: { context: 9 } });
-
     assert.deepEqual(coordinator.snapshot.usage, { context: 3 });
-
     a.failConnect = true;
 
     await assert.rejects(
@@ -186,9 +149,7 @@ test("the live session's subagents update in place, a turn drops the finished on
       });
 
     emit(a.sessions[0]!, 'outer', 'running');
-
     emit(a.sessions[0]!, 'inner', 'running', 'outer');
-
     emit(a.sessions[0]!, 'outer', 'completed');
 
     assert.deepEqual(listed(), [
@@ -197,27 +158,16 @@ test("the live session's subagents update in place, a turn drops the finished on
     ]);
 
     await coordinator.send('hello');
-
     assert.deepEqual(listed(), [subagent('inner', 'running', 'outer')]);
-
     emit(a.sessions[0]!, 'outer', 'completed');
-
     assert.deepEqual(listed(), [subagent('inner', 'running', 'outer')]);
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.deepEqual(listed(), []);
-
     emit(a.sessions[0]!, 'late', 'running');
-
     assert.deepEqual(listed(), []);
-
     emit(b.sessions[0]!, 'other', 'running');
-
     assert.deepEqual(listed(), [subagent('other', 'running')]);
-
     await coordinator.newConversation('b');
-
     assert.deepEqual(listed(), []);
   } finally {
     await coordinator.close();
@@ -226,7 +176,6 @@ test("the live session's subagents update in place, a turn drops the finished on
 
 test("a familiar's start and end each add a transcript row, the end with its tool count and report, its time runs from its start, and a restart starts a new run, even one under a new run id while the last still shows as running", async () => {
   vi.useFakeTimers({ toFake: ['Date'], now: 1000 });
-
   const { coordinator, a } = await fixture();
 
   const emit = (status: Subagent['status'], fields: Partial<Subagent> = {}) =>
@@ -251,9 +200,7 @@ test("a familiar's start and end each add a transcript row, the end with its too
 
   try {
     emit('running');
-
     vi.advanceTimersByTime(2000);
-
     emit('running', { activity: 'Read  a.ts', tools: 1 });
 
     assert.deepEqual(rows(), [
@@ -261,13 +208,9 @@ test("a familiar's start and end each add a transcript row, the end with its too
     ]);
 
     assert.deepEqual(starts(), [1000]);
-
     vi.advanceTimersByTime(2000);
-
     emit('completed', { tools: 3, report: 'All good.' });
-
     vi.advanceTimersByTime(1000);
-
     emit('completed', { tools: 3, report: 'All good.' });
 
     assert.deepEqual(rows().slice(1), [
@@ -275,11 +218,8 @@ test("a familiar's start and end each add a transcript row, the end with its too
     ]);
 
     vi.advanceTimersByTime(1000);
-
     emit('running');
-
     assert.deepEqual(starts(), [7000]);
-
     emit('stopped', { tools: 1 });
 
     assert.deepEqual(rows().slice(2), [
@@ -288,11 +228,8 @@ test("a familiar's start and end each add a transcript row, the end with its too
     ]);
 
     emit('running', { run: '1' });
-
     vi.advanceTimersByTime(1000);
-
     emit('running', { run: '2' });
-
     emit('running', { run: '2', tools: 1 });
 
     assert.deepEqual(rows().slice(4), [
@@ -328,9 +265,7 @@ test('a familiar still running when its session closes ends stopped, with its to
     });
 
     assert.equal(coordinator.pentacle.active, true);
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.equal(coordinator.pentacle.active, false);
 
     assert.deepEqual(rows(), [
@@ -358,13 +293,9 @@ test("a familiar's name and kind arriving after its rows retitle them in place, 
 
   try {
     emit('running');
-
     emit('running', { name: 'Euclid', kind: 'explorer' });
-
     assert.deepEqual(rows(), [['Familiar started  Euclid  explorer', '']]);
-
     emit('running', { run: 'next' });
-
     emit('completed', { run: 'next', tools: 2, report: 'Found it.' });
 
     emit('completed', {
@@ -388,9 +319,7 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
     test(loss ? 'process exit' : 'completion in a later turn', async () => {
       const root = await scratch('witch-codex-brews-');
       const cwd = join(root, 'project');
-
       await mkdir(cwd);
-
       const store = await StateStore.open(join(root, 'state'));
       const memory = await seededMemory(join(root, 'state', 'memory.git'));
 
@@ -443,9 +372,7 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
 
       try {
         await coordinator.initialize(cwd);
-
         const first = coordinator.send('first');
-
         await appears('turn-1.json');
 
         await emit(
@@ -480,9 +407,7 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
         );
 
         await first;
-
         const originalId = rows()[0]!.id;
-
         await appears('list-1.json');
 
         await write('list-reply-1.json', {
@@ -534,7 +459,6 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
           );
         } else {
           const second = coordinator.send('second');
-
           await appears('turn-2.json');
 
           await emit({
@@ -552,17 +476,11 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
           });
 
           await until('the completed command', () => rows()[0]!.done === true);
-
           assert.equal(rows().length, 1);
-
           assert.equal(rows()[0]!.id, originalId);
-
           assert.equal(rows()[0]!.text, 'start\nend\n');
-
           assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
-
           assert.equal(coordinator.snapshot.phase, 'running');
-
           assert.equal(coordinator.pentacle.active, true);
 
           await emit({
@@ -579,7 +497,6 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
         assert.equal(coordinator.pentacle.active, false);
       } finally {
         await writeFile(join(cwd, 'release'), '');
-
         await coordinator.close();
       }
     });
@@ -607,27 +524,16 @@ test('brew lifecycle preserves start order and ignores repeated starts and unlis
 
   try {
     emit('serve', 'running');
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
-
     assert.deepEqual(rows(), [['Brew started  Start the server', '', true]]);
-
     emit('serve', 'running');
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
-
     assert.equal(rows().length, 1);
-
     await coordinator.send('hello');
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
-
     emit('ghost', 'failed');
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
-
     assert.equal(rows().length, 1);
-
     emit('preview', 'running');
 
     assert.deepEqual(coordinator.snapshot.backgroundCommands, [
@@ -636,11 +542,8 @@ test('brew lifecycle preserves start order and ignores repeated starts and unlis
     ]);
 
     emit('preview', 'completed');
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
-
     emit('serve', 'failed');
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
 
     assert.deepEqual(rows().at(-1), [
@@ -664,11 +567,8 @@ test("a brew still running when its session closes ends stopped, and the closed 
 
   try {
     emit('serve');
-
     assert.equal(coordinator.pentacle.active, true);
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.equal(coordinator.pentacle.active, false);
 
     assert.deepEqual(
@@ -679,11 +579,8 @@ test("a brew still running when its session closes ends stopped, and the closed 
     );
 
     assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
-
     emit('late');
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
-
     assert.equal(coordinator.pentacle.active, false);
   } finally {
     await coordinator.close();
@@ -711,18 +608,12 @@ test("the live session's usage reaches the snapshot, and a new conversation star
 
   try {
     a.turnUsage = { context: 10 };
-
     await coordinator.send('hello');
-
     assert.deepEqual(coordinator.snapshot.usage, { context: 10 });
-
     b.failConnect = true;
     const before = Date.now();
-
     await coordinator.newConversation('b').catch(() => {});
-
     assert.deepEqual(coordinator.snapshot.usage, {});
-
     assert.ok(coordinator.snapshot.openedAt! >= before);
   } finally {
     await coordinator.close();
@@ -736,7 +627,6 @@ test('a reported shell is in the state, handed to the jobs, and cleared by the e
   try {
     const id = coordinator.snapshot.conversation!.id;
     const { onShell } = a.sessions[0]!.options;
-
     await onShell!(sleeper.pid);
 
     assert.deepEqual(
@@ -745,13 +635,10 @@ test('a reported shell is in the state, handed to the jobs, and cleared by the e
     );
 
     assert.deepEqual(tracked, [sleeper.pid]);
-
     await onShell!(undefined);
-
     assert.equal((await readRecord(root, id)).shell, undefined);
   } finally {
     sleeper.kill('SIGKILL');
-
     await coordinator.close();
   }
 });
@@ -772,7 +659,6 @@ test('close ends a held turn when its interrupt throws', async () => {
 
   try {
     await coordinator.send('Start');
-
     a.gate = gate;
     let sent = false;
 
@@ -781,7 +667,6 @@ test('close ends a held turn when its interrupt throws', async () => {
     });
 
     await within(gate.entered, 2000, 'the gated turn');
-
     a.failInterrupt = true;
     a.failClose = true;
 
@@ -792,13 +677,10 @@ test('close ends a held turn when its interrupt throws', async () => {
     );
 
     await new Promise((resolve) => setImmediate(resolve));
-
     assert.equal(sent, true);
-
     await sending.catch(() => {});
   } finally {
     gate.open();
-
     a.failInterrupt = false;
     a.failClose = false;
   }
@@ -806,9 +688,7 @@ test('close ends a held turn when its interrupt throws', async () => {
 
 test('close releases the conversation when its disconnect throws', async () => {
   const { coordinator, a, store } = await fixture();
-
   await coordinator.send('Start');
-
   const id = coordinator.snapshot.conversation!.id;
 
   a.sessions[0]!.options.onEvent({
@@ -821,22 +701,16 @@ test('close releases the conversation when its disconnect throws', async () => {
   });
 
   assert.equal(coordinator.pentacle.active, true);
-
   a.failClose = true;
-
   await assert.rejects(coordinator.close(), /Close failed/);
-
   assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
-
   await (await store.claim(id)).close();
 });
 
 test('close rejects with a publish failure and still closes the session and the conversation', async () => {
   const { coordinator, a, hook, store } = await integrationFixture();
   a.interruptNext = true;
-
   await coordinator.send('remember-port');
-
   const id = coordinator.snapshot.conversation!.id;
   let attempted = false;
 
@@ -849,15 +723,10 @@ test('close rejects with a publish failure and still closes the session and the 
   };
 
   const recovering = coordinator.recoverMemory('accept');
-
   await assert.rejects(coordinator.close(), /cannot publish/);
-
   await recovering.catch(() => {});
-
   assert.equal(attempted, true);
-
   assert.equal(a.sessions.at(-1)!.session.closed, true);
-
   await (await store.claim(id)).close();
 });
 
@@ -873,19 +742,13 @@ test('a failed state write in settle needs a restart, and later messages keep it
 
   try {
     await coordinator.send('Start');
-
     await chmod(directory, 0o500);
-
     await assert.rejects(coordinator.send('Next'), /Restart Witch/);
-
     coordinator.report('x');
-
     assert.match(coordinator.snapshot.error ?? '', /^Restart Witch/);
-
     await assert.rejects(coordinator.send('Again'), /Restart Witch/);
   } finally {
     await chmod(directory, 0o700);
-
     await coordinator.close().catch(() => {});
   }
 });
@@ -901,13 +764,9 @@ test('a failed state write while continuing at launch needs a restart', async ()
   } = await fixture();
 
   await first.send('Start');
-
   const id = first.snapshot.conversation!.id;
-
   await first.close();
-
   const directory = join(root, 'state', 'conversations', id);
-
   await chmod(directory, 0o500);
 
   const coordinator = new Coordinator(store, memory, [
@@ -923,7 +782,6 @@ test('a failed state write while continuing at launch needs a restart', async ()
     assert.match(coordinator.snapshot.error ?? '', /^Restart Witch/);
   } finally {
     await chmod(directory, 0o700);
-
     await coordinator.close().catch(() => {});
   }
 });
@@ -940,9 +798,7 @@ test('a failed history write outside any operation needs a restart', async () =>
 
   try {
     await coordinator.refreshModels();
-
     await chmod(directory, 0o500);
-
     const errors: string[] = [];
 
     coordinator.subscribe(() => {
@@ -954,11 +810,9 @@ test('a failed history write outside any operation needs a restart', async () =>
       .options.onEvent({ type: 'notice', text: 'Native notice' });
 
     await until('the error', () => errors.length > 0);
-
     assert.match(errors[0]!, /^Restart Witch/);
   } finally {
     await chmod(directory, 0o700);
-
     await coordinator.close().catch(() => {});
   }
 });
@@ -987,7 +841,6 @@ test('idle tool output reaches history without another operation', async () => {
     });
 
     assert.equal(coordinator.snapshot.items.at(-1)?.text, 'partial output');
-
     let content = '';
 
     await until('idle output persisted', async () => {
@@ -1043,7 +896,6 @@ test('an idle tool timer write failure needs a restart without another operation
     assert.match(coordinator.snapshot.error ?? '', /^Restart Witch: .*EACCES/);
   } finally {
     await chmod(directory, 0o700);
-
     await coordinator.close().catch(() => {});
   }
 });
@@ -1054,10 +906,8 @@ test('a git failure in settle tells the user to restart before continuing', asyn
 
   try {
     await coordinator.send('Start');
-
     a.gate = gate;
     const sending = coordinator.send('Next');
-
     await within(gate.entered, 2000, 'the gated turn');
 
     // the turn's own commit fails first; settle's status read is the failure that must stop Witch
@@ -1067,21 +917,14 @@ test('a git failure in settle tells the user to restart before continuing', asyn
         : run();
 
     gate.open();
-
     await assert.rejects(sending, /Restart Witch: status failed/);
-
     hook.current = passThrough;
-
     assert.equal(coordinator.snapshot.phase, 'error');
-
     assert.equal(coordinator.snapshot.error, 'Restart Witch: status failed');
-
     await assert.rejects(coordinator.send('Again'), /Restart Witch/);
-
     await assert.rejects(coordinator.refreshModels(), /Restart Witch/);
   } finally {
     gate.open();
-
     await coordinator.close().catch(() => {});
   }
 });
@@ -1096,17 +939,11 @@ test('agent events reach the transcript with their own replace, append and cwd',
       coordinator.snapshot.items.map(({ text, cwd }) => [text, cwd]);
 
     options.onEvent({ type: 'text', id: 'm', text: 'Hel' });
-
     options.onEvent({ type: 'text', id: 'm', text: 'lo' });
-
     assert.deepEqual(shown(), [['Hello', project]]);
-
     options.onEvent({ type: 'text', id: 'm', text: 'Hello!', replace: true });
-
     const tool = { type: 'tool', id: 't', title: 'ls' } as const;
-
     options.onEvent({ ...tool, text: 'a', done: false, cwd: '/elsewhere' });
-
     const layout = new TranscriptLayout();
     const expanded = new Map([[coordinator.snapshot.items[1]!.id, true]]);
 
@@ -1116,7 +953,6 @@ test('agent events reach the transcript with their own replace, append and cwd',
     );
 
     options.onEvent({ ...tool, text: 'b', done: false, append: true });
-
     assert.deepEqual(shown()[1], ['ab', '/elsewhere']);
 
     assert.equal(
@@ -1187,13 +1023,9 @@ test('coalesced history retains the latest receipt time instead of the write tim
 
   try {
     const { options } = a.sessions.at(-1)!;
-
     options.onEvent({ type: 'text', id: 'm', text: 'Hel' });
-
     vi.advanceTimersByTime(20);
-
     options.onEvent({ type: 'text', id: 'm', text: 'lo' });
-
     vi.advanceTimersByTime(1000);
   } finally {
     try {
@@ -1234,11 +1066,8 @@ test('a native info event reaches the footer and the next resume', async () => {
     });
 
     assert.equal(coordinator.snapshot.native?.permissionMode, 'plan');
-
     await session.close();
-
     await coordinator.send('Next');
-
     assert.equal(a.sessions.at(-1)!.options.resume, 'later');
   } finally {
     await coordinator.close();
@@ -1251,15 +1080,10 @@ test('a native skills change replaces the list, unless its session has closed', 
   try {
     const { options, session } = a.sessions.at(-1)!;
     const later = [{ name: 'later', description: 'Added later' }];
-
     options.onEvent({ type: 'skills', skills: later });
-
     assert.deepEqual(coordinator.snapshot.skills, later);
-
     await session.close();
-
     options.onEvent({ type: 'skills', skills: [] });
-
     assert.deepEqual(coordinator.snapshot.skills, later);
   } finally {
     await coordinator.close();
@@ -1273,9 +1097,7 @@ test('answers reach the agent and only a cancel interrupts the turn, a resolved 
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
-
     await within(gate.entered, 2000, 'the gated turn');
-
     const { options } = a.sessions.at(-1)!;
 
     const [first, second] = ['r1', 'r2'].map((id) => ({
@@ -1286,9 +1108,7 @@ test('answers reach the agent and only a cancel interrupts the turn, a resolved 
     }));
 
     options.onEvent({ type: 'request', request: first! });
-
     options.onEvent({ type: 'request', request: second! });
-
     let ended = false;
 
     void gate.result.then(() => {
@@ -1296,15 +1116,10 @@ test('answers reach the agent and only a cancel interrupts the turn, a resolved 
     });
 
     await coordinator.respond('r1', { decision: 'accept' });
-
     await new Promise((resolve) => setImmediate(resolve));
-
     assert.equal(ended, false);
-
     options.onEvent({ type: 'request-resolved', id: 'r1' });
-
     assert.deepEqual(coordinator.snapshot.requests, [second]);
-
     await coordinator.respond('r2', { decision: 'cancel' });
 
     assert.deepEqual(a.responses, [
@@ -1318,11 +1133,9 @@ test('answers reach the agent and only a cancel interrupts the turn, a resolved 
     );
 
     await sending;
-
     assert.deepEqual(coordinator.snapshot.requests, []);
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -1334,9 +1147,7 @@ test('an answered question stays in the transcript as the reply with each questi
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
-
     await within(gate.entered, 2000, 'the gated turn');
-
     const { options } = a.sessions.at(-1)!;
 
     const question = (id: string) => ({
@@ -1373,17 +1184,12 @@ test('an answered question stays in the transcript as the reply with each questi
     ]);
 
     options.onEvent({ type: 'request', request: question('q2') });
-
     await coordinator.respond('q2', { decision: 'decline' });
-
     assert.equal(replies().length, 2);
-
     gate.open();
-
     await sending;
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });

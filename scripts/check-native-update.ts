@@ -34,7 +34,6 @@ assert.ok(
 );
 
 const directory = resolve(values.out);
-
 await mkdir(directory);
 
 const registration = (await installedAgents()).find(
@@ -85,10 +84,7 @@ if (!values['allow-account-usage']) {
   };
 
   const prepared = await prepareNativeUpdate(previous, options);
-
   await writeJson(resolve(directory, 'prepared.json'), prepared);
-
   const report = await verifyNativeUpdate(prepared, candidate, options);
-
   console.log(JSON.stringify(report, null, 2));
 }

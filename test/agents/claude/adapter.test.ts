@@ -27,7 +27,6 @@ test('a stored effort reaches Claude Code on connect and shows before any model 
 
   try {
     assert.ok(args[0]!.includes('--effort=high'), JSON.stringify(args[0]));
-
     assert.equal(session.info.effort, 'high');
   } finally {
     await session.close();
@@ -153,7 +152,6 @@ test('a skill goes last after its context, and a plain prompt stays a string', a
     ]);
 
     await session.send('plain');
-
     assert.equal(await content(cwd), 'plain');
   } finally {
     await session.close();
@@ -165,13 +163,9 @@ test('invalid effort preserves the displayed and native model', async () => {
 
   try {
     await session.selectModel('claude-a', 'low');
-
     await assert.rejects(session.selectModel('claude-b', 'invalid'));
-
     assert.equal(session.info.model, 'claude-a');
-
     assert.equal((await session.send('report model')).status, 'completed');
-
     assert.equal(session.info.model, 'claude-a');
 
     assert.deepEqual(
@@ -188,9 +182,7 @@ test('a model chosen without an effort keeps the effort in force and sends none'
 
   try {
     await session.selectModel('claude-a', 'high');
-
     await session.selectModel('claude-b');
-
     assert.equal(session.info.effort, 'high');
 
     assert.deepEqual(await jsonLines(join(cwd, 'settings.jsonl')), [
@@ -206,9 +198,7 @@ test('a null effort clears the effort in force', async () => {
 
   try {
     await session.selectModel('claude-a', 'high');
-
     await session.selectModel('claude-b', null);
-
     assert.equal(session.info.effort, undefined);
 
     assert.deepEqual(
@@ -225,11 +215,8 @@ test('a new session has history and the native permission mode once its first pr
 
   try {
     assert.equal(session.info.hasHistory, false);
-
     await session.send('hello');
-
     assert.equal(session.info.hasHistory, true);
-
     assert.equal(session.info.permissionMode, 'default');
   } finally {
     await session.close();
@@ -242,7 +229,6 @@ test('a stored session resumes by its id instead of starting a new one', async (
 
   try {
     assert.ok(args[0]!.includes('--resume=stored-session'));
-
     assert.ok(!args[0]!.some((arg) => arg.startsWith('--session-id')));
   } finally {
     await session.close();
@@ -275,14 +261,11 @@ test(
 
       for (const [state, observed] of progress) {
         await writeFile(join(cwd, `allow-${state}`), 'yes');
-
         await observed.promise;
-
         assert.equal(completed, false, `turn completed at ${state}`);
       }
 
       await writeFile(join(cwd, 'allow-idle'), 'yes');
-
       assert.deepEqual(await turn, { status: 'completed', text: 'Finished.' });
     } finally {
       await session.close();
@@ -328,7 +311,6 @@ test('a Claude question lists its choices and returns a multiple choice joined',
 
   try {
     assert.equal((await session.send('question')).status, 'completed');
-
     assert.equal(requests[0]?.kind, 'question');
 
     assert.deepEqual(requests[0]?.questions, [
@@ -370,9 +352,7 @@ test('a Claude elicitation returns the accepted content', async () => {
 
   try {
     assert.equal((await session.send('elicit')).status, 'completed');
-
     assert.equal(requests[0]?.kind, 'elicitation');
-
     assert.equal(requests[0]?.title, 'Which project?');
 
     assert.deepEqual(requests[0]?.schema, {
@@ -413,9 +393,7 @@ test('a mid-turn interrupt ends the turn with the native result', async () => {
 
   try {
     const turn = session.send('wait');
-
     await within(seen, 2000, 'first output');
-
     await within(session.interrupt(), 2000, 'interrupt');
 
     assert.deepEqual(await within(turn, 2000, 'turn'), {
@@ -435,13 +413,9 @@ test('a connection cancellation keeps its native abort diagnostic', async () => 
 
   try {
     const turn = session.send('wait');
-
     await within(seen, 2000, 'first output');
-
     controller.abort();
-
     const result = await within(turn, 3000, 'connection cancellation');
-
     assert.equal(result.status, 'failed');
 
     assert.match(
@@ -460,11 +434,8 @@ test('an interrupt that leaves the prompt queued closes the session', async () =
   try {
     const exited = once(child, 'exit');
     const turn = session.send('still queued');
-
     await within(seen, 2000, 'first output');
-
     await within(session.interrupt(), 2000, 'interrupt');
-
     assert.equal(session.closed, true);
 
     assert.deepEqual(await turn, {
@@ -493,15 +464,10 @@ test('a prompt steered into a turn reaches Claude Code, and none is taken with n
 
   try {
     assert.equal(await session.steer('too early'), false);
-
     const turn = session.send('steerable');
-
     await within(seen, 2000, 'first output');
-
     assert.equal(await session.steer('also this'), true);
-
     assert.equal(await session.steer('wrap up'), true);
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
 
     assert.deepEqual(await jsonLines(join(cwd, 'steered.jsonl')), [
@@ -510,11 +476,8 @@ test('a prompt steered into a turn reaches Claude Code, and none is taken with n
     ]);
 
     const waiting = session.send('wait for idle');
-
     await writeFile(join(cwd, 'allow-running'), 'yes');
-
     await within(awaitingIdle.promise, 2000, 'the result');
-
     assert.equal(await session.steer('too late'), false);
 
     for (const state of ['requires_action', 'idle'])
@@ -534,23 +497,14 @@ test('without message lifecycle a command steer is refused until the turn has re
 
   try {
     const first = session.send('steerable');
-
     await within(seen, 2000, 'first output');
-
     assert.equal(await session.steer('/review now', { skill }), false);
-
     assert.equal(await session.steer('plain'), true);
-
     assert.equal(await session.steer('wrap up'), true);
-
     assert.equal((await within(first, 2000, 'turn')).status, 'completed');
-
     assert.deepEqual(await jsonLines(steered), ['plain', 'wrap up']);
-
     const second = session.send('reporting familiar');
-
     await until('the reply', () => session.replied);
-
     assert.equal(await session.steer('/review now', { skill }), true);
 
     await until(
@@ -581,7 +535,6 @@ test("a prompt sent after the turn's result while a familiar runs in the backgro
   try {
     // familiars that finished in an earlier turn stay in the session
     assert.equal((await session.send('familiars')).status, 'completed');
-
     let finished = false;
 
     const turn = session.send('background familiar').then((result) => {
@@ -591,9 +544,7 @@ test("a prompt sent after the turn's result while a familiar runs in the backgro
     });
 
     await until('the result', () => skills.includes('result-2'));
-
     assert.equal(await session.steer('meanwhile'), true);
-
     await until('the answer', () => texts.includes('Answered.'));
 
     assert.equal(
@@ -602,13 +553,9 @@ test("a prompt sent after the turn's result while a familiar runs in the backgro
     );
 
     await until('the report', () => skills.includes('result-4'));
-
     assert.equal(finished, false);
-
     assert.equal(await session.steer('after the report'), false);
-
     await writeFile(join(cwd, 'allow-idle'), 'yes');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
   } finally {
     await session.close();
@@ -631,11 +578,8 @@ test("a background workflow holds the turn open for a prompt as a familiar does,
 
   try {
     const turn = session.send('background workflow');
-
     await until('the result', () => skills.includes('result-1'));
-
     assert.equal(await session.steer('meanwhile'), true);
-
     await until('the answer', () => texts.includes('Answered.'));
 
     assert.equal(
@@ -644,13 +588,9 @@ test("a background workflow holds the turn open for a prompt as a familiar does,
     );
 
     await until('the report', () => skills.includes('result-3'));
-
     assert.equal(await session.steer('after the report'), false);
-
     await writeFile(join(cwd, 'allow-idle'), 'yes');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
-
     assert.deepEqual(subagents, []);
   } finally {
     await session.close();
@@ -675,9 +615,7 @@ test('a background familiar, workflow or brew that leaves the live set with no n
 
   try {
     const turn = session.send('dropped tasks');
-
     await until('the result', () => skills.includes('result-1'));
-
     await writeFile(join(cwd, 'allow-drop'), 'yes');
 
     await until('the drop', () =>
@@ -685,9 +623,7 @@ test('a background familiar, workflow or brew that leaves the live set with no n
     );
 
     assert.equal(await session.steer('after the drop'), false);
-
     await writeFile(join(cwd, 'allow-idle'), 'yes');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
 
     assert.deepEqual(subagents, [
@@ -712,24 +648,15 @@ test('no prompt is steered into a turn once it is interrupted or its session clo
 
   try {
     const turn = session.send('steerable');
-
     await within(seen, 2000, 'first output');
-
     const interrupting = session.interrupt();
-
     assert.equal(await session.steer('after the interrupt'), false);
-
     await within(interrupting, 2000, 'interrupt');
-
     assert.equal((await turn).status, 'interrupted');
-
     const next = session.send('wait');
     const closing = session.close();
-
     assert.equal(await session.steer('after the close'), false);
-
     await within(closing, 2000, 'close');
-
     assert.equal((await next).status, 'failed');
   } finally {
     await session.close();
@@ -742,13 +669,9 @@ test('an interrupt that leaves steered prompts queued closes the session and rep
 
   try {
     const exited = once(child, 'exit');
-
     await writeFile(join(cwd, 'shot.png'), 'png bytes');
-
     const turn = session.send('steerable');
-
     await within(seen, 2000, 'first output');
-
     assert.equal(await session.steer('also this'), true);
 
     assert.equal(
@@ -764,7 +687,6 @@ test('an interrupt that leaves steered prompts queued closes the session and rep
     );
 
     await within(session.interrupt(), 2000, 'interrupt');
-
     assert.equal(session.closed, true);
 
     assert.deepEqual(await turn, {
@@ -801,9 +723,7 @@ test('prompts steered behind input a dead CLI never wrote come back unread', asy
 
   try {
     assert.equal(child.kill('SIGTERM'), true);
-
     const turn = session.send('hello');
-
     assert.equal(await session.steer('follow'), true);
 
     assert.deepEqual(await within(turn, 3000, 'dispatch'), {
@@ -842,33 +762,22 @@ test('a CLI that exits mid-turn ends the turn only once its stderr is complete, 
     });
 
     await within(seen, 2000, 'first output');
-
     await within(exited, 2000, 'CLI exit');
-
     const deadline = Date.now() + 1000;
 
     while (!session.closed) {
       assert.ok(Date.now() < deadline, 'the session never closed');
-
       await new Promise((resolve) => setImmediate(resolve));
     }
 
     assert.equal(finished, false);
-
     await assert.rejects(session.send('again'), /closed/);
-
     await within(session.interrupt(), 2000, 'interrupt');
-
     const result = await within(turn, 2000, 'turn');
-
     assert.equal(result.status, 'interrupted');
-
     assert.match(result.error ?? '', /fixture stderr text/);
-
     assert.match(result.error ?? '', /grandchild line/);
-
     assert.deepEqual(notices, []);
-
     await until('closure notification', () => closures === 1);
   } finally {
     await session.close();
@@ -884,13 +793,9 @@ test('an interrupt after the CLI died resolves and the turn ends', async () => {
   try {
     const exited = once(child, 'exit');
     const turn = session.send('die');
-
     await within(seen, 2000, 'first output');
-
     await within(exited, 2000, 'CLI exit');
-
     await within(session.interrupt(), 2000, 'interrupt');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'interrupted');
   } finally {
     await session.close();
@@ -929,11 +834,8 @@ test('a CLI that exits cleanly before idle fails the turn with its stderr', asyn
     );
 
     assert.equal(result.status, 'failed');
-
     assert.match(result.error ?? '', /exited before reporting idle/);
-
     assert.match(result.error ?? '', /quitting early/);
-
     await until('closure notification', () => closures === 1);
   } finally {
     await session.close();
@@ -977,17 +879,11 @@ test('a clean idle EOF reports closure once', async () => {
 
   try {
     assert.equal((await session.send('hello')).status, 'completed');
-
     const closed = once(child, 'close');
-
     child.stdin.end();
-
     await within(closed, 2000, 'clean idle exit');
-
     await until('closure notification', () => closures === 1);
-
     assert.equal(child.exitCode, 0);
-
     assert.equal(session.closed, true);
   } finally {
     await session.close();
@@ -1281,7 +1177,6 @@ test('an aborted connect rejects', async () => {
   const { children, connect } = await launcher('hang-on-init');
   const controller = new AbortController();
   const connecting = connect({ signal: controller.signal });
-
   controller.abort();
 
   try {
@@ -1289,11 +1184,8 @@ test('an aborted connect rejects', async () => {
       within(connecting, 3000, 'connect'),
       (error: unknown) => {
         assert.ok(error instanceof Error);
-
         assert.equal(error.name, 'AbortError');
-
         assert.match(error.message, /aborted/);
-
         assert.ok(error.cause instanceof AbortError);
 
         return true;
@@ -1320,7 +1212,6 @@ test('a failed initialize reports the CLI stderr even while the CLI lives', asyn
 test('a process report that rejects fails the connect without an unhandled rejection', async () => {
   const unhandled: unknown[] = [];
   const record = (reason: unknown) => unhandled.push(reason);
-
   process.on('unhandledRejection', record);
 
   try {
@@ -1336,7 +1227,6 @@ test('a process report that rejects fails the connect without an unhandled rejec
     );
 
     await new Promise((resolve) => setTimeout(resolve, 50));
-
     assert.deepEqual(unhandled, []);
   } finally {
     process.off('unhandledRejection', record);
@@ -1352,7 +1242,6 @@ test('reports context, the 5H and 7D limits and lines once the session is idle',
 
   try {
     await until('the usage at connect', () => !!session.usage.account?.limits);
-
     assert.equal((await session.send('hello')).status, 'completed');
 
     await until(
@@ -1380,7 +1269,6 @@ test('reports context, the 5H and 7D limits and lines once the session is idle',
     );
 
     assert.deepEqual(reported.at(-1), session.usage);
-
     assert.equal((await session.send('again')).status, 'completed');
 
     await until(
@@ -1397,13 +1285,9 @@ test('reports the effort Claude Code says it will send', async () => {
 
   try {
     assert.equal(session.info.nativeEffort, undefined);
-
     await session.send('hello');
-
     assert.equal(session.info.nativeEffort, 'max');
-
     await session.selectModel('claude-a', 'low');
-
     assert.equal(session.info.nativeEffort, 'low');
   } finally {
     await session.close();

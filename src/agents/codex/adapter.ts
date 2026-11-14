@@ -192,7 +192,6 @@ export class CodexAdapter implements AgentAdapter {
 
     try {
       await options.onProcess(child.pid);
-
       await session.initialize();
 
       return session;
@@ -294,13 +293,9 @@ class CodexSession implements AgentSession {
     rpc.onExit = (error) => {
       // a turn or settings change in flight reports the exit itself
       const reported = !!(this.turn || this.settings);
-
       this.settings?.reject(error);
-
       this.commands.stop();
-
       this.proposals.clear();
-
       this.closed = true;
 
       if (this.connected) this.options.onEvent({ type: 'closed' });
@@ -380,7 +375,6 @@ class CodexSession implements AgentSession {
     if (holder) await checkNoMcpTools(this.rpc, this.info.id, holder);
 
     this.connected = true;
-
     this.publishContext();
 
     if (!answer) void this.readAccountUsage();
@@ -472,7 +466,6 @@ class CodexSession implements AgentSession {
     }
 
     this.native.contextWindow = contextWindow;
-
     await this.configureCompaction();
 
     this.info = {
@@ -574,7 +567,6 @@ class CodexSession implements AgentSession {
       if (this.turn === turn) this.turn.id = response.turn.id;
 
       this.info = { ...this.info, hasHistory: true };
-
       this.options.onEvent({ type: 'info', info: this.info });
     } catch (error) {
       if (this.turn === turn) this.finish('failed', errorMessage(error));
@@ -625,7 +617,6 @@ class CodexSession implements AgentSession {
 
     if (this.info.contextWindow !== this.native.contextWindow) {
       this.info = { ...this.info, contextWindow: this.native.contextWindow };
-
       this.options.onEvent({ type: 'info', info: this.info });
     }
 
@@ -664,7 +655,6 @@ class CodexSession implements AgentSession {
       });
 
       this.info = { ...this.info, hasHistory: true };
-
       this.options.onEvent({ type: 'info', info: this.info });
     } catch (error) {
       this.finish('failed', errorMessage(error));
@@ -760,11 +750,8 @@ class CodexSession implements AgentSession {
       if (!(error instanceof NativeStopTimeout)) throw error;
 
       this.reportStopTimeout();
-
       this.closing = true;
-
       this.commands.stop();
-
       await this.rpc.close(options);
     }
   }
@@ -833,9 +820,7 @@ class CodexSession implements AgentSession {
     }
 
     this.rpc.respond(request.id, result);
-
     this.requests.delete(id);
-
     this.options.onEvent({ type: 'request-resolved', id });
   }
 
@@ -855,7 +840,6 @@ class CodexSession implements AgentSession {
     try {
       const stopped = this.answers.interrupt(options).finally(async () => {
         await this.commands.close();
-
         await this.interrupt(options);
       });
 
@@ -938,9 +922,7 @@ class CodexSession implements AgentSession {
       };
 
       const diff = this.fileChangeDiff(notification);
-
       this.commands.receive(notification);
-
       this.familiars.cast(notification, child, this.castIndex);
 
       if (child) this.familiars.receive(notification, child);
@@ -957,7 +939,6 @@ class CodexSession implements AgentSession {
       if (this.malformed.has(message.method!)) return;
 
       this.malformed.add(message.method!);
-
       this.options.onEvent({ type: 'notice', text });
     }
   }
@@ -1042,7 +1023,6 @@ class CodexSession implements AgentSession {
         };
 
         this.options.onEvent({ type: 'info', info: this.info });
-
         this.settings?.resolve();
 
         break;
@@ -1052,7 +1032,6 @@ class CodexSession implements AgentSession {
         // a send learned the id from `turn/start` already, and a shell command learns it here
         if (this.turn && !this.turn.id) {
           this.turn.id = turnId.parse(data).turn.id;
-
           this.turn.started.resolve(this.turn.id);
         }
 
@@ -1074,9 +1053,7 @@ class CodexSession implements AgentSession {
       case 'item/agentMessage/delta': {
         const id = stringValue.parse(data.itemId);
         const text = stringValue.parse(data.delta);
-
         this.turn?.messages.append(id, text);
-
         this.options.onEvent({ type: 'text', id, text });
 
         break;
@@ -1193,7 +1170,6 @@ class CodexSession implements AgentSession {
         const turn = turnDiff.parse(data);
         const previous = this.turnLines.get(turn.turnId);
         const lines = diffLines(turn.diff);
-
         this.turnLines.set(turn.turnId, lines);
 
         this.report({
@@ -1253,7 +1229,6 @@ class CodexSession implements AgentSession {
             this.report({ context: undefined, contextWindow: undefined });
 
           this.info = { ...this.info, model: data.toModel };
-
           this.options.onEvent({ type: 'info', info: this.info });
         }
 
@@ -1274,9 +1249,7 @@ class CodexSession implements AgentSession {
 
       case 'serverRequest/resolved': {
         const id = String(data.requestId);
-
         this.requests.delete(id);
-
         this.options.onEvent({ type: 'request-resolved', id });
 
         break;
@@ -1308,9 +1281,7 @@ class CodexSession implements AgentSession {
       request = this.parseRequest(message);
     } catch (error) {
       const text = `Witch could not read Codex's ${message.method} request: ${errorMessage(error)}`;
-
       this.rpc.reject(message.id!, text);
-
       this.options.onEvent({ type: 'notice', text });
 
       return;
@@ -1318,16 +1289,13 @@ class CodexSession implements AgentSession {
 
     if (!request) {
       const text = `Unsupported native request: ${message.method}`;
-
       this.rpc.reject(message.id!, text);
-
       this.options.onEvent({ type: 'notice', text });
 
       return;
     }
 
     this.requests.set(request.id, message);
-
     this.options.onEvent({ type: 'request', request });
   }
 
@@ -1395,7 +1363,6 @@ class CodexSession implements AgentSession {
 
   private report(update: Usage): void {
     this.usage = { ...this.usage, ...update };
-
     this.options.onEvent({ type: 'usage', usage: this.usage });
   }
 
@@ -1435,7 +1402,6 @@ class CodexSession implements AgentSession {
     }
 
     this.turn = undefined;
-
     // a shell command's turn that never reported its start would hold an interrupt waiting for it
     turn?.started.resolve('');
 
@@ -1449,7 +1415,6 @@ class CodexSession implements AgentSession {
           turnId === completedTurnId)
       ) {
         this.requests.delete(id);
-
         this.options.onEvent({ type: 'request-resolved', id });
       }
     }

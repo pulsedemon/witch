@@ -117,7 +117,6 @@ export class PullRequestRepair {
 
   observe(repository: Repository | undefined): void {
     this.repository = repository;
-
     this.checkBinding();
 
     if (!this.host.queued() && this.ready()) this.host.changed();
@@ -206,7 +205,6 @@ export class PullRequestRepair {
     try {
       if (!repair.failed) {
         await this.refresh!();
-
         const fresh = this.candidate();
 
         if (
@@ -328,7 +326,6 @@ export class PullRequestRepair {
     if (this.noticed.has(shown)) return;
 
     this.noticed.add(shown);
-
     this.host.notice(text);
   }
 }
@@ -368,9 +365,7 @@ export function watchConflicts(
     if (status) conflict = status.conflict;
 
     coordinator.conflict = conflict;
-
     coordinator.repair.observe(status);
-
     const { conversation, items } = coordinator.snapshot;
 
     if (!conversation) return;
@@ -390,7 +385,6 @@ export function watchConflicts(
     if (failure === reported && shown(text)) return;
 
     reported = failure;
-
     coordinator.notice(text, conversation.cwd, false);
   };
 
@@ -437,7 +431,6 @@ export function watchConflicts(
       reported = undefined;
 
     merged();
-
     schedule();
   };
 
@@ -449,7 +442,6 @@ export function watchConflicts(
 
   coordinator.repair.setRefresh(async () => {
     await repository.readPullRequest();
-
     check();
   });
 
@@ -457,7 +449,6 @@ export function watchConflicts(
 
   return () => {
     stopped = true;
-
     coordinator.repair.setRefresh(undefined);
 
     if (pending) clearImmediate(pending);

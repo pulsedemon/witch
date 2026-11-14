@@ -39,7 +39,6 @@ export async function runtimeUpdateFixture(
   for (const version of ['1.0.0', '2.0.0']) {
     const release = join(root, 'releases', `${version}-aarch64-apple-darwin`);
     const executable = join(release, 'bin', 'codex');
-
     await mkdir(dirname(executable), { recursive: true });
 
     await writeFile(
@@ -110,15 +109,10 @@ export async function runtimeUpdateFixture(
     users: async () => [],
     install: async (installation, target) => {
       assert.equal(installation.root, root);
-
       installs.push(target);
-
       const artifact = artifacts.get(target);
-
       assert.ok(artifact);
-
       await unlink(launcher);
-
       await symlink(artifact.executable, launcher);
     },
     prepare: async (previous, options) => ({
@@ -158,7 +152,6 @@ export async function runtimeUpdateFixture(
   );
 
   await updates.check();
-
   const check = updates.snapshot.entries[0]!.check! as RuntimeUpdateCheck;
 
   return {

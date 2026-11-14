@@ -17,14 +17,12 @@ for (const exit of [
 
     vi.spyOn(x.a.a, 'connect').mockImplementation(async (options) => {
       const connected = await connect(options);
-
       autoReply(x.f, x.a, x.source);
 
       return connected;
     });
 
     autoReply(x.f, x.a, x.source);
-
     let staged = false;
 
     vi.spyOn(session, 'contextUsage').mockImplementationOnce(async () => {
@@ -42,7 +40,6 @@ for (const exit of [
             x.c.snapshot.items.some(({ text }) => text.startsWith('Handling'))
           ) {
             stop();
-
             void x.c.interrupt();
           }
         });
@@ -82,7 +79,6 @@ for (const exit of [
     else await x.c.send('continue');
 
     await x.handled();
-
     assert.equal(x.reviews().length, 1);
   });
 
@@ -94,16 +90,10 @@ test('a summary with no open issues is handled without a review turn', async (t)
     '### 🟢 Approval recommended\n\n**No open issues** 🎉';
 
   await x.observe();
-
   await x.handled();
-
   const state = (await record(x.f, x.a)).copilotReviews![0]!;
-
   assert.equal(state.batch, undefined);
-
   assert.equal(state.items[0]!.receipts[0]!.disposition, 'covered');
-
   assert.equal(x.reviews().length, 0);
-
   assert.equal(x.a.a.inputs.length, 0);
 });

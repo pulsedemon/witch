@@ -145,7 +145,6 @@ export async function dispatchControl(
           ),
         async () => {
           host.admit(request);
-
           checkTaskRelease(host.state(), human);
         },
       );
@@ -154,9 +153,7 @@ export async function dispatchControl(
     }
 
     await host.refreshProject(active, request.deadline);
-
     await host.retireProject(active, state);
-
     const owner = activationOwner(active);
 
     if (isPeerAction(action))
@@ -193,7 +190,6 @@ export async function dispatchControl(
     const verify = async (ledger: Ledger) => {
       // a closing session refuses before its project read and discovery spend the request's deadline
       host.admit(request);
-
       await host.refreshProject(active, request.deadline);
 
       const snapshot = projectDiscovery(
@@ -477,7 +473,6 @@ async function pauseOutcome(
       request.deadline,
       async () => {
         host.admit(request);
-
         state.discovery = undefined;
         const discovery = await host.observe(state);
 

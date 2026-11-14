@@ -35,7 +35,6 @@ try {
       );
 
       child.unref();
-
       await writeFile(join(parent, 'descendant.pid'), String(child.pid));
     }
 
@@ -90,14 +89,12 @@ try {
             onOutput() {},
             onSpawn(pid) {
               group = pid;
-
               jobs.track(pid);
             },
           },
         );
 
         worker = Number(result.output);
-
         await writeFile(join(parent, 'worker.pid'), String(worker));
 
         await until('original worker listing', async () =>
@@ -111,7 +108,6 @@ try {
       );
 
       const restarts = Number(value);
-
       jobs.close();
 
       if (restarts > 0) {
@@ -139,7 +135,6 @@ try {
       process.kill(worker, 0);
     } finally {
       jobs.close();
-
       await space?.close();
     }
   } else if (mode === 'hold-unowned') {
@@ -158,7 +153,6 @@ try {
       });
 
       writeSync(1, `${parent}\n`);
-
       await once(process.stdin, 'data');
     } finally {
       await lock.close();
@@ -172,7 +166,6 @@ try {
       if (mode === 'restart-gap') await space.close();
 
       writeSync(1, `${space.directory}\n`);
-
       await once(process.stdin, 'data');
 
       if (mode === 'restart-gap') {
@@ -206,13 +199,11 @@ try {
 
     if (mode !== 'resumed') {
       await mkdir(directory, { recursive: true });
-
       await writeFile(join(directory, 'marker'), 'before restart');
 
       if (mode === 'uncertain') {
         const file = join(directory, '.witch-scratch.json');
         const record = JSON.parse(await readFile(file, 'utf8')) as object;
-
         await writeJson(file, { ...record, requiresBoot: true });
       }
     }
@@ -243,6 +234,5 @@ try {
   }
 } finally {
   clearTimeout(deadline);
-
   process.stdin.pause();
 }

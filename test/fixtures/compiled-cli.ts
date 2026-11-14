@@ -11,7 +11,6 @@ import { exists } from './within.js';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const compiled = buildCli();
-
 // keep the shared build outside each CLI behavior check's deadline
 await compiled;
 

@@ -25,13 +25,11 @@ if (process.argv[4] === 'observe') {
       }
 
       process.stdout.write(`${JSON.stringify({ attempts, held })}\n`);
-
       process.stdin.destroy();
     })();
   });
 } else {
   const files = await store.claim(id);
-
   process.stdout.write('locked\n');
 
   process.stdin.once('data', () => {

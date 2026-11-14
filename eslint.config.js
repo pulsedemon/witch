@@ -49,7 +49,7 @@ export default defineConfig(
         { blankLine: 'always', prev: '*', next: '*' },
         { blankLine: 'any', prev: 'import', next: 'import' },
         {
-          blankLine: 'any',
+          blankLine: 'never',
           prev: singleLineStatement,
           next: singleLineStatement,
         },

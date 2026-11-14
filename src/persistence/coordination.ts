@@ -142,7 +142,6 @@ function reserve(
 
       existing.summary = input.summary;
       existing.process = process;
-
       delete existing.suggestion;
 
       return existing;
@@ -218,7 +217,6 @@ export class CoordinationStore {
 
   static async open(store: StateStore): Promise<CoordinationStore> {
     const directory = join(store.root, 'coordination');
-
     await mkdir(join(directory, 'sessions'), { recursive: true, mode: 0o700 });
 
     return new CoordinationStore(directory, store);
@@ -366,7 +364,6 @@ export class CoordinationStore {
   ): Promise<{ attempted: PeerRequest[]; requests: PeerRequest[] }> {
     return this.transact(peerRequests, deadline, async (stored) => {
       const ledger = await this.reconcile(await this.read(), deadline);
-
       await verify(ledger);
 
       const batch = new Set(
@@ -388,7 +385,6 @@ export class CoordinationStore {
         if (!batch.has(request)) return request;
 
         const stamped = { ...request, attemptedAt };
-
         attempted.push(stamped);
 
         return stamped;
@@ -652,7 +648,6 @@ export class CoordinationStore {
 
     return async () => {
       await lock.close();
-
       await rm(file, { force: true });
     };
   }
@@ -690,7 +685,6 @@ export class CoordinationStore {
 
     try {
       observe?.();
-
       const ledger = await this.reconcile(await this.read(), deadline);
 
       if (deadline !== undefined) checkDeadline(deadline);
@@ -891,11 +885,8 @@ export class CoordinationStore {
       claim.owner = to;
       claim.process = transfer.process;
       claim.movedFrom = owner;
-
       delete claim.transfer;
-
       delete claim.automaticTransfer;
-
       delete claim.suggestion;
 
       return claim;
@@ -941,7 +932,6 @@ export class CoordinationStore {
       if (claim) ledger.claims.splice(ledger.claims.indexOf(claim), 1);
 
       const ticket = { ...scope, id: randomUUID() };
-
       ledger.selections.push(ticket);
 
       return selection(ledger, scope, ticket.id);
@@ -1085,7 +1075,6 @@ export class CoordinationStore {
 
     // every probe must close before a failure releases the ledger lock.
     await Promise.allSettled(probes);
-
     const [processes, opened, active] = await Promise.all(probes);
     const now = Date.now();
 
@@ -1137,7 +1126,6 @@ export class CoordinationStore {
 
       if (next) {
         checkDeadline(deadline);
-
         await writeJson(join(this.directory, stored.file), next);
       }
 
@@ -1158,13 +1146,9 @@ export class CoordinationStore {
       const stored = await this.read();
       const before = JSON.stringify(stored);
       const ledger = await this.reconcile(stored, deadline);
-
       checkDeadline(deadline);
-
       await verify(ledger);
-
       checkDeadline(deadline);
-
       const result = change(ledger);
 
       if (JSON.stringify(ledger) !== before)

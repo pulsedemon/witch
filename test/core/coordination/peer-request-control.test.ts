@@ -50,9 +50,7 @@ function described(outcome: ControlOutcome): string {
 
 test('asks need a live same-project owner that supports requests', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const publish = CoordinationStore.prototype.publish;
 
   // B's presence comes from a Witch built before peer requests
@@ -94,7 +92,6 @@ test('asks need a live same-project owner that supports requests', async (t) => 
     ],
   ] as const) {
     const result = await ask(a, claim, 'Which port?');
-
     assert.equal(result.kind, 'error', JSON.stringify(result));
 
     if (result.kind === 'error') assert.equal(result.message, message);
@@ -110,9 +107,7 @@ test('asks need a live same-project owner that supports requests', async (t) => 
 
 test('a repeated ask returns the pending request', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -126,9 +121,7 @@ test('a repeated ask returns the pending request', async (t) => {
     assert.fail(JSON.stringify([first, again]));
 
   assert.equal(first.status, 'pending');
-
   assert.deepEqual(again, { ...first, id: again.id });
-
   const recipient = b.coordinator.snapshot.conversation!.id;
 
   await registry.attemptPeerRequests(
@@ -143,9 +136,7 @@ test('a repeated ask returns the pending request', async (t) => {
   if (attempted.kind !== 'peer-request') assert.fail(JSON.stringify(attempted));
 
   assert.equal(attempted.request.id, first.request.id);
-
   assert.equal(attempted.status, 'attempted');
-
   const other = await ask(a, owned.id, 'Which branch?');
 
   if (other.kind !== 'peer-request') assert.fail(JSON.stringify(other));
@@ -160,9 +151,7 @@ test('a repeated ask returns the pending request', async (t) => {
 
 test('only the parties read a request', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -176,7 +165,6 @@ test('only the parties read a request', async (t) => {
 
   const { id } = asked.request;
   const refused = await read(third, id);
-
   assert.equal(refused.kind, 'error', JSON.stringify(refused));
 
   if (refused.kind === 'error')

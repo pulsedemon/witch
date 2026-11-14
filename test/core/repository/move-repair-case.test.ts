@@ -14,17 +14,11 @@ import { identify, readLedger } from '../../../src/persistence/directories.js';
 
 test('a child renamed in case with its parent is repaired on the first pass', async (t) => {
   const f = await setup();
-
   await mkdir(f.at('w/main/src'));
-
   await f.save('nested', 'w/main/src');
-
   await f.store.addPrompt(f.at('w/main/src'), 'nested prompt');
-
   await f.repair('w/main');
-
   await rename(f.at('w/main'), f.at('w/Main'));
-
   await rename(f.at('w/Main/src'), f.at('w/Main/Src'));
 
   if (!(await identify(f.at('w/main'))))
@@ -49,9 +43,7 @@ test('a child renamed in case with its parent is repaired on the first pass', as
   );
 
   const saved = await f.saved('nested');
-
   assert.equal(saved.raw.cwd, f.at('w/Main/Src'));
-
   assert.ok(saved.history!.includes(JSON.stringify(f.at('w/Main/Src'))));
 });
 
@@ -64,13 +56,9 @@ for (const [shape, from, to, main, worktree] of [
     for (const relative of [false, true])
       test(`a case-only ${shape} rename repairs from ${start}, relative=${relative}`, async (t) => {
         const f = await setup();
-
         await f.save('saved-main', 'w/main');
-
         await f.save('saved-worktree', 'w/main-1');
-
         await f.store.addPrompt(f.at('w/main'), 'main prompt');
-
         await f.store.addPrompt(f.at('w/main-1'), 'worktree prompt');
 
         if (relative) {
@@ -92,9 +80,7 @@ for (const [shape, from, to, main, worktree] of [
 
         f.runs.length = 0;
         const report = await f.repair(start === 'main' ? main : worktree);
-
         assert.deepEqual(report.blocked, [], JSON.stringify(report));
-
         assert.deepEqual(report.unresolved, []);
 
         assert.equal(
@@ -130,11 +116,8 @@ for (const [shape, from, to, main, worktree] of [
           : `gitdir: ${f.at(`${main}/.git/worktrees/main-1`)}\n`;
 
         const expectedReverse = `${dotgit}\n`;
-
         assert.equal(await readFile(dotgit, 'utf8'), expectedDotgit);
-
         assert.equal(await readFile(reverse, 'utf8'), expectedReverse);
-
         assert.equal(await git(f.at(worktree), 'status', '--porcelain'), '');
 
         assert.ok(
@@ -164,7 +147,6 @@ for (const [shape, from, to, main, worktree] of [
         );
 
         await f.repair(main);
-
         assert.deepEqual((await readLedger(f.at('state'))).moves, ledger.moves);
 
         assert.deepEqual(
@@ -181,9 +163,7 @@ for (const [shape, from, to, main, worktree] of [
 
 test('case repair previews write nothing and an interrupted link update resumes', async (t) => {
   const f = await setup();
-
   await f.save('saved', 'w/main');
-
   await rename(f.at('w'), f.at('W'));
 
   if (!(await identify(f.at('w')))) t.skip('requires case-insensitive paths');
@@ -199,18 +179,13 @@ test('case repair previews write nothing and an interrupted link update resumes'
     Promise.all(files.map((file) => readFile(f.at(file), 'utf8')));
 
   const before = await snapshot();
-
   assert.deepEqual((await f.repair('W/main', { preview: true })).blocked, []);
-
   assert.deepEqual(await snapshot(), before);
-
   const mode = (await stat(f.at('W/main-1'))).mode;
-
   await chmod(f.at('W/main-1'), 0o500);
 
   try {
     const failed = await f.repair('W/main');
-
     assert.ok(failed.blocked.length > 0);
 
     assert.equal(
@@ -244,11 +219,8 @@ test('a foreign registration prevents every case-link write in its repository', 
   );
 
   await mkdir(g.at('other'));
-
   await git(g.at('other'), 'init', '-q', '-b', 'main');
-
   await git(g.at('other'), 'commit', '-q', '--allow-empty', '-m', 'other');
-
   await rename(g.at('w/main-2'), g.at('away'));
 
   await git(

@@ -41,7 +41,6 @@ for (const [columns, rows, visibleDraft] of [
 
     try {
       await until('rendered app', () => ui.frame().length > 0);
-
       ui.stdin.write('helloZ' + LEFT);
 
       await until('visible draft row', () =>
@@ -52,21 +51,13 @@ for (const [columns, rows, visibleDraft] of [
       );
 
       const frame = ui.text().split('\n');
-
       assert.equal(frame.length, rows);
-
       assert.ok(frame.every((line) => stringWidth(line) <= columns));
-
       assert.doesNotMatch(ui.text(), /Resize terminal/);
-
       ui.stdin.write(ENTER);
-
       await until('submitted text', () => calls.length > 0);
-
       assert.deepEqual(calls, [['send', 'helloZ', { composer: true }]]);
-
       ui.resize(100, 40);
-
       await until('restored composer', () => ui.text().includes('┏'));
     } finally {
       ui.unmount();
@@ -90,9 +81,7 @@ for (const [columns, draft] of [
 
     try {
       await until('rendered app', () => ui.frame().length > 0);
-
       ui.stdin.write(draft + LEFT);
-
       await until('visible wide character', () => ui.text().includes('界'));
 
       assert.ok(
@@ -103,9 +92,7 @@ for (const [columns, draft] of [
       );
 
       ui.stdin.write(ENTER);
-
       await until('submitted draft', () => calls.length > 0);
-
       assert.deepEqual(calls, [['send', draft, { composer: true }]]);
     } finally {
       ui.unmount();
@@ -154,13 +141,9 @@ for (const [columns, rows, visibleDraft] of [
       );
 
       assert.equal(ui.text().split('\n').length, rows);
-
       ui.stdin.write(ENTER);
-
       await until('submitted text', () => calls.length > 0);
-
       assert.deepEqual(calls, [['send', 'visibleZ', { composer: true }]]);
-
       ui.resize(100, 40);
 
       await until('full balance restored', () =>
@@ -238,13 +221,9 @@ for (const [columns, rows] of [
       );
 
       const frame = ui.text().split('\n');
-
       assert.equal(frame.length, rows);
-
       assert.ok(frame.every((line) => stringWidth(line) <= columns));
-
       assert.match(ui.text(), /draft line two/);
-
       assert.match(ui.text(), /transcript 9/);
 
       assert.match(
@@ -253,7 +232,6 @@ for (const [columns, rows] of [
       );
 
       ui.stdin.write(ENTER);
-
       await until('submitted multiline draft', () => calls.length > 0);
 
       assert.deepEqual(calls, [
@@ -310,9 +288,7 @@ for (const [mode, expected] of [
 
     try {
       await until('first source line', () => first() === 'reading 1');
-
       ui.stdin.write('\u001b[6~');
-
       await until('next page', () => first() === expected);
 
       for (const width of [20, 100]) {
@@ -382,7 +358,6 @@ for (const [mode, expected, nextWord] of [
       );
 
       ui.stdin.write(mode === 'approval' ? '\u001b[6~' : '\u001b[5~');
-
       await until('scrolled source text', () => firstWord() === expected);
 
       for (const width of [20, 100]) {
@@ -413,7 +388,6 @@ for (const covered of [false, true]) {
 
     try {
       await openCommand(ui, '/help', 'Keyboard help');
-
       ui.stdin.write('\u001b[6~');
 
       await until('shell command explanation', () =>
@@ -456,7 +430,6 @@ for (const covered of [false, true]) {
       );
 
       ui.resize(100, 40);
-
       await until('restored paragraph offset', () => first() === before);
     } finally {
       ui.unmount();
@@ -491,7 +464,6 @@ test('the sidebar width transition preserves the reading line and draft', async 
 
   try {
     await until('the last row', () => ui.text().includes('row 150'));
-
     ui.stdin.write('draft across a resize');
 
     await until('the typed draft', () =>
@@ -512,26 +484,17 @@ test('the sidebar width transition preserves the reading line and draft', async 
 
     for (const columns of [115, 114, 120]) {
       const before = ui.frame();
-
       ui.resize(columns);
-
       await until('the resized frame', () => ui.frame() !== before);
-
       assert.match(ui.text().split('\n')[1]!, /^\s*row 21 src\/main.ts:7/);
-
       assert.ok(ui.text().includes('draft across a resize'));
-
       assert.ok(ui.frame().includes('vscode://file/work/src/main.ts:7'));
     }
 
     items = applyDisplayUpdate(items, output('\nnewest src/latest.ts:9'));
-
     coordinator.publish({ items });
-
     await delay(100);
-
     assert.match(ui.text().split('\n')[1]!, /^\s*row 21 src\/main.ts:7/);
-
     ui.stdin.write('\u001b[6~'.repeat(20));
 
     await until('the latest output', () =>
@@ -539,7 +502,6 @@ test('the sidebar width transition preserves the reading line and draft', async 
     );
 
     assert.ok(ui.frame().includes('vscode://file/work/src/latest.ts:9'));
-
     assert.ok(ui.text().includes('draft across a resize'));
   } finally {
     ui.unmount();

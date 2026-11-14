@@ -18,7 +18,6 @@ async function fixture(
   gate?: 'hold-mcp' | 'reject-mcp',
 ) {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
   const timers: ReturnType<typeof vi.fn<() => void>>[] = [];
   const schedule = setTimeout;
 
@@ -31,7 +30,6 @@ async function fixture(
       if (ms !== 1000) return schedule(callback, ms, ...args);
 
       const run = vi.fn(() => callback(...args));
-
       timers.push(run);
 
       return schedule(run, ms);
@@ -98,7 +96,6 @@ async function fixture(
     emit,
     async turn() {
       assert.equal((await session.send('hello')).status, 'completed');
-
       await emit();
     },
   };
@@ -132,15 +129,10 @@ test('Claude reports failed MCP connections and sign-in requirements once per co
   ];
 
   const f = await fixture(t, rows);
-
   assert.deepEqual(f.notices, expected);
-
   await f.turn();
-
   await f.turn();
-
   assert.deepEqual(f.notices, expected);
-
   await f.session.close();
 
   const reconnected = await f.connect({
@@ -151,7 +143,6 @@ test('Claude reports failed MCP connections and sign-in requirements once per co
 
   try {
     await until('reconnected MCP notices', () => f.notices.length === 6);
-
     assert.deepEqual(f.notices, [...expected, ...expected]);
   } finally {
     await reconnected.close();
@@ -160,9 +151,7 @@ test('Claude reports failed MCP connections and sign-in requirements once per co
 
 test('a pending Claude MCP connection reports its later failure without another prompt', async (t) => {
   const f = await fixture(t, [{ name: 'delayed', status: 'pending' }]);
-
   assert.deepEqual(f.notices, []);
-
   await f.turn();
 
   await f.setServers([
@@ -170,7 +159,6 @@ test('a pending Claude MCP connection reports its later failure without another 
   ]);
 
   vi.advanceTimersByTime(1000);
-
   await until('delayed failure notice', () => f.notices.length === 1);
 
   assert.deepEqual(f.notices, [
@@ -182,13 +170,9 @@ test('a pending Claude MCP connection reports its later failure without another 
   ]);
 
   const count = (await f.requests()).length;
-
   vi.advanceTimersByTime(2000);
-
   await f.emit();
-
   assert.equal((await f.requests()).length, count);
-
   assert.equal(f.notices.length, 1);
 });
 
@@ -198,7 +182,6 @@ test('Claude reports each diagnostic state once for the same MCP server', async 
   ]);
 
   await f.setServers([{ name: 'service', status: 'needs-auth' }]);
-
   await f.turn();
 
   await f.setServers([
@@ -206,9 +189,7 @@ test('Claude reports each diagnostic state once for the same MCP server', async 
   ]);
 
   await f.turn();
-
   await f.setServers([{ name: 'service', status: 'needs-auth' }]);
-
   await f.turn();
 
   assert.deepEqual(f.notices, [
@@ -231,19 +212,12 @@ test('cached pending Claude MCP discovery does not sustain polling', async (t) =
   ]);
 
   const count = (await f.requests()).length;
-
   vi.advanceTimersByTime(3000);
-
   await f.emit();
-
   assert.equal((await f.requests()).length, count);
-
   assert.deepEqual(f.notices, []);
-
   await f.setServers([{ name: 'cached', status: 'needs-auth' }]);
-
   await f.turn();
-
   await until('sign-in notice', () => f.notices.length === 1);
 
   assert.deepEqual(f.notices, [
@@ -263,11 +237,8 @@ test('a failed MCP status read does not fail the Claude turn', async (t) => {
   );
 
   await f.turn();
-
   assert.deepEqual(f.notices, []);
-
   await unlink(join(f.cwd, 'reject-mcp'));
-
   await f.turn();
 
   assert.deepEqual(f.notices, [
@@ -281,13 +252,9 @@ test('a failed MCP status read does not fail the Claude turn', async (t) => {
 
 test('pending MCP polling recovers from a rejected status read while idle', async (t) => {
   const f = await fixture(t, [{ name: 'delayed', status: 'pending' }]);
-
   await f.turn();
-
   await writeFile(join(f.cwd, 'reject-mcp'), '');
-
   const count = (await f.requests()).length;
-
   vi.advanceTimersByTime(1000);
 
   await until(
@@ -296,9 +263,7 @@ test('pending MCP polling recovers from a rejected status read while idle', asyn
   );
 
   await f.emit();
-
   assert.deepEqual(f.notices, []);
-
   await unlink(join(f.cwd, 'reject-mcp'));
 
   await f.setServers([
@@ -306,7 +271,6 @@ test('pending MCP polling recovers from a rejected status read while idle', asyn
   ]);
 
   vi.advanceTimersByTime(1000);
-
   await until('recovered MCP poll', () => f.notices.length === 1);
 
   assert.deepEqual(f.notices, [
@@ -326,13 +290,9 @@ test('init refreshes during an MCP status read coalesce into one fresh read', as
   );
 
   await f.turn();
-
   await f.turn();
-
   const requests = await f.requests();
-
   assert.equal(requests.length, 1);
-
   await unlink(join(f.cwd, 'hold-mcp'));
 
   await f.emit({
@@ -345,7 +305,6 @@ test('init refreshes during an MCP status read coalesce into one fresh read', as
   });
 
   await until('fresh MCP status', () => f.notices.length === 1);
-
   assert.equal((await f.requests()).length, 2);
 
   assert.deepEqual(f.notices, [
@@ -366,7 +325,6 @@ for (const pending of ['timer', 'request'] as const) {
     );
 
     const scheduled = f.timers.length;
-
     await f.turn();
 
     // the turn's init starts another status read, so close only once it has scheduled its poll
@@ -378,9 +336,7 @@ for (const pending of ['timer', 'request'] as const) {
     if (pending === 'request') assert.equal(count, 1);
 
     const callbacks = f.timers.map((timer) => timer.mock.calls.length);
-
     await f.session.close();
-
     vi.advanceTimersByTime(3000);
 
     assert.deepEqual(
@@ -389,7 +345,6 @@ for (const pending of ['timer', 'request'] as const) {
     );
 
     assert.equal((await f.requests()).length, count);
-
     assert.deepEqual(f.notices, []);
   });
 }

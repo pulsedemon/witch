@@ -28,7 +28,6 @@ async function completedForBackground(
   prepare?: (claude: FixtureAgent, codex: FixtureAgent) => void,
 ) {
   const f = await exhaustion(prepare);
-
   await f.coordinator.send('Review schema changes');
 
   return { ...f, emit: f.claude.sessions.at(-1)!.options.onEvent };
@@ -39,7 +38,6 @@ test('background exhaustion continues completed work with reports before queued 
 
   try {
     const before = coordinator.snapshot.conversation!;
-
     emit({ type: 'running', running: true });
 
     emit({
@@ -51,13 +49,9 @@ test('background exhaustion continues completed work with reports before queued 
     });
 
     emit({ type: 'exhausted' });
-
     emit({ type: 'exhausted' });
-
     await coordinator.send('Queued separately');
-
     assert.equal(codex.inputs.length, 0);
-
     emit({ type: 'running', running: false });
 
     await until(
@@ -78,19 +72,12 @@ test('background exhaustion continues completed work with reports before queued 
     );
 
     assert.match(codex.inputs[0]!.context!, /Keep the unique index/);
-
     assert.match(codex.inputs[0]!.context!, /Review schema changes/);
-
     assert.ok(!codex.inputs[0]!.context!.includes('User: Queued separately'));
-
     assert.equal(claude.inputs.length, 1);
-
     emit({ type: 'exhausted' });
-
     await coordinator.send('Still on destination');
-
     assert.equal(codex.inputs.length, 3);
-
     assert.equal(claude.inputs.length, 1);
   } finally {
     await coordinator.close();
@@ -102,15 +89,10 @@ test('a pending compact runs on the destination after background continuation', 
 
   try {
     emit({ type: 'running', running: true });
-
     emit({ type: 'exhausted' });
-
     const compacting = coordinator.compact();
-
     await coordinator.send('After compact');
-
     emit({ type: 'running', running: false });
-
     assert.equal(await within(compacting, 5000, 'destination compact'), true);
 
     await until(
@@ -119,7 +101,6 @@ test('a pending compact runs on the destination after background continuation', 
     );
 
     assert.equal(claude.compactions.length, 0);
-
     assert.equal(codex.compactions.length, 1);
 
     assert.deepEqual(
@@ -137,11 +118,8 @@ test('background exhaustion blocked by a command leaves the queue for the compos
 
   try {
     emit({ type: 'running', running: true });
-
     emit({ type: 'exhausted' });
-
     await coordinator.send('Queued');
-
     emit({ type: 'running', running: false });
 
     await until('command blocker', () =>
@@ -151,15 +129,11 @@ test('background exhaustion blocked by a command leaves the queue for the compos
     );
 
     release();
-
     assert.equal(codex.inputs.length, 0);
-
     assert.equal(claude.inputs.length, 1);
-
     assert.deepEqual(coordinator.snapshot.queue, ['Queued']);
   } finally {
     release();
-
     await coordinator.close();
   }
 });
@@ -169,23 +143,14 @@ test('Escape cancels a pending background switch and late events cannot revive i
 
   try {
     emit({ type: 'running', running: true });
-
     emit({ type: 'exhausted' });
-
     await coordinator.interrupt();
-
     emit({ type: 'running', running: false });
-
     emit({ type: 'exhausted' });
-
     assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
-
     assert.equal(codex.inputs.length, 0);
-
     await coordinator.send('User resumed');
-
     assert.equal(claude.inputs.length, 2);
-
     assert.equal(codex.inputs.length, 0);
   } finally {
     await coordinator.close();
@@ -205,7 +170,6 @@ test('background memory waits for recovery, then continues completed work on the
     );
 
     emit({ type: 'exhausted' });
-
     emit({ type: 'running', running: false });
 
     await until(
@@ -228,7 +192,6 @@ test('background memory waits for recovery, then continues completed work on the
     );
 
     await coordinator.send('Queued during recovery');
-
     await coordinator.recoverMemory('accept');
 
     await until(
@@ -242,7 +205,6 @@ test('background memory waits for recovery, then continues completed work on the
     );
 
     assert.match(codex.inputs[0]!.context!, /Background note/);
-
     assert.equal(claude.inputs.length, 1);
   } finally {
     await coordinator.close();
@@ -264,11 +226,8 @@ for (const stage of ['add', 'commit'] as const)
 
       if (armed && command[0] === stage) {
         armed = false;
-
         emit({ type: 'running', running: true });
-
         emit({ type: 'exhausted' });
-
         emit({ type: 'running', running: false });
       }
 
@@ -277,7 +236,6 @@ for (const stage of ['add', 'commit'] as const)
 
     try {
       await coordinator.send('remember-port');
-
       assert.equal(coordinator.snapshot.phase, 'recovery');
 
       assert.equal(
@@ -288,7 +246,6 @@ for (const stage of ['add', 'commit'] as const)
       );
 
       assert.match(coordinator.snapshot.recovery!.diff, /4567/);
-
       assert.equal(codex.inputs.length, 0);
 
       assert.ok(
@@ -298,7 +255,6 @@ for (const stage of ['add', 'commit'] as const)
       );
 
       hook.current = passThrough;
-
       await coordinator.recoverMemory('discard');
 
       await until(
@@ -313,7 +269,6 @@ for (const stage of ['add', 'commit'] as const)
       );
     } finally {
       hook.current = passThrough;
-
       await coordinator.close();
     }
   });
@@ -327,11 +282,8 @@ test('a background switch with no destination reports a blocker and retains queu
 
   try {
     emit({ type: 'running', running: true });
-
     emit({ type: 'exhausted' });
-
     await coordinator.send('Retain this');
-
     emit({ type: 'running', running: false });
 
     await until('background capacity blocker', () =>
@@ -341,11 +293,8 @@ test('a background switch with no destination reports a blocker and retains queu
     );
 
     assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
-
     assert.equal(claude.inputs.length, 1);
-
     assert.equal(codex.inputs.length, 0);
-
     assert.deepEqual(coordinator.snapshot.queue, ['Retain this']);
   } finally {
     await coordinator.close();
@@ -367,9 +316,7 @@ test('a background continuation that exhausts the destination stops after one ho
     );
 
     assert.equal(coordinator.snapshot.conversation!.agent, 'codex');
-
     assert.equal(claude.inputs.length, 1);
-
     assert.equal(codex.inputs.length, 1);
   } finally {
     await coordinator.close();
@@ -378,16 +325,12 @@ test('a background continuation that exhausts the destination stops after one ho
 
 test('a peer pause cancels background switching and a later continuation preserves the claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
   const initiator = await f.start('A');
   const claude = new FixtureAgent('claude');
   const codex = new FixtureAgent('codex');
-
   claude.catalog.splice(0, Infinity, ...models(['claude-fable-5-2']));
-
   codex.catalog.splice(0, Infinity, ...models(['gpt-6-astra']));
 
   for (const adapter of [claude, codex]) adapter.accountRead = reading(10);
@@ -408,11 +351,8 @@ test('a peer pause cancels background switching and a later continuation preserv
   if (claim.kind !== 'claimed') assert.fail(JSON.stringify(claim));
 
   await target.coordinator.send('Work on the task');
-
   const emit = claude.sessions.at(-1)!.options.onEvent;
-
   emit({ type: 'running', running: true });
-
   emit({ type: 'exhausted' });
 
   const pause = await callControl(await initiator.binding(), {
@@ -429,9 +369,7 @@ test('a peer pause cancels background switching and a later continuation preserv
   );
 
   emit({ type: 'running', running: false });
-
   emit({ type: 'exhausted' });
-
   assert.equal(codex.inputs.length, 0);
 
   await callControl(await initiator.binding(), {
@@ -440,13 +378,9 @@ test('a peer pause cancels background switching and a later continuation preserv
   });
 
   await target.coordination.context();
-
   await target.coordinator.send('Resume the task');
-
   emit({ type: 'running', running: true });
-
   emit({ type: 'exhausted' });
-
   emit({ type: 'running', running: false });
 
   await until(
@@ -456,9 +390,7 @@ test('a peer pause cancels background switching and a later continuation preserv
   );
 
   assert.equal((await target.query()).ownClaim?.id, claim.claim.id);
-
   assert.equal(claude.inputs.length, 2);
-
   assert.equal(target.coordinator.snapshot.conversation!.agent, 'codex');
 });
 
@@ -467,7 +399,6 @@ test('background settlement failure releases pending compaction and keeps the so
 
   try {
     emit({ type: 'running', running: true });
-
     emit({ type: 'exhausted' });
 
     hook.current = async (command, run) => {
@@ -481,7 +412,6 @@ test('background settlement failure releases pending compaction and keeps the so
     };
 
     const compacting = coordinator.compact();
-
     emit({ type: 'running', running: false });
 
     assert.equal(
@@ -490,13 +420,10 @@ test('background settlement failure releases pending compaction and keeps the so
     );
 
     assert.match(coordinator.snapshot.error!, /background memory unavailable/);
-
     assert.equal(codex.inputs.length, 0);
-
     assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
   } finally {
     hook.current = passThrough;
-
     await coordinator.close();
   }
 });
@@ -533,7 +460,6 @@ for (const blocked of ['capacity', 'command'] as const)
       if (blocked === 'command') release = coordinator.holdPromptDelivery();
 
       await coordinator.send('Retained input');
-
       await coordinator.recoverMemory('accept');
 
       await until(
@@ -558,17 +484,12 @@ for (const blocked of ['capacity', 'command'] as const)
       ).length;
 
       assert.equal(count, 1);
-
       assert.equal(attempts, blocked === 'capacity' ? 1 : 0);
-
       assert.deepEqual(coordinator.snapshot.queue, ['Retained input']);
-
       assert.equal(claude.inputs.length, 1);
-
       assert.equal(codex.inputs.length, 0);
     } finally {
       release();
-
       await coordinator.close();
     }
   });
@@ -586,7 +507,6 @@ for (const preparing of ['context', 'images'] as const)
 
         vi.spyOn(session, 'contextUsage').mockImplementationOnce(async () => {
           entered.resolve();
-
           await release.promise;
 
           return context();
@@ -597,7 +517,6 @@ for (const preparing of ['context', 'images'] as const)
         vi.spyOn(Attachments.prototype, 'prepare').mockImplementationOnce(
           async function (this: Attachments, ...args) {
             entered.resolve();
-
             await release.promise;
 
             return prepare.apply(this, args);
@@ -606,13 +525,9 @@ for (const preparing of ['context', 'images'] as const)
       }
 
       const sending = coordinator.send('Prepared follow-up');
-
       await within(entered.promise, 3000, 'input preparation');
-
       emit({ type: 'exhausted' });
-
       release.resolve();
-
       await sending;
 
       await until(
@@ -629,7 +544,6 @@ for (const preparing of ['context', 'images'] as const)
       );
     } finally {
       release.resolve();
-
       await coordinator.close();
     }
   });
@@ -643,20 +557,15 @@ test('a steering image prepared across exhaustion stays queued for the destinati
   try {
     claude.gate = gate;
     const active = coordinator.send('Continue working');
-
     await gate.entered;
-
     const image = join(await scratch('witch-exhaustion-steer-'), 'image.png');
-
     await writeFile(image, png(2, 2));
-
     const marker = coordinator.paste(image, '')!;
     const prepare = Attachments.prototype.prepare;
 
     vi.spyOn(Attachments.prototype, 'prepare').mockImplementationOnce(
       async function (this: Attachments, ...args) {
         entered.resolve();
-
         await release.promise;
 
         return prepare.apply(this, args);
@@ -664,17 +573,11 @@ test('a steering image prepared across exhaustion stays queued for the destinati
     );
 
     const steering = coordinator.send(`Follow-up ${marker}`);
-
     await entered.promise;
-
     emit({ type: 'exhausted' });
-
     release.resolve();
-
     await steering;
-
     gate.open();
-
     await active;
 
     await until(
@@ -683,15 +586,11 @@ test('a steering image prepared across exhaustion stays queued for the destinati
     );
 
     assert.deepEqual(claude.steerImages, []);
-
     assert.equal(codex.inputs[1]!.images!.length, 1);
-
     assert.equal(claude.inputs.length, 2);
   } finally {
     gate.open();
-
     release.resolve();
-
     await coordinator.close();
   }
 });
@@ -722,9 +621,7 @@ test('background rejection during transcript flush keeps dirty memory for recove
     async function (this: ConversationStore) {
       if (armed) {
         armed = false;
-
         entered.resolve();
-
         await release.promise;
       }
 
@@ -734,17 +631,11 @@ test('background rejection during transcript flush keeps dirty memory for recove
 
   try {
     const sending = coordinator.send('remember-port');
-
     await entered.promise;
-
     emit({ type: 'exhausted' });
-
     release.resolve();
-
     await sending;
-
     assert.equal(coordinator.snapshot.phase, 'recovery');
-
     assert.match(coordinator.snapshot.recovery!.diff, /4567/);
 
     assert.equal(
@@ -755,7 +646,6 @@ test('background rejection during transcript flush keeps dirty memory for recove
     assert.equal(codex.inputs.length, 0);
   } finally {
     release.resolve();
-
     await coordinator.close();
   }
 });
@@ -765,25 +655,15 @@ test('an old connection cannot exhaust a reconnected session with the same nativ
 
   try {
     const old = claude.sessions.at(-1)!.session;
-
     await old.close();
-
     await coordinator.send('Reconnect');
-
     const current = claude.sessions.at(-1)!;
-
     assert.notEqual(current.session, old);
-
     assert.equal(current.session.info.id, old.info.id);
-
     emit({ type: 'exhausted' });
-
     await coordinator.send('Stay on the current connection');
-
     assert.equal(codex.inputs.length, 0);
-
     assert.equal(claude.inputs.length, 3);
-
     current.options.onEvent({ type: 'exhausted' });
 
     await until(
@@ -812,7 +692,6 @@ for (const stage of [
       if (restarted) return;
 
       restarted = true;
-
       emit({ type: 'running', running: true });
 
       emit({
@@ -872,9 +751,7 @@ for (const stage of [
       if (stage === 'task') restart();
 
       emit({ type: 'exhausted' });
-
       await coordinator.send('Queued after report');
-
       emit({ type: 'running', running: false });
 
       await until(
@@ -883,13 +760,9 @@ for (const stage of [
       );
 
       assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
-
       assert.equal(claude.sessions.at(-1)!.session.closed, false);
-
       assert.equal(codex.inputs.length, 0);
-
       emit({ type: 'running', running: false });
-
       assert.equal(codex.inputs.length, 0);
 
       emit({
@@ -915,11 +788,9 @@ for (const stage of [
       );
 
       assert.match(codex.inputs[0]!.context!, /Keep the foreign key/);
-
       assert.equal(claude.inputs.length, 1);
     } finally {
       hook.current = passThrough;
-
       await coordinator.close();
     }
   });

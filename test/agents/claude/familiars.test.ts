@@ -205,7 +205,6 @@ test('a Claude background command registers after the parent turn and closes onl
     );
 
     await emit({ type: 'system', subtype: 'background_tasks_changed', tasks });
-
     assert.equal(session.replied, false);
 
     const request = {
@@ -226,11 +225,8 @@ test('a Claude background command registers after the parent turn and closes onl
     );
 
     const pending = events.find((event) => event.type === 'request');
-
     assert.ok(pending?.type === 'request');
-
     assert.equal(pending.request.survivesTurn, true);
-
     session.respond(pending.request.id, { decision: 'decline' });
 
     assert.deepEqual(
@@ -285,13 +281,9 @@ test('a Claude background command registers after the parent turn and closes onl
 
 test('native request IDs stay distinct between familiar runs and answers survive retries', async () => {
   const f = commands();
-
   f.start();
-
   await f.register();
-
   const other = randomUUID();
-
   f.start('other');
 
   f.outputs.set(
@@ -347,11 +339,8 @@ test('native request IDs stay distinct between familiar runs and answers survive
   );
 
   assert.equal(requests.length, 2);
-
   assert.notEqual(requests[0]!.id, requests[1]!.id);
-
   assert.deepEqual(requests[0]!.questions, request.questions);
-
   assert.equal(f.owner.respond('7', { decision: 'cancel' }), false);
 
   f.owner.respond(requests[1]!.id, {
@@ -360,7 +349,6 @@ test('native request IDs stay distinct between familiar runs and answers survive
   });
 
   f.owner.respond(requests[0]!.id, { decision: 'decline' });
-
   f.owner.respond(requests[0]!.id, { decision: 'accept' });
 
   for (let count = 0; count < 2; count++) {
@@ -411,11 +399,8 @@ test('native request IDs stay distinct between familiar runs and answers survive
 
 test('registration waits for backgrounding and a complete matching marker', async () => {
   const f = commands();
-
   assert.equal((await f.register()).kind, 'familiar-pending');
-
   f.start('review', '2', false);
-
   assert.equal((await f.register()).kind, 'familiar-pending');
 
   f.emit({
@@ -426,30 +411,21 @@ test('registration waits for backgrounding and a complete matching marker', asyn
   });
 
   f.outputs.set('review', f.marker.trimEnd());
-
   assert.equal((await f.register()).kind, 'familiar-pending');
-
   f.outputs.set('review', f.marker);
-
   assert.equal((await f.register()).kind, 'familiar-registered');
-
   assert.equal((await f.register()).kind, 'familiar-registered');
-
   assert.equal(f.familiars().length, 1);
-
   assert.equal(f.familiars()[0]!.parent, 'parent');
-
   await f.owner.close();
 });
 
 test('completed foreground tasks release their state while active tasks can still become familiars', async () => {
   const f = commands();
-
   f.start('active', '2', false);
 
   for (let index = 0; index < 1000; index++) {
     const id = `finished-${index}`;
-
     f.start(id, '2', false);
 
     f.emit({
@@ -470,24 +446,17 @@ test('completed foreground tasks release their state while active tasks can stil
   });
 
   f.outputs.set('active', f.marker);
-
   assert.equal((await f.register()).kind, 'familiar-registered');
-
   assert.equal(f.familiars().at(-1)!.status, 'running');
-
   await f.owner.close();
-
   assert.equal(f.familiars().at(-1)!.status, 'stopped');
-
   assert.equal(f.owner['entries'].size, 0);
 });
 
 test('one background command registers each familiar whose marker appears in its output', async () => {
   const f = commands();
   const second = randomUUID();
-
   f.start();
-
   assert.equal((await f.register()).kind, 'familiar-registered');
 
   f.outputs.set(
@@ -518,7 +487,6 @@ test('one background command registers each familiar whose marker appears in its
   );
 
   await f.owner.close();
-
   assert.deepEqual(f.stopped, ['review']);
 
   assert.deepEqual(
@@ -534,26 +502,18 @@ test('one background command registers each familiar whose marker appears in its
 
 test('two native commands cannot claim the same reported run', async () => {
   const f = commands();
-
   f.start();
-
   f.start('other');
-
   f.outputs.set('other', f.marker);
-
   await assert.rejects(f.register(), /more than one command/);
-
   assert.deepEqual(f.familiars(), []);
-
   await f.owner.close();
 });
 
 test('a task end or expired deadline during an output read prevents admission', async () => {
   for (const change of ['end', 'expire', 'connection'] as const) {
     const f = commands();
-
     f.start();
-
     const output = Promise.withResolvers<unknown>();
     f.control.getTaskOutput = () => output.promise;
     const deadline = Date.now() + 10_000;
@@ -597,7 +557,6 @@ test('a task end or expired deadline during an output read prevents admission', 
       assert.deepEqual(f.familiars(), []);
     } finally {
       now?.mockRestore();
-
       await f.owner.close();
     }
   }
@@ -605,9 +564,7 @@ test('a task end or expired deadline during an output read prevents admission', 
 
 test('stale native runs and repeated progress cannot revive a completed familiar', async () => {
   const f = commands();
-
   f.start();
-
   await f.register();
 
   f.emit({
@@ -618,9 +575,7 @@ test('stale native runs and repeated progress cannot revive a completed familiar
   });
 
   await f.update(0);
-
   await f.update(0, 'failed');
-
   await f.update(1, 'completed');
 
   f.emit({
@@ -638,17 +593,11 @@ test('stale native runs and repeated progress cannot revive a completed familiar
   );
 
   assert.equal(f.familiars().at(-1)!.report, 'Full report');
-
   assert.deepEqual(f.familiars().at(-1)!.notices, ['MCP down']);
-
   await assert.rejects(f.update(2), /already ended/);
-
   f.start('review', '3');
-
   f.outputs.set('review', '');
-
   await assert.rejects(f.update(3), /not registered/);
-
   await f.owner.close();
 });
 
@@ -691,14 +640,9 @@ test('native completion without a final report fails the familiar while live-set
 
 test("a Claude session's Claude familiar registers under its own runtime", async () => {
   const f = commands();
-
   f.start();
-
   assert.equal((await f.register('claude')).kind, 'familiar-registered');
-
   assert.equal(f.familiars()[0]!.id, `claude-familiar/${f.run}`);
-
   assert.equal(f.familiars()[0]!.runtime, 'claude');
-
   await f.owner.close();
 });

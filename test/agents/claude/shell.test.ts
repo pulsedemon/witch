@@ -47,15 +47,10 @@ test("a shell command runs in the session's directory as one open tool row, send
     );
 
     assert.equal(new Set(tools.map(({ id }) => id)).size, 1);
-
     assert.equal(tools[0]!.title, 'pwd -P');
-
     assert.equal(tools[0]!.shell, true);
-
     assert.equal(tools.at(-1)!.done, true);
-
     await assert.rejects(access(join(cwd, 'content.json')));
-
     await session.send('next');
 
     assert.deepEqual(await content(cwd), [
@@ -67,7 +62,6 @@ test("a shell command runs in the session's directory as one open tool row, send
     ]);
 
     await session.send('again');
-
     assert.equal(await content(cwd), 'again');
   } finally {
     await session.close();
@@ -83,15 +77,10 @@ test('a shell command that exits non-zero ends its row failed', async () => {
 
   try {
     await within(session.shell('false'), 3000, 'the failing command');
-
     assert.equal(tools.at(-1)!.done, true);
-
     assert.equal(tools.at(-1)!.failed, true);
-
     await within(session.shell('true'), 3000, 'the passing command');
-
     assert.equal(tools.at(-1)!.done, true);
-
     assert.equal(tools.at(-1)!.failed, undefined);
   } finally {
     await session.close();
@@ -104,7 +93,6 @@ for (const closed of [false, true]) {
 
     try {
       await session.shell('printf alpha');
-
       await session.shell('printf beta');
 
       if (closed) await session.close();
@@ -118,7 +106,6 @@ for (const closed of [false, true]) {
 
       if (!closed) {
         await session.send('next');
-
         assert.equal(await content(cwd), 'next');
       }
     } finally {
@@ -140,7 +127,6 @@ for (const condition of [
 
     try {
       await session.shell(command);
-
       const write = child.stdin.write.bind(child.stdin);
 
       child.stdin.write = (...args) => {
@@ -191,7 +177,6 @@ for (const condition of [
       }
 
       const result = await within(turn, 5000, 'the failed command reply');
-
       assert.equal(result.status, 'failed');
 
       assert.deepEqual(
@@ -207,7 +192,6 @@ for (const condition of [
       assert.deepEqual(session.takeUnreadContext!(), []);
     } finally {
       await session.close();
-
       assert.ok(child.exitCode !== null || child.signalCode !== null);
     }
   });
@@ -226,7 +210,6 @@ test('dispatch failure recovers only the later unsent command in a turn', async 
 
   try {
     const turn = session.send('reporting familiar');
-
     await until('the first reply', () => session.replied);
 
     assert.equal(
@@ -247,9 +230,7 @@ test('dispatch failure recovers only the later unsent command in a turn', async 
     );
 
     const result = await within(turn, 5000, 'the failed second reply');
-
     assert.equal(result.status, 'failed');
-
     assert.equal(result.inputUnsent, undefined);
 
     assert.deepEqual(result.unreadContext, [
@@ -257,7 +238,6 @@ test('dispatch failure recovers only the later unsent command in a turn', async 
     ]);
 
     assert.deepEqual(session.takeUnreadContext!(), []);
-
     assert.equal((await jsonLines(join(cwd, 'steered.jsonl'))).length, 1);
   } finally {
     await session.close();
@@ -285,7 +265,6 @@ test("a shell command refuses steering, and an interrupt kills it, ends it inter
     );
 
     assert.equal(await session.steer('more'), false);
-
     await session.interrupt();
 
     assert.equal(
@@ -324,7 +303,6 @@ test("a shell command refuses steering, and an interrupt kills it, ends it inter
     assert.equal(blocks[2]!.text, 'next');
   } finally {
     await stop('sleep 60.139');
-
     await session.close();
   }
 });
@@ -338,13 +316,9 @@ test('closing the session during a shell command kills it, and the shell settles
 
   try {
     const shell = session.shell('sleep 60.141');
-
     await until('the command row', () => tools.length > 0);
-
     await session.close();
-
     await within(shell, 3000, 'the closed command');
-
     await until('the sleep ends', async () => !(await running('sleep 60.141')));
   } finally {
     await stop('sleep 60.141');
@@ -381,11 +355,8 @@ setInterval(() => {}, 1000);
     );
 
     shell = session.shell(command);
-
     await until('the command output', () => output.includes('partial-output'));
-
     pipePid = Number(await readFile(join(cwd, 'pipe.pid'), 'utf8'));
-
     await within(session.close(), 3000, 'session close');
 
     assert.deepEqual(session.takeUnreadContext!(), [
@@ -393,7 +364,6 @@ setInterval(() => {}, 1000);
     ]);
 
     assert.equal((await shell).status, 'interrupted');
-
     assert.deepEqual(session.takeUnreadContext!(), []);
   } finally {
     await session.close();
@@ -429,9 +399,7 @@ for (const fails of [false, true]) {
         if (pid !== undefined) return;
 
         reporting.resolve();
-
         await release.promise;
-
         reports.push('shell');
 
         if (fails) throw new Error('shell report failed');
@@ -450,25 +418,16 @@ for (const fails of [false, true]) {
 
     try {
       await within(reporting.promise, 3000, 'the final shell report');
-
       const closing = session.close();
-
       await within(nativeClosed, 3000, 'the native process exit');
-
       await tick();
-
       assert.deepEqual(reports, []);
-
       release.resolve();
-
       await within(Promise.all([closing, result]), 3000, 'session close');
-
       assert.deepEqual(reports, ['shell', 'native']);
     } finally {
       release.resolve();
-
       await session.close();
-
       await result;
     }
   });
@@ -495,19 +454,15 @@ test("a shell command reports its shell's pid as it starts and undefined once it
 
       // throws once the shell is reaped
       process.kill(pid, 0);
-
       // still pending when the command ends, however fast it runs
       await done.promise;
-
       reports.push('settled');
     },
   });
 
   try {
     await within(session.shell('echo $$'), 3000, 'the command');
-
     const pid = Number(texts.join('').trim());
-
     assert.deepEqual(reports, [`report ${pid}`, 'settled', 'report undefined']);
   } finally {
     await session.close();
@@ -584,9 +539,7 @@ test('a command steered after the result runs, refuses other prompts while it ru
 
   try {
     const turn = session.send('background familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
-
     assert.equal(await session.steer('reply', { command: gated }), true);
 
     await until('the command row', () =>
@@ -594,11 +547,8 @@ test('a command steered after the result runs, refuses other prompts while it ru
     );
 
     assert.equal(session.replied, false);
-
     assert.equal(await session.steer('more'), false);
-
     await allow(cwd, 'go');
-
     const steered = join(cwd, 'steered.jsonl');
     const expected = [replyBlocks(gated, 'held\n')];
 
@@ -607,9 +557,7 @@ test('a command steered after the result runs, refuses other prompts while it ru
     );
 
     await allow(cwd, 'allow-idle');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
-
     assert.deepEqual(await jsonLines(steered), expected);
   } finally {
     await session.close();
@@ -630,19 +578,12 @@ test("a turn whose familiar reports while a steered command runs stays open thro
     });
 
     await until('the result', () => seen.skills.includes('result-1'));
-
     assert.equal(await session.steer('reply', { command: gated }), true);
-
     await allow(cwd, 'allow-report', 'allow-idle');
-
     await until('idle', () => seen.skills.includes('after-idle'));
-
     assert.equal(finished, false);
-
     await allow(cwd, 'go');
-
     assert.equal((await within(turn, 3000, 'turn')).status, 'completed');
-
     assert.deepEqual(await content(cwd), replyBlocks(gated, 'held\n'));
   } finally {
     await session.close();
@@ -655,28 +596,17 @@ test("a command that ends while Claude Code answers the familiar's report sends 
 
   try {
     const turn = session.send('reporting familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
-
     assert.equal(await session.steer('reply', { command: gated }), true);
-
     await allow(cwd, 'allow-report');
-
     await until('the report', () => seen.texts.includes('Reported.'));
-
     await allow(cwd, 'go');
-
     await until('the command ends', () => seen.ended(gated));
-
     // time for a reply sent too early to reach the fixture
     await new Promise((resolve) => setTimeout(resolve, 200));
-
     await allow(cwd, 'allow-idle');
-
     assert.equal((await within(turn, 3000, 'turn')).status, 'completed');
-
     assert.deepEqual(await content(cwd), replyBlocks(gated, 'held\n'));
-
     await assert.rejects(access(join(cwd, 'early.jsonl')));
   } finally {
     await session.close();
@@ -689,32 +619,19 @@ test('a command that ends while Claude Code runs again after idle sends its repl
 
   try {
     const turn = session.send('reporting familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
-
     assert.equal(await session.steer('reply', { command: gated }), true);
-
     await allow(cwd, 'allow-report', 'allow-idle');
-
     await until('idle', () => seen.skills.includes('after-idle'));
-
     await allow(cwd, 'allow-run');
-
     await until('the run', () => seen.texts.includes('Brewed.'));
-
     await allow(cwd, 'go');
-
     await until('the command ends', () => seen.ended(gated));
-
     // time for a reply sent too early to reach the fixture
     await new Promise((resolve) => setTimeout(resolve, 200));
-
     await allow(cwd, 'allow-rest');
-
     assert.equal((await within(turn, 3000, 'turn')).status, 'completed');
-
     assert.deepEqual(await content(cwd), replyBlocks(gated, 'held\n'));
-
     await assert.rejects(access(join(cwd, 'early.jsonl')));
   } finally {
     await session.close();
@@ -727,19 +644,12 @@ test("a reply waiting for Claude Code's idle goes once Claude Code starts anothe
 
   try {
     const turn = session.send('reporting familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
-
     assert.equal(await session.steer('reply', { command: gated }), true);
-
     await allow(cwd, 'allow-report');
-
     await until('the report', () => seen.texts.includes('Reported.'));
-
     await allow(cwd, 'go');
-
     await until('the command ends', () => seen.ended(gated));
-
     await allow(cwd, 'allow-second');
 
     await until('the reply', async () =>
@@ -760,7 +670,6 @@ test('an interrupt during a steered command after Claude Code is idle kills it a
 
   try {
     const turn = session.send('reporting familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
 
     assert.equal(
@@ -769,23 +678,15 @@ test('an interrupt during a steered command after Claude Code is idle kills it a
     );
 
     await until('the sleep starts', () => running('sleep 60.38'));
-
     await allow(cwd, 'allow-report', 'allow-idle');
-
     await until('idle', () => seen.skills.includes('after-idle'));
-
     await within(session.interrupt(), 3000, 'interrupt');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'interrupted');
-
     await assert.rejects(access(join(cwd, 'interrupts.log')));
-
     assert.equal(await content(cwd), 'reporting familiar');
-
     await until('the sleep ends', async () => !(await running('sleep 60.38')));
   } finally {
     await stop('sleep 60.38');
-
     await session.close();
   }
 });
@@ -796,9 +697,7 @@ test('an interrupt after the reply while a familiar holds the turn open ends the
 
   try {
     const turn = session.send('background familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
-
     await within(session.interrupt(), 2000, 'interrupt');
 
     assert.deepEqual(await within(turn, 2000, 'turn'), {
@@ -816,15 +715,12 @@ test('a model change waits for the turn, unless it has replied and a familiar ho
 
   const { session, cwd } = await fixture((event) => {
     busy.onEvent(event);
-
     seen.onEvent(event);
   });
 
   try {
     const first = session.send('steerable');
-
     await within(busy.seen, 2000, 'first output');
-
     assert.equal(session.replied, false);
 
     await assert.rejects(
@@ -833,23 +729,14 @@ test('a model change waits for the turn, unless it has replied and a familiar ho
     );
 
     assert.equal(await session.steer('wrap up'), true);
-
     await within(first, 2000, 'the first turn');
-
     const second = session.send('background familiar');
-
     await until('the result', () => seen.skills.includes('result-2'));
-
     assert.equal(session.replied, true);
-
     await session.selectModel('claude-b');
-
     assert.equal(session.info.model, 'claude-b');
-
     assert.equal(await session.steer('meanwhile'), true);
-
     await allow(cwd, 'allow-idle');
-
     assert.equal((await within(second, 2000, 'turn')).status, 'completed');
   } finally {
     await session.close();
@@ -871,9 +758,7 @@ for (const mode of [undefined, 'first-reply-read']) {
 
       try {
         const turn = session.send('reporting familiar');
-
         await until('the first reply', () => session.replied);
-
         const first = "printf 'alpha\\n'";
 
         assert.equal(
@@ -890,7 +775,6 @@ for (const mode of [undefined, 'first-reply-read']) {
         );
 
         assert.equal(await session.steer('between'), true);
-
         const second = "printf 'beta\\n' >&2; exit 7";
 
         assert.equal(
@@ -907,17 +791,11 @@ for (const mode of [undefined, 'first-reply-read']) {
         );
 
         await within(session.interrupt(), 3000, 'interrupt');
-
         const result = await within(turn, 2000, 'turn');
-
         assert.equal(result.status, 'interrupted');
-
         assert.deepEqual(result.unread, ['between']);
-
         assert.deepEqual(result.unreadContext, mode ? [records[1]] : records);
-
         assert.deepEqual(session.takeUnreadContext!(), []);
-
         assert.equal(session.closed, true);
       } finally {
         await session.close();
@@ -933,7 +811,6 @@ test('an interrupt recovers a completed idle command from its initial reply', as
 
   try {
     assert.equal((await session.shell(command)).status, 'completed');
-
     const prompt = `!${command}\n\nReply without running it again.`;
     const turn = session.send(prompt);
 
@@ -954,19 +831,12 @@ test('an interrupt recovers a completed idle command from its initial reply', as
     ]);
 
     await within(session.interrupt(), 3000, 'interrupt');
-
     const result = await within(turn, 2000, 'turn');
-
     assert.equal(result.status, 'interrupted');
-
     assert.deepEqual(result.unread, []);
-
     assert.deepEqual(result.unreadContext, [record]);
-
     assert.deepEqual(session.takeUnreadContext!(), []);
-
     assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
-
     assert.equal(session.closed, true);
   } finally {
     await session.close();
@@ -989,15 +859,10 @@ for (const steers of [[], ['a steer']])
         assert.equal(await session.steer(steer), true);
 
       await within(session.interrupt(), 3000, 'interrupt');
-
       const result = await within(turn, 2000, 'turn');
-
       assert.equal(result.status, 'interrupted');
-
       assert.equal(result.inputUnread, true);
-
       assert.equal(result.inputUnsent, undefined);
-
       assert.deepEqual(result.unread, steers);
     } finally {
       await session.close();
@@ -1033,15 +898,10 @@ test("a turn stays open while a steered command's end report is still settling",
     );
 
     await until('the command ends', () => seen.ended('echo settled'));
-
     await allow(cwd, 'allow-report', 'allow-idle');
-
     await until('idle', () => seen.skills.includes('after-idle'));
-
     assert.equal(finished, false);
-
     settled.resolve();
-
     assert.equal((await within(turn, 3000, 'turn')).status, 'completed');
 
     assert.deepEqual(
@@ -1050,7 +910,6 @@ test("a turn stays open while a steered command's end report is still settling",
     );
   } finally {
     settled.resolve();
-
     await session.close();
   }
 });
@@ -1068,7 +927,6 @@ test('a steered command that fails posts its error and sends no reply', async ()
 
   try {
     const turn = session.send('background familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
 
     assert.equal(
@@ -1081,9 +939,7 @@ test('a steered command that fails posts its error and sends no reply', async ()
     );
 
     assert.equal(await session.steer('meanwhile'), true);
-
     await allow(cwd, 'allow-idle');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
 
     assert.equal(
@@ -1101,7 +957,6 @@ test('a held turn fails when the CLI dies after idle, and its steered command st
 
   try {
     const turn = session.send('reporting familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
 
     assert.equal(
@@ -1110,24 +965,16 @@ test('a held turn fails when the CLI dies after idle, and its steered command st
     );
 
     await until('the sleep starts', () => running('sleep 60.39'));
-
     await allow(cwd, 'allow-report', 'allow-idle');
-
     await until('idle', () => seen.skills.includes('after-idle'));
-
     await allow(cwd, 'allow-die');
-
     const result = await within(turn, 3000, 'turn');
-
     assert.equal(result.status, 'failed');
-
     // only end() adds the stderr tail
     assert.match(result.error ?? '', /grandchild line/);
-
     await until('the sleep ends', async () => !(await running('sleep 60.39')));
   } finally {
     await stop('sleep 60.39');
-
     await session.close();
   }
 });
@@ -1138,13 +985,9 @@ test('a shell command run with no turn open keeps running when the CLI dies', as
 
   try {
     const turn = session.send('reporting familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
-
     await allow(cwd, 'allow-report', 'allow-idle');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
-
     const shell = session.shell('sleep 1; echo done');
 
     await until('the command row', () =>
@@ -1152,11 +995,8 @@ test('a shell command run with no turn open keeps running when the CLI dies', as
     );
 
     await allow(cwd, 'allow-die');
-
     await until('the CLI dies', () => session.closed);
-
     assert.equal((await within(shell, 3000, 'command')).status, 'completed');
-
     assert.match(seen.tools.map(({ text }) => text).join(''), /done/);
   } finally {
     await session.close();
@@ -1169,25 +1009,15 @@ test('an interrupt while a command that ended waits for idle sends no reply', as
 
   try {
     const turn = session.send('reporting familiar');
-
     await until('the result', () => seen.skills.includes('result-1'));
-
     assert.equal(await session.steer('reply', { command: gated }), true);
-
     await allow(cwd, 'allow-report');
-
     await until('the report', () => seen.texts.includes('Reported.'));
-
     await allow(cwd, 'go');
-
     await until('the command ends', () => seen.ended(gated));
-
     await within(session.interrupt(), 3000, 'interrupt');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'interrupted');
-
     await assert.rejects(access(join(cwd, 'early.jsonl')));
-
     assert.equal(await content(cwd), 'reporting familiar');
   } finally {
     await session.close();
@@ -1216,7 +1046,6 @@ test("Claude Code gets the mark's script as CLAUDE_ENV_FILE, and the CLI doesn't
 
     try {
       assert.equal(envs[0]!.CLAUDE_ENV_FILE, '/x/jobs/env');
-
       assert.equal(envs[0]!.WITCH_JOBS, '/outer/jobs/1');
     } finally {
       await session.close();

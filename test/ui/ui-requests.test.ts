@@ -53,9 +53,7 @@ test('a short question keeps its selected option visible and submits that option
 
   try {
     await until('first visible option', () => ui.text().includes('› 1. first'));
-
     await delay(550);
-
     ui.stdin.write(DOWN);
 
     await until('second visible option', () =>
@@ -63,9 +61,7 @@ test('a short question keeps its selected option visible and submits that option
     );
 
     assert.equal(ui.text().split('\n').length, 8);
-
     ui.stdin.write(ENTER);
-
     await until('selected answer', () => calls.length > 0);
 
     assert.deepEqual(calls, [
@@ -102,9 +98,7 @@ for (const height of [8, 12]) {
       );
 
       await delay(550);
-
       ui.stdin.write('Ada' + ENTER);
-
       await until('typed answer', () => calls.length > 0);
 
       assert.deepEqual(calls, [
@@ -144,11 +138,8 @@ test('a question preserves manual scrolling across resize and follows a changed 
 
   try {
     await until('question options', () => firstOption() === '1. option 1');
-
     await delay(550);
-
     ui.stdin.write('\u001b[6~');
-
     await until('next page', () => firstOption() === '29. option 29');
 
     for (const [width, height] of [
@@ -170,7 +161,6 @@ test('a question preserves manual scrolling across resize and follows a changed 
     }
 
     ui.stdin.write(DOWN);
-
     await until('changed selection', () => ui.text().includes('› 2. option 2'));
   } finally {
     ui.unmount();
@@ -192,17 +182,11 @@ for (const [width, allow, decline] of [
 
     try {
       await until('allow selection', () => ui.text() === allow);
-
       await delay(550);
-
       ui.stdin.write(DOWN);
-
       await until('decline selection', () => ui.text() === decline);
-
       ui.stdin.write(ENTER);
-
       await until('declined', () => calls.length > 0);
-
       assert.deepEqual(calls, [['respond', 'r1', { decision: 'decline' }]]);
     } finally {
       ui.unmount();
@@ -231,19 +215,12 @@ test('approval diffs scroll and expand without responding', async () => {
 
   try {
     await until('the proposal', () => ui.text().includes('2 +added marker'));
-
     assert.match(ui.text(), /2 -removed marker/);
-
     assert.ok(ui.frame().includes('\u001b[48;2;34;92;43m'));
-
     assert.ok(ui.frame().includes('\u001b[48;2;122;41;54m'));
-
     ui.stdin.write('\u001b[111;5u');
-
     await until('full mode', () => ui.text().includes('CTRL+O SHOW PREVIEW'));
-
     ui.stdin.write('\u001b[<65;1;1M');
-
     ui.stdin.write('\u001b[6~'.repeat(4));
 
     await until('last supplied line', () =>
@@ -251,19 +228,12 @@ test('approval diffs scroll and expand without responding', async () => {
     );
 
     assert.match(ui.text(), /reason: review this change/);
-
     assert.match(ui.text(), /grant_root: \/work/);
-
     assert.match(ui.text(), /Allow once.*Decline.*Cancel turn/);
-
     ui.resize(80);
-
     await delay(60);
-
     assert.match(ui.text(), /45 \+proposal_45/);
-
     assert.deepEqual(calls, []);
-
     ui.stdin.write('\u001b[111;5u');
 
     await until(
@@ -274,11 +244,8 @@ test('approval diffs scroll and expand without responding', async () => {
     );
 
     assert.doesNotMatch(ui.text(), /proposal_45/);
-
     await delay(600);
-
     ui.stdin.write(DOWN + ENTER);
-
     await until('decline', () => calls.length > 0);
 
     assert.deepEqual(calls, [
@@ -299,7 +266,6 @@ test('file approval expansion resets for the next request', async () => {
 
   try {
     await until('first preview', () => ui.text().includes('first_10'));
-
     ui.stdin.write('\u001b[111;5u');
 
     await until('first full mode', () =>
@@ -307,9 +273,7 @@ test('file approval expansion resets for the next request', async () => {
     );
 
     ui.stdin.write('\u001b[6~'.repeat(3));
-
     await until('first final line', () => ui.text().includes('45 +first_45'));
-
     coordinator.publish({ requests: [fileApproval('second', 'second')] });
 
     await until(
@@ -320,11 +284,8 @@ test('file approval expansion resets for the next request', async () => {
     );
 
     ui.stdin.write('y');
-
     await delay(60);
-
     assert.deepEqual(calls, []);
-
     assert.doesNotMatch(ui.text(), /first_45|second_11|second_45/);
   } finally {
     ui.unmount();
@@ -337,17 +298,11 @@ test('modified approval letters do not answer', async () => {
 
   try {
     await delay(600);
-
     ui.stdin.write('\u001b[121;5u\u001b[110;3u\u001b[121;9u');
-
     await delay(60);
-
     assert.deepEqual(calls, []);
-
     ui.stdin.write('y');
-
     await until('plain approval', () => calls.length > 0);
-
     assert.deepEqual(calls, [['respond', 'r1', { decision: 'accept' }]]);
   } finally {
     ui.unmount();
@@ -366,11 +321,8 @@ for (const [name, keys, decision] of [
 
     try {
       await delay(600);
-
       ui.stdin.write(keys);
-
       await until('the response', () => calls.length > 0);
-
       assert.deepEqual(calls, [['respond', 'r1', { decision }]]);
     } finally {
       ui.unmount();
@@ -398,9 +350,7 @@ test('two questions answered in one read each get their own option', async () =>
 
   try {
     await delay(600);
-
     ui.stdin.write(`1${ENTER}${DOWN}${ENTER}`);
-
     await until('the response', () => calls.length > 0);
 
     assert.deepEqual(calls, [
@@ -432,9 +382,7 @@ for (const [columns, body] of [
 
     try {
       await until('the request', () => ui.text().includes('Approval required'));
-
       assert.ok(ui.text().includes('x'.repeat(body)), ui.text());
-
       // the rest makes a row of 5, where Ink would re-wrap a wider wrap into rows of 2 and 3
       assert.match(ui.text(), /(?<!x)x{5}(?!x)/);
     } finally {
@@ -452,22 +400,14 @@ test('a new request ignores keys for its first 500 ms', async () => {
 
   try {
     await until('the request', () => ui.text().includes('Approval required'));
-
     // a key in the instant the request appears beats even a 0 ms guard
     await delay(150);
-
     ui.stdin.write('y');
-
     ui.stdin.write('\u001b');
-
     await delay(100);
-
     assert.deepEqual(calls, []);
-
     await delay(500);
-
     ui.stdin.write('y');
-
     await until('the accept', () => calls.length > 0);
 
     coordinator.publish({
@@ -475,13 +415,9 @@ test('a new request ignores keys for its first 500 ms', async () => {
     });
 
     await until('the next request', () => ui.text().includes('rm -rf dist'));
-
     await delay(150);
-
     ui.stdin.write('y');
-
     await delay(100);
-
     assert.deepEqual(calls, [['respond', 'r1', { decision: 'accept' }]]);
   } finally {
     ui.unmount();
@@ -506,13 +442,9 @@ test('a new request ignores keys for its first 500 ms', async () => {
 
   try {
     await until('the question', () => asked.text().includes('Pick?'));
-
     await delay(150);
-
     asked.stdin.write(ENTER);
-
     await delay(100);
-
     assert.deepEqual(question.calls, []);
   } finally {
     asked.unmount();
@@ -540,9 +472,7 @@ test('a new request scrolls with PageDown before its other keys work', async () 
 
   try {
     await until('the request', () => ui.text().includes('Approval required'));
-
     await delay(150);
-
     ui.stdin.write('\u001b[6~y');
 
     // one 30-row page down from the top, as in the page key test above
@@ -576,11 +506,8 @@ test('Escape declines a question and the turn continues', async () => {
 
   try {
     await delay(600);
-
     ui.stdin.write('\u001b');
-
     await until('the decline', () => calls.length > 0);
-
     assert.deepEqual(calls, [['respond', 'q', { decision: 'decline' }]]);
   } finally {
     ui.unmount();
@@ -617,13 +544,9 @@ test('Ctrl+C cancels an idle question without exiting Witch', async () => {
 
   try {
     await until('the idle question', () => ui.text().includes('Which target?'));
-
     ui.stdin.write('\u0003');
-
     await until('the interrupt', () => calls.length > 0 || exited);
-
     assert.equal(exited, false);
-
     assert.deepEqual(calls, [['interrupt']]);
   } finally {
     ui.unmount();
@@ -661,15 +584,10 @@ test('a request preserves the page it covers and keeps arrows for selection', as
 
   try {
     await delay(60);
-
     await openCommand(ui, '/help', '/new  New');
-
     ui.stdin.write(wheelDown.repeat(5));
-
     await until('scrolled help', () => !ui.text().includes('/new  New'));
-
     const before = helpBody();
-
     assert.equal(before.length, 10);
 
     coordinator.publish({
@@ -684,31 +602,18 @@ test('a request preserves the page it covers and keeps arrows for selection', as
     });
 
     await until('request', () => ui.text().includes('d1\n'));
-
     ui.stdin.write(wheelDown.repeat(5));
-
     await until('request scrolled', () => requestTop() === 'd3');
-
     await delay(600);
-
     ui.stdin.write(DOWN);
-
     await until('decline selected', () => ui.text().includes('› Decline'));
-
     assert.equal(requestTop(), 'd3');
-
     assert.deepEqual(calls, []);
-
     ui.stdin.write(ENTER);
-
     await until('response', () => calls.length > 0);
-
     assert.deepEqual(calls, [['respond', 'cover', { decision: 'decline' }]]);
-
     coordinator.publish({ phase: 'idle', requests: [] });
-
     await until('restored help', () => ui.text().includes('Keyboard help'));
-
     assert.deepEqual(helpBody(), before);
   } finally {
     ui.unmount();

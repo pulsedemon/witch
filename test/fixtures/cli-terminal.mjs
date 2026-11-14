@@ -11,7 +11,6 @@ if (restartGate && process.env.WITCH_JOBS_RESUME === '1') {
 }
 
 Object.defineProperty(process.stdin, 'isTTY', { value: true });
-
 process.stdin.setRawMode = () => process.stdin;
 
 Object.defineProperties(process.stdout, {

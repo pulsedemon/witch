@@ -12,7 +12,6 @@ export function pageAnchorAt(lines: WrappedLines, row: number): PagePosition {
 
   while (line < lines.length - 1 && row >= lines[line]!.length) {
     row -= lines[line]!.length;
-
     line++;
   }
 

@@ -71,7 +71,6 @@ test('a reported familiar replaces its brew and retitles observed identity witho
     });
 
     assert.equal(coordinator.snapshot.subagents[0]!.rows.start, start);
-
     assert.equal(coordinator.snapshot.subagents[0]!.startedAt, startedAt);
 
     emit({
@@ -101,19 +100,12 @@ test('a reported familiar replaces its brew and retitles observed identity witho
     });
 
     assert.equal(coordinator.snapshot.subagents.length, 1);
-
     const familiar = coordinator.snapshot.subagents[0]!;
-
     assert.deepEqual(familiar.rows, { start, end });
-
     assert.equal(familiar.startedAt, startedAt);
-
     assert.equal(familiar.status, 'completed');
-
     assert.equal(familiar.activity, 'Read source');
-
     assert.equal(familiar.tools, 2);
-
     assert.equal(familiar.report, 'Reviewed once.');
 
     const rows = coordinator.snapshot.items.filter((item) =>
@@ -318,19 +310,13 @@ test('familiar and brew rows retain identity, order and reports after reopening'
     };
 
     await coordinator.close();
-
     assertRows(coordinator);
-
     reopened = await reopen();
-
     assertRows(reopened);
-
     assert.deepEqual(reopened.snapshot.subagents, []);
-
     assert.deepEqual(reopened.snapshot.backgroundCommands, []);
   } finally {
     await coordinator.close();
-
     await reopened?.close();
   }
 });
@@ -346,31 +332,18 @@ test('the native agent running on its own keeps the session active until it idle
 
   try {
     const emitA = a.sessions[0]!.options.onEvent;
-
     emitA({ type: 'running', running: true });
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual(shown(), [true, true, true]);
-
     emitA({ type: 'running', running: false });
-
     assert.deepEqual(shown(), [false, false, false]);
-
     emitA({ type: 'running', running: true });
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.deepEqual(shown(), [false, false, false]);
-
     const emitB = b.sessions[0]!.options.onEvent;
-
     emitB({ type: 'running', running: true });
-
     assert.deepEqual(shown(), [true, true, true]);
-
     emitB({ type: 'closed' });
-
     assert.deepEqual(shown(), [false, false, false]);
   } finally {
     await coordinator.close();
@@ -379,14 +352,9 @@ test('the native agent running on its own keeps the session active until it idle
 
 test('the pentacle spins while the session closes', async () => {
   const { coordinator } = await unitFixture();
-
   assert.equal(coordinator.pentacle.active, false);
-
   const closing = coordinator.close();
-
   assert.equal(coordinator.snapshot.phase, 'closing');
-
   assert.equal(coordinator.pentacle.active, true);
-
   await closing;
 });

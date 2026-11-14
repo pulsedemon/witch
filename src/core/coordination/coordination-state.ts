@@ -197,7 +197,6 @@ export function selectionStates(tickets: SelectionTicket[]): SelectionState[] {
 
   return tickets.map((ticket) => {
     const position = (positions.get(ticket.owner.project) ?? 0) + 1;
-
     positions.set(ticket.owner.project, position);
 
     return { ticket, position };

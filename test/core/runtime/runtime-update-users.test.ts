@@ -13,7 +13,6 @@ for (const extension of ['ts', 'tsx'])
     const state = join(directory, 'admission');
     const root = join(directory, 'native');
     const entry = join(directory, 'src', `cli.${extension}`);
-
     await mkdir(dirname(entry), { recursive: true });
 
     await writeFile(
@@ -52,7 +51,6 @@ console.log('ready');
 
     const ended = new Promise<number | null>((resolve, reject) => {
       child.once('error', reject);
-
       child.once('close', resolve);
     });
 
@@ -65,9 +63,7 @@ console.log('ready');
         );
 
       assert.match((await own())[0]!.reason, /does not participate/);
-
       await mkdir(join(state, 'participants'), { recursive: true });
-
       await writeFile(join(state, 'participants', `${child.pid}.json`), '{}');
 
       assert.equal(
@@ -83,7 +79,6 @@ console.log('ready');
       );
 
       assert.deepEqual(await own(), []);
-
       const native = await runtimeUpdateUsers(dirname(process.execPath), state);
 
       assert.ok(
@@ -94,13 +89,10 @@ console.log('ready');
       );
 
       child.stdin.end();
-
       assert.equal(await ended, 0);
-
       assert.deepEqual(await own(), []);
     } finally {
       child.kill('SIGKILL');
-
       await ended.catch(() => {});
     }
 
@@ -116,7 +108,6 @@ console.log('ready');
 
     const helperEnded = new Promise<number | null>((resolve, reject) => {
       helper.once('error', reject);
-
       helper.once('close', resolve);
     });
 
@@ -128,7 +119,6 @@ console.log('ready');
       );
     } finally {
       helper.stdin.end();
-
       await helperEnded;
     }
   });

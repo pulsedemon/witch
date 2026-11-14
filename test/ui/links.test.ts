@@ -36,7 +36,6 @@ function linkSpans(text: string) {
     else if (current?.target === target) current.text += value;
     else {
       current = { target, text: value };
-
       spans.push(current);
     }
   }
@@ -52,7 +51,6 @@ test('bare URLs retain their exact browser target across wrapping', () => {
   });
 
   assert.ok(rendered.includes(`\u001b]8;;${url}\u0007`));
-
   assert.equal(stripAnsi(rendered).replaceAll('\n', ''), `Read ${url}.`);
 
   for (const row of rendered.split('\n')) {
@@ -180,9 +178,7 @@ test('non-ASCII and punctuation filenames link whole', () => {
   ] as const) {
     for (const render of [linkify, markdown]) {
       const rendered = render(text, '/proj');
-
       assert.equal(stripAnsi(rendered), text);
-
       assert.deepEqual(linkSpans(rendered), [{ target, text }], text);
     }
   }
@@ -195,7 +191,6 @@ test('bare file URLs do not produce relative suffix links', () => {
     'file:///Users/me/src/a.ts:12:3',
   ]) {
     assert.equal(linkify(text, '/proj'), text);
-
     assert.equal(markdown(text, '/proj'), text);
   }
 });
@@ -247,9 +242,7 @@ test('filename boundaries preserve prose and complete names', () => {
   ] as const) {
     for (const render of [linkify, markdown]) {
       const rendered = render(text, '/proj');
-
       assert.equal(stripAnsi(rendered), text);
-
       assert.deepEqual(linkSpans(rendered), expected, text);
     }
   }
@@ -266,15 +259,10 @@ test('a non-ASCII filename keeps its whole target through appends and wrapping',
 
   const text = next.complete.join('\n');
   const target = 'vscode://file/proj/docs/%C3%BCber/x.md';
-
   assert.equal(stripAnsi(text), 'docs/über/x.md');
-
   assert.deepEqual(linkSpans(text), [{ target, text: 'docs/über/x.md' }]);
-
   assert.equal(next.tail, '');
-
   assert.equal(next.pending, '');
-
   const rows = wrapAnsi(text, 8, { hard: true, trim: false }).split('\n');
 
   assert.deepEqual(rows.map(linkSpans), [
@@ -347,14 +335,12 @@ test('Markdown labels and links in code blocks remain clickable', () => {
 
 test('long URLs and preexisting terminal hyperlinks keep their targets, and a file URL opens in VS Code', () => {
   const url = `https://example.com/search?q=${'x'.repeat(1000)}`;
-
   assert.ok(linkify(url, '/work').includes(`\u001b]8;;${url}\u0007`));
 
   const explicit =
     '\u001b]8;;https://example.com\u0007Friendly label\u001b]8;;\u0007';
 
   assert.ok(linkify(explicit, '/work').includes('https://example.com'));
-
   assert.equal(stripAnsi(linkify(explicit, '/work')), 'Friendly label');
 
   for (const [target, url] of [
@@ -383,7 +369,6 @@ test('quoted and Markdown file links preserve spaces without linking command nam
     markdown('[Open file](src/My%20File.ts:3:2)', '/work'),
   ]) {
     assert.ok(rendered.includes('vscode://file/work/src/My%20File.ts:3:2'));
-
     assert.ok(!rendered.includes('%2520'));
   }
 });
@@ -408,9 +393,7 @@ test("a path dropped into a message links whole to its unescaped image, through 
 test('bare source references take precedence over fuzzy domains while explicit web URLs stay web links', () => {
   for (const file of ['server.py:42', 'foo.sh', 'README.md', 'src/main.py:4']) {
     const rendered = linkify(file, '/work/project');
-
     assert.ok(rendered.includes(`vscode://file/work/project/${file}`));
-
     assert.ok(!rendered.includes('http://'));
   }
 
@@ -425,7 +408,6 @@ test('bare source references take precedence over fuzzy domains while explicit w
 
 test('a dotted word or a name with an unlisted extension and no directory stays text', () => {
   const prose = 'Use e.g. or i.e. with foo.bar.';
-
   assert.equal(linkify(prose, '/work'), prose);
 });
 
@@ -438,9 +420,7 @@ async function clickRoots(files: string[]) {
 
   for (const file of files) {
     const path = join(root, file);
-
     await mkdir(dirname(path), { recursive: true });
-
     await writeFile(path, file);
   }
 
@@ -456,7 +436,6 @@ async function clickRoots(files: string[]) {
 test('a click on a path that cannot be looked at fails with why instead of calling the file missing', async (t) => {
   const { cwd } = await clickRoots(['project/here.md']);
   const hidden = join(cwd, 'hidden.md');
-
   unreadable(t, hidden);
 
   await assert.rejects(
@@ -467,9 +446,7 @@ test('a click on a path that cannot be looked at fails with why instead of calli
 
 test('a bare name whose shared-memory note cannot be looked at fails with why', async (t) => {
   const { global, click } = await clickRoots(['project/here.md']);
-
   unreadable(t, join(global, 'note.md'));
-
   await assert.rejects(click('see `note.md`'), { code: 'EACCES' });
 });
 
@@ -532,9 +509,7 @@ test("a click opens an image only when its real file is one, so a .png link to a
   ]);
 
   await symlink(join(cwd, 'run.command'), join(cwd, 'shot.png'));
-
   await symlink(join(cwd, 'shots', 'real.png'), join(cwd, 'alias.png'));
-
   await mkdir(join(cwd, 'folder.png'));
 
   assert.deepEqual(await click('see `./shot.png`'), {
@@ -570,9 +545,7 @@ test('long runs of filename characters, and links on many lines or one, link in 
     Math.min(
       ...[1, 2, 3].map(() => {
         const start = process.threadCpuUsage();
-
         linkify(text, '/work');
-
         const { user, system } = process.threadCpuUsage(start);
 
         return user + system;
@@ -642,14 +615,11 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
     [`${'x'.repeat(1958)} ${dropped} end`, screenshot],
   ] as const) {
     const output = linkify(text, '/work');
-
     assert.ok(output.includes(`\u001b]8;;${target}\u0007`), target);
-
     assert.equal(stripAnsi(output), text);
   }
 
   const unbroken = 'x'.repeat(5000);
-
   assert.equal(linkify(unbroken, '/work'), unbroken);
 });
 
@@ -691,7 +661,6 @@ test('a stray escape or bell left by a dropped sequence cannot rejoin into a lin
   );
 
   assert.equal(linkify(c1, '/work'), '8;;smb://evil.example/sharename8;;');
-
   assert.equal(linkify('a\r\nb\tc', '/work'), 'a\r\nb\tc');
 });
 
@@ -758,9 +727,7 @@ test('streaming links retain their targets and unresolved controls across chunks
       for (const chunk of chunks) {
         text += chunk;
         const next = linkifyAppend(pending + chunk, '/work', carried);
-
         complete.push(...next.complete);
-
         pending = next.pending;
         carried = next.target;
         actual = [...complete, next.tail].join('\n');
@@ -773,7 +740,6 @@ test('streaming links retain their targets and unresolved controls across chunks
       }
 
       assert.equal(stripAnsi(actual), sample.plain);
-
       assert.equal(actual.includes(`\u001b]8;;${target}\u0007`), sample.linked);
 
       if (sample.linked) {

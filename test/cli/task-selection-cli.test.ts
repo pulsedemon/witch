@@ -74,23 +74,15 @@ test('a later selection uses the retained prefix and rejects the previous turn i
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);
   const client = await f.start();
-
   await client.coordinator.send('Seed native history');
-
   const first = client.a.inputs.at(-1)!.context!;
   const prefix = /^Control command: (.+)$/m.exec(first)?.[1];
   const previousTurn = /^Selection turn: (.+)$/m.exec(first)?.[1];
-
   assert.ok(prefix);
-
   assert.ok(previousTurn);
-
   const next = await selectionTurn(cleanup, client);
-
   assert.equal(next.prefix, prefix);
-
   assert.notEqual(next.turn, previousTurn);
-
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /Control command:/);
 
   const stale = await invoke(
@@ -119,14 +111,12 @@ test('a later selection uses the retained prefix and rejects the previous turn i
     assert.fail(JSON.stringify(current));
 
   assert.equal(current.outcome.selection.position, 1);
-
   await next.finish();
 });
 
 test('waiting helpers leave the host responsive beyond a request deadline and start work in FIFO order', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);
-
   await f.checkout('D');
 
   const a = await f.start(),
@@ -153,7 +143,6 @@ test('waiting helpers leave the host responsive beyond a request deadline and st
       assert.fail(JSON.stringify(result));
 
     assert.equal(result.outcome.selection.position, 1);
-
     await appendFile(markers, `${name}\n`);
 
     return result.outcome;
@@ -187,9 +176,7 @@ test('waiting helpers leave the host responsive beyond a request deadline and st
   );
 
   await delay(11000);
-
   assert.equal(secondDone, false);
-
   assert.equal(thirdDone, false);
 
   const peers = await within(
@@ -208,7 +195,6 @@ test('waiting helpers leave the host responsive beyond a request deadline and st
   ).result;
 
   await first.finish();
-
   const ready = await within(waiting, 5000, 'automatic second grant');
 
   assert.deepEqual(
@@ -217,17 +203,11 @@ test('waiting helpers leave the host responsive beyond a request deadline and st
   );
 
   assert.equal(a.coordinator.snapshot.phase, 'idle');
-
   await second.recommend(ready.selection.ticket.id, 18);
-
   await second.finish();
-
   const final = await within(last, 5000, 'automatic third grant');
-
   await third.recommend(final.selection.ticket.id, 19);
-
   await third.finish();
-
   assert.equal(await readFile(markers, 'utf8'), 'A\nB\nC\n');
 
   assert.deepEqual(
@@ -276,21 +256,13 @@ test('a waiting helper can cancel without ending its native turn and rejoin at t
   );
 
   assert.equal(cancel.outcome.kind, 'selection-cancelled');
-
   const cancelled = await waiting.result;
-
   assert.equal(cancelled.code, 1);
-
   assert.equal(cancelled.outcome.kind, 'error');
-
   assert.match(cancelled.stderr, new RegExp(`${queued.id}: queued #2`));
-
   assert.equal(b.coordinator.snapshot.phase, 'running');
-
   const rejoined = await second.select();
-
   assert.equal(rejoined.position, 2);
-
   assert.notEqual(rejoined.ticket.id, queued.id);
 
   assert.deepEqual(
@@ -324,17 +296,11 @@ test('SIGTERM cancels the waiting helper ticket with one final result', async (t
   );
 
   waiting.child.kill('SIGTERM');
-
   const result = await within(waiting.result, 5000, 'helper termination');
-
   assert.equal(result.code, 130);
-
   assert.equal(result.outcome.kind, 'selection-cancelled');
-
   assert.equal(result.stdout.trim().split('\n').length, 1);
-
   assert.deepEqual((await f.registry.state()).selections, [head.ticket]);
-
   assert.equal(b.coordinator.snapshot.phase, 'running');
 });
 
@@ -355,9 +321,7 @@ for (const [failure, signal] of [
     const head = await first.select();
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-
     cleanup(() => release.resolve());
-
     const binding = { ...second.binding, directory: join(f.root, 'proxy') };
     const actions: string[] = [];
     const failures: unknown[] = [];
@@ -369,7 +333,6 @@ for (const [failure, signal] of [
 
         if (request.action.kind === 'selection-status') {
           entered.resolve();
-
           await release.promise;
 
           return failure === 'error'
@@ -397,30 +360,20 @@ for (const [failure, signal] of [
     );
 
     await within(entered.promise, 5000, 'status request');
-
     const queued = (await f.registry.state()).selections[1]!;
-
     waiting.child.kill(signal);
-
     await delay(100);
-
     release.resolve();
-
     const result = await within(waiting.result, 5000, 'helper cancellation');
-
     assert.equal(result.code, 130);
-
     assert.equal(result.outcome.kind, 'selection-cancelled');
 
     if (result.outcome.kind !== 'selection-cancelled')
       assert.fail(JSON.stringify(result));
 
     assert.equal(result.outcome.selection, queued.id);
-
     assert.equal(result.stdout.trim().split('\n').length, 1);
-
     assert.deepEqual((await f.registry.state()).selections, [head.ticket]);
-
     assert.equal(b.coordinator.snapshot.phase, 'running');
 
     assert.deepEqual(actions, [

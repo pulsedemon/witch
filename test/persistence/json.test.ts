@@ -11,7 +11,6 @@ import { scratch } from '../fixtures/scratch.js';
 
 test('a JSON file under a stray file, as under a Finder .DS_Store, reads as missing', async () => {
   const root = await scratch('witch-json-');
-
   await writeFile(join(root, '.DS_Store'), '');
 
   assert.equal(
@@ -51,14 +50,12 @@ async function withFaults(
   );
 
   const removing = vi.spyOn(files, 'rm');
-
   syncBuiltinESMExports();
 
   try {
     await body(removing);
   } finally {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   }
 }
@@ -67,7 +64,6 @@ const rejecting = (error: Error) => () => Promise.reject(error);
 
 test('replaceFile leaves no temporary file when rename fails', async () => {
   const root = await scratch('witch-json-');
-
   await mkdir(join(root, 'target'));
 
   await assert.rejects(replaceFile(join(root, 'target'), 'new'), {
@@ -94,16 +90,13 @@ test('replaceFile keeps the write error when close also fails', async () => {
   );
 
   assert.equal(closed.mock.calls.length, 1);
-
   assert.deepEqual(await readdir(root), []);
 });
 
 test('replaceFile cleans up when only close fails', async () => {
   const root = await scratch('witch-json-');
   const target = join(root, 'target');
-
   await writeFile(target, 'old');
-
   const sentinel = new Error('close failed');
 
   await withFaults({ close: rejecting(sentinel) }, async () => {
@@ -114,7 +107,6 @@ test('replaceFile cleans up when only close fails', async () => {
   });
 
   assert.equal(await readFile(target, 'utf8'), 'old');
-
   assert.deepEqual(await readdir(root), ['target']);
 });
 
@@ -122,9 +114,7 @@ for (const step of ['sync', 'utimes'] as const)
   test(`replaceFile cleans up when ${step} fails`, async () => {
     const root = await scratch('witch-json-');
     const target = join(root, 'target');
-
     await writeFile(target, 'old');
-
     const sentinel = new Error(`${step} failed`);
     const times = { atime: new Date(0), mtime: new Date(0) };
 
@@ -136,7 +126,6 @@ for (const step of ['sync', 'utimes'] as const)
     });
 
     assert.equal(await readFile(target, 'utf8'), 'old');
-
     assert.deepEqual(await readdir(root), ['target']);
   });
 
@@ -161,7 +150,6 @@ test('replaceFile never removes after a successful rename', async () => {
 
   await withFaults({}, async (removing) => {
     await replaceFile(target, 'new');
-
     assert.equal(removing.mock.calls.length, 0);
   });
 

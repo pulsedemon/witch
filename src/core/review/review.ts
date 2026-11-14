@@ -88,7 +88,6 @@ export function changes(
     if (!patch.hunks.length) continue;
 
     patches.push(patch);
-
     const lines = new Set<number>();
 
     for (const hunk of patch.hunks) {
@@ -97,7 +96,6 @@ export function changes(
       for (const row of hunk.lines) {
         if (row.startsWith('+')) {
           lines.add(line++);
-
           touched++;
         } else if (row.startsWith('-')) touched++;
         else if (row.startsWith(' ')) line++;

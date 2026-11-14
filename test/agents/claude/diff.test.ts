@@ -228,9 +228,7 @@ test('previews preserve quote styles without stalling on long replacements', asy
     ['“', '"', "'", '“changed”'],
   ] as const) {
     const tail = other.repeat(128000);
-
     await fs.writeFile(path, opening + tail + '\n');
-
     const started = performance.now();
 
     const diff = await proposedDiff(
@@ -300,9 +298,7 @@ test('replace_all previews both distant changes', async () => {
 test('a diff deadline yields no partial preview', async () => {
   const cwd = await scratch('witch-claude-preview-');
   const path = join(cwd, 'deadline.txt');
-
   await fs.writeFile(path, 'before\n');
-
   let calls = 0;
 
   const clock = vi
@@ -332,7 +328,6 @@ test('unpreviewable requests retain approval behavior and original inputs', asyn
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'request') {
       requests.push(event.request);
-
       session.respond(event.request.id, { decision: 'accept' });
     }
   });
@@ -354,11 +349,8 @@ test('unpreviewable requests retain approval behavior and original inputs', asyn
 
   try {
     await fs.writeFile(path, 'twice twice');
-
     await fs.writeFile(denied, 'kept');
-
     const binary = join(cwd, 'binary');
-
     await fs.writeFile(binary, Buffer.from([255]));
 
     const cases = [
@@ -385,9 +377,7 @@ test('unpreviewable requests retain approval behavior and original inputs', asyn
 
     for (const proposal of cases) {
       await fs.writeFile(join(cwd, 'preview.json'), JSON.stringify(proposal));
-
       await session.send('preview');
-
       assert.equal(requests.at(-1)?.diff, undefined);
 
       assert.deepEqual(
@@ -404,7 +394,6 @@ test('unpreviewable requests retain approval behavior and original inputs', asyn
     );
 
     await session.send('preview');
-
     assert.equal(requests.at(-1)?.diff?.[0]?.kind, 'add');
 
     assert.deepEqual(
@@ -413,7 +402,6 @@ test('unpreviewable requests retain approval behavior and original inputs', asyn
     );
 
     assert.equal(await read(path, 'utf8'), 'twice twice');
-
     assert.equal(await read(denied, 'utf8'), 'kept');
   } finally {
     await session.close();
@@ -425,7 +413,6 @@ for (const action of ['withdraw', 'close'] as const)
     const events: AgentEvent[] = [];
     const { session, cwd } = await fixture((event) => events.push(event));
     const path = join(cwd, 'pending.txt');
-
     await fs.writeFile(path, 'before\n');
 
     await fs.writeFile(
@@ -446,7 +433,6 @@ for (const action of ['withdraw', 'close'] as const)
 
         if (String(args[0]) === path) {
           entered.resolve();
-
           await release.promise;
         }
 
@@ -466,11 +452,8 @@ for (const action of ['withdraw', 'close'] as const)
       else await within(session.close(), 2000, 'close during preview');
 
       await within(turn, 2000, 'cancelled turn');
-
       release.resolve();
-
       await tick();
-
       await tick();
 
       assert.deepEqual(
@@ -484,7 +467,6 @@ for (const action of ['withdraw', 'close'] as const)
       assert.equal(await fs.readFile(path, 'utf8'), 'before\n');
     } finally {
       release.resolve();
-
       await session.close();
     }
   });
@@ -518,7 +500,6 @@ test('a previewed approval passes the original decision and input', async () => 
       );
 
       const request = events.find((event) => event.type === 'request');
-
       assert.ok(request?.type === 'request');
 
       assert.deepEqual(request.request.diff?.[0]?.hunks[0]?.lines, [
@@ -527,9 +508,7 @@ test('a previewed approval passes the original decision and input', async () => 
       ]);
 
       assert.equal(await fs.readFile(path, 'utf8'), 'old\n');
-
       session.respond(request.request.id, { decision });
-
       await within(turn, 2000, 'decision');
 
       const response = JSON.parse(

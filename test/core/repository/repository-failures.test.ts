@@ -36,25 +36,15 @@ test('a pull request answer the watch cannot parse says why on the snapshot, kee
     );
 
     assert.equal(pullRequest(), undefined);
-
     let published = 0;
-
     watch.subscribe(() => published++);
-
     const before = reads();
-
     await watch.readPullRequest();
-
     assert.equal(reads(), before + 1);
-
     assert.equal(published, 0);
-
     answer = view({ state: 'OPEN', statusCheckRollup: [] });
-
     await watch.readPullRequest();
-
     assert.equal(pullRequest()?.number, 4);
-
     assert.equal('pullRequestFailure' in watch.snapshot!, false);
   } finally {
     watch.close();
@@ -79,13 +69,9 @@ test('a gh that says no, runs out of time or is not installed leaves no failure 
     ]) {
       failure = next;
       const before = reads();
-
       await watch.readPullRequest();
-
       assert.equal(reads(), before + 1, next.message);
-
       assert.equal(watch.snapshot?.branch, 'main');
-
       assert.equal('pullRequestFailure' in watch.snapshot!, false);
     }
   } finally {
@@ -100,7 +86,6 @@ test('a gh that could not be started for another reason says why on the snapshot
 
   try {
     await watch.readPullRequest();
-
     assert.equal(watch.snapshot?.pullRequestFailure, 'spawn gh EMFILE');
   } finally {
     watch.close();
@@ -124,7 +109,6 @@ test('a project lookup that fails says why on the snapshot and clears once it wo
 
   const read = async () => {
     await watch.readPullRequest();
-
     const { pullRequest, pullRequestFailure } = watch.snapshot!;
 
     return { number: pullRequest?.number, failure: pullRequestFailure };
@@ -137,7 +121,6 @@ test('a project lookup that fails says why on the snapshot and clears once it wo
     });
 
     project = async () => 'project-a';
-
     assert.deepEqual(await read(), { number: 4, failure: undefined });
   } finally {
     watch.close();
@@ -169,7 +152,6 @@ test('a checks or base tip read that fails unexpectedly keeps its fallback and s
 
   const read = async () => {
     await watch.readPullRequest();
-
     const { pullRequest, pullRequestFailure, conflict } = watch.snapshot!;
 
     return {
@@ -184,14 +166,10 @@ test('a checks or base tip read that fails unexpectedly keeps its fallback and s
 
   try {
     assert.deepEqual(await read(), { ...fallback, failure: undefined });
-
     checks = () => '{"data":{}}';
     const { failure, ...rest } = await read();
-
     assert.match(failure ?? '', /^data\.repository: /);
-
     assert.deepEqual(rest, fallback);
-
     checks = refused;
 
     tip = () => {
@@ -199,11 +177,8 @@ test('a checks or base tip read that fails unexpectedly keeps its fallback and s
     };
 
     assert.deepEqual(await read(), { ...fallback, failure: 'spawn gh EMFILE' });
-
     checks = () => '{';
-
     assert.match((await read()).failure ?? '', / in JSON .*; spawn gh EMFILE$/);
-
     checks = refused;
     tip = () => 'f00\n';
 

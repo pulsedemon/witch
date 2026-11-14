@@ -68,11 +68,8 @@ const handover = {
 };
 
 delete process.env.WITCH_CONVERSATION;
-
 delete process.env.WITCH_SCRATCH;
-
 delete process.env.WITCH_JOBS_RESUME;
-
 let command;
 
 try {
@@ -118,7 +115,6 @@ if (familiar) {
         : await runClaudeFamiliar(binding, name, reportFile, args);
   } catch (error) {
     process.stderr.write(`witch: ${errorMessage(error)}\n`);
-
     process.exitCode = 1;
   }
 } else if (control) {

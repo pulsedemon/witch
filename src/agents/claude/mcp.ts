@@ -18,7 +18,6 @@ export class ClaudeMcp {
     if (this.closed()) return;
 
     clearTimeout(this.mcpTimer);
-
     this.mcpTimer = undefined;
     this.mcpRequested = true;
 
@@ -69,7 +68,6 @@ export class ClaudeMcp {
 
       if (this.mcpPending && !this.closed()) {
         this.mcpTimer = setTimeout(() => this.refresh(), 1000);
-
         this.mcpTimer.unref();
       }
     }
@@ -77,7 +75,6 @@ export class ClaudeMcp {
 
   stop(): void {
     clearTimeout(this.mcpTimer);
-
     this.mcpTimer = undefined;
     this.mcpRequested = false;
   }

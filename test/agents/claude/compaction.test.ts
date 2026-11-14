@@ -21,7 +21,6 @@ async function scripted(sessionState = true) {
   });
 
   await f.session.send('seed');
-
   events.length = 0;
 
   const emit = frameWriter(
@@ -45,7 +44,6 @@ async function scripted(sessionState = true) {
           };
 
           assert.equal(message.message.content, '/compact');
-
           uuid = message.uuid;
 
           return true;
@@ -113,9 +111,7 @@ async function busy() {
 
   const compact = async () => {
     const promise = f.session.compactDuringTurn!();
-
     assert.ok(promise);
-
     const isSettled = settled(promise);
     let input: SDKUserMessage | undefined;
 
@@ -161,15 +157,10 @@ test('busy Claude compaction finishes independently and preserves the ordinary r
 
   try {
     const pending = await f.compact();
-
     assert.equal(f.session.compactDuringTurn!(), undefined);
-
     assert.equal(await f.session.steer('wait for compact'), false);
-
     await f.emit(idle);
-
     assert.equal(pending.settled(), false);
-
     assert.equal(f.parentDone(), false);
 
     await f.emit(
@@ -184,17 +175,11 @@ test('busy Claude compaction finishes independently and preserves the ordinary r
     );
 
     assert.deepEqual(await pending.promise, { status: 'completed', text: '' });
-
     assert.equal(f.parentDone(), false);
-
     assert.equal(f.session.replied, true);
-
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 1);
-
     const familiar = f.events.filter((e) => e.type === 'subagent').at(-1);
-
     assert.equal(familiar?.subagent.status, 'running');
-
     await f.release();
 
     assert.deepEqual(await f.parent, {
@@ -203,9 +188,7 @@ test('busy Claude compaction finishes independently and preserves the ordinary r
     });
 
     const completed = f.events.filter((e) => e.type === 'subagent').at(-1);
-
     assert.equal(completed?.subagent.id, 'held-helper');
-
     assert.equal(completed?.subagent.status, 'completed');
   } finally {
     await f.session.close();
@@ -243,17 +226,11 @@ for (const source of ['automatic', 'child', 'before-start'] as const) {
       if (source === 'before-start') await f.emit(started);
 
       await f.emit(result(pending.uuid));
-
       const compact = await pending.promise;
-
       assert.equal(compact.status, 'failed');
-
       assert.match(compact.error!, /without confirming history replacement/);
-
       assert.equal(f.parentDone(), false);
-
       await f.release();
-
       assert.equal((await f.parent).text, 'Finished.');
     } finally {
       await f.session.close();
@@ -274,11 +251,8 @@ test('canceling accepted native compact input settles only its own result', asyn
     });
 
     assert.equal((await pending.promise).status, 'failed');
-
     assert.equal(f.parentDone(), false);
-
     await f.release();
-
     assert.equal((await f.parent).text, 'Finished.');
   } finally {
     await f.session.close();
@@ -291,7 +265,6 @@ for (const stop of ['interrupt', 'close'] as const) {
 
     try {
       const pending = await f.compact();
-
       await f.session[stop]();
 
       assert.equal(
@@ -319,9 +292,7 @@ for (const replaced of [false, true])
       if (replaced) await f.emit(boundary);
 
       await f.emit(result(pending.uuid));
-
       const outcome = await within(pending.result, 2000, 'compaction result');
-
       assert.equal(outcome.status, replaced ? 'completed' : 'failed');
 
       if (!replaced) assert.match(outcome.error!, /without confirming/);
@@ -340,19 +311,12 @@ test('Claude compaction waits for its result and idle while preserving command r
 
   try {
     await f.session.shell('printf pending-record');
-
     const pending = await f.compact();
-
     await f.emit(result(randomUUID()), idle);
-
     assert.equal(pending.settled(), false);
-
     assert.equal(await f.session.steer('must wait'), false);
-
     await f.emit(boundary, result(pending.uuid));
-
     assert.equal(pending.settled(), false);
-
     await f.emit(idle);
 
     assert.deepEqual(await within(pending.result, 2000, 'compact idle'), {
@@ -361,15 +325,10 @@ test('Claude compaction waits for its result and idle while preserving command r
     });
 
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 1);
-
     assert.equal(f.events.filter((e) => e.type === 'text').length, 0);
-
     await f.session.send('following');
-
     const blocks = (await content(f.cwd)) as { text: string }[];
-
     assert.match(blocks[0]!.text, /pending-record/);
-
     assert.equal(blocks.at(-1)!.text, 'following');
   } finally {
     await f.session.close();
@@ -393,9 +352,7 @@ for (const status of [false, true]) {
         });
 
       await f.emit(result(pending.uuid), idle);
-
       const ended = await pending.result;
-
       assert.equal(ended.status, 'failed');
 
       assert.match(
@@ -451,7 +408,6 @@ test('Claude reports automatic main-session replacement without admitting child 
 
   try {
     await f.emit({ ...boundary, session_id: randomUUID() });
-
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 0);
 
     await f.emit({
@@ -460,9 +416,7 @@ test('Claude reports automatic main-session replacement without admitting child 
     });
 
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 1);
-
     assert.equal(await f.session.contextUsage(), 12.5);
-
     assert.equal(f.session.usage.contextWindow, 200000);
   } finally {
     await f.session.close();
@@ -508,26 +462,16 @@ test('Claude reports the 1M form of a model that runs below 1M', async () => {
   try {
     // the fixture reports a 200k window
     await f.session.selectModel('claude-b');
-
     assert.equal(f.session.usage.contextWindow, 200000);
-
     assert.equal(f.session.usage.longContext, 'claude-b[1m]');
-
     // a settings-limited window can keep a 1M form below 1M
     await f.session.selectModel('claude-b[1m]');
-
     assert.equal(f.session.usage.longContext, undefined);
-
     await f.session.selectModel('claude-b');
-
     await writeFile(join(f.cwd, 'hold-context'), '');
-
     const selecting = f.session.selectModel('claude-c');
-
     await contextReply(f, await contextRequest(f.cwd), 5, 1_000_000);
-
     await within(selecting, 2000, 'model change');
-
     assert.equal(f.session.usage.longContext, undefined);
   } finally {
     await f.session.close();
@@ -539,7 +483,6 @@ test('Claude process closure settles a compaction without a native result', asyn
 
   try {
     const pending = await f.compact();
-
     f.child.kill('SIGTERM');
 
     assert.equal(
@@ -556,7 +499,6 @@ test('Claude awaits a fresh context read without waiting for account usage and r
 
   try {
     await writeFile(join(f.cwd, 'hold-usage'), '');
-
     await f.session.send('start usage refresh');
 
     await until('account read', () =>
@@ -574,29 +516,19 @@ test('Claude awaits a fresh context read without waiting for account usage and r
     );
 
     await writeFile(join(f.cwd, 'hold-context'), '');
-
     const stale = f.session.contextUsage();
     const isSettled = settled(stale);
     const first = await contextRequest(f.cwd);
-
     assert.equal(isSettled(), false);
-
     const selecting = f.session.selectModel('claude-b');
     // the new model's own read proves setModel resolved, so the held sample is obsolete
     const second = await contextRequest(f.cwd, first);
-
     await contextReply(f, first, 71, 300000);
-
     assert.equal(await stale, undefined);
-
     assert.equal(f.session.usage.context, undefined);
-
     await contextReply(f, second, 82, 1_000_000);
-
     await within(selecting, 2000, 'model change');
-
     assert.equal(f.session.usage.context, 82);
-
     assert.equal(f.session.usage.contextWindow, 1_000_000);
   } finally {
     await f.session.close();

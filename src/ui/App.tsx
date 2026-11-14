@@ -117,14 +117,12 @@ export function App({
 
         scheduled = setTimeout(() => {
           scheduled = undefined;
-
           notify();
         }, 40);
       });
 
       return () => {
         clearTimeout(scheduled);
-
         unsubscribe();
       };
     },
@@ -524,7 +522,6 @@ export function App({
     if (!text.trim() || text === history.current[0]) return;
 
     setHistory([text, ...history.current]);
-
     // the initial prompt can go out once browsing has begun, and every prompt browsed or kept is then a place further back
     const back = (at: number) => (at === -1 ? at : at + 1);
     const { index, texts } = recall.current;
@@ -552,14 +549,12 @@ export function App({
 
     if (found) {
       remember(text);
-
       commandViews.submit(found);
 
       return true;
     }
 
     setTop(null);
-
     // a prompt sent while the load connects would otherwise run ahead of the one Witch started with
     const initial = pendingPrompt.current;
     pendingPrompt.current = undefined;
@@ -567,7 +562,6 @@ export function App({
     if (initial !== undefined) submit(initial);
 
     remember(text);
-
     run(coordinator.send(text, { composer }));
 
     return true;
@@ -583,7 +577,6 @@ export function App({
   const prepend = (text: string) => {
     const id = state.conversation?.id ?? '';
     const value = merged(text);
-
     setRecall(unbrowsed());
 
     if (composer.current) composer.current.set({ value, cursor: text.length });
@@ -605,9 +598,7 @@ export function App({
       return false;
 
     const text = snapshot.queue.join('\n');
-
     coordinator.unqueue(merged(text));
-
     prepend(text);
 
     return true;
@@ -622,10 +613,8 @@ export function App({
     if (value === undefined) return false;
 
     setRecall({ index: next, texts: new Map(texts).set(index, current.value) });
-
     // ↑ lands at the end and ↓ at the start, so the next press walks a multiline prompt's lines first
     const cursor = direction === 'up' ? value.length : 0;
-
     composer.current?.set({ value, cursor });
 
     return true;
@@ -638,7 +627,6 @@ export function App({
 
     if (open.kind === 'command') {
       const text = `/${open.items[index]!.name} `;
-
       composer.current?.set({ value: text, cursor: text.length });
     } else {
       const text = `@${open.items[index]!} `;
@@ -653,14 +641,11 @@ export function App({
 
   const changeComposer = (value: string, cursor: number) => {
     const previous = bufferRef.current;
-
     setDraft(state.conversation?.id ?? '', value);
-
     setBuffer({ value, cursor });
 
     if (tokenKey(value, cursor) !== tokenKey(previous.value, previous.cursor)) {
       setListIndex(0);
-
       setDismissed(undefined);
     }
 
@@ -724,7 +709,6 @@ export function App({
 
   useEffect(() => {
     setTop(null);
-
     const id = state.conversation?.id ?? '';
 
     return () => {
@@ -867,7 +851,6 @@ export function App({
       viewport(topRef.current, seenRef.current).newMessages
     ) {
       pressedNewMessages.current = false;
-
       setTop(null);
     }
 
@@ -896,9 +879,7 @@ export function App({
       if (state.phase === 'closing' || state.phase === 'recovery') onExit();
       else if (busy || request || batches.pending) {
         run(coordinator.interrupt());
-
         batches.cancel();
-
         dismissPicker(false);
       } else if (
         viewRef.current.kind === 'chat' &&
@@ -963,7 +944,6 @@ export function App({
       else if (toolFocus.focusedRef.current) toolFocus.setFocused(false);
       else if (busy || batches.pending || state.phase === 'cleaning') {
         run(coordinator.interrupt());
-
         batches.cancel();
       }
 

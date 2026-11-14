@@ -66,9 +66,7 @@ export class CodexFamiliars {
         .parse(object.parse(params.threadSettings).model);
 
       const identity = { ...this.subagentModels.get(threadId), configured };
-
       this.subagentModels.set(threadId, identity);
-
       this.subagent({ ...subagent, model: identity.rerouted ?? configured });
 
       return;
@@ -128,7 +126,6 @@ export class CodexFamiliars {
 
       const run = turnId.safeParse(message.params).data?.turn.id;
       const configured = this.subagentModels.get(threadId)?.configured;
-
       this.subagentModels.set(threadId, { configured });
 
       this.subagent({
@@ -229,7 +226,6 @@ export class CodexFamiliars {
 
   private subagent(subagent: Subagent): void {
     this.subagents.set(subagent.id, subagent);
-
     this.options.onEvent({ type: 'subagent', subagent });
   }
 }

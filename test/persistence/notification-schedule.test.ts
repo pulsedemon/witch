@@ -30,7 +30,6 @@ async function fixture() {
 test('notification intervals follow the last actual write across schedule instances', async () => {
   const { directory, schedule, file, output, write } = await fixture();
   let now = 10_000_000_000n;
-
   vi.spyOn(process.hrtime, 'bigint').mockImplementation(() => now);
 
   assert.equal(
@@ -38,7 +37,6 @@ test('notification intervals follow the last actual write across schedule instan
       () => 'first',
       (data) => {
         write(data);
-
         now += 1_000_000n;
       },
     ),
@@ -60,23 +58,14 @@ test('notification intervals follow the last actual write across schedule instan
 
   const second = await NotificationSchedule.open(directory);
   now += 1_199_000_000n;
-
   assert.equal(await second.attempt(() => 'second', write), 1);
-
   assert.equal(await readFile(file, 'utf8'), original);
-
   now += 1_000_000n;
-
   assert.equal(await second.attempt(() => 'second', write), undefined);
-
   now += 6_199_000_000n;
-
   assert.equal(await schedule.attempt(() => 'second', write), 1);
-
   now += 1_000_000n;
-
   assert.equal(await schedule.attempt(() => 'second', write), undefined);
-
   assert.deepEqual(output, ['first', 'second', 'second']);
 });
 
@@ -104,15 +93,12 @@ test('a competing lock defers notification output until it is released', async (
   }
 
   assert.equal(await schedule.attempt(() => 'available', write), undefined);
-
   assert.deepEqual(output, ['available']);
 });
 
 test('another process reads the prior send before deciding its interval', async () => {
   const { directory, schedule, write } = await fixture();
-
   vi.spyOn(process.hrtime, 'bigint').mockImplementation(() => 40_000_000n);
-
   await schedule.attempt(() => 'prior', write);
 
   const { stdout } = await promisify(execFile)(
@@ -136,11 +122,8 @@ test('another process reads the prior send before deciding its interval', async 
 
 test('a previous boot cannot delay a notification on the current boot', async () => {
   const { schedule, file, output, write } = await fixture();
-
   vi.spyOn(process.hrtime, 'bigint').mockImplementation(() => 100_000_000n);
-
   await schedule.attempt(() => 'first', write);
-
   const previous = JSON.parse(await readFile(file, 'utf8'));
 
   await writeFile(
@@ -149,9 +132,7 @@ test('a previous boot cannot delay a notification on the current boot', async ()
   );
 
   assert.equal(await schedule.attempt(() => 'first', write), undefined);
-
   assert.deepEqual(output, ['first', 'first']);
-
   assert.equal(JSON.parse(await readFile(file, 'utf8')).boot, previous.boot);
 });
 
@@ -165,11 +146,8 @@ test('cancellation during an asynchronous attempt leaves the schedule unchanged'
   );
 
   eligible = false;
-
   assert.equal(await attempt, undefined);
-
   assert.deepEqual(output, []);
-
   await assert.rejects(readFile(file), { code: 'ENOENT' });
 });
 
@@ -183,7 +161,6 @@ test('invalid schedule data rejects and releases the lock on every attempt', asy
       await assert.rejects(schedule.attempt(() => 'message', write));
 
     assert.deepEqual(output, []);
-
     assert.equal(await readFile(file, 'utf8'), value);
   }
 });
@@ -202,8 +179,6 @@ test('a failed output does not record a send or retain the lock', async () => {
   );
 
   await assert.rejects(readFile(file), { code: 'ENOENT' });
-
   assert.equal(await schedule.attempt(() => 'after failure', write), undefined);
-
   assert.deepEqual(output, ['after failure']);
 });

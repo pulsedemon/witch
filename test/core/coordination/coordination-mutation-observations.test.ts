@@ -33,9 +33,7 @@ function holdDiscovery(observed: { resolve(): void }, finish: Promise<void>) {
 
       if (holding) {
         holding = false;
-
         observed.resolve();
-
         await finish;
       }
 
@@ -52,9 +50,7 @@ function holdDiscovery(observed: { resolve(): void }, finish: Promise<void>) {
 
 test('a pre-mutation refresh cannot publish old ownership after commit', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -98,7 +94,6 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
 
       if (++reads === 2) {
         readEntered.resolve();
-
         await finishRead.promise;
       }
 
@@ -112,9 +107,7 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
       ...args: Parameters<typeof claim>
     ) {
       const result = await claim.apply(this, args);
-
       committed.resolve(result);
-
       await finishMutation.promise;
 
       return result;
@@ -126,7 +119,6 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
 
   try {
     await within(readEntered.promise, 5000, 'old refresh read');
-
     claiming = a.claim('task:chosen');
     const reserved = await within(committed.promise, 5000, 'claim committed');
 
@@ -142,15 +134,10 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
     });
 
     finishRead.resolve();
-
     await within(refreshing, 5000, 'old refresh completed');
-
     finishMutation.resolve();
-
     const result = await within(claiming, 5000, 'claim completed');
-
     assert.equal(result.kind, 'claimed');
-
     assert.deepEqual(a.coordination.snapshot.ownClaim, reserved);
 
     assert.equal(
@@ -166,17 +153,13 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
     );
   } finally {
     unsubscribe();
-
     finishRead.resolve();
-
     finishMutation.resolve();
 
     if (claiming) await claiming;
 
     await refreshing;
-
     reading.mockRestore();
-
     reserving.mockRestore();
   }
 });
@@ -193,7 +176,6 @@ for (const outcome of ['success', 'failure'] as const)
       cleanup,
       async () => {
         assignmentEntered.resolve();
-
         await finishAssignment.promise;
 
         return { assigned: [] };
@@ -228,9 +210,7 @@ for (const outcome of ['success', 'failure'] as const)
         ...args: Parameters<typeof claim>
       ) {
         const value = await claim.apply(this, args);
-
         committed.resolve(value);
-
         await finishMutation.promise;
 
         return value;
@@ -255,15 +235,10 @@ for (const outcome of ['success', 'failure'] as const)
       }
 
       reading.arm();
-
       refreshes[0]!();
-
       await within(observed.promise, 5000, 'background discovery observed');
-
       finishMutation.resolve();
-
       await within(assignmentEntered.promise, 5000, 'mutation completed');
-
       finishDiscovery.resolve();
 
       await until('newer background discovery published', () =>
@@ -281,11 +256,8 @@ for (const outcome of ['success', 'failure'] as const)
         assert.deepEqual(a.coordination.snapshot.ownClaim, reserved);
 
       finishAssignment.resolve();
-
       const result = await claiming;
-
       assert.equal(result.kind, 'claimed');
-
       assert.deepEqual(a.coordination.snapshot.ownClaim, reserved);
 
       if (outcome === 'failure') {
@@ -295,7 +267,6 @@ for (const outcome of ['success', 'failure'] as const)
         );
 
         await writeFile(file, original);
-
         refreshes[0]!();
 
         await until(
@@ -309,17 +280,11 @@ for (const outcome of ['success', 'failure'] as const)
         );
     } finally {
       finishDiscovery.resolve();
-
       finishMutation.resolve();
-
       finishAssignment.resolve();
-
       await writeFile(file, original);
-
       await claiming;
-
       reading.mockRestore();
-
       reserving.mockRestore();
     }
   });
@@ -360,7 +325,6 @@ for (const stage of ['waiting', 'verifying'] as const)
       ) {
         if (stage === 'waiting') {
           entered.resolve();
-
           await proceed.promise;
         }
 
@@ -375,14 +339,12 @@ for (const stage of ['waiting', 'verifying'] as const)
 
             if (stage === 'verifying') {
               entered.resolve();
-
               await proceed.promise;
             }
           },
         );
 
         committed.resolve(value);
-
         await finishMutation.promise;
 
         return value;
@@ -402,11 +364,8 @@ for (const stage of ['waiting', 'verifying'] as const)
         if (!capture) return pending;
 
         capture = false;
-
         readEntered.resolve();
-
         const value = await pending;
-
         readCompleted.resolve();
 
         return value;
@@ -424,13 +383,9 @@ for (const stage of ['waiting', 'verifying'] as const)
       )!;
 
       await registry.publish({ ...peer, title: 'Observed while pending' });
-
       capture = true;
-
       discovering.arm();
-
       refreshes[0]!();
-
       const refreshing = a.coordination['refreshing']!.promise;
 
       await within(
@@ -447,11 +402,8 @@ for (const stage of ['waiting', 'verifying'] as const)
         );
 
       proceed.resolve();
-
       const own = await within(committed.promise, 5000, 'claim committed');
-
       assert.deepEqual((await state.call(registry)).claims, [own]);
-
       const publications: (string | undefined)[] = [];
 
       unsubscribe = a.coordination.subscribe(() => {
@@ -459,28 +411,22 @@ for (const stage of ['waiting', 'verifying'] as const)
       });
 
       finishDiscovery.resolve();
-
       await within(refreshing, 5000, 'post-commit refresh');
 
       if (stage === 'waiting') assert.deepEqual(publications, []);
       else {
         assert.deepEqual(a.coordination.snapshot.ownClaim, own);
-
         assert.ok(publications.length > 0);
       }
 
       finishMutation.resolve();
-
       const result = await claiming;
 
       if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
 
       assert.deepEqual(result.claim, own);
-
       assert.deepEqual(a.coordination.snapshot.ownClaim, own);
-
       assert.ok(publications.length > 0);
-
       assert.ok(publications.every((id) => id === own.id));
 
       assert.equal(
@@ -489,19 +435,12 @@ for (const stage of ['waiting', 'verifying'] as const)
       );
     } finally {
       unsubscribe();
-
       proceed.resolve();
-
       finishDiscovery.resolve();
-
       finishMutation.resolve();
-
       await claiming;
-
       discovering.mockRestore();
-
       reading.mockRestore();
-
       reserving.mockRestore();
     }
   });
@@ -520,7 +459,6 @@ test('a refresh started during verification retains peer claims after mutation c
         return { assigned: [] };
 
       assignmentEntered.resolve();
-
       await finishAssignment.promise;
 
       return { assigned: [] };
@@ -556,15 +494,12 @@ test('a refresh started during verification retains peer claims after mutation c
           deadline,
           async (ledger) => {
             await verify(ledger);
-
             entered.resolve();
-
             await proceed.promise;
           },
         );
 
         committed.resolve(result);
-
         await finishMutation.promise;
 
         return result;
@@ -579,15 +514,10 @@ test('a refresh started during verification retains peer claims after mutation c
     .mockImplementation(async (...args: Parameters<typeof state>) => {
       if (background) {
         background = false;
-
         readEntered.resolve();
-
         await resume(finishRead.promise, args);
-
         const ledger = await state(...args);
-
         readCompleted.resolve(ledger);
-
         await finishRefresh.promise;
 
         return ledger;
@@ -601,24 +531,17 @@ test('a refresh started during verification retains peer claims after mutation c
 
   try {
     await within(entered.promise, 5000, 'mutation verification');
-
     background = true;
-
     refreshes[0]!();
-
     refreshing = a.coordination['refreshing']!.promise;
-
     await within(readEntered.promise, 5000, 'background read started');
-
     proceed.resolve();
-
     const own = await within(committed.promise, 5000, 'own claim committed');
     const peerResult = await b.claim('task:peer', 'Later peer work');
 
     if (peerResult.kind !== 'claimed') assert.fail(JSON.stringify(peerResult));
 
     const peer = peerResult.claim;
-
     finishRead.resolve();
 
     assert.deepEqual(
@@ -628,41 +551,24 @@ test('a refresh started during verification retains peer claims after mutation c
     );
 
     finishMutation.resolve();
-
     await within(assignmentEntered.promise, 5000, 'mutation completion');
-
     finishRefresh.resolve();
-
     await within(refreshing, 5000, 'refresh completes after mutation');
-
     finishAssignment.resolve();
-
     const result = await within(claiming, 5000, 'claim finalized');
-
     assert.equal(result.kind, 'claimed');
-
     assert.deepEqual(a.coordination.snapshot.ownClaim, own);
-
     assert.deepEqual(a.coordination.snapshot.peers[0]?.claim, peer);
-
     assert.deepEqual((await registry.state()).claims, [own, peer]);
   } finally {
     proceed.resolve();
-
     finishRead.resolve();
-
     finishMutation.resolve();
-
     finishRefresh.resolve();
-
     finishAssignment.resolve();
-
     await claiming;
-
     await refreshing;
-
     reading.mockRestore();
-
     reserving.mockRestore();
   }
 });
@@ -693,7 +599,6 @@ for (const readFails of [false, true])
 
         if (args[0].conversation === owner) {
           committed.resolve(value);
-
           await finishMutation.promise;
         }
 
@@ -732,9 +637,7 @@ for (const readFails of [false, true])
       );
 
       assert.deepEqual(a.coordination.snapshot.ownClaim, own);
-
       assert.deepEqual(a.coordination.snapshot.peers[0]?.claim, peer.claim);
-
       const observed: (string | undefined)[][] = [];
 
       unsubscribe = a.coordination.subscribe(() => {
@@ -758,17 +661,13 @@ for (const readFails of [false, true])
       }
 
       finishMutation.resolve();
-
       const result = await within(claiming, 5000, 'claim finalized');
 
       if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
 
       assert.deepEqual(result.claim, own);
-
       assert.deepEqual((await state.call(registry)).claims, [own, peer.claim]);
-
       assert.deepEqual(a.coordination.snapshot.ownClaim, own);
-
       assert.deepEqual(a.coordination.snapshot.peers[0]?.claim, peer.claim);
 
       assert.ok(
@@ -785,22 +684,16 @@ for (const readFails of [false, true])
         );
 
         failing = false;
-
         await a.coordination.context();
       }
 
       assert.equal(a.coordination.snapshot.error, undefined);
     } finally {
       failing = false;
-
       unsubscribe();
-
       finishMutation.resolve();
-
       await claiming;
-
       reading.mockRestore();
-
       reserving.mockRestore();
     }
   });
@@ -841,9 +734,7 @@ for (const kind of ['claim', 'release'] as const)
       .mockImplementation(async (...args: Parameters<typeof state>) => {
         if (first) {
           first = false;
-
           entered.resolve();
-
           await resume(finishRead.promise, args);
         }
 
@@ -852,9 +743,7 @@ for (const kind of ['claim', 'release'] as const)
 
     const hold = async <T>(operation: Promise<T>): Promise<T> => {
       const result = await operation;
-
       committed.resolve();
-
       await finishMutation.promise;
 
       return result;
@@ -879,64 +768,39 @@ for (const kind of ['claim', 'release'] as const)
     const file = join(store.root, 'coordination', 'claims.json');
     let saved: string | undefined;
     let request: ReturnType<typeof callControl> | undefined;
-
     refreshes[0]!();
-
     const refreshing = a.coordination['refreshing']!.promise;
 
     try {
       await within(entered.promise, 5000, 'background read begins');
-
       request = callControl(binding, action);
-
       await within(committed.promise, 5000, 'mutation commits');
-
       saved = await readFile(file, 'utf8');
-
       await writeFile(file, '{broken');
-
       finishRead.resolve();
-
       await within(refreshing, 5000, 'background ledger read fails');
-
       const failure = a.coordination.snapshot.error;
-
       assert.ok(failure);
-
       finishMutation.resolve();
-
       const result = await within(request, 5000, 'control result');
-
       assert.equal(result.kind, kind === 'claim' ? 'claimed' : 'released');
-
       const expected = result.kind === 'claimed' ? result.claim : undefined;
-
       assert.deepEqual(a.coordination.snapshot.ownClaim, expected);
-
       assert.equal(a.coordination.snapshot.error, failure);
-
       await writeFile(file, saved);
-
       assert.deepEqual((await state()).claims, expected ? [expected] : []);
-
       const recovered = await a.query();
-
       assert.equal(recovered.error, undefined);
-
       assert.deepEqual(recovered.ownClaim, expected);
     } finally {
       finishRead.resolve();
-
       finishMutation.resolve();
-
       await request;
-
       await refreshing;
 
       if (saved !== undefined) await writeFile(file, saved);
 
       reading.mockRestore();
-
       changing.mockRestore();
     }
   });
@@ -980,9 +844,7 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
         deadline,
         async (ledger) => {
           await verify(ledger);
-
           verified.resolve();
-
           await finishMutation.promise;
 
           throw new Error('fixture rejects the mutation after verification');
@@ -1006,7 +868,6 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
 
       if (waiting) {
         finalReadEntered.resolve();
-
         await finishFinalRead.promise;
       }
 
@@ -1028,15 +889,10 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
     });
 
     reading.arm();
-
     refreshes[0]!();
-
     const refreshing = a.coordination['refreshing']!.promise;
-
     await within(observed.promise, 5000, 'background discovery');
-
     finalizing = true;
-
     finishMutation.resolve();
 
     await within(
@@ -1046,11 +902,8 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
     );
 
     finishDiscovery.resolve();
-
     await within(refreshing, 5000, 'background refresh completed');
-
     finishFinalRead.resolve();
-
     const result = await claiming;
 
     if (result.kind !== 'error') assert.fail(JSON.stringify(result));
@@ -1061,7 +914,6 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
     );
 
     assert.equal(a.coordination.snapshot.ownClaim, undefined);
-
     assert.deepEqual(await registry.claims(), []);
 
     assert.equal(
@@ -1070,17 +922,11 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
     );
   } finally {
     finishMutation.resolve();
-
     finishDiscovery.resolve();
-
     finishFinalRead.resolve();
-
     await claiming;
-
     finalRead.mockRestore();
-
     reading.mockRestore();
-
     reserving.mockRestore();
   }
 });
@@ -1107,9 +953,7 @@ test('a refresh that read the old ledger cannot erase a committed claim', async 
 
       if (first) {
         first = false;
-
         entered.resolve();
-
         await finish.promise;
       }
 
@@ -1118,15 +962,12 @@ test('a refresh that read the old ledger cannot erase a committed claim', async 
 
   try {
     refreshes[0]!();
-
     await within(entered.promise, 5000, 'old ledger read');
-
     const result = await a.claim();
 
     if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
 
     assert.deepEqual(a.coordination.snapshot.ownClaim, result.claim);
-
     const observed: (string | undefined)[] = [];
 
     const unsubscribe = a.coordination.subscribe(() => {
@@ -1135,9 +976,7 @@ test('a refresh that read the old ledger cannot erase a committed claim', async 
 
     try {
       finish.resolve();
-
       await a.coordination.context();
-
       assert.deepEqual(a.coordination.snapshot.ownClaim, result.claim);
 
       assert.ok(
@@ -1149,7 +988,6 @@ test('a refresh that read the old ledger cannot erase a committed claim', async 
     }
   } finally {
     finish.resolve();
-
     reading.mockRestore();
   }
 });

@@ -45,18 +45,14 @@ function pauseProbe(matches: (child: ChildProcess) => boolean, nth = 1) {
     if (!listening || probe || !matches(child) || --nth !== 0) return;
 
     probe = child;
-
     // stop inside the child so a fast probe cannot exit before the parent handles spawn.
     options.file = '/bin/sh';
     options.args = ['/bin/sh', '-c', 'kill -STOP $$'];
-
     child.once('spawn', () => started.resolve(child));
-
     child.once('error', started.reject);
 
     child.once('close', () => {
       ended = true;
-
       closed.resolve();
     });
   };
@@ -70,7 +66,6 @@ function pauseProbe(matches: (child: ChildProcess) => boolean, nth = 1) {
     },
     async close() {
       listening = false;
-
       unsubscribe('tracing:child_process.spawn:start', observe);
 
       if (!probe) return;
@@ -112,7 +107,6 @@ async function assertUnlocked(root: string) {
   );
 
   assert.ok(lock, 'the failed request released the ledger lock');
-
   await lock.close();
 }
 
@@ -127,23 +121,17 @@ test('a stalled probe survives a delayed parent spawn notification', async () =>
   };
 
   subscribe('child_process', delaySpawn);
-
   const paused = pauseProbe((child) => child.spawnfile === '/bin/ps');
   const rejected = assert.rejects(ps('pid=', [process.pid], { timeout: 300 }));
 
   try {
     const child = await within(paused.started, 2000, 'probe started');
-
     await within(rejected, 2000, 'probe timed out');
-
     assert.equal(child.signalCode, 'SIGKILL');
-
     assert.equal(paused.ended, true);
   } finally {
     unsubscribe('child_process', delaySpawn);
-
     await paused.close();
-
     await rejected;
   }
 });
@@ -155,9 +143,7 @@ for (const probe of ['process', 'conversation', 'activation'] as const)
     const store = await StateStore.open(root);
     const registry = await CoordinationStore.open(store);
     const held = await store.create(record('legacy', root));
-
     cleanup(() => held.close());
-
     const foreign = await foreignProcess(cleanup, root);
 
     const existing: TaskClaim[] = [
@@ -186,10 +172,8 @@ for (const probe of ['process', 'conversation', 'activation'] as const)
     };
 
     cleanup(await registry.holdActivation(ticket.activation));
-
     const ledger = { version: 2, claims: existing, selections: [ticket] };
     const file = join(root, 'coordination', 'claims.json');
-
     await writeFile(file, JSON.stringify(ledger));
 
     const paused = pauseProbe(
@@ -210,19 +194,13 @@ for (const probe of ['process', 'conversation', 'activation'] as const)
 
     try {
       const child = await within(paused.started, 5000, 'probe started');
-
       await within(rejected, 5000, 'request rejected');
-
       assert.equal(child.signalCode, 'SIGKILL');
-
       assert.equal(paused.ended, true);
-
       await assertUnlocked(root);
-
       assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), ledger);
     } finally {
       await paused.close();
-
       await rejected;
     }
 
@@ -243,7 +221,6 @@ for (const probe of ['process', 'conversation', 'activation'] as const)
 async function session(cleanup: RegisterCleanup) {
   const root = await scratch('witch-verify-deadline-');
   const cwd = join(root, 'project');
-
   await git('init', cwd);
 
   await git(
@@ -271,13 +248,11 @@ async function session(cleanup: RegisterCleanup) {
 
   cleanup(async () => {
     await coordination.close();
-
     await held.close();
   });
 
   const { project } = await memory.scopePaths(cwd);
   const binding = await coordination.activate(conversation, project);
-
   clearInterval(coordination['timer']);
 
   const claim = (deadline = Date.now() + 2000) =>
@@ -310,14 +285,11 @@ for (const probe of [
 
       if (probe === 'legacy-project') {
         await held.close();
-
         const lock = await legacyLock(f.store, peer.id);
         releasePeer = () => lock.close();
       } else {
         cleanup(() => held.close());
-
         const activation = randomUUID();
-
         cleanup(await f.registry.holdActivation(activation));
 
         await f.registry.publish({
@@ -358,26 +330,18 @@ for (const probe of [
 
     try {
       const child = await within(paused.started, 5000, 'probe started');
-
       await within(rejected, 5000, 'request rejected');
-
       assert.equal(child.signalCode, 'SIGKILL');
-
       assert.equal(paused.ended, true);
-
       await assertUnlocked(f.store.root);
-
       assert.deepEqual(await f.registry.claims(), []);
     } finally {
       await paused.close();
-
       await rejected;
-
       await releasePeer?.();
     }
 
     const later = await f.claim();
-
     assert.equal(later.kind, 'claimed');
 
     if (later.kind !== 'claimed') assert.fail(JSON.stringify(later));
@@ -399,23 +363,15 @@ test('a request cancels a stalled earlier project read and keeps the next projec
   try {
     const child = await within(paused.started, 2000, 'background Git started');
     rejected = assert.rejects(f.claim(Date.now() + requestTimeout));
-
     await within(rejected, 5000, 'request rejected');
-
     await background;
-
     assert.equal(child.signalCode, 'SIGKILL');
-
     assert.equal(paused.ended, true);
-
     assert.equal(f.coordination['active']!.project, f.project);
-
     assert.deepEqual(await f.registry.claims(), []);
   } finally {
     await paused.close();
-
     await background;
-
     await rejected;
   }
 
@@ -429,19 +385,14 @@ test('a request cancels a stalled earlier project read and keeps the next projec
   );
 
   const { project } = await f.memory.scopePaths(f.cwd);
-
   assert.notEqual(project, f.project);
-
   const later = await f.claim();
-
   assert.equal(later.kind, 'claimed');
 
   if (later.kind !== 'claimed') assert.fail(JSON.stringify(later));
 
   assert.equal(later.claim.owner.project, project);
-
   assert.equal(f.coordination['active']!.project, project);
-
   assert.deepEqual(await f.registry.claims(), [later.claim]);
 });
 
@@ -463,21 +414,14 @@ test('a discovery error waits for its stalled lock probe before releasing the le
 
   try {
     const child = await within(paused.started, 5000, 'lock probe started');
-
     await within(rejected, 5000, 'request rejected');
-
     assert.equal(child.signalCode, 'SIGKILL');
-
     assert.equal(paused.ended, true);
-
     await assertUnlocked(f.store.root);
-
     assert.deepEqual(await f.registry.claims(), []);
   } finally {
     await paused.close();
-
     await rejected;
-
     reading.mockRestore();
   }
 

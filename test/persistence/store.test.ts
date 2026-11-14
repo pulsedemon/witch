@@ -30,7 +30,6 @@ async function detachedShell(seconds: string) {
 test('a real holder stays exclusive until close or crash', async (t) => {
   const root = await scratch('witch-lock-');
   const store = await StateStore.open(root);
-
   await (await store.create(conversation('held'))).close();
 
   for (const exit of ['close', 'crash']) {
@@ -58,18 +57,14 @@ test('a real holder stays exclusive until close or crash', async (t) => {
     });
 
     await within(once(child.stdout, 'data'), 5000, 'holder ready');
-
     assert.equal(await store.isOpen('held'), true);
-
     await assert.rejects(store.claim('held'), /open in another Witch instance/);
 
     if (exit === 'close') child.stdin.end('close');
     else child.kill('SIGKILL');
 
     await within(ended, 5000, 'holder stopped');
-
     assert.equal(await store.isOpen('held'), false);
-
     await (await store.claim('held')).close();
   }
 });
@@ -80,11 +75,8 @@ test('conversation locks carry a registration lock that a lost race releases', a
   );
 
   const held = await store.create(conversation('current'));
-
   await (await store.create(conversation('closed'))).close();
-
   await writeFile(join(store.root, 'conversations', '.DS_Store'), 'finder');
-
   await (await store.create(conversation('older'))).close();
 
   // an older Witch takes only `lock`
@@ -102,9 +94,7 @@ test('conversation locks carry a registration lock that a lost race releases', a
   );
 
   await assert.rejects(store.claim('older'), LockedElsewhere);
-
   await older.close();
-
   const reclaimed = await store.claim('older');
 
   assert.deepEqual(
@@ -113,7 +103,6 @@ test('conversation locks carry a registration lock that a lost race releases', a
   );
 
   await reclaimed.close();
-
   await held.close();
 
   assert.deepEqual(
@@ -128,17 +117,11 @@ test('selected records exclude unreadable conversations and an empty selection r
   const store = await StateStore.open(await scratch('witch-selected-records-'));
   const created = await store.create(conversation('selected', '/selected'));
   const selected = created.record;
-
   await created.close();
-
   await (await store.create(conversation('damaged', '/damaged'))).close();
-
   const damaged = join(store.root, 'conversations', 'damaged', 'state.json');
-
   await writeFile(damaged, '{broken');
-
   const reading = vi.spyOn(files, 'readFile');
-
   syncBuiltinESMExports();
 
   try {
@@ -155,12 +138,10 @@ test('selected records exclude unreadable conversations and an empty selection r
     );
   } finally {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   }
 
   const all = await store.records();
-
   assert.deepEqual(all.records, [selected]);
 
   assert.deepEqual(
@@ -171,9 +152,7 @@ test('selected records exclude unreadable conversations and an empty selection r
 
 test("a legacy holder stays unregistered during a current owner's failed claim", async (t) => {
   const store = await StateStore.open(await scratch('witch-legacy-race-'));
-
   await (await store.create(conversation('older'))).close();
-
   const path = join(store.root, 'conversations', 'older', 'lock');
 
   const legacy = await openLocked(
@@ -182,7 +161,6 @@ test("a legacy holder stays unregistered during a current owner's failed claim",
   );
 
   t.onTestFinished(() => legacy.close());
-
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const opening = files.open;
@@ -191,7 +169,6 @@ test("a legacy holder stays unregistered during a current owner's failed claim",
     async (...args: Parameters<typeof files.open>) => {
       if (args[0] === path) {
         entered.resolve();
-
         await release.promise;
       }
 
@@ -200,7 +177,6 @@ test("a legacy holder stays unregistered during a current owner's failed claim",
   );
 
   syncBuiltinESMExports();
-
   const claiming = assert.rejects(store.claim('older'), LockedElsewhere);
 
   try {
@@ -212,11 +188,8 @@ test("a legacy holder stays unregistered during a current owner's failed claim",
     );
   } finally {
     release.resolve();
-
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
-
     await claiming;
   }
 });
@@ -267,9 +240,7 @@ BEGIN {
 
   try {
     await appears(join(root, 'ready'), 'lock observation');
-
     await held.close();
-
     await writeFile(join(root, 'continue'), '');
 
     assert.deepEqual(
@@ -279,7 +250,6 @@ BEGIN {
   } finally {
     try {
       await writeFile(join(root, 'continue'), '');
-
       await observing;
     } finally {
       for (const [key, value] of Object.entries(previous)) {
@@ -295,7 +265,6 @@ BEGIN {
 test('a second claim of a conversation is refused while another conversation claims fine', async () => {
   const store = await StateStore.open(await scratch('witch-claims-'));
   const first = await store.create(conversation('first'));
-
   await (await store.create(conversation('second'))).close();
 
   try {
@@ -321,9 +290,7 @@ test('observing conversation ownership leaves its native process and stored data
 
   try {
     const identity = await identifyProcess(child.pid!);
-
     assert.ok(identity);
-
     await files.save({ ...files.record, process: identity });
 
     await files.append({
@@ -341,21 +308,13 @@ test('observing conversation ownership leaves its native process and stored data
       );
 
     const before = await contents();
-
     assert.equal(await store.isOpen('observed'), true);
-
     await assert.rejects(store.claim('observed'), LockedElsewhere);
-
     await files.close();
-
     assert.equal(await store.isOpen('observed'), false);
-
     assert.deepEqual(await contents(), before);
-
     assert.equal(child.exitCode, null);
-
     assert.equal(child.signalCode, null);
-
     assert.equal(await store.isOpen('absent'), false);
 
     await assert.rejects(access(join(root, 'conversations', 'absent')), {
@@ -363,7 +322,6 @@ test('observing conversation ownership leaves its native process and stored data
     });
 
     const lock = join(root, 'conversations', 'observed', 'lock');
-
     await chmod(lock, 0o000);
 
     try {
@@ -373,9 +331,7 @@ test('observing conversation ownership leaves its native process and stored data
     }
   } finally {
     await files.close();
-
     child.kill();
-
     await ended;
   }
 });
@@ -384,11 +340,8 @@ test('a closed conversation store rejects writes and leaves its files unchanged'
   const root = await scratch('witch-closed-');
   const store = await StateStore.open(root);
   const files = await store.create(conversation('closed'));
-
   await files.append({ id: 'n', kind: 'notice', text: 'kept', cwd: '/p' });
-
   await files.close();
-
   const directory = join(root, 'conversations', 'closed');
 
   const before = await Promise.all(
@@ -426,11 +379,8 @@ test("a saved image is a new private file in the conversation's images directory
     const first = await pictures.saveImage(Buffer.from('first'), 'png');
     const second = await pictures.saveImage(Buffer.from('second'), 'jpg');
     const directory = join(root, 'conversations', 'pictures', 'images');
-
     assert.deepEqual([dirname(first), dirname(second)], [directory, directory]);
-
     assert.match(first, /\/[0-9a-f-]{36}\.png$/);
-
     assert.match(second, /\/[0-9a-f-]{36}\.jpg$/);
 
     assert.deepEqual(
@@ -456,9 +406,7 @@ test('closing a conversation waits for an image save it accepted and refuses sav
 
   t.onTestFinished(() => {
     held.resolve();
-
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   });
 
@@ -469,21 +417,14 @@ test('closing a conversation waits for an image save it accepted and refuses sav
   });
 
   syncBuiltinESMExports();
-
   const saving = pictures.saveImage(Buffer.from('late'), 'png');
   let closed = false;
   const closing = pictures.close().then(() => (closed = true));
-
   await new Promise((resolve) => setTimeout(resolve, 50));
-
   assert.equal(closed, false);
-
   held.resolve();
-
   const path = await saving;
-
   await closing;
-
   assert.equal(await readFile(path, 'utf8'), 'late');
 
   await assert.rejects(
@@ -497,7 +438,6 @@ test('a failed write fails every later write and the close', async () => {
   const store = await StateStore.open(root);
   const files = await store.create(conversation('failed'));
   const directory = join(root, 'conversations', 'failed');
-
   await chmod(directory, 0o500);
 
   try {
@@ -545,17 +485,12 @@ test('a failed history close still releases both ownership locks', async () => {
 
   try {
     await held.append({ id: 'n', kind: 'notice', text: 'kept', cwd: '/p' });
-
     await assert.rejects(held.close(), failure);
-
     assert.equal(await store.isOpen('current'), false);
-
     await (await store.claim('current')).close();
   } finally {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
-
     await held.close();
   }
 });
@@ -573,7 +508,6 @@ test('a claim that cannot stop the recorded process still kills the recorded she
 
   try {
     await once(agent.stdout, 'data');
-
     const files = await store.create(conversation('orphan'));
 
     await files.save({
@@ -583,17 +517,11 @@ test('a claim that cannot stop the recorded process still kills the recorded she
     });
 
     await files.close();
-
     await assert.rejects(store.claim('orphan'), /has not stopped/);
-
     assert.equal(shell.signalCode, 'SIGKILL');
-
     const agentExited = once(agent, 'exit');
-
     agent.kill('SIGKILL');
-
     await agentExited;
-
     await (await store.claim('orphan')).close();
   } finally {
     agent.kill('SIGKILL');
@@ -627,16 +555,11 @@ for (const field of ['usageProcess', 'answerProcess'] as const) {
         });
 
         await files.close();
-
         const closed = children.map((child) => once(child, 'close'));
         const recovered = await store.claim('usage');
-
         await Promise.all(closed);
-
         assert.equal(recovered.record.process, undefined);
-
         assert.equal(recovered.record[field], undefined);
-
         await recovered.close();
 
         const saved = JSON.parse(
@@ -647,7 +570,6 @@ for (const field of ['usageProcess', 'answerProcess'] as const) {
         ) as Partial<Record<typeof field | 'process', unknown>>;
 
         assert.equal(saved.process, undefined);
-
         assert.equal(saved[field], undefined);
       } finally {
         for (const child of children) child.kill('SIGKILL');
@@ -668,15 +590,10 @@ for (const field of ['usageProcess', 'answerProcess'] as const) {
       });
 
       await files.close();
-
       const recovered = await store.claim('reused-usage');
-
       assert.equal(child.exitCode, null);
-
       assert.equal(child.signalCode, null);
-
       assert.equal(recovered.record[field], undefined);
-
       await recovered.close();
     } finally {
       child.kill('SIGKILL');
@@ -702,7 +619,6 @@ test('a failed main stop retains the recovery lock until the usage helper stop s
 
   try {
     await once(helper.stdout, 'data');
-
     const files = await store.create(conversation('usage-stop'));
 
     await files.save({
@@ -712,7 +628,6 @@ test('a failed main stop retains the recovery lock until the usage helper stop s
     });
 
     await files.close();
-
     const signalled = once(helper.stdout, 'data');
 
     vi.spyOn(process, 'kill').mockImplementation(
@@ -726,29 +641,18 @@ test('a failed main stop retains the recovery lock until the usage helper stop s
 
     recovering = assert.rejects(store.claim('usage-stop'), /Main stop failed/);
     const isSettled = settled(recovering);
-
     await signalled;
-
     assert.equal(await store.isOpen('usage-stop'), true);
-
     assert.equal(isSettled(), false);
-
     const closed = once(helper, 'close');
-
     helper.stdin.write('finish');
-
     await recovering;
-
     await closed;
-
     assert.equal(await store.isOpen('usage-stop'), false);
   } finally {
     vi.restoreAllMocks();
-
     main.kill('SIGKILL');
-
     helper.kill('SIGKILL');
-
     await recovering;
   }
 });
@@ -772,9 +676,7 @@ test('a claim succeeds when the recorded process exits before its signal', async
     });
 
     const claimed = await store.claim('exited');
-
     assert.equal(claimed.record.process, undefined);
-
     await claimed.close();
   } finally {
     child.kill('SIGKILL');
@@ -797,18 +699,12 @@ test('a claim stops the recorded process after a time zone and locale change', a
     });
 
     await files.close();
-
     process.env.TZ = 'America/New_York';
-
     delete process.env.LC_ALL;
-
     const exited = once(child, 'exit');
     const claimed = await store.claim('moved');
-
     await within(exited, 2000, 'the recorded process to stop');
-
     assert.equal(claimed.record.process, undefined);
-
     await claimed.close();
   } finally {
     for (const [name, value] of Object.entries(saved))
@@ -834,11 +730,8 @@ test("a claim leaves running a process that reuses the recorded process's pid, a
     });
 
     await files.close();
-
     await (await store.claim('reused')).close();
-
     assert.equal((await identifyProcess(child.pid!))?.pid, child.pid);
-
     assert.equal(shell.exitCode ?? shell.signalCode, null);
   } finally {
     child.kill('SIGKILL');
@@ -865,7 +758,6 @@ test("a claim kills a recorded shell's whole group, a member its first signal mi
     });
 
     await files.close();
-
     let missed = false;
 
     vi.spyOn(process, 'kill').mockImplementation(
@@ -873,7 +765,6 @@ test("a claim kills a recorded shell's whole group, a member its first signal mi
         // the first group kill lands as the shell forks, so it reaches only the shell, which ps lists until it's reaped
         if (!missed && pid === -child.pid! && signal === 'SIGKILL') {
           missed = true;
-
           setTimeout(() => kill(child.pid!, 'SIGKILL'), 50);
 
           return true;
@@ -891,7 +782,6 @@ test("a claim kills a recorded shell's whole group, a member its first signal mi
     );
 
     assert.equal(claimed.record.shell, undefined);
-
     await claimed.close();
 
     const saved = JSON.parse(
@@ -918,11 +808,8 @@ test('serialized saves of one record keep the latest after restart', async () =>
   ]);
 
   await files.close();
-
   const reopened = await store.claim('saved');
-
   assert.equal(reopened.record.title, 'second');
-
   await reopened.close();
 });
 
@@ -932,14 +819,9 @@ test('a save writes the record as it was when called', async () => {
   const record = { ...files.record, title: 'saved' };
   const saving = files.save(record);
   record.title = 'changed';
-
   await saving;
-
   await files.close();
-
   const reopened = await store.claim('snapshot');
-
   assert.equal(reopened.record.title, 'saved');
-
   await reopened.close();
 });

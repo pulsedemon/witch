@@ -16,7 +16,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 if (process.argv.includes('debug') && process.argv.includes('models')) {
   process.stdout.write('{"models":[]}\n');
-
   process.exit(0);
 }
 
@@ -34,7 +33,6 @@ if (familiar) {
 
   if (familiar === 'nonzero-close') {
     process.exitCode = 2;
-
     process.stderr.write('close exit text\n');
   }
 
@@ -46,7 +44,6 @@ const mode = familiar ? '' : (process.argv[2] ?? '');
 
 if (process.argv.includes('--ignore-term')) {
   process.on('SIGTERM', () => {});
-
   setInterval(() => {}, 1000);
 }
 
@@ -79,7 +76,6 @@ const configuration = () =>
 // whole, through a rename, since a test polling for a record would read one half written
 const record = (name, value) => {
   writeFileSync(file(`${name}.next`), JSON.stringify(value));
-
   renameSync(file(`${name}.next`), file(name));
 };
 
@@ -114,9 +110,7 @@ const spellPath = join(process.cwd(), '.agents', 'skills', 'a', 'SKILL.md');
 
 if (spellReads) {
   mkdirSync(join(spellPath, '..', 'scripts'), { recursive: true });
-
   writeFileSync(spellPath, '---\nname: a\ndescription: A\n---\n');
-
   writeFileSync(join(spellPath, '..', 'scripts', 'run.py'), '');
 }
 
@@ -165,7 +159,6 @@ const spellTurn = (prompt, input, turnId) => {
     });
 
     readSpell('native-thread', turnId, 'read-1');
-
     readSpell('native-thread', turnId, 'read-2');
   } else if (prompt === 'again')
     readSpell('native-thread', turnId, 'read-3', true);
@@ -177,16 +170,11 @@ const spellTurn = (prompt, input, turnId) => {
       });
 
     started('child-turn-1');
-
     readSpell('child-thread', 'child-turn-1', 'child-read-1');
-
     readSpell('child-thread', 'child-turn-1', 'child-read-2');
-
     // the child starts again before its last turn's read arrives
     started('child-turn-2');
-
     readSpell('child-thread', 'child-turn-1', 'child-read-3');
-
     // a thread that never started a turn here is no familiar
     readSpell('stray-thread', 'stray-turn', 'stray-read');
   } else {
@@ -199,7 +187,6 @@ const spellTurn = (prompt, input, turnId) => {
     });
 
     readSpell('child-thread', 'child-turn-1', 'child-read-1');
-
     readSpell('child-thread', 'child-turn-1', 'child-read-2');
   }
 
@@ -363,7 +350,6 @@ for await (const line of lines) {
 
   if (answering && request.id === 'answer-approval' && !request.method) {
     record('answer-response.json', request);
-
     finishPeerAnswer();
 
     continue;
@@ -397,15 +383,10 @@ for await (const line of lines) {
 
       process.once('SIGTERM', () => {
         clearInterval(waiting);
-
         reply({});
-
         finish('completed');
-
         finish('completed');
-
         record('late-response.json', { sent: true });
-
         process.stdout.end(() => process.exit(0));
       });
     }
@@ -425,7 +406,6 @@ for await (const line of lines) {
     else if (mode === 'context-held')
       void (async () => {
         await waitFor('release-context');
-
         reply({});
       })();
     else reply({});
@@ -446,7 +426,6 @@ for await (const line of lines) {
 
   if (request.method === 'thread/compact/start') {
     record('compact.json', request.params);
-
     reply({});
   }
 
@@ -473,7 +452,6 @@ for await (const line of lines) {
   if (request.method === 'initialize') {
     if (mode === 'hang-on-init') {
       record('initializing.json', request);
-
       // bounded, so an ignored abort fails the test instead of hanging it
       setTimeout(() => process.exit(1), 5000);
 
@@ -703,7 +681,6 @@ for await (const line of lines) {
 
     answering = request.params.ephemeral === true;
     effort = request.params.config?.model_reasoning_effort ?? effort;
-
     record(answering ? 'answer-connect.json' : 'connect.json', request);
 
     model =
@@ -717,7 +694,6 @@ for await (const line of lines) {
   if (request.method === 'thread/settings/update') {
     if (mode === 'identity') {
       record('settings.json', request);
-
       reply({});
 
       continue;
@@ -727,10 +703,8 @@ for await (const line of lines) {
 
     const previous = `${model}/${effort}`;
     model = request.params.model;
-
     // the server can't clear effort, so an omitted one stays in force
     effort = request.params.effort ?? effort;
-
     reply({});
 
     if (model === 'held') await held();
@@ -804,7 +778,6 @@ for await (const line of lines) {
 
   if (request.method === 'thread/shellCommand') {
     const { command } = request.params;
-
     record('shell.json', request);
 
     if (command === 'refuse') {
@@ -839,7 +812,6 @@ for await (const line of lines) {
         if (!shellHeld) return;
 
         shellHeld = false;
-
         finishShell('interrupted');
       });
 
@@ -866,9 +838,7 @@ for await (const line of lines) {
 
   if (request.method === 'turn/interrupt' && shellHeld) {
     shellHeld = false;
-
     record('interrupt.json', request);
-
     reply({});
 
     shellItem('item/completed', 'hold', {
@@ -891,7 +861,6 @@ for await (const line of lines) {
     );
 
     lastPrompt = prompt;
-
     record('prompt.json', request);
 
     if (answering) {
@@ -915,9 +884,7 @@ for await (const line of lines) {
 
     if (spellReads) {
       const turnId = `turn-${++spellTurns}`;
-
       reply({ turn: { id: turnId } });
-
       spellTurn(prompt, request.params.input, turnId);
 
       continue;
@@ -928,7 +895,6 @@ for await (const line of lines) {
 
       if (questionTurn > 1) {
         record('question-answer.json', request);
-
         finishQuestion();
       } else {
         notify('item/completed', {
@@ -959,11 +925,8 @@ for await (const line of lines) {
 
     if (mode === 'brews') {
       const turn = { id: `turn-${++brewTurn}`, status: 'inProgress' };
-
       reply({ turn });
-
       notify('turn/started', { threadId: 'native-thread', turn });
-
       record(`turn-${brewTurn}.json`, request);
 
       continue;
@@ -1007,7 +970,6 @@ for await (const line of lines) {
 
     if (prompt === 'exit when idle') {
       finish('completed');
-
       process.stdout.write('', () => process.exit(1));
 
       continue;
@@ -1015,9 +977,7 @@ for await (const line of lines) {
 
     if (prompt === 'add skill') {
       skillAdded = true;
-
       notify('skills/changed', {});
-
       finish('completed');
 
       continue;
@@ -1036,7 +996,6 @@ for await (const line of lines) {
         });
 
       tokens('native-thread', 64000);
-
       tokens('subagent-thread', 200000);
 
       const diff = (body, turnId = 'turn-1', threadId = 'native-thread') =>
@@ -1054,25 +1013,16 @@ for await (const line of lines) {
         '+two\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+b\n';
 
       diff('+one\n');
-
       // the turn's diff grows, and a content line can start like a header
       diff(first);
-
       // a later turn adds to the total, its second file's headers do not, and another thread's turn does not
       diff(second, 'turn-2');
-
       diff('+three\n+four\n-five\n', 'subagent-turn', 'subagent-thread');
-
       diff('+one\n');
-
       diff('', 'turn-2');
-
       diff('');
-
       diff(first);
-
       diff(second, 'turn-2');
-
       diff(second, 'turn-2');
 
       const limits = (limitId, primary) =>
@@ -1081,9 +1031,7 @@ for await (const line of lines) {
         });
 
       limits('codex', window(15, 300, 2000000100));
-
       limits('other', window(99, 300, 2000000100));
-
       finish('completed');
 
       continue;
@@ -1148,11 +1096,8 @@ for await (const line of lines) {
       });
 
       const message = { type: 'agentMessage', id: 'w-3', text: '' };
-
       item('item/started', 'worker-thread', message);
-
       item('item/completed', 'worker-thread', { ...message, text: 'Done.' });
-
       // a thread that never started a turn here is no familiar
       item('item/started', 'ghost-thread', { ...command, id: 'g-1' });
 
@@ -1228,22 +1173,14 @@ for await (const line of lines) {
       });
 
       turn('turn/started', 'grandchild-thread', 'inProgress');
-
       turn('turn/completed', 'grandchild-thread', 'interrupted');
-
       turn('turn/started', 'failed-thread', 'inProgress');
-
       turn('turn/completed', 'failed-thread', 'failed');
-
       turn('turn/started', 'done-thread', 'inProgress');
-
       turn('turn/completed', 'done-thread', 'completed');
-
       turn('turn/completed', 'child-thread', 'completed');
-
       // the finished child is sent more input
       turn('turn/started', 'child-thread', 'inProgress');
-
       notify('turn/completed', { threadId: 'stray-thread', turn: null });
 
       notify('item/agentMessage/delta', {
@@ -1537,7 +1474,6 @@ for await (const line of lines) {
       };
 
       notify('item/started', { item: { ...patch, status: 'inProgress' } });
-
       notify('item/completed', { item: { ...patch, status: 'completed' } });
 
       notify('item/completed', {
@@ -1576,7 +1512,6 @@ for await (const line of lines) {
       });
 
       writeFileSync(file('grandchild.pid'), String(grandchild.pid));
-
       process.exit(1);
     }
 
@@ -1620,7 +1555,6 @@ for await (const line of lines) {
       });
 
       await held();
-
       finish('completed');
 
       continue;
@@ -1709,13 +1643,11 @@ for await (const line of lines) {
 
   if ([88, 89, 91, 94].includes(request.id) && request.result) {
     record(`response-${request.id}.json`, request.result);
-
     finish('completed');
   }
 
   if ([90, 92].includes(request.id) && request.error) {
     record(`error-${request.id}.json`, request.error);
-
     finish('completed');
   }
 
@@ -1723,9 +1655,7 @@ for await (const line of lines) {
   if (request.method === 'turn/steer') {
     if (familiar === 'question-during') {
       record('question-answer.json', request);
-
       reply({ turnId: request.params.expectedTurnId });
-
       finishQuestion();
 
       continue;
@@ -1745,7 +1675,6 @@ for await (const line of lines) {
   if (request.method === 'turn/interrupt') {
     if (familiar) {
       reply({});
-
       finish('interrupted');
 
       continue;
@@ -1793,7 +1722,6 @@ for await (const line of lines) {
       });
 
       await held();
-
       finish('completed');
 
       continue;
@@ -1808,7 +1736,6 @@ for await (const line of lines) {
     }
 
     await held();
-
     finish('interrupted');
   }
 }

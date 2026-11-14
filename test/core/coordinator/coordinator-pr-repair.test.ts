@@ -25,7 +25,6 @@ test("every turn carries the branch's pull request conflict until it clears", as
   try {
     const pullRequest = openPullRequest({ mergeable: 'CONFLICTING' });
     f.coordinator.conflict = { pullRequest, baseTip: 'f00' };
-
     await f.coordinator.send('First');
 
     assert.match(
@@ -34,7 +33,6 @@ test("every turn carries the branch's pull request conflict until it clears", as
     );
 
     f.coordinator.conflict = { pullRequest };
-
     await f.coordinator.send('Second');
 
     assert.match(
@@ -43,9 +41,7 @@ test("every turn carries the branch's pull request conflict until it clears", as
     );
 
     f.coordinator.conflict = undefined;
-
     await f.coordinator.send('Third');
-
     assert.doesNotMatch(f.a.inputs.at(-1)!.context ?? '', /pull request #7/);
   } finally {
     await f.coordinator.close();
@@ -54,15 +50,10 @@ test("every turn carries the branch's pull request conflict until it clears", as
 
 test('a conflict on the claimed pull request starts one repair turn per head and base, with its own instruction', async (t) => {
   const s = await setup(t);
-
   s.observe(s.read());
-
   await until('repair', () => s.repairs().length === 1);
-
   await s.idle();
-
   const [repair] = s.repairs();
-
   assert.equal(repair!.author, 'witch');
 
   assert.match(
@@ -73,9 +64,7 @@ test('a conflict on the claimed pull request starts one repair turn per head and
   );
 
   assert.match(repair!.prompt, /without rebasing/);
-
   assert.match(repair!.prompt, /Don't merge or edit the pull request/);
-
   assert.doesNotMatch(repair!.context ?? '', /Witch confirmed on GitHub/);
 
   assert.ok(
@@ -89,26 +78,18 @@ test('a conflict on the claimed pull request starts one repair turn per head and
   ]);
 
   s.observe(s.read());
-
   assert.equal(s.c.repair.ready(), false, 'the same head and base');
-
   await s.c.send('continue');
-
   await s.idle();
-
   assert.equal(s.repairs().length, 1);
-
   s.observe(s.read({ commit: head(2) }));
-
   await until('second repair', () => s.repairs().length === 2);
 });
 
 test('a repair is flagged automatic from its admission read until it settles', async (t) => {
   const s = await setup(t);
   const refreshed = Promise.withResolvers<void>();
-
   s.c.repair.setRefresh(() => refreshed.promise);
-
   const published: [string, boolean][] = [];
 
   s.c.subscribe(() =>
@@ -119,9 +100,7 @@ test('a repair is flagged automatic from its admission read until it settles', a
 
   try {
     await until('the admission read', () => !!s.c.snapshot.automatic);
-
     assert.equal(s.c.snapshot.phase, 'idle');
-
     assert.equal(s.repairs().length, 0);
   } finally {
     // a refresh left pending would hang the session's close
@@ -129,13 +108,9 @@ test('a repair is flagged automatic from its admission read until it settles', a
   }
 
   await until('repair', () => s.repairs().length === 1);
-
   await until('the repair to settle', () => !s.c.snapshot.automatic);
-
   assert.equal(s.c.snapshot.phase, 'idle');
-
   const running = published.filter(([phase]) => phase === 'running');
-
   assert.ok(running.length > 0);
 
   assert.deepEqual(
@@ -147,19 +122,12 @@ test('a repair is flagged automatic from its admission read until it settles', a
 test('a conflict kept through an uncomputed read, or on an unclaimed pull request, starts no repair', async (t) => {
   const s = await setup(t);
   const conflicting = s.pullRequest();
-
   s.observe(s.read({ mergeable: 'UNKNOWN', commit: head(2) }, conflicting));
-
   assert.equal(s.c.repair.ready(), false, 'a pushed head');
-
   s.observe(s.read({ mergeable: 'UNKNOWN', base: 'release' }, conflicting));
-
   assert.equal(s.c.repair.ready(), false, 'a new base');
-
   await s.c.send('work');
-
   await s.idle();
-
   assert.equal(s.repairs().length, 0);
 
   const result = await callControl(await s.x.binding(), {
@@ -168,15 +136,10 @@ test('a conflict kept through an uncomputed read, or on an unclaimed pull reques
   });
 
   assert.equal(result.kind, 'released');
-
   await s.x.claim('task:other', 'other work');
-
   s.observe(s.read());
-
   await s.c.send('more work');
-
   await s.idle();
-
   assert.equal(s.repairs().length, 0);
 
   assert.ok(
@@ -189,7 +152,6 @@ test('a conflict kept through an uncomputed read, or on an unclaimed pull reques
   });
 
   await s.x.claim(s.pullRequest().url, 'repair task');
-
   await until('repair after the claim', () => s.repairs().length === 1);
 });
 
@@ -198,24 +160,15 @@ test('a repair waits for the running and queued user turns, and a prompt sent du
   const gate = new TurnGate();
   s.x.a.gate = gate;
   const first = s.c.send('long user turn');
-
   await within(gate.entered, 5000, 'user turn');
-
   // a refused steer leaves the prompt queued for a turn of its own
   s.x.a.refuseSteer = true;
-
   await s.c.send('queued user turn');
-
   s.observe(s.read());
-
   gate.open();
-
   s.x.a.gate = undefined;
-
   await first;
-
   s.x.a.refuseSteer = false;
-
   await until('repair', () => s.repairs().length === 1);
 
   const prompts = s.x.a.inputs.map(({ prompt }) =>
@@ -223,24 +176,15 @@ test('a repair waits for the running and queued user turns, and a prompt sent du
   );
 
   assert.deepEqual(prompts, ['long user turn', 'queued user turn', 'repair']);
-
   await s.idle();
-
   const second = new TurnGate();
   s.x.a.gate = second;
-
   s.observe(s.read({ commit: head(2) }));
-
   await within(second.entered, 5000, 'second repair');
-
   await s.c.send('sent during the repair');
-
   assert.deepEqual(s.c.snapshot.queue, ['sent during the repair']);
-
   assert.deepEqual(s.x.a.steers, []);
-
   second.open();
-
   s.x.a.gate = undefined;
 
   await until('queued prompt ran', () =>
@@ -252,37 +196,21 @@ test('a stopped repair holds automatic turns until the next prompt and is never 
   const s = await setup(t);
   const gate = new TurnGate();
   s.x.a.gate = gate;
-
   s.observe(s.read());
-
   await within(gate.entered, 5000, 'repair');
-
   await s.c.interrupt();
-
   await s.idle();
-
   s.x.a.gate = undefined;
-
   s.observe(s.read({ commit: head(2) }));
-
   await new Promise((resolve) => setTimeout(resolve, 100));
-
   assert.equal(s.repairs().length, 1, 'held after the stop');
-
   await s.c.send('next prompt');
-
   await until('repair of the new head', () => s.repairs().length === 2);
-
   await s.idle();
-
   assert.match(s.repairs()[1]!.prompt, new RegExp(`head ${head(2)}`));
-
   s.observe(s.read());
-
   await s.c.send('another prompt');
-
   await s.idle();
-
   assert.equal(s.repairs().length, 2, 'the stopped head');
 });
 
@@ -291,19 +219,12 @@ test('a failed repair keeps the queue for the composer and its head attempted', 
   const gate = new TurnGate();
   s.x.a.gate = gate;
   s.x.a.failNext = true;
-
   s.observe(s.read());
-
   await within(gate.entered, 5000, 'repair');
-
   await s.c.send('queued behind the repair');
-
   gate.open();
-
   s.x.a.gate = undefined;
-
   await until('failed repair settled', () => s.c.snapshot.phase === 'idle');
-
   assert.deepEqual(s.c.snapshot.queue, ['queued behind the repair']);
 
   assert.equal(
@@ -313,7 +234,6 @@ test('a failed repair keeps the queue for the composer and its head attempted', 
   );
 
   assert.equal((await s.record()).conflictRepairs?.length, 1);
-
   assert.equal(s.c.repair.ready(), false);
 });
 
@@ -321,27 +241,16 @@ test('a restart during the repair keeps its head attempted, and a new head still
   const s = await setup(t);
   const gate = new TurnGate();
   s.x.a.gate = gate;
-
   s.observe(s.read());
-
   await within(gate.entered, 5000, 'repair');
-
   const id = s.c.snapshot.conversation!.id;
-
   await s.c.close({ restart: true });
-
   const reopened = await s.f.start('A', { conversation: id });
-
   reopened.coordinator.repair.setRefresh(async () => {});
-
   s.observe(s.read(), reopened);
-
   await reopened.coordinator.send('after restart');
-
   await until('idle', () => reopened.coordinator.snapshot.phase === 'idle');
-
   assert.equal(s.repairs(reopened.a).length, 0);
-
   s.observe(s.read({ commit: head(2) }), reopened);
 
   await until(
@@ -352,9 +261,7 @@ test('a restart during the repair keeps its head attempted, and a new head still
 
 test('a checkout on another branch declines the repair with one notice until the next prompt', async (t) => {
   const s = await setup(t);
-
   await git('-C', s.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/other');
-
   s.observe(s.read());
 
   await until('declined notice', () =>
@@ -366,11 +273,8 @@ test('a checkout on another branch declines the repair with one notice until the
   );
 
   assert.equal(s.c.repair.ready(), false, 'declined until the next prompt');
-
   s.observe(s.read());
-
   await new Promise((resolve) => setTimeout(resolve, 100));
-
   assert.equal(s.repairs().length, 0);
 
   assert.equal(
@@ -379,18 +283,14 @@ test('a checkout on another branch declines the repair with one notice until the
   );
 
   await git('-C', s.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/x');
-
   await s.c.send('back on the branch');
-
   await until('repair', () => s.repairs().length === 1);
 });
 
 test('an ownership check that refuses before native input declines the repair until the next prompt', async (t) => {
   const s = await setup(t);
   const repository = s.read();
-
   await s.c.send('connect');
-
   await s.idle();
 
   vi.spyOn(
@@ -412,17 +312,11 @@ test('an ownership check that refuses before native input declines the repair un
   );
 
   await s.idle();
-
   assert.equal(s.repairs().length, 0);
-
   assert.equal(s.c.snapshot.error, undefined);
-
   assert.deepEqual((await s.record()).conflictRepairs ?? [], []);
-
   s.observe(repository);
-
   await s.c.send('next prompt');
-
   await until('repair', () => s.repairs().length === 1);
 });
 
@@ -431,9 +325,7 @@ test('losing the claim or the base during a repair stops it once', async (t) => 
     const s = await setup(t, kind === 'claim' ? 'A' : 'B');
     const gate = new TurnGate();
     s.x.a.gate = gate;
-
     s.observe(s.read());
-
     await within(gate.entered, 5000, 'repair');
 
     if (kind === 'claim') {
@@ -445,7 +337,6 @@ test('losing the claim or the base during a repair stops it once', async (t) => 
       assert.equal(result.kind, 'released');
     } else {
       s.observe(s.read({ base: 'release' }));
-
       s.observe(s.read({ base: 'release' }));
     }
 
@@ -458,9 +349,7 @@ test('losing the claim or the base during a repair stops it once', async (t) => 
     );
 
     gate.open();
-
     await s.idle();
-
     s.observe(s.read());
 
     assert.equal(
@@ -487,7 +376,6 @@ function gateOwnership(s: Awaited<ReturnType<typeof setup>>) {
 
   vi.spyOn(reviews, 'owns').mockImplementationOnce(async (...args) => {
     entered.resolve();
-
     await released.promise;
 
     return owns(...args);
@@ -500,26 +388,17 @@ test('an admission overtaken by a prompt or a stop records nothing and repairs o
   for (const kind of ['prompt', 'stop'] as const) {
     const s = await setup(t, kind === 'prompt' ? 'A' : 'B');
     const gate = gateOwnership(s);
-
     s.observe(s.read());
-
     await within(gate.entered, 5000, 'ownership check');
-
     const sent = kind === 'prompt' ? s.c.send('user prompt') : s.c.interrupt();
-
     gate.release();
-
     await sent;
-
     await s.idle();
 
     if (kind === 'stop') {
       await new Promise((resolve) => setTimeout(resolve, 100));
-
       assert.equal(s.repairs().length, 0, kind);
-
       assert.deepEqual((await s.record()).conflictRepairs ?? [], [], kind);
-
       await s.c.send('user prompt');
     }
 
@@ -538,19 +417,12 @@ test('an admission overtaken by a prompt or a stop records nothing and repairs o
 test("a head observed during another head's admission repairs in the same drain", async (t) => {
   const s = await setup(t);
   const gate = gateOwnership(s);
-
   s.observe(s.read());
-
   await within(gate.entered, 5000, 'ownership check');
-
   s.observe(s.read({ commit: head(2) }));
-
   gate.release();
-
   await until('repair', () => s.repairs().length === 1);
-
   await s.idle();
-
   assert.match(s.repairs()[0]!.prompt, new RegExp(`head ${head(2)}`));
 
   assert.deepEqual((await s.record()).conflictRepairs, [
@@ -562,19 +434,12 @@ test('switching conversations during an admission admits nothing', async (t) => 
   const s = await setup(t);
   const original = s.c.snapshot.conversation!.id;
   const gate = gateOwnership(s);
-
   s.observe(s.read());
-
   await within(gate.entered, 5000, 'ownership check');
-
   const switched = s.c.newConversation('a');
-
   gate.release();
-
   await switched;
-
   await s.idle();
-
   assert.equal(s.repairs().length, 0);
 
   const saved = conversationRecordSchema.parse(
@@ -592,7 +457,6 @@ test('switching conversations during an admission admits nothing', async (t) => 
 test('a waiting peer answer runs before the repair, and one arriving during its admission runs after it', async (t) => {
   const s = await setup(t);
   const b = await s.f.start('B');
-
   await b.claim('task:asker');
 
   const ask = async (message: string) => {
@@ -603,30 +467,19 @@ test('a waiting peer answer runs before the repair, and one arriving during its 
     });
 
     assert.equal(asked.kind, 'peer-request');
-
     await s.x.coordination.context();
   };
 
   const release = s.c.holdPromptDelivery();
-
   s.observe(s.read());
-
   await ask('What did this task find?');
-
   release();
-
   await until('repair', () => s.repairs().length === 1);
-
   await s.idle();
-
   const gate = gateOwnership(s);
-
   s.observe(s.read({ commit: head(2) }));
-
   await within(gate.entered, 5000, 'ownership check');
-
   await ask('And now?');
-
   gate.release();
 
   await until(
@@ -651,33 +504,19 @@ test('a waiting peer answer runs before the repair, and one arriving during its 
 test('an ownership check that throws declines with its error, reported once per blocker and conversation', async (t) => {
   const s = await setup(t);
   const owns = vi.spyOn(s.x.coordination.reviews, 'owns');
-
   owns.mockRejectedValue(new Error('Ledger unavailable.'));
-
   s.observe(s.read());
-
   const blocker = "Witch didn't repair the conflict on #7: Ledger unavailable.";
-
   await until('declined notice', () => s.notices().includes(blocker));
-
   await s.idle();
-
   assert.equal(s.c.snapshot.error, undefined);
-
   assert.equal(s.repairs().length, 0);
-
   await s.c.send('retry');
-
   await s.idle();
-
   s.observe(s.read());
-
   await new Promise((resolve) => setTimeout(resolve, 100));
-
   assert.equal(s.notices().filter((text) => text === blocker).length, 1);
-
   owns.mockRejectedValue(new Error('Git unavailable.'));
-
   await s.c.send('retry again');
 
   await until('changed blocker', () =>
@@ -698,7 +537,6 @@ test('a restart while the final ownership check runs keeps the head attempted', 
   vi.spyOn(reviews, 'owns').mockImplementation(async (...args) => {
     if (++calls === 2) {
       entered.resolve();
-
       await released.promise;
     }
 
@@ -706,26 +544,16 @@ test('a restart while the final ownership check runs keeps the head attempted', 
   });
 
   s.observe(s.read());
-
   await within(entered.promise, 5000, 'final ownership check');
-
   const id = s.c.snapshot.conversation!.id;
   const closing = s.c.close({ restart: true });
-
   released.resolve();
-
   await closing;
-
   const reopened = await s.f.start('A', { conversation: id });
-
   assert.equal((await s.record(reopened)).conflictRepairs?.length, 1);
-
   s.observe(s.read(), reopened);
-
   await reopened.coordinator.send('after restart');
-
   await until('idle', () => reopened.coordinator.snapshot.phase === 'idle');
-
   assert.equal(s.repairs().length + s.repairs(reopened.a).length, 0);
 });
 
@@ -739,24 +567,17 @@ test('a conflict observed while a Copilot admission reads GitHub repairs in the 
   vi.spyOn(github, 'readGitHubReviews').mockImplementation(async () => {
     // the head's readiness lapses through an uncomputed read and returns
     s.observe(s.read({ mergeable: 'UNKNOWN' }, kept));
-
     s.observe(s.read());
 
     return structuredClone(source);
   });
 
   const mergeable = s.read({ mergeable: 'MERGEABLE' });
-
   s.x.coordination.updateRepository(mergeable);
-
   s.c.copilot.updateRepository(mergeable);
-
   s.c.repair.observe(mergeable);
-
   await s.c.copilot.observe(structuredClone(source));
-
   await until('repair', () => s.repairs().length === 1);
-
   assert.ok(s.x.a.inputs[0]!.prompt.startsWith(repairPrefix));
 });
 
@@ -777,13 +598,11 @@ test('the wired conflict watch survives a conversation switch and a restart with
   };
 
   s.x.coordination.updateRepository(repository.snapshot);
-
   const release = s.c.holdPromptDelivery();
   const stop = watchConflicts(repository, s.c);
 
   try {
     await until('ready repair', () => s.c.repair.ready());
-
     await s.c.newConversation('a');
 
     for (const listener of listeners) listener();
@@ -795,7 +614,6 @@ test('the wired conflict watch survives a conversation switch and a restart with
     await new Promise((resolve) => setImmediate(resolve));
   } finally {
     release();
-
     stop();
   }
 
@@ -808,25 +626,15 @@ test('a new conflict does not steer prompts a replied turn refused', async (t) =
   s.x.a.gate = gate;
   s.x.a.replied = true;
   s.x.a.refuseSteer = true;
-
   void s.c.send('long turn');
-
   await within(gate.entered, 5000, 'user turn');
-
   await s.c.send('queued prompt');
-
   assert.deepEqual(s.c.snapshot.queue, ['queued prompt']);
-
   s.x.a.refuseSteer = false;
-
   s.observe(s.read());
-
   await new Promise((resolve) => setTimeout(resolve, 100));
-
   assert.deepEqual(s.x.a.steers, []);
-
   gate.open();
-
   s.x.a.gate = undefined;
   s.x.a.replied = false;
 });
@@ -851,23 +659,14 @@ const checkRepairs = (s: Awaited<ReturnType<typeof setup>>) =>
 
 test('failed checks on the claimed pull request start one repair turn per head and check, and pending or passing checks start none', async (t) => {
   const s = await setup(t);
-
   s.observe(s.read({ mergeable: 'MERGEABLE', checks: 'pending' }));
-
   assert.equal(s.c.repair.ready(), false, 'pending');
-
   s.observe(s.read({ mergeable: 'MERGEABLE', checks: 'passing' }));
-
   assert.equal(s.c.repair.ready(), false, 'passing');
-
   s.observe(failing(s));
-
   await until('check repair', () => checkRepairs(s).length === 1);
-
   await s.idle();
-
   const [repair] = checkRepairs(s);
-
   assert.equal(repair!.author, 'witch');
 
   assert.match(
@@ -891,19 +690,12 @@ test('failed checks on the claimed pull request start one repair turn per head a
   ]);
 
   assert.equal((await s.record()).conflictRepairs, undefined);
-
   s.observe(failing(s));
-
   assert.equal(s.c.repair.ready(), false, 'a repeated poll');
-
   s.observe(failing(s, { failed: [{ name: 'verify', url: job(2) }] }));
-
   assert.equal(s.c.repair.ready(), false, 'a rerun that failed the same way');
-
   await s.c.send('continue');
-
   await s.idle();
-
   assert.equal(checkRepairs(s).length, 1);
 
   s.observe(
@@ -916,17 +708,11 @@ test('failed checks on the claimed pull request start one repair turn per head a
   );
 
   await until('repair of the later check', () => checkRepairs(s).length === 2);
-
   await s.idle();
-
   assert.match(checkRepairs(s)[1]!.prompt, new RegExp(`${head(1)}: lint \\(`));
-
   assert.doesNotMatch(checkRepairs(s)[1]!.prompt, /verify/);
-
   s.observe(failing(s, { commit: head(2) }));
-
   await until('repair of the new head', () => checkRepairs(s).length === 3);
-
   assert.match(checkRepairs(s)[2]!.prompt, new RegExp(`at head ${head(2)}:`));
 });
 
@@ -935,25 +721,15 @@ test('a check repair waits for the running and queued user turns', async (t) => 
   const gate = new TurnGate();
   s.x.a.gate = gate;
   const first = s.c.send('long user turn');
-
   await within(gate.entered, 5000, 'user turn');
-
   s.x.a.refuseSteer = true;
-
   await s.c.send('queued user turn');
-
   s.observe(failing(s));
-
   assert.equal(checkRepairs(s).length, 0);
-
   gate.open();
-
   s.x.a.gate = undefined;
-
   await first;
-
   s.x.a.refuseSteer = false;
-
   await until('check repair', () => checkRepairs(s).length === 1);
 
   assert.deepEqual(

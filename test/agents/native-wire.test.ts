@@ -35,7 +35,6 @@ test('wire capture retains split JSON lines in both directions without consuming
   });
 
   child.stdin.write('{"id":');
-
   child.stdin.write('17,"text":"a\\nb"}\n');
 
   await new Promise<void>((resolve) => {
@@ -45,9 +44,7 @@ test('wire capture retains split JSON lines in both directions without consuming
   });
 
   child.stdin.end();
-
   await capture.finished();
-
   assert.equal(output, '{"id":17,"text":"a\\nb"}\n');
 
   assert.deepEqual(capture.frames, [
@@ -188,7 +185,6 @@ test('replay binds request IDs consistently and rejects a changed payload', asyn
   );
 
   await assert.rejects(replay.finished(), /frame 2/);
-
   await capture.finished();
 
   assert.deepEqual(
@@ -238,7 +234,6 @@ for (const [name, issued, expected, actual] of [
     );
 
     child.stdin.end(JSON.stringify(actual) + '\n');
-
     await assert.rejects(replay.finished(), /ID mismatch/);
   });
 }
@@ -256,9 +251,7 @@ test('closing replay with a missing client request fails instead of accepting a 
   );
 
   const replay = replayWire([file], cwd);
-
   replay.launch().stdin.end();
-
   await assert.rejects(replay.finished(), /Unconsumed native trace \(0\/1\)/);
 });
 

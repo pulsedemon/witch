@@ -352,7 +352,6 @@ export async function reconcileReviews(
 
           if (!pushed) {
             pushed = commitPushed(entry.commit);
-
             commits.set(entry.commit, pushed);
           }
 
@@ -389,7 +388,6 @@ export async function reconcileReviews(
     for (const item of state.items)
       if (waiting.has(item.id) && admitted.get(item.id) === item.version) {
         item.status = 'attempted';
-
         delete item.reason;
       }
   } else delete state.batch;

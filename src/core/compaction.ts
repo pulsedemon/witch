@@ -49,7 +49,6 @@ export async function compactSession(
       if (session.info.hasHistory) result = await session.compact();
       else {
         notice('No conversation history to compact');
-
         result = { status: 'completed', text: '' };
       }
   } catch (error) {
@@ -82,7 +81,6 @@ export class Compaction {
     if (!this.request) return;
 
     this.request.cancelled = true;
-
     this.owner.failed();
 
     if (this.busy) this.failure = { status: 'interrupted', text: '' };
@@ -109,14 +107,12 @@ export class Compaction {
     };
 
     this.request = request;
-
     this.owner.changed();
 
     void this.run(request, state.parent, state.draining).then(
       (success) => this.finish(request, success),
       (error: unknown) => {
         this.owner.report(error);
-
         this.finish(request, false);
       },
     );
@@ -147,11 +143,8 @@ export class Compaction {
   ): Promise<boolean> {
     // a synchronous snapshot listener can request compact before the pre-turn check installs its operation
     await Promise.resolve();
-
     const exhaustion = this.owner.exhaustion();
-
     await exhaustion;
-
     let success: boolean | undefined;
     const state = this.owner.state();
 
@@ -169,9 +162,7 @@ export class Compaction {
           .then((result) => {
             if (result.status !== 'completed') {
               this.failure = result;
-
               this.owner.failed();
-
               this.owner.notice(result.error ?? 'Compaction interrupted');
             }
 
@@ -187,13 +178,9 @@ export class Compaction {
     }
 
     await parent?.catch(() => {});
-
     await draining;
-
     const pendingExhaustion = this.owner.exhaustion();
-
     await pendingExhaustion;
-
     const next = this.owner.state();
 
     if (
@@ -226,7 +213,6 @@ export class Compaction {
     if (!success) this.owner.failed();
 
     request.finished.resolve(success);
-
     this.owner.changed();
   }
 }

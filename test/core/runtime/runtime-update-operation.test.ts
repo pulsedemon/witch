@@ -42,13 +42,9 @@ test('an update selects and verifies the confirmed artifact before releasing adm
   };
 
   await f.updates.apply(f.check, { accountUsage: true });
-
   const journal = (await f.store.journal(f.root))!;
-
   assert.equal(journal.phase, 'verified');
-
   assert.equal(journal.selected?.digest, f.artifacts.get('2.0.0')!.digest);
-
   assert.deepEqual(f.installs, ['2.0.0']);
 
   assert.deepEqual(
@@ -59,11 +55,8 @@ test('an update selects and verifies the confirmed artifact before releasing adm
   );
 
   const release = holdRuntime(f.root, f.store.directory);
-
   release();
-
   assert.equal(f.updates.snapshot.entries[0]!.installation?.version, '2.0.0');
-
   f.updates.close();
 });
 
@@ -84,11 +77,8 @@ for (const failure of [
     );
 
     assert.equal((await f.inspect()).digest, f.artifacts.get('1.0.0')!.digest);
-
     assert.deepEqual(f.installs, ['2.0.0', '1.0.0']);
-
     assert.equal((await f.store.journal(f.root))?.phase, 'recovered');
-
     assert.equal(f.updates.snapshot.entries[0]!.installation?.version, '1.0.0');
 
     assert.ok(
@@ -116,9 +106,7 @@ test('a partial installer failure is reconciled and recovered', async () => {
   );
 
   assert.equal((await f.inspect()).version, '1.0.0');
-
   assert.equal((await f.store.journal(f.root))?.phase, 'recovered');
-
   f.updates.close();
 });
 
@@ -132,9 +120,7 @@ test('installer success without selecting the target never produces a verified u
   );
 
   assert.equal((await f.inspect()).version, '1.0.0');
-
   assert.equal((await f.store.journal(f.root))?.phase, 'recovered');
-
   f.updates.close();
 });
 
@@ -153,9 +139,7 @@ test('a mismatched qualification identity triggers recovery', async () => {
   );
 
   assert.equal((await f.inspect()).version, '1.0.0');
-
   assert.equal((await f.store.journal(f.root))?.phase, 'recovered');
-
   f.updates.close();
 });
 
@@ -179,9 +163,7 @@ test('failed recovery keeps native launches blocked and can be retried without a
   );
 
   const journal = (await f.store.journal(f.root))!;
-
   assert.equal(journal.phase, 'failed');
-
   assert.equal((await f.inspect()).version, '2.0.0');
 
   assert.throws(
@@ -190,15 +172,10 @@ test('failed recovery keeps native launches blocked and can be retried without a
   );
 
   f.native.install = install;
-
   await f.updates.recover(journal);
-
   assert.equal((await f.inspect()).version, '1.0.0');
-
   assert.equal((await f.store.journal(f.root))?.phase, 'recovered');
-
   holdRuntime(f.root, f.store.directory)();
-
   f.updates.close();
 });
 
@@ -232,9 +209,7 @@ test('unfinished journals block startup even after the updater process is gone',
   );
 
   await next.check();
-
   assert.equal(next.snapshot.entries[0]!.installation, undefined);
-
   assert.ok(pendingUpdate(next.snapshot.entries[0]!.journal!));
 
   assert.throws(
@@ -258,13 +233,9 @@ test('preparation failure leaves the original selection usable', async () => {
   );
 
   assert.deepEqual(f.installs, []);
-
   assert.equal((await f.inspect()).version, '1.0.0');
-
   assert.equal((await f.store.journal(f.root))?.phase, 'aborted');
-
   holdRuntime(f.root, f.store.directory)();
-
   f.updates.close();
 });
 
@@ -279,11 +250,9 @@ test('another transaction cannot overwrite an active update journal', async () =
     );
 
     assert.deepEqual(f.installs, []);
-
     assert.equal(await f.store.journal(f.root), undefined);
   } finally {
     await transaction.close();
-
     f.updates.close();
   }
 });
@@ -298,7 +267,6 @@ test('shared native use excludes installation and closes before a writer acquire
   );
 
   reader();
-
   const writer = await f.store.exclusive(f.root, new AbortController().signal);
 
   try {
@@ -308,22 +276,16 @@ test('shared native use excludes installation and closes before a writer acquire
     );
   } finally {
     await writer.close();
-
     f.updates.close();
   }
 });
 
 test('the 24-hour cache still reads installed identity and current policy', async () => {
   const f = await runtimeUpdateFixture();
-
   assert.equal(f.checks(), 1);
-
   await f.updates.check();
-
   assert.equal(f.checks(), 1);
-
   f.policy.blocked = 'Native updates are disabled';
-
   await f.updates.check();
 
   assert.equal(
@@ -332,9 +294,7 @@ test('the 24-hour cache still reads installed identity and current policy', asyn
   );
 
   delete f.policy.blocked;
-
   await f.updates.check();
-
   assert.equal(f.updates.snapshot.entries[0]!.check?.blocked, undefined);
 
   await f.store.cache({
@@ -343,13 +303,9 @@ test('the 24-hour cache still reads installed identity and current policy', asyn
   });
 
   await f.updates.check();
-
   assert.equal(f.checks(), 2);
-
   await f.updates.check(true);
-
   assert.equal(f.checks(), 3);
-
   f.updates.close();
 });
 
@@ -361,7 +317,6 @@ test('a release is announced once across successive Witch instances', async () =
   ]);
 
   f.updates.close();
-
   const notices: string[] = [];
 
   const next = new RuntimeUpdates(
@@ -376,9 +331,7 @@ test('a release is announced once across successive Witch instances', async () =
   );
 
   await next.check();
-
   assert.deepEqual(notices, []);
-
   next.close();
 });
 
@@ -390,11 +343,8 @@ test('an offline refresh reports failure instead of claiming the installed versi
   };
 
   await f.updates.check(true);
-
   assert.equal(f.updates.snapshot.entries[0]!.check, undefined);
-
   assert.equal(f.updates.snapshot.entries[0]!.error, 'Network unavailable');
-
   f.updates.close();
 });
 
@@ -415,9 +365,7 @@ test('a build change during qualification restores the old runtime', async () =>
   );
 
   assert.equal((await f.inspect()).version, '1.0.0');
-
   assert.equal((await f.store.journal(f.root))?.phase, 'recovered');
-
   f.updates.close();
 });
 
@@ -434,9 +382,7 @@ test('known installation users refuse an update before preparation or mutation',
   );
 
   assert.deepEqual(f.installs, []);
-
   assert.equal((await f.store.journal(f.root))?.phase, 'aborted');
-
   f.updates.close();
 });
 
@@ -456,7 +402,6 @@ test('an omitted required check cannot qualify an update', async () => {
     );
 
     assert.equal((await f.inspect()).version, '1.0.0');
-
     assert.equal((await f.store.journal(f.root))?.phase, 'recovered');
   } finally {
     f.updates.close();
@@ -486,7 +431,6 @@ test('confirmation rechecks native policy in the initiating conversation directo
 
   try {
     await f.updates.check();
-
     cwd = '/project/second';
 
     await assert.rejects(
@@ -495,9 +439,7 @@ test('confirmation rechecks native policy in the initiating conversation directo
     );
 
     assert.ok(observed.includes('/project/first'));
-
     assert.ok(observed.includes('/project/second'));
-
     assert.deepEqual(f.installs, []);
   } finally {
     f.updates.close();
@@ -508,40 +450,26 @@ test('a cached release keeps freshly inspected installation policy through apply
   const f = await runtimeUpdateFixture();
   f.policy.blocked = 'Old native update policy';
   f.policy.automatic = true;
-
   await f.updates.check(true);
-
   const checks = f.checks();
-
   delete f.policy.blocked;
-
   f.policy.automatic = false;
-
   await f.updates.check();
-
   const fresh = f.updates.snapshot.entries[0]!.check!;
-
   assert.equal(f.checks(), checks);
-
   assert.equal(fresh.installation.blocked, undefined);
-
   assert.equal(fresh.installation.automatic, false);
-
   const install = f.native.install;
 
   f.native.install = async (...args) => {
     assert.equal(args[0].blocked, undefined);
-
     assert.equal(args[0].automatic, false);
-
     await install(...args);
   };
 
   try {
     await f.updates.apply(fresh, { accountUsage: true });
-
     assert.equal((await f.store.journal(f.root))?.phase, 'verified');
-
     assert.deepEqual(f.installs, ['2.0.0']);
   } finally {
     f.updates.close();
@@ -563,9 +491,7 @@ test('recovery refuses the previous version when its artifact bytes differ', asy
 
     if (args[1] === '1.0.0') {
       const artifact = f.artifacts.get('1.0.0')!;
-
       await appendFile(artifact.executable, '\n# different artifact bytes\n');
-
       artifact.digest = await artifactDigest('codex', artifact.executable);
     }
   };
@@ -577,11 +503,8 @@ test('recovery refuses the previous version when its artifact bytes differ', asy
     );
 
     const restored = await f.inspect();
-
     assert.equal(restored.version, '1.0.0');
-
     assert.notEqual(restored.digest, f.check.installation.digest);
-
     assert.equal((await f.store.journal(f.root))?.phase, 'failed');
 
     assert.throws(
@@ -606,9 +529,7 @@ for (const fails of [false, true]) {
       const f = await runtimeUpdateFixture({
         maintain: async (_runtime, run) => {
           await run(new AbortController().signal);
-
           reconnect.resolve();
-
           await finish.promise;
 
           if (fails) throw new Error('Reconnect failed');
@@ -624,25 +545,18 @@ for (const fails of [false, true]) {
 
       try {
         await reconnect.promise;
-
         const journal = (await f.store.journal(f.root))!;
-
         assert.equal(journal.phase, 'verified');
 
         await assert.rejects(async () => {
           const successor = await f.store.transaction(f.root);
-
           await successor.close();
         }, NativeUpdatePending);
 
         finish.resolve();
-
         await completed;
-
         const final = (await f.store.journal(f.root))!;
-
         assert.equal(final.id, journal.id);
-
         assert.equal(final.phase, fails ? 'failed' : 'verified');
 
         assert.equal(
@@ -651,13 +565,10 @@ for (const fails of [false, true]) {
         );
 
         const next = await f.store.transaction(f.root);
-
         await next.close();
       } finally {
         finish.resolve();
-
         await completed.catch(() => {});
-
         f.updates.close();
       }
     },
@@ -688,15 +599,12 @@ function successor(
 
 test('qualifying the installed version records it verified without installing or excluding other users', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   assert.equal(f.updates.snapshot.entries[0]!.earlier, '1.0.0');
-
   const lease = holdRuntime(f.root, f.store.directory);
   f.native.users = async () => [{ pid: 1, reason: 'active session' }];
 
   const admitted = async () => {
     holdRuntime(f.root, f.store.directory)();
-
     assert.equal(await f.store.journal(f.root), undefined);
   };
 
@@ -712,7 +620,6 @@ test('qualifying the installed version records it verified without installing or
 
     await assert.rejects(f.store.transaction(f.root), (error) => {
       assert.ok(error instanceof NativeUpdatePending);
-
       assert.match(error.message, /holds this installation/);
 
       return true;
@@ -736,17 +643,11 @@ test('qualifying the installed version records it verified without installing or
   }
 
   const journal = (await f.store.journal(f.root))!;
-
   assert.equal(journal.phase, 'verified');
-
   assert.equal(journal.target, '2.0.0');
-
   assert.equal(journal.previous.digest, f.artifacts.get('1.0.0')!.digest);
-
   assert.equal(journal.previous.launcher, f.launcher);
-
   assert.equal(journal.selected?.digest, f.artifacts.get('2.0.0')!.digest);
-
   assert.deepEqual(f.installs, []);
 
   assert.deepEqual(f.notices, [
@@ -754,26 +655,18 @@ test('qualifying the installed version records it verified without installing or
   ]);
 
   assert.equal(f.updates.snapshot.progress, undefined);
-
   f.updates.close();
 });
 
 test('a blocked check restricts installing, not qualifying the installed version', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
   f.policy.blocked = 'Native policy blocks installs';
-
   await f.updates.check(true);
-
   const check = f.updates.snapshot.entries[0]!.check!;
-
   assert.equal(check.blocked, 'Native policy blocks installs');
-
   await f.updates.apply(check, { accountUsage: true });
-
   assert.equal((await f.store.journal(f.root))?.phase, 'verified');
-
   f.updates.close();
-
   const update = await runtimeUpdateFixture();
 
   await assert.rejects(
@@ -785,24 +678,17 @@ test('a blocked check restricts installing, not qualifying the installed version
   );
 
   assert.deepEqual(update.installs, []);
-
   assert.equal(await update.store.journal(update.root), undefined);
-
   update.updates.close();
 });
 
 for (const failure of ['a failed check', 'cancellation'] as const) {
   test(`${failure} while qualifying changes nothing and reports its evidence`, async () => {
     const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
     await f.updates.apply(f.check, { accountUsage: true });
-
     const seeded = (await f.store.journal(f.root))!;
-
     f.updates.close();
-
     const next = successor(f, async () => 'another-build');
-
     await next.updates.check();
 
     if (failure === 'a failed check')
@@ -812,7 +698,6 @@ for (const failure of ['a failed check', 'cancellation'] as const) {
     else
       f.native.prepare = async (_previous, options) => {
         next.abort.abort(new Error('Cancelled by the user'));
-
         options.signal.throwIfAborted();
 
         throw new Error('The cancelled signal did not stop preparation');
@@ -843,19 +728,12 @@ for (const failure of ['a failed check', 'cancellation'] as const) {
     );
 
     assert.deepEqual(await f.store.journal(f.root), seeded);
-
     assert.equal((await f.inspect()).version, '2.0.0');
-
     assert.deepEqual(f.installs, []);
-
     assert.deepEqual(next.notices, []);
-
     assert.equal(next.updates.snapshot.progress, undefined);
-
     holdRuntime(f.root, f.store.directory)();
-
     await (await f.store.transaction(f.root)).close();
-
     next.updates.close();
   });
 }
@@ -881,9 +759,7 @@ test('qualifying refuses before preparation when the earlier artifact is gone', 
   );
 
   assert.equal(prepared, false);
-
   assert.equal(await f.store.journal(f.root), undefined);
-
   f.updates.close();
 });
 
@@ -917,16 +793,13 @@ for (const [name, mismatch] of [
     );
 
     assert.equal(prepared, false);
-
     f.updates.close();
   });
 }
 
 test('a verified version is refused a second qualification until the Witch build changes', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   await f.updates.apply(f.check, { accountUsage: true });
-
   const first = (await f.store.journal(f.root))!;
 
   await assert.rejects(
@@ -937,11 +810,8 @@ test('a verified version is refused a second qualification until the Witch build
   );
 
   assert.equal((await f.store.journal(f.root))!.id, first.id);
-
   f.updates.close();
-
   const rebuilt = successor(f, async () => 'rebuilt-witch');
-
   await rebuilt.updates.check();
 
   await rebuilt.updates.apply(rebuilt.updates.snapshot.entries[0]!.check!, {
@@ -949,21 +819,15 @@ test('a verified version is refused a second qualification until the Witch build
   });
 
   const second = (await f.store.journal(f.root))!;
-
   assert.notEqual(second.id, first.id);
-
   assert.equal(second.build, 'rebuilt-witch');
-
   assert.equal(second.phase, 'verified');
-
   rebuilt.updates.close();
 });
 
 test('a cancellation that arrives after the last check keeps the passed qualification', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   f.updates.close();
-
   let identified = 0;
 
   // the constructor and the start of apply identify the build first; the third call is the final check
@@ -980,17 +844,13 @@ test('a cancellation that arrives after the last check keeps the passed qualific
   });
 
   assert.equal(identified, 3);
-
   assert.equal((await f.store.journal(f.root))?.phase, 'verified');
-
   late.updates.close();
 });
 
 test('a failed reconnect after a passed qualification keeps the record, its notice and every diagnostic', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   f.updates.close();
-
   let reconnecting = false;
   const notices: string[] = [];
 
@@ -998,7 +858,6 @@ test('a failed reconnect after a passed qualification keeps the record, its noti
     {
       maintain: async (_runtime, run) => {
         await run(new AbortController().signal);
-
         reconnecting = true;
 
         throw new Error('Reconnect failed');
@@ -1023,9 +882,7 @@ test('a failed reconnect after a passed qualification keeps the record, its noti
   );
 
   const journal = (await f.store.journal(f.root))!;
-
   assert.equal(journal.phase, 'verified');
-
   holdRuntime(f.root, f.store.directory)();
 
   assert.equal(
@@ -1042,7 +899,6 @@ test('a failed reconnect after a passed qualification keeps the record, its noti
 
 test('a failed build identity is reported by the operation instead of hiding the inventory', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   f.updates.close();
 
   const broken = successor(f, async () => {
@@ -1050,9 +906,7 @@ test('a failed build identity is reported by the operation instead of hiding the
   });
 
   await broken.updates.check();
-
   const entry = broken.updates.snapshot.entries[0]!;
-
   assert.equal(entry.installation?.version, '2.0.0');
 
   await assert.rejects(
@@ -1061,11 +915,8 @@ test('a failed build identity is reported by the operation instead of hiding the
   );
 
   assert.equal(broken.updates.snapshot.progress, undefined);
-
   assert.equal(broken.updates.snapshot.buildError, 'Build tree unreadable');
-
   assert.equal(await f.store.journal(f.root), undefined);
-
   broken.updates.close();
 });
 
@@ -1091,9 +942,7 @@ test('qualifying refuses an installation that changed since it was offered', asy
   );
 
   assert.equal(prepared, false);
-
   assert.equal(await f.store.journal(f.root), undefined);
-
   f.updates.close();
 });
 
@@ -1128,11 +977,8 @@ for (const [name, tamper] of [
     );
 
     assert.equal(await f.store.journal(f.root), undefined);
-
     assert.deepEqual(f.notices, []);
-
     holdRuntime(f.root, f.store.directory)();
-
     f.updates.close();
   });
 }
@@ -1149,7 +995,6 @@ for (const [tree, extension] of [
       tree === 'src' ? join(repository, tree) : dirname(await compiledCli());
 
     await cp(original, join(root, tree), { recursive: true });
-
     await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
 
     for (const name of ['package.json', 'pnpm-lock.yaml'])
@@ -1179,15 +1024,10 @@ for (const [tree, extension] of [
     const before = await identify();
     const file = join(root, tree, `errors.${extension}`);
     const content = await readFile(file, 'utf8');
-
     assert.match(before, /^[a-f0-9]{64}$/);
-
     await appendFile(file, '\n');
-
     assert.notEqual(await identify(), before);
-
     await writeFile(file, content);
-
     assert.equal(await identify(), before);
   });
 }

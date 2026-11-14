@@ -55,7 +55,6 @@ for (const size of [1, 8])
     const store = await StateStore.open(root);
     const registry = await CoordinationStore.open(store);
     const exited = spawn(process.execPath, ['-e', '']);
-
     await once(exited, 'close');
 
     const claims: TaskClaim[] = [],
@@ -111,7 +110,6 @@ for (const size of [1, 8])
 
         if (active) {
           cleanup(close);
-
           liveSelections.push(ticket);
         } else await close();
 
@@ -121,9 +119,7 @@ for (const size of [1, 8])
 
     const file = join(root, 'coordination', 'claims.json');
     const original = JSON.stringify({ version: 2, claims, selections });
-
     await writeFile(file, original);
-
     const probes = await countProbes(() => registry.state());
 
     assert.deepEqual(probes.value, {
@@ -132,9 +128,7 @@ for (const size of [1, 8])
     });
 
     assert.equal(await readFile(file, 'utf8'), original);
-
     assert.ok(probes.ps <= 1, `${probes.ps} process probes`);
-
     assert.ok(probes.perl <= 2, `${probes.perl} lock probes`);
 
     await assert.rejects(
@@ -214,9 +208,7 @@ function contender(
     ready,
     claim: async () => {
       const reply = within(once(child, 'message'), 7000, 'owner response');
-
       child.send('claim');
-
       const [message] = await reply;
 
       return message as { kind: string; claim: TaskClaim };
@@ -229,9 +221,7 @@ test('two independent claimants have one owner and only its work starts', async 
   const root = await scratch('witch-coordination-race-');
   const a = contender(cleanup, root, 'a');
   const b = contender(cleanup, root, 'b');
-
   await Promise.all([a.ready, b.ready]);
-
   const results = await Promise.all([a.claim(), b.claim()]);
 
   assert.deepEqual(results.map(({ kind }) => kind).sort(), [
@@ -241,11 +231,8 @@ test('two independent claimants have one owner and only its work starts', async 
 
   const winner = results.find(({ kind }) => kind === 'claimed')!.claim;
   const loser = results.find(({ kind }) => kind === 'conflict')!.claim;
-
   assert.deepEqual(loser, winner);
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   assert.deepEqual(await store.claims(), [winner]);
 
   assert.deepEqual(
@@ -331,7 +318,6 @@ test('only the matching owner and exact claim id can release a reservation', asy
     await assert.rejects(release(store, wrong, first.id), /Only the owning/);
 
   assert.equal(await readFile(file, 'utf8'), before);
-
   await release(store, owner, first.id);
 
   const next = await claim(store, owner, {
@@ -340,9 +326,7 @@ test('only the matching owner and exact claim id can release a reservation', asy
   });
 
   assert.notEqual(next.id, first.id);
-
   await release(store, owner, first.id);
-
   assert.deepEqual(await store.claims(), [next]);
 });
 
@@ -415,7 +399,6 @@ test('bounded ledger reads wait for the reservation lock and release it', async 
 
   try {
     await assert.rejects(store.state(Date.now() + 50), /expired/);
-
     assert.deepEqual(await store.claims(), []);
   } finally {
     await lock.close();
@@ -438,9 +421,7 @@ for (const damage of ['invalid JSON', 'unreadable'] as const) {
   test(`an ${damage} ledger refuses mutations without replacing its bytes`, async () => {
     const root = await scratch('witch-coordination-damaged-');
     const store = await CoordinationStore.open(await StateStore.open(root));
-
     await claim(store);
-
     const file = join(root, 'coordination', 'claims.json');
 
     if (damage === 'invalid JSON') await writeFile(file, '{');
@@ -451,7 +432,6 @@ for (const damage of ['invalid JSON', 'unreadable'] as const) {
 
     try {
       await assert.rejects(claim(store, { ...owner, conversation: 'b' }));
-
       await assert.rejects(release(store, owner, randomUUID()));
     } finally {
       await chmod(file, 0o600);
@@ -496,9 +476,7 @@ test('verification receives the reconciled ledger under the reservation lock', a
   await assert.rejects(
     store.claim(owner, input, identity, Date.now() + 5000, async (ledger) => {
       assert.deepEqual(ledger, { claims: [live], selections: [] });
-
       const lock = join(root, 'coordination', 'lock');
-
       assert.equal((await lockedFiles([lock])).get(lock), 'exclusive');
 
       throw new Error('Revoked');
@@ -507,17 +485,11 @@ test('verification receives the reconciled ledger under the reservation lock', a
   );
 
   assert.equal(await readFile(file, 'utf8'), original);
-
   assert.deepEqual(await store.claims(), [live]);
-
   const next = contender(cleanup, root, 'b');
-
   await next.ready;
-
   const result = await next.claim();
-
   assert.equal(result.kind, 'claimed');
-
   assert.equal(result.claim.owner.conversation, 'b');
 });
 
@@ -532,13 +504,9 @@ test('a failed mutation releases the ledger lock without releasing the task', as
   );
 
   const next = contender(cleanup, root, 'b');
-
   await next.ready;
-
   const result = await next.claim();
-
   assert.equal(result.kind, 'conflict');
-
   assert.deepEqual(result.claim, held);
 });
 
@@ -578,15 +546,10 @@ test('presence removal cannot delete a newer activation or its task claim', asyn
     };
 
     await store.publish(next);
-
     await store.removePresence('a', first.activation);
-
     assert.deepEqual(await store.presences(), [next]);
-
     await store.removePresence('a', next.activation);
-
     assert.deepEqual(await store.presences(), []);
-
     assert.deepEqual(await store.claims(), [held]);
   } finally {
     await files.close();
@@ -604,19 +567,16 @@ async function transferFixture(
 
   register(async () => {
     sleeper.kill();
-
     await closed;
   });
 
   await once(sleeper, 'spawn');
-
   // a requester distinct from the owner, so a hand-over that keeps the owner's process shows
   const requester = (await identifyProcess(sleeper.pid!))!;
 
   const hold = async () => {
     const activation = randomUUID();
     const close = await store.holdActivation(activation);
-
     register(close);
 
     return { activation, close };
@@ -662,9 +622,7 @@ test('automatic transfer never follows a released reference onto a replacement c
   );
 
   const original = await claim(f.store);
-
   await release(f.store, owner, original.id);
-
   const replacement = await claim(f.store);
   const { activation } = await f.hold();
 
@@ -685,9 +643,7 @@ test('automatic transfer never follows a released reference onto a replacement c
 test('automatic transfer refuses a claim that moved since the conflict', async (t) => {
   const f = await transferFixture(orderedCleanup(t.onTestFinished), 'transfer');
   const original = await claim(f.store);
-
   await f.request(taker, (await f.hold()).activation);
-
   const moved = await f.handOver(original.id);
   const third = { conversation: 'c', project: 'project-p' };
 
@@ -713,9 +669,7 @@ for (const field of ['transfer', 'automaticTransfer'] as const)
   test(`${field} excludes a competing request of the other kind`, async (t) => {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
     const original = await claim(f.store);
-
     await f.request(taker, (await f.hold()).activation);
-
     const before = await readFile(f.file, 'utf8');
 
     await assert.rejects(
@@ -772,9 +726,7 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
     );
 
     await f.request(taker, activation);
-
     const moved = await f.handOver(original.id);
-
     assert.deepEqual(await f.store.claims(), [moved]);
 
     assert.deepEqual(moved, {
@@ -788,9 +740,7 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
   test(`${field}: a second requester is refused while a transfer is pending or refused`, async (t) => {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
     const original = await claim(f.store);
-
     await f.request(taker, (await f.hold()).activation);
-
     const third = { conversation: 'c', project: 'project-p' };
     const { activation } = await f.hold();
 
@@ -814,15 +764,10 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
     const original = await claim(f.store);
     const { activation } = await f.hold();
-
     await f.request(taker, activation);
-
     const refused = await f.handOver(original.id, () => 'It is running.');
-
     assert.equal(refused?.[field]?.refusal, 'It is running.');
-
     assert.equal(await f.handOver(original.id), undefined);
-
     assert.deepEqual(await f.store.claims(), [refused]);
 
     const withdraw = (from: string) =>
@@ -835,16 +780,13 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
       );
 
     assert.deepEqual(await withdraw(randomUUID()), refused);
-
     assert.deepEqual(await withdraw(activation), original);
-
     assert.deepEqual(await f.store.claims(), [original]);
   });
 
   test(`${field}: a hand-over refuses a requester that has since claimed another task`, async (t) => {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
     const original = await claim(f.store);
-
     await f.request(taker, (await f.hold()).activation);
 
     const other = await claim(f.store, taker, {
@@ -853,7 +795,6 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
     });
 
     const refused = await f.handOver(original.id);
-
     assert.deepEqual(refused?.owner, owner);
 
     assert.equal(
@@ -868,21 +809,13 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
     const original = await claim(f.store);
     const left = await f.hold();
-
     await f.request(taker, left.activation);
-
     await left.close();
-
     assert.deepEqual(await f.store.claims(), [original]);
-
     await f.request(taker, (await f.hold()).activation, Date.now() + 50);
-
     await delay(100);
-
     assert.deepEqual(await f.store.claims(), [original]);
-
     assert.equal(await f.handOver(original.id), undefined);
-
     assert.deepEqual(await f.store.claims(), [original]);
   });
 }
@@ -912,13 +845,9 @@ test('pause records track each recipient and replay only their own retry', async
   );
 
   assert.deepEqual(await status(pause.id), { a: 'pending', b: 'pending' });
-
   await store.confirmPause('a', pause.id, deadline());
-
   const confirmed = entry(await store.pause('a', pause.id), 'a')!.confirmedAt;
-
   await delay(5);
-
   await store.confirmPause('a', pause.id, deadline());
 
   assert.equal(
@@ -927,11 +856,8 @@ test('pause records track each recipient and replay only their own retry', async
   );
 
   assert.deepEqual(await status(pause.id), { a: 'paused', b: 'pending' });
-
   await store.resumeByUser('a', [pause.id], deadline());
-
   assert.deepEqual(await status(pause.id), { a: 'resumed', b: 'pending' });
-
   // a timed-out --pause rerun in the same turn gets the recorded pause back, even after a resume
   const refused = async () => assert.fail('a retry reverifies');
 
@@ -976,7 +902,6 @@ test('pause records track each recipient and replay only their own retry', async
   );
 
   assert.deepEqual(await status(pause.id), { a: 'resumed', b: 'resumed' });
-
   const pauses = await store.pauses('a');
 
   assert.deepEqual(
@@ -985,6 +910,5 @@ test('pause records track each recipient and replay only their own retry', async
   );
 
   assert.equal((await store.pauses('i')).length, 5);
-
   assert.deepEqual(await store.pauses('other'), []);
 });

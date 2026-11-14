@@ -31,73 +31,43 @@ test('the activity start survives automatic compaction and request updates, then
 
   try {
     await compacting.entered;
-
     assert.equal(coordinator.snapshot.phase, 'compacting');
-
     assert.equal(coordinator.snapshot.activityStartedAt, 100_000);
-
     session.contextUsage = contextUsage;
-
     clock.mockReturnValue(105_000);
-
     a.gate = running;
-
     compacting.open();
-
     await running.entered;
-
     assert.equal(coordinator.snapshot.phase, 'running');
-
     assert.equal(coordinator.snapshot.activityStartedAt, 100_000);
-
     const { onEvent } = a.sessions.at(-1)!.options;
-
     onEvent({ type: 'request', request: approval });
-
     clock.mockReturnValue(112_000);
-
     onEvent({ type: 'request-resolved', id: approval.id });
-
     assert.equal(coordinator.snapshot.activityStartedAt, 100_000);
-
     running.open();
-
     await sending;
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     clock.mockReturnValue(120_000);
-
     a.gate = next;
     const sendingNext = coordinator.send('second turn');
-
     await next.entered;
-
     assert.equal(coordinator.snapshot.activityStartedAt, 120_000);
-
     next.open();
-
     await sendingNext;
   } finally {
     compacting.open();
-
     running.open();
-
     next.open();
-
     await sending;
-
     session.contextUsage = contextUsage;
-
     clock.mockRestore();
-
     await coordinator.close();
   }
 });
 
 test('the working row counts hidden time across requests and pages from its operation start', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-
   vi.setSystemTime(105_000);
 
   const { app, coordinator } = fake({
@@ -120,9 +90,7 @@ test('the working row counts hidden time across requests and pages from its oper
     );
 
     assert.equal(row(), undefined);
-
     vi.setSystemTime(112_000);
-
     coordinator.publish({ requests: [] });
 
     await until(
@@ -154,7 +122,6 @@ test('the working row counts hidden time across requests and pages from its oper
       );
 
       vi.setSystemTime(now);
-
       coordinator.publish({ requests: [] });
 
       await until(
@@ -164,11 +131,8 @@ test('the working row counts hidden time across requests and pages from its oper
     }
 
     await openCommand(ui, '/help', 'COMMANDS');
-
     assert.equal(row(), undefined);
-
     vi.setSystemTime(133_000);
-
     ui.stdin.write('\u001b');
 
     await until(
@@ -177,14 +141,12 @@ test('the working row counts hidden time across requests and pages from its oper
     );
   } finally {
     ui.unmount();
-
     vi.useRealTimers();
   }
 });
 
 test('a new operation resets the activity before its next tick when the UI batches idle and running', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-
   vi.setSystemTime(105_000);
 
   const { app, coordinator } = fake({
@@ -200,9 +162,7 @@ test('a new operation resets the activity before its next tick when the UI batch
     );
 
     vi.setSystemTime(120_000);
-
     coordinator.publish({ phase: 'idle' });
-
     coordinator.publish({ phase: 'running', activityStartedAt: 120_000 });
 
     await until('the next operation starts at zero', () =>
@@ -210,7 +170,6 @@ test('a new operation resets the activity before its next tick when the UI batch
     );
   } finally {
     ui.unmount();
-
     vi.useRealTimers();
   }
 });

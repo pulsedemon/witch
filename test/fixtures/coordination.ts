@@ -84,9 +84,7 @@ export async function measureControl<T>(
     return { value: await run(), discoveries, reads };
   } finally {
     opening.mockRestore();
-
     reading.mockRestore();
-
     syncBuiltinESMExports();
   }
 }
@@ -102,7 +100,6 @@ export function legacyLock(store: StateStore, id: string): Promise<FileHandle> {
 /** a checkout in A and B's project. */
 async function checkout(path: string) {
   await git('init', '--quiet', path);
-
   await git('-C', path, 'remote', 'add', 'origin', origin);
 }
 
@@ -111,13 +108,9 @@ let repositories: Promise<string> | undefined;
 /** A, B, `other` and C, built once per test file and copied into each fixture. */
 async function template(): Promise<string> {
   const root = await scratch('witch-coordination-repositories-');
-
   await checkout(join(root, 'A'));
-
   await checkout(join(root, 'B'));
-
   await git('init', '--bare', join(root, 'other'));
-
   await git('clone', join(root, 'other'), join(root, 'C'));
 
   return root;
@@ -189,7 +182,6 @@ export async function coordinationFixture(
     );
 
     clients.push(coordinator);
-
     await coordinator.initialize(join(root, name), launch);
 
     const binding = async () => {
@@ -208,7 +200,6 @@ export async function coordinationFixture(
 
     const query = async () => {
       const result = await callControl(await binding(), { kind: 'peers' });
-
       assert.equal(result.kind, 'peers', JSON.stringify(result));
 
       if (result.kind !== 'peers') assert.fail('expected a peer snapshot');
@@ -269,7 +260,6 @@ export function expireAfterLock(): void {
     deadline: number,
   ) {
     const held = await lock.call(this, deadline);
-
     vi.spyOn(Date, 'now').mockReturnValue(deadline + 1);
 
     return held;

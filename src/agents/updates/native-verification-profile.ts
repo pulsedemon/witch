@@ -38,9 +38,7 @@ export async function verificationAdapter(
 ): Promise<AgentAdapter> {
   const config = join(directory, 'config');
   const temporary = join(directory, 'tmp');
-
   await mkdir(config, { recursive: true, mode: 0o700 });
-
   await mkdir(temporary, { recursive: true, mode: 0o700 });
 
   if (runtime === 'codex') {

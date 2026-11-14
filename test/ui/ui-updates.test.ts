@@ -29,7 +29,6 @@ const agents = [{ id: 'codex', label: 'Fixture Codex', installed: true }];
 async function session() {
   const root = await scratch('witch-update-ui-');
   const project = join(root, 'project');
-
   await mkdir(project);
 
   const coordinator = new Coordinator(
@@ -47,9 +46,7 @@ async function session() {
 
 async function submit(ui: ReturnType<typeof show>, text: string) {
   ui.stdin.write(text);
-
   await delay(30);
-
   ui.stdin.write(ENTER);
 }
 
@@ -73,7 +70,6 @@ test('native updates require explicit confirmation and show the selected verifie
 
   try {
     await delay(70);
-
     await submit(ui, '/updates codex');
 
     await until('confirmation', () =>
@@ -81,11 +77,8 @@ test('native updates require explicit confirmation and show the selected verifie
     );
 
     assert.deepEqual(update.installs, []);
-
     assert.match(ui.text(), /Update Fixture Codex 1\.0\.0/);
-
     assert.ok(ui.text().includes('codex'));
-
     ui.stdin.write(ENTER);
 
     await until('cancelled confirmation', () =>
@@ -93,11 +86,8 @@ test('native updates require explicit confirmation and show the selected verifie
     );
 
     assert.deepEqual(update.installs, []);
-
     ui.stdin.write('\u001b[27u');
-
     await delay(30);
-
     await submit(ui, '/updates codex');
 
     await until('second confirmation', () =>
@@ -105,7 +95,6 @@ test('native updates require explicit confirmation and show the selected verifie
     );
 
     ui.stdin.write(DOWN);
-
     ui.stdin.write(ENTER);
 
     await until('updated version', () =>
@@ -113,13 +102,10 @@ test('native updates require explicit confirmation and show the selected verifie
     );
 
     assert.equal((await update.inspect()).version, '2.0.0');
-
     assert.match(ui.text(), /Verified with this Witch build/);
   } finally {
     ui.unmount();
-
     update.updates.close();
-
     await coordinator.close();
   }
 });
@@ -140,7 +126,6 @@ test('the narrow confirmation retains both its version and paid-check disclosure
 
   try {
     await delay(70);
-
     await submit(ui, '/updates codex');
 
     await until('narrow confirmation', () =>
@@ -150,9 +135,7 @@ test('the narrow confirmation retains both its version and paid-check disclosure
     assert.deepEqual(update.installs, []);
   } finally {
     ui.unmount();
-
     update.updates.close();
-
     await coordinator.close();
   }
 });
@@ -162,7 +145,6 @@ test('busy work refuses installation without interrupting the active turn', asyn
   const gate = new TurnGate();
   f.a.gate = gate;
   const running = f.coordinator.send('current work');
-
   await gate.entered;
 
   const update = await runtimeUpdateFixture({
@@ -177,17 +159,12 @@ test('busy work refuses installation without interrupting the active turn', asyn
     );
 
     assert.deepEqual(update.installs, []);
-
     assert.equal(f.coordinator.snapshot.phase, 'running');
-
     assert.equal(f.a.stops.length, 0);
   } finally {
     gate.open();
-
     await running;
-
     update.updates.close();
-
     await f.coordinator.close();
   }
 });
@@ -195,7 +172,6 @@ test('busy work refuses installation without interrupting the active turn', asyn
 test('queued prompts refuse installation and remain queued', async () => {
   const f = await unitFixture();
   const release = f.coordinator.holdPromptDelivery();
-
   await f.coordinator.send('queued work');
 
   const update = await runtimeUpdateFixture({
@@ -210,13 +186,10 @@ test('queued prompts refuse installation and remain queued', async () => {
     );
 
     assert.deepEqual(f.coordinator.snapshot.queue, ['queued work']);
-
     assert.deepEqual(update.installs, []);
   } finally {
     release();
-
     update.updates.close();
-
     await f.coordinator.close();
   }
 });
@@ -224,9 +197,7 @@ test('queued prompts refuse installation and remain queued', async () => {
 test('maintenance reconnects an active native conversation using its saved session', async () => {
   const root = await scratch('witch-update-reconnect-');
   const project = join(root, 'project');
-
   await mkdir(project);
-
   const store = await StateStore.open(join(root, 'state'));
   const agent = new FixtureAgent('codex');
 
@@ -235,9 +206,7 @@ test('maintenance reconnects an active native conversation using its saved sessi
   ]);
 
   await c.initialize(project);
-
   await c.send('preserved conversation');
-
   const before = c.snapshot.native!.id;
 
   const update = await runtimeUpdateFixture({
@@ -247,15 +216,11 @@ test('maintenance reconnects an active native conversation using its saved sessi
 
   try {
     await update.updates.apply(update.check, { accountUsage: true });
-
     assert.equal(c.snapshot.native!.id, before);
-
     assert.equal(agent.sessions.at(-1)!.options.resume, before);
-
     assert.equal(c.snapshot.phase, 'idle');
   } finally {
     update.updates.close();
-
     await c.close();
   }
 });
@@ -275,20 +240,15 @@ test('recovery works without a loaded conversation and retries the original init
   ]);
 
   await assert.rejects(c.initialize(project));
-
   const initial = c.snapshot;
-
   assert.equal(initial.conversation, undefined);
-
   c.notice('Codex update available', undefined, false);
-
   assert.equal(c.snapshot.items.at(-1)?.text, 'Codex update available');
 
   const update = await runtimeUpdateFixture({
     maintain: (runtime, run) =>
       c.maintainNative(runtime, async (signal) => {
         await run(signal);
-
         registration.executable = 'codex';
       }),
     notice: () => {},
@@ -313,9 +273,7 @@ test('recovery works without a loaded conversation and retries the original init
     );
 
     assert.equal((await update.store.journal(update.root))?.phase, 'failed');
-
     update.native.install = install;
-
     await mkdir(project);
 
     const ui = show(
@@ -330,11 +288,8 @@ test('recovery works without a loaded conversation and retries the original init
 
     try {
       await delay(70);
-
       ui.stdin.write('\u0010');
-
       await delay(30);
-
       await submit(ui, 'updates');
 
       await until('runtime recovery picker', () =>
@@ -342,7 +297,6 @@ test('recovery works without a loaded conversation and retries the original init
       );
 
       ui.stdin.write(DOWN);
-
       ui.stdin.write(ENTER);
 
       await until('recovery confirmation', () =>
@@ -350,7 +304,6 @@ test('recovery works without a loaded conversation and retries the original init
       );
 
       ui.stdin.write(DOWN);
-
       ui.stdin.write(ENTER);
 
       await until(
@@ -362,13 +315,10 @@ test('recovery works without a loaded conversation and retries the original init
     }
 
     assert.equal((await update.inspect()).version, '1.0.0');
-
     assert.equal(c.snapshot.phase, 'idle');
-
     assert.equal(c.snapshot.conversation?.agent, 'codex');
   } finally {
     update.updates.close();
-
     await c.close();
   }
 });
@@ -376,9 +326,7 @@ test('recovery works without a loaded conversation and retries the original init
 test('failed reconnect keeps qualified candidate recovery available and restores the previous session', async () => {
   const root = await scratch('witch-update-reconnect-failed-');
   const project = join(root, 'project');
-
   await mkdir(project);
-
   const agent = new FixtureAgent('codex');
 
   const c = new Coordinator(
@@ -388,9 +336,7 @@ test('failed reconnect keeps qualified candidate recovery available and restores
   );
 
   await c.initialize(project);
-
   await c.send('saved history');
-
   const originalSession = c.snapshot.native!.id;
 
   const update = await runtimeUpdateFixture({
@@ -409,7 +355,6 @@ test('failed reconnect keeps qualified candidate recovery available and restores
     );
 
     const journal = (await update.store.journal(update.root))!;
-
     assert.equal(journal.phase, 'failed');
 
     assert.match(
@@ -418,15 +363,11 @@ test('failed reconnect keeps qualified candidate recovery available and restores
     );
 
     agent.beforeConnect = undefined;
-
     await update.updates.recover(journal);
-
     assert.equal((await update.inspect()).version, '1.0.0');
-
     assert.equal(c.snapshot.native!.id, originalSession);
   } finally {
     update.updates.close();
-
     await c.close();
   }
 });
@@ -439,17 +380,11 @@ test('unknown check state and recovered failures are not labeled verified', asyn
   };
 
   await assert.rejects(f.updates.apply(f.check, { accountUsage: true }));
-
   const text = updatesText(f.updates.snapshot, agents);
-
   assert.match(text, /^Fixture Codex\nInstalled: 1\.0\.0$/m);
-
   assert.match(text, /Account usage exhausted/);
-
   assert.match(text, /Not yet verified/);
-
   assert.doesNotMatch(text, /Installed: 2.0.0/);
-
   f.updates.close();
 });
 
@@ -464,7 +399,6 @@ test('an unrelated startup failure leaves a qualified update usable', async () =
   );
 
   await assert.rejects(c.initialize(project), /ENOENT/);
-
   assert.equal(c.snapshot.conversation, undefined);
 
   const update = await runtimeUpdateFixture({
@@ -474,21 +408,14 @@ test('an unrelated startup failure leaves a qualified update usable', async () =
 
   try {
     await update.updates.apply(update.check, { accountUsage: true });
-
     assert.equal((await update.store.journal(update.root))?.phase, 'verified');
-
     assert.equal((await update.inspect()).version, '2.0.0');
-
     assert.deepEqual(update.installs, ['2.0.0']);
-
     holdRuntime(update.root, update.store.directory)();
-
     assert.equal(c.snapshot.phase, 'error');
-
     assert.match(c.snapshot.error!, /ENOENT.*missing-project/);
   } finally {
     update.updates.close();
-
     await c.close();
   }
 });
@@ -519,7 +446,6 @@ test('a current unverified installation is offered qualification even when updat
 
   try {
     await delay(70);
-
     await submit(ui, '/updates codex');
 
     await until('qualify confirmation', () =>
@@ -527,9 +453,7 @@ test('a current unverified installation is offered qualification even when updat
     );
 
     assert.match(ui.text(), /Qualify Fixture Codex 2\.0\.0\?/);
-
     assert.ok(ui.text().includes('codex'));
-
     ui.stdin.write(ENTER);
 
     await until('cancelled confirmation', () =>
@@ -537,11 +461,8 @@ test('a current unverified installation is offered qualification even when updat
     );
 
     assert.equal(await update.store.journal(update.root), undefined);
-
     ui.stdin.write('\u001b[27u');
-
     await delay(30);
-
     await submit(ui, '/updates codex');
 
     await until('second confirmation', () =>
@@ -549,7 +470,6 @@ test('a current unverified installation is offered qualification even when updat
     );
 
     ui.stdin.write(DOWN);
-
     ui.stdin.write(ENTER);
 
     await until('verified version', () =>
@@ -557,13 +477,10 @@ test('a current unverified installation is offered qualification even when updat
     );
 
     assert.deepEqual(update.installs, []);
-
     assert.equal((await update.store.journal(update.root))?.phase, 'verified');
   } finally {
     ui.unmount();
-
     update.updates.close();
-
     await coordinator.close();
   }
 });
@@ -641,7 +558,6 @@ test('the picker label and the status text offer qualification by one rule', asy
   );
 
   assert.match(updatesText(pending, agents), /Run \/updates codex to recover/);
-
   f.updates.close();
 });
 
@@ -670,9 +586,7 @@ test('a refused qualification leaves the offer in place', async () => {
 
 test('inventory waits for the build identity before reporting verification', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   await f.updates.apply(f.check, { accountUsage: true });
-
   f.updates.close();
 
   const slow = new RuntimeUpdates(
@@ -691,7 +605,6 @@ test('inventory waits for the build identity before reporting verification', asy
   );
 
   await slow.check();
-
   assert.equal(slow.snapshot.build, 'fixture-build');
 
   assert.match(
@@ -707,7 +620,6 @@ async function recheckUnlistable(
   f: Awaited<ReturnType<typeof runtimeUpdateFixture>>,
 ) {
   const releases = join(f.root, 'releases');
-
   await chmod(releases, 0o300);
 
   try {
@@ -722,9 +634,7 @@ async function recheckUnlistable(
 test('an unreadable release directory is reported without hiding the available update', async () => {
   const f = await runtimeUpdateFixture();
   const entry = await recheckUnlistable(f);
-
   assert.equal(entry.error, undefined);
-
   assert.equal(entry.check?.available, true);
 
   assert.match(
@@ -733,23 +643,16 @@ test('an unreadable release directory is reported without hiding the available u
   );
 
   const text = updatesText(f.updates.snapshot, agents);
-
   assert.match(text, /Earlier version lookup failed: EACCES/);
-
   assert.doesNotMatch(text, /Check failed/);
-
   f.updates.close();
 });
 
 test('an unreadable release directory withholds the qualification offer', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   assert.equal(f.updates.snapshot.entries[0]!.earlier, '1.0.0');
-
   const entry = await recheckUnlistable(f);
-
   assert.equal(entry.earlier, undefined);
-
   assert.match(entry.earlierError ?? '', /EACCES/);
 
   assert.doesNotMatch(
@@ -758,6 +661,5 @@ test('an unreadable release directory withholds the qualification offer', async 
   );
 
   assert.doesNotMatch(updatesText(f.updates.snapshot, agents), /to qualify it/);
-
   f.updates.close();
 });

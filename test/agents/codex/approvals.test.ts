@@ -177,7 +177,6 @@ test('file approvals use their exact thread, turn and item proposal', async () =
     );
 
     assert.equal(f.request(904).diff, undefined);
-
     assert.equal(child.title, 'reason 901');
 
     assert.deepEqual(JSON.parse(child.detail), {
@@ -195,7 +194,6 @@ test('file approvals use their exact thread, turn and item proposal', async () =
       [903, 'accept'],
     ] as const) {
       f.session.respond(String(id), { decision });
-
       assert.deepEqual(await f.receipt(id), { id, result: { decision } });
     }
   } finally {
@@ -265,7 +263,6 @@ test('completed proposals cannot leak into a later approval', async () => {
     );
 
     assert.equal(f.request(911).diff, undefined);
-
     assert.equal(f.request(912).diff, undefined);
 
     assert.deepEqual(f.request(913).diff, [
@@ -285,9 +282,7 @@ test('completed proposals cannot leak into a later approval', async () => {
     ]);
 
     assert.equal(f.request(915).diff, undefined);
-
     assert.equal(f.request(916).diff, undefined);
-
     assert.deepEqual(retained, before);
 
     assert.deepEqual(retained, [
@@ -303,7 +298,6 @@ test('completed proposals cannot leak into a later approval', async () => {
     );
 
     assert.ok(completed?.type === 'tool');
-
     assert.equal(completed.diff?.[0]?.path, '/work/final-report.txt');
   } finally {
     await close(f.session, f.cwd);
@@ -341,9 +335,7 @@ for (const status of ['completed', 'interrupted', 'failed'])
       );
 
       f.session.respond('901', { decision: 'accept' });
-
       f.session.respond('902', { decision: 'decline' });
-
       f.session.respond('903', { decision: 'accept' });
 
       f.session.respond('904', {

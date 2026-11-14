@@ -57,7 +57,6 @@ export function runShell(
       cut = text.length > room;
       const kept = cut ? text.slice(0, room) + cutNote : text;
       output += kept;
-
       options.onOutput(kept);
     };
 
@@ -72,15 +71,12 @@ export function runShell(
       if (settled) return;
 
       settled = true;
-
       clearTimeout(timer);
-
       // the pid can be reused once the shell is reaped
       options.signal.removeEventListener('abort', interrupt);
 
       for (const stream of [child.stdout, child.stderr]) {
         stream.off('data', receive);
-
         (stream as Socket).unref();
       }
 
@@ -91,14 +87,11 @@ export function runShell(
 
     for (const stream of [child.stdout, child.stderr]) {
       stream.setEncoding('utf8');
-
       stream.on('data', receive);
     }
 
     options.signal.addEventListener('abort', interrupt, { once: true });
-
     child.once('error', (error) => settle(() => reject(error)));
-
     child.once('close', done);
 
     child.once('exit', (exitCode) => {

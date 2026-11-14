@@ -13,7 +13,6 @@ export function ephemeralFiles(
   register: RegisterCleanup = onTestFinished,
 ): void {
   const prefix = `${directory}${sep}`;
-
   directories.add(prefix);
 
   const opening = vi

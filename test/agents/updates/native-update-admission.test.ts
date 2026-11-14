@@ -30,12 +30,10 @@ test('a native lease in another process excludes the updater until that process 
   );
 
   let output = '';
-
   child.stdout.on('data', (chunk) => (output += String(chunk)));
 
   const closed = new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
-
     child.once('close', resolve);
   });
 
@@ -48,7 +46,6 @@ test('a native lease in another process excludes the updater until that process 
     );
 
     child.stdin.end();
-
     assert.equal(await closed, 0);
 
     const writer = await f.store.exclusive(
@@ -66,9 +63,7 @@ test('a native lease in another process excludes the updater until that process 
     }
   } finally {
     child.kill('SIGKILL');
-
     await closed.catch(() => {});
-
     f.updates.close();
   }
 });
@@ -83,7 +78,6 @@ test('native launch executes the checked artifact even if the launcher changes i
     process.env,
     (executable) => {
       unlinkSync(f.launcher);
-
       symlinkSync(f.artifacts.get('2.0.0')!.executable, f.launcher);
 
       return spawn(executable, ['--version'], { stdio: 'pipe' });
@@ -97,14 +91,12 @@ test('native launch executes the checked artifact even if the launcher changes i
     assert.equal(
       await new Promise<number | null>((resolve, reject) => {
         child.once('error', reject);
-
         child.once('close', resolve);
       }),
       0,
     );
 
     assert.equal(output.trim(), 'codex-cli 1.0.0');
-
     assert.equal((await f.inspect()).version, '2.0.0');
 
     const writer = await f.store.exclusive(
@@ -115,7 +107,6 @@ test('native launch executes the checked artifact even if the launcher changes i
     await writer.close();
   } finally {
     unregister();
-
     f.updates.close();
   }
 });
@@ -156,7 +147,6 @@ test('a pending update prevents a native launch before a subprocess is created',
     assert.deepEqual(f.installs, []);
   } finally {
     unregister();
-
     f.updates.close();
   }
 });
@@ -193,7 +183,6 @@ test('an error from a still-running native child retains its lease until exit', 
     );
 
     child.kill('SIGKILL');
-
     await exited;
 
     const exclusive = await f.store.exclusive(
@@ -204,11 +193,8 @@ test('an error from a still-running native child retains its lease until exit', 
     await exclusive.close();
   } finally {
     child.kill('SIGKILL');
-
     await exited;
-
     unregister();
-
     f.updates.close();
   }
 });

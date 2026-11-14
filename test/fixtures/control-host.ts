@@ -65,7 +65,6 @@ export async function watching(directory: string): Promise<void> {
     });
 
     const reads = readdir.mock.calls.length;
-
     await files.rm(probe);
 
     await until(

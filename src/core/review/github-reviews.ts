@@ -265,7 +265,6 @@ export async function readGitHubReviews(
 
       const node = z.record(z.string(), z.unknown()).parse(next.node);
       page = connection(schema).parse(node[field]);
-
       nodes.push(...page.nodes);
     }
 

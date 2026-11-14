@@ -84,11 +84,8 @@ export async function installNative(
 
   const temporary = join(directory, 'tmp');
   const bin = join(directory, 'bin');
-
   await mkdir(temporary, { recursive: true, mode: 0o700 });
-
   await mkdir(bin, { recursive: true, mode: 0o700 });
-
   const mktemp = join(bin, 'mktemp');
 
   await writeFile(
@@ -98,7 +95,6 @@ export async function installNative(
   );
 
   await chmod(mktemp, 0o700);
-
   let args: string[];
 
   if (installation.runtime === 'claude') {
@@ -146,7 +142,6 @@ export async function installNative(
   }
 
   signal.throwIfAborted();
-
   const log = join(directory, `${installation.runtime}-${target}-install.log`);
   const stopping = AbortSignal.any([signal, AbortSignal.timeout(6 * 60_000)]);
   const output = await open(log, 'a', 0o600);
@@ -201,7 +196,6 @@ export async function installNative(
 
       child.once('error', (error) => {
         stopping.removeEventListener('abort', stop);
-
         reject(error);
       });
 

@@ -396,7 +396,6 @@ export class CodexCommands {
           continue;
 
         entry.command = { id, description, status: 'running' };
-
         this.emit({ type: 'command', command: entry.command });
       }
     } catch (error) {

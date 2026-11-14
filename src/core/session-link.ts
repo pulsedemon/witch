@@ -121,7 +121,6 @@ export class SessionLink {
 
     try {
       await this.usage.suspend();
-
       this.catalog.cancel();
 
       if (reconnect) await this.disconnect(true);
@@ -138,7 +137,6 @@ export class SessionLink {
 
           if (error) {
             failures.push(new Error(error));
-
             this.host.publish({ error });
           }
         }
@@ -171,7 +169,6 @@ export class SessionLink {
     const conversation = this.host.conversation();
     const info = this.live(conversation.agent)?.info;
     const failures: unknown[] = [];
-
     await this.disconnect().catch((error: unknown) => failures.push(error));
 
     // a fresh activation keeps the conversation coordinated while it reconnects, without the closed session's authority
@@ -188,11 +185,8 @@ export class SessionLink {
     if (this.host.cancelled()) return;
 
     clearConversationContext(conversation, info);
-
     forget();
-
     this.host.publish({ completedTurn: undefined });
-
     await this.host.save();
 
     this.host.display({
@@ -224,7 +218,6 @@ export class SessionLink {
     }
 
     await this.host.save();
-
     this.host.publish({ conversation, native: session.info });
   }
 
@@ -285,7 +278,6 @@ export class SessionLink {
     const commands = new Set<string>();
     const { adapter, executable } = this.catalog.installed(agent);
     const workspace = this.host.workspace();
-
     // prepared before the old session closes, so a failure here leaves the activation in place
     await workspace.ensureWorktree();
 
@@ -307,11 +299,8 @@ export class SessionLink {
 
     // an initial connect keeps the activation published when its conversation opened; a runtime switch drops questions once it activates
     await this.disconnect(!this.connected, true, undefined, !!restoreAdmission);
-
     const connection = (this.connection = {});
-
     await this.coordination?.activate(conversation, scope.project);
-
     this.aborter = new AbortController();
 
     try {
@@ -372,9 +361,7 @@ export class SessionLink {
 
       this.connected = session;
       this.sessionProject = scope.project;
-
       recordSession(conversation, agent, session.info);
-
       await this.host.save();
 
       if (this.aborter.signal.aborted)
@@ -440,13 +427,11 @@ export class SessionLink {
 
     try {
       await session?.close(stop);
-
       const record = this.host.record();
 
       if (!record) return;
 
       delete record.process;
-
       await this.host.save();
     } finally {
       // discard questions delivered while the old process was closing
@@ -471,20 +456,17 @@ export class SessionLink {
 
     if (event.type === 'info') {
       recordSession(conversation, agent, event.info);
-
       host.persist(host.save());
 
       if (conversation.agent === agent)
         host.publish({ native: event.info, conversation });
     } else if (event.type === 'compacted') {
       this.compactions++;
-
       const reference = conversation.sessions[agent];
 
       if (reference) clearDelivery(reference);
 
       host.persist(host.save());
-
       host.notice('Conversation compacted');
 
       for (const listener of this.compactedListeners) listener();
@@ -611,7 +593,6 @@ export class SessionLink {
         if (files.closed || this.changeFailures.get(files) === text) return;
 
         this.changeFailures.set(files, text);
-
         this.host.notice(text, undefined, false);
       },
     );

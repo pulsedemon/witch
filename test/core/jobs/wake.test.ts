@@ -77,7 +77,6 @@ function recorder() {
     counts,
     tracked: (start: Launch) => (pid: number) => {
       counts.launches++;
-
       const child = start(pid);
       const signals: (NodeJS.Signals | number)[] = [];
       const kill = child.kill.bind(child);
@@ -176,7 +175,6 @@ async function fixture(
         watch,
         (error) => {
           failures.push(error);
-
           coordinator.notice(error.message, undefined, false);
         },
         {
@@ -190,11 +188,8 @@ async function fixture(
     },
     async close() {
       stop();
-
       watch.close();
-
       await reap();
-
       await coordinator.close();
     },
   };
@@ -205,67 +200,36 @@ test('a working session holds one wake child and an idle one holds none', async 
 
   try {
     wake.familiar('running');
-
     const stop = wake.start();
-
     assert.equal(wake.holders.length, 1);
-
     wake.familiar('running');
-
     assert.equal(wake.holders.length, 1);
-
     wake.familiar('completed');
-
     wake.familiar('running');
-
     assert.equal(wake.holders.length, 2);
-
     const [first, second] = wake.holders;
-
     await within(first!.closed, 5000, 'the first holder');
-
     assert.deepEqual(first!.signals, ['SIGTERM']);
-
     assert.equal(first!.child.signalCode, 'SIGTERM');
-
     assert.deepEqual(second!.signals, []);
-
     assert.deepEqual(wake.failures, []);
-
     wake.familiar('completed');
-
     assert.deepEqual(second!.signals, ['SIGTERM']);
-
     await within(second!.closed, 5000, 'the second holder');
-
     wake.brew('running');
-
     assert.equal(wake.holders.length, 3);
-
     wake.brew('completed');
-
     await within(wake.holders[2]!.closed, 5000, 'the third holder');
-
     assert.deepEqual(wake.holders[2]!.signals, ['SIGTERM']);
-
     wake.familiar('running');
-
     assert.equal(wake.holders.length, 4);
-
     stop();
-
     stop();
-
     await within(wake.holders[3]!.closed, 5000, 'the fourth holder');
-
     assert.deepEqual(wake.holders[3]!.signals, ['SIGTERM']);
-
     assert.deepEqual(wake.failures, []);
-
     wake.familiar('completed');
-
     wake.familiar('running');
-
     assert.equal(wake.holders.length, 4);
   } finally {
     await wake.close();
@@ -308,51 +272,32 @@ test.each<{
 
     try {
       wake.start();
-
       wake.familiar('running');
 
       if (kill) wake.holders[0]!.child.kill('SIGKILL');
 
       await until('the wake failure', () => wake.failures.length === 1);
-
       const { message } = wake.failures[0]!;
-
       assert.ok(message.startsWith(prefix), message);
 
       if (ends) assert.equal(message, prefix + ends);
 
       assert.deepEqual(shown(message), [message]);
-
       wake.watch.track(job.pgid);
-
       wake.rows.push(job);
-
       await wake.watch.list();
-
       wake.rows.length = 0;
-
       await wake.watch.list();
-
       assert.equal(wake.counts.launches, 1);
-
       assert.equal(wake.failures.length, 1);
-
       wake.familiar('completed');
-
       wake.familiar('running');
-
       assert.equal(wake.counts.launches, 1);
-
       assert.equal(wake.failures.length, 1);
-
       wake.familiar('completed');
-
       await wake.coordinator.newConversation();
-
       assert.deepEqual(shown(message), [message]);
-
       assert.deepEqual(wake.failures, [wake.failures[0], wake.failures[0]]);
-
       assert.equal(wake.counts.launches, 1);
     } finally {
       await wake.close();
@@ -362,11 +307,8 @@ test.each<{
 
 test('a startup failure is kept once on first load and reported in a later conversation', () => {
   const coordinator = snapshotCoordinator();
-
   assert.equal(coordinator.snapshot.phase, 'starting');
-
   assert.equal(coordinator.snapshot.conversation, undefined);
-
   const failures: Error[] = [];
   let launches = 0;
 
@@ -401,15 +343,10 @@ test('a startup failure is kept once on first load and reported in a later conve
 
   try {
     assert.equal(failures.length, 1);
-
     coordinator.publish({ draft: 'typing' });
-
     assert.equal(failures.length, 1);
-
     const conversation = record('first', '/project');
-
     coordinator.publish({ conversation });
-
     assert.equal(failures.length, 1);
 
     assert.deepEqual(
@@ -418,7 +355,6 @@ test('a startup failure is kept once on first load and reported in a later conve
     );
 
     coordinator.publish({ conversation });
-
     assert.equal(failures.length, 1);
 
     coordinator.publish({
@@ -449,17 +385,11 @@ test('a holder that never spawned is not signalled', async () => {
 
   try {
     const stop = wake.start();
-
     wake.familiar('running');
-
     wake.familiar('completed');
-
     stop();
-
     await within(wake.holders[0]!.closed, 5000, 'the failed spawn');
-
     assert.deepEqual(wake.holders[0]!.signals, []);
-
     assert.deepEqual(wake.failures, []);
   } finally {
     await wake.close();
@@ -476,9 +406,7 @@ test('nothing is launched off macOS', async () => {
 
   try {
     wake.start();
-
     wake.familiar('running');
-
     assert.equal(wake.counts.launches, 0);
   } finally {
     await wake.close();
@@ -490,13 +418,9 @@ test('merge cleanup holds the wake child', async () => {
 
   try {
     await git(wake.project, 'init', '-q', '-b', 'feat/x');
-
     await git(wake.project, 'commit', '-q', '--allow-empty', '-m', 'one');
-
     wake.start();
-
     assert.equal(wake.holders.length, 0);
-
     const cleaning: { holders: number; signals: unknown[] }[] = [];
 
     wake.coordinator.subscribe(() => {
@@ -508,7 +432,6 @@ test('merge cleanup holds the wake child', async () => {
     });
 
     await wake.coordinator.cleanUpMerge(pullRequest('0'.repeat(40)));
-
     assert.ok(cleaning.length > 0);
 
     assert.deepEqual(
@@ -517,7 +440,6 @@ test('merge cleanup holds the wake child', async () => {
     );
 
     assert.equal(wake.coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual(wake.holders[0]!.signals, ['SIGTERM']);
   } finally {
     await wake.close();
@@ -529,15 +451,10 @@ test('closing holds the wake child, which the watcher never signals', async () =
 
   try {
     wake.start();
-
     assert.equal(wake.holders.length, 0);
-
     await wake.coordinator.close();
-
     assert.equal(wake.holders.length, 1);
-
     assert.deepEqual(wake.holders[0]!.signals, []);
-
     assert.ok(running(wake.holders[0]!.child));
   } finally {
     await wake.close();
@@ -555,19 +472,13 @@ test('a failure reported after closing began leaves the wake child held', async 
 
   try {
     coordinator.publish({ phase: 'idle' });
-
     coordinator.publish({ phase: 'closing' });
-
     coordinator.publish({ phase: 'error', error: 'Restart Witch: disk full' });
-
     assert.equal(holders.length, 2);
-
     assert.deepEqual(holders[1]!.signals, []);
-
     assert.ok(running(holders[1]!.child));
   } finally {
     stop();
-
     await reap();
   }
 });
@@ -583,21 +494,14 @@ test('automatic work holds an idle session', async () => {
 
   try {
     coordinator.publish({ phase: 'idle' });
-
     assert.deepEqual(holders[0]!.signals, ['SIGTERM']);
-
     coordinator.publish({ automatic: true });
-
     assert.equal(holders.length, 2);
-
     assert.deepEqual(holders[1]!.signals, []);
-
     coordinator.publish({ automatic: false });
-
     assert.deepEqual(holders[1]!.signals, ['SIGTERM']);
   } finally {
     stop();
-
     await reap();
   }
 });
@@ -607,9 +511,7 @@ test('a tracked job holds an idle session and releases when it ends', async () =
 
   try {
     wake.start();
-
     wake.watch.track(job.pgid);
-
     wake.rows.push(job);
 
     assert.deepEqual(
@@ -618,13 +520,9 @@ test('a tracked job holds an idle session and releases when it ends', async () =
     );
 
     assert.equal(wake.holders.length, 1);
-
     assert.deepEqual(wake.holders[0]!.signals, []);
-
     wake.rows.length = 0;
-
     await wake.watch.list();
-
     assert.deepEqual(wake.holders[0]!.signals, ['SIGTERM']);
   } finally {
     await wake.close();
@@ -636,41 +534,23 @@ test("the hold has no gap between a turn's end and the read that finds its job",
 
   try {
     wake.jobs.setActive = (value) => wake.watch.setActive(value);
-
     wake.start();
-
     wake.familiar('running');
-
     assert.equal(wake.holders.length, 1);
-
     wake.watch.track(job.pgid);
-
     wake.rows.push(job);
-
     wake.familiar('completed');
-
     await wake.watch.list();
-
     assert.equal(wake.holders.length, 1);
-
     assert.deepEqual(wake.holders[0]!.signals, []);
-
     wake.rows.length = 0;
-
     await wake.watch.list();
-
     assert.deepEqual(wake.holders[0]!.signals, ['SIGTERM']);
-
     wake.familiar('running');
-
     wake.familiar('completed');
-
     assert.equal(wake.holders.length, 2);
-
     assert.deepEqual(wake.holders[1]!.signals, []);
-
     await wake.watch.list();
-
     assert.deepEqual(wake.holders[1]!.signals, ['SIGTERM']);
   } finally {
     await wake.close();
@@ -718,9 +598,7 @@ test.skipIf(process.platform !== 'darwin')(
 
     try {
       wake.start();
-
       await eventually('no assertions before work', 0);
-
       wake.familiar('running');
 
       const types = (await eventually('both idle-sleep assertions', 2)).join(
@@ -753,17 +631,11 @@ test.skipIf(process.platform !== 'darwin')(
       ]);
 
       assert.equal(group.trim(), holder);
-
       wake.familiar('completed');
-
       await eventually('no assertions at idle', 0);
-
       wake.familiar('running');
-
       await eventually('both idle-sleep assertions again', 2);
-
       watched.kill('SIGKILL');
-
       await eventually('no assertions once the watched process died', 0);
 
       await until(
@@ -779,9 +651,7 @@ test.skipIf(process.platform !== 'darwin')(
       if (running(watched)) watched.kill('SIGKILL');
 
       await within(closed, 5000, 'the watched process');
-
       await wake.close();
-
       await eventually('no assertions left behind', 0);
     }
   },

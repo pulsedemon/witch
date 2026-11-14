@@ -27,41 +27,23 @@ test("Git's status counts staged, modified and untracked entries, and the branch
 
   const remote = join(root, 'remote.git');
   const work = join(root, 'work');
-
   await git(root, 'init', '--bare', '-b', 'main', remote);
-
   await git(root, 'clone', remote, work);
-
   await writeFile(join(work, 'a.txt'), 'a\n');
-
   await writeFile(join(work, 'b.txt'), 'b\n');
-
   await git(work, 'add', '.');
-
   await git(work, 'commit', '-m', 'first');
-
   await git(work, 'push', '-u', 'origin', 'HEAD:main');
-
   await git(work, 'commit', '--allow-empty', '-m', 'ahead');
-
   await writeFile(join(work, 'a.txt'), 'changed\n');
-
   await writeFile(join(work, 'c.txt'), 'c\n');
-
   await git(work, 'add', 'c.txt');
-
   await writeFile(join(work, 'b.txt'), 'staged\n');
-
   await git(work, 'add', 'b.txt');
-
   await writeFile(join(work, 'b.txt'), 'and modified\n');
-
   await mkdir(join(work, 'new'));
-
   await writeFile(join(work, 'new', 'one.txt'), '1');
-
   await writeFile(join(work, 'new', 'two.txt'), '2');
-
   const { stdout } = await git(work, 'status', '--porcelain=v2', '--branch');
   const commit = (await git(work, 'rev-parse', 'HEAD')).stdout.trim();
 
@@ -84,11 +66,8 @@ test("the watch's status read never runs the repository's fsmonitor command", as
   const work = join(root, 'work');
   const marker = join(root, 'ran');
   const monitor = join(root, 'monitor.sh');
-
   await execute('git', ['init', '--quiet', '-b', 'main', work]);
-
   await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
-
   await execute('git', ['config', 'core.fsmonitor', monitor], { cwd: work });
 
   const watch = new RepositoryWatch(work, async (command, args, options) => {
@@ -99,7 +78,6 @@ test("the watch's status read never runs the repository's fsmonitor command", as
 
   try {
     await until('status read', () => watch.snapshot?.branch === 'main');
-
     await assert.rejects(access(marker), { code: 'ENOENT' });
   } finally {
     watch.close();
@@ -122,13 +100,9 @@ test.each([true, false])(
       });
 
     await git(root, 'init', '--quiet', '-b', 'main', source);
-
     await writeFile(join(source, 'a'), contents);
-
     await git(source, 'add', 'a');
-
     await git(source, 'commit', '--quiet', '-m', 'source');
-
     await git(source, 'config', 'uploadpack.allowFilter', 'true');
 
     await git(
@@ -142,11 +116,8 @@ test.each([true, false])(
     );
 
     await git(work, 'read-tree', 'HEAD');
-
     await git(work, 'rm', '--cached', 'a');
-
     await writeFile(join(work, 'b'), `${contents}changed\n`);
-
     await git(work, 'add', 'b');
 
     const { stdout: objects } = await git(
@@ -171,9 +142,7 @@ test.each([true, false])(
     );
 
     await git(work, 'config', 'core.sshCommand', ssh);
-
     await git(work, 'config', 'protocol.ssh.allow', 'always');
-
     let reads = 0;
 
     const watch = new RepositoryWatch(
@@ -201,24 +170,15 @@ test.each([true, false])(
 
     try {
       await until('missing-blob status read', () => reads > 0);
-
       await assert.rejects(access(marker), { code: 'ENOENT' });
-
       const unavailable = watch.snapshot;
-
       assert.equal(unavailable, undefined);
-
       await git(work, 'hash-object', '-w', join(source, 'a'));
-
       // delivers the change itself, since FSEvents can drop the event while the disk is busy
       watch['changed']();
-
       await until('rename status', () => watch.snapshot?.staged === 1);
-
       assert.equal(watch.snapshot?.branch, 'main');
-
       assert.equal(watch.snapshot?.modified, 0);
-
       await assert.rejects(access(marker), { code: 'ENOENT' });
     } finally {
       watch.close();
@@ -245,9 +205,7 @@ test("the watch's status read runs no filter driver from the repository's config
     await writeFile(join(work, name), `${name}\n`);
 
   await git('add', 'a', 'b', 'c', 'e');
-
   await git('commit', '--quiet', '-m', 'first');
-
   await writeFile(join(work, 'd'), 'd\n');
 
   await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
@@ -256,16 +214,11 @@ test("the watch's status read runs no filter driver from the repository's config
 
   // a `;` outside quotes starts a config comment
   await writeFile(global, `[filter "g"]\n\tclean = "touch '${kept}'; cat"\n`);
-
   // `-c` would split `x=y`, a `(.+)` match drops the empty name, and `.` without the `s` flag stops at U+2028
   await git('config', 'filter.x=y.clean', filter);
-
   await git('config', 'filter.x=y.required', 'true');
-
   await git('config', 'filter..clean', filter);
-
   await git('config', 'filter.p\u2028q.process', filter);
-
   await mkdir(join(work, '.git', 'info'), { recursive: true });
 
   await writeFile(
@@ -299,11 +252,8 @@ test("the watch's status read runs no filter driver from the repository's config
 
   try {
     await until('status read', () => watch.snapshot?.branch === 'main');
-
     await assert.rejects(access(marker), { code: 'ENOENT' });
-
     await access(kept);
-
     assert.equal(watch.snapshot?.untracked, 0);
   } finally {
     watch.close();
@@ -337,19 +287,12 @@ test("a submodule's own filter driver never runs, and changes inside its work tr
     );
 
   await execute('git', ['init', '--quiet', '-b', 'main', sub]);
-
   await writeFile(join(sub, 's'), 's\n');
-
   await writeFile(join(sub, 't'), 't\n');
-
   await git(sub, 'add', 's', 't');
-
   await git(sub, 'commit', '--quiet', '-m', 'first');
-
   await execute('git', ['init', '--quiet', '-b', 'main', top]);
-
   await git(top, 'submodule', '--quiet', 'add', sub, 'sub');
-
   await git(top, 'commit', '--quiet', '-m', 'sub');
 
   await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
@@ -363,13 +306,9 @@ test("a submodule's own filter driver never runs, and changes inside its work tr
   });
 
   await mkdir(join(modules, 'info'), { recursive: true });
-
   await writeFile(join(modules, 'info', 'attributes'), 's filter=z\n');
-
   const later = new Date(Date.now() + 60_000);
-
   await utimes(join(top, 'sub', 's'), later, later);
-
   await writeFile(join(top, 'sub', 't'), 'changed\n');
 
   const watch = new RepositoryWatch(
@@ -385,9 +324,7 @@ test("a submodule's own filter driver never runs, and changes inside its work tr
 
   try {
     await until('status read', () => watch.snapshot?.branch === 'main');
-
     await assert.rejects(access(marker), { code: 'ENOENT' });
-
     assert.equal(watch.snapshot?.modified, 0);
 
     // a submodule at another commit still counts, and watchMerges relies on it
@@ -411,11 +348,8 @@ test("a filter driver whose name isn't valid UTF-8 leaves Git out without runnin
   const work = join(root, 'work');
   const marker = join(root, 'ran');
   const filter = join(root, 'filter.sh');
-
   await execute('git', ['init', '--quiet', '-b', 'main', work]);
-
   await writeFile(join(work, 'a'), 'a\n');
-
   await execute('git', ['add', 'a'], { cwd: work });
 
   await execute(
@@ -451,9 +385,7 @@ test("a filter driver whose name isn't valid UTF-8 leaves Git out without runnin
   );
 
   const later = new Date(Date.now() + 60_000);
-
   await utimes(join(work, 'a'), later, later);
-
   let listings = 0;
   let statuses = 0;
 
@@ -475,9 +407,7 @@ test("a filter driver whose name isn't valid UTF-8 leaves Git out without runnin
   try {
     // reads don't overlap, so a second listing means the first read has finished
     await until('second listing', () => listings >= 2);
-
     assert.equal(statuses, 0);
-
     assert.equal(watch.snapshot, undefined);
   } finally {
     watch.close();
@@ -556,7 +486,6 @@ test("a pull request's check rollup distinguishes no checks, running checks and 
   });
 
   assert.equal(checks([]), 'none');
-
   assert.equal(checks([done('SUCCESS'), done('SKIPPED')]), 'passing');
 
   assert.equal(
@@ -750,7 +679,6 @@ test.each<{
         };
 
       calls.push(args);
-
       const graphql = args.includes('graphql');
       const branch = args[3]?.startsWith('repos/owner/repo/branches/');
 
@@ -807,13 +735,9 @@ test.each<{
 
     try {
       await until('pull request checks', () => !!watch.snapshot?.pullRequest);
-
       assert.equal(watch.snapshot?.pullRequest?.checks, expected);
-
       assert.equal(watch.snapshot?.pullRequest?.commit, 'a1b2c3');
-
       assert.equal(watch.snapshot?.pullRequest?.base, 'release/next');
-
       assert.ok(calls[0]?.includes('head=a1b2c3:.github/workflows'));
 
       assert.ok(
@@ -821,9 +745,7 @@ test.each<{
       );
 
       assert.ok(calls[0]?.includes('owner=owner'));
-
       assert.ok(calls[0]?.includes('name=repo'));
-
       assert.ok(calls[0]?.includes('number=4'));
 
       for (const args of calls)
@@ -921,9 +843,7 @@ test('reported checks skip configuration reads and replace a previous no-check s
     );
 
     assert.equal(configurationReads, 3);
-
     rollup = [{ __typename: 'CheckRun', name: 'ci', status: 'IN_PROGRESS' }];
-
     watch.refreshPullRequest();
 
     await until(
@@ -950,7 +870,6 @@ test('reported checks skip configuration reads and replace a previous no-check s
     );
 
     assert.deepEqual(watch.snapshot?.pullRequest?.failed, [{ name: 'ci' }]);
-
     assert.equal(configurationReads, 3);
   } finally {
     watch.close();
@@ -970,7 +889,6 @@ test('the watch reads the pull request once per branch, again when the branch ch
   const watch = new RepositoryWatch('/work', async (command, args) => {
     if (command === 'gh') {
       reads.push(branch);
-
       fields = args.at(-1);
     }
 
@@ -983,14 +901,11 @@ test('the watch reads the pull request once per branch, again when the branch ch
   });
 
   let published = 0;
-
   watch.subscribe(() => published++);
 
   try {
     await delay(20);
-
     assert.equal(watch.snapshot?.pullRequest?.number, 4);
-
     assert.equal(watch.snapshot?.pullRequest?.checks, 'pending');
 
     assert.match(
@@ -999,33 +914,19 @@ test('the watch reads the pull request once per branch, again when the branch ch
     );
 
     const settled = published;
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(published, settled);
-
     branch = 'feat/x';
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(watch.snapshot?.branch, 'feat/x');
-
     assert.deepEqual(reads, ['main', 'feat/x']);
-
     vi.advanceTimersByTime(85_000);
-
     await delay(20);
-
     assert.deepEqual(reads, ['main', 'feat/x']);
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.deepEqual(reads, ['main', 'feat/x', 'feat/x']);
   } finally {
     watch.close();
@@ -1055,39 +956,22 @@ test('a failed git read leaves Git out, and a failed gh read leaves the pull req
 
   try {
     await delay(20);
-
     assert.equal(watch.snapshot?.branch, undefined);
-
     repository = true;
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(watch.snapshot?.branch, 'main');
-
     assert.equal(watch.snapshot?.pullRequest, undefined);
-
     assert.equal(reads, 1);
-
     vi.advanceTimersByTime(85_000);
-
     await delay(20);
-
     assert.equal(reads, 1);
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(reads, 2);
-
     repository = false;
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(watch.snapshot?.branch, undefined);
   } finally {
     watch.close();
@@ -1108,7 +992,6 @@ test('a read still running skips the next ticks, and a pull request read for a b
     if (args[0] === 'config') return Promise.resolve({ stdout: '' });
 
     const read = Promise.withResolvers<{ stdout: string }>();
-
     (command === 'gh' ? gh : git).push(read);
 
     return read.promise;
@@ -1116,41 +999,26 @@ test('a read still running skips the next ticks, and a pull request read for a b
 
   try {
     vi.advanceTimersByTime(5000);
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(git.length, 1);
-
     git[0]!.resolve({ stdout: `# branch.head ${branch}\n` });
-
     await delay(20);
-
     assert.equal(watch.snapshot?.branch, 'main');
-
     assert.equal(gh.length, 1);
-
     branch = 'feat/x';
 
     for (let tick = 0; tick < 3; tick++) {
       vi.advanceTimersByTime(5000);
-
       await delay(20);
-
       git.at(-1)!.resolve({ stdout: `# branch.head ${branch}\n` });
-
       await delay(20);
     }
 
     assert.equal(watch.snapshot?.branch, 'feat/x');
-
     assert.equal(gh.length, 1);
-
     gh[0]!.resolve({ stdout: view({ state: 'OPEN', statusCheckRollup: [] }) });
-
     await delay(20);
-
     assert.equal(watch.snapshot?.pullRequest, undefined);
   } finally {
     watch.close();

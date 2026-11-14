@@ -35,9 +35,7 @@ test('consecutive finished tools render as one group row until opened', () => {
   const items = [tool('a'), tool('b'), tool('c')];
   const layout = new TranscriptLayout();
   const closed = layout.render(items, 80, new Map());
-
   assert.deepEqual(rows(closed), ['+ ✓ 3 tools', '']);
-
   const open = layout.render(items, 80, toggleGroup(items, new Map()));
 
   assert.deepEqual(rows(open), [
@@ -123,20 +121,13 @@ test('a group stays open as it grows backward and when it merges with another', 
     );
 
   const before = [said, running(a!), b!, c!, running(d!), e!, f!];
-
   assert.deepEqual(groupRows(before), ['− ✓ 2 tools', '+ ✓ 2 tools']);
-
   const grown = [said, a!, b!, c!, running(d!), e!, f!];
   const afterGrowth = layout.render(grown, 80, choices);
-
   assert.ok(afterGrowth.items.some((item) => item.id === `tools:${a!.id}`));
-
   assert.deepEqual(groupRows(grown), ['− ✓ 3 tools', '+ ✓ 2 tools']);
-
   const merged = [said, a!, b!, c!, d!, e!, f!];
-
   assert.deepEqual(groupRows(merged), ['− ✓ 6 tools']);
-
   assert.equal(layout.render(merged, 80, choices).items.length, 8);
 });
 
@@ -145,14 +136,10 @@ test('an anchor on a tool that joins a group resolves to the group row', () => {
   const layout = new TranscriptLayout();
   const alone = layout.render([said, b], 80, new Map([[b.id, true]]));
   const anchor = alone.anchorAt(alone.starts.get(b.id)! + 1)!;
-
   assert.equal(anchor.item, b.id);
-
   const grouped = layout.render([said, b, tool('c')], 80, new Map());
   const start = grouped.starts.get(`tools:${b.id}`)!;
-
   assert.notEqual(start, 0);
-
   assert.equal(grouped.rowOf(anchor), start);
 });
 
@@ -167,16 +154,11 @@ test('an anchor on a group that grows backward resolves to the grown group', () 
   );
 
   const anchor = before.anchorAt(before.starts.get(`tools:${b!.id}`)!)!;
-
   assert.equal(anchor.item, `tools:${b!.id}`);
-
   const after = layout.render([said, a!, b!, c!], 80, new Map());
   const start = after.starts.get(`tools:${a!.id}`)!;
-
   assert.notEqual(start, 0);
-
   assert.equal(after.rowOf(anchor), start);
-
   assert.equal(after.shownAs(`tools:${b!.id}`), `tools:${a!.id}`);
 });
 
@@ -223,7 +205,6 @@ test('a one-line warning notice renders yellow instead of dim', () => {
   );
 
   assert.ok(output.lines.at(0)!.startsWith('\u001b[33m'));
-
   assert.deepEqual(rows(output), ['Routed review to Codex.', '']);
 });
 
@@ -235,9 +216,7 @@ test("a failed tool's ✗ stays full red in its dim row", () => {
   );
 
   const title = output.lines.at(0)!;
-
   assert.equal(stripAnsi(title), '+ ✗ Read  broken.ts');
-
   // the dim before it closes, so the mark isn't dimmed with the row
   assert.ok(title.includes('\u001b[22m\u001b[31m✗'));
 });

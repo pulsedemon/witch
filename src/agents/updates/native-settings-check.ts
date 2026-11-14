@@ -25,9 +25,7 @@ export async function checkNativeSettings(
   );
 
   await mkdir(config, { recursive: true });
-
   await mkdir(projectConfig, { recursive: true });
-
   await promisify(execFile)('git', ['init', '-q'], { cwd });
 
   const expected: Record<string, string> = {

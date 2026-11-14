@@ -251,7 +251,6 @@ export class ScratchSpace {
     interval: number,
   ) {
     this.timer = setInterval(() => void this.maintain(), interval);
-
     this.timer.unref();
   }
 
@@ -280,7 +279,6 @@ export class ScratchSpace {
     if (!owner) throw new Error('Cannot identify the scratch owner.');
 
     let requiresBoot = resumed ? true : await scratchRequiresBoot();
-
     await mkdir(parent, { recursive: true, mode: 0o700 });
 
     if (!resumed) await mkdir(directory, { mode: 0o700 });
@@ -343,12 +341,9 @@ export class ScratchSpace {
 
   async close(): Promise<void> {
     clearInterval(this.timer);
-
     const lock = this.lock;
     this.lock = undefined;
-
     await this.polling;
-
     await lock?.close();
   }
 }

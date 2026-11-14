@@ -34,20 +34,15 @@ test('Escape during model refresh keeps chat usable', async () => {
       });
 
       await aborted.promise;
-
       options.signal!.throwIfAborted();
 
       return b.catalog;
     };
 
     await delay(60);
-
     ui.stdin.write('/model');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     const signal = await within(entered.promise, 2000, 'model discovery');
 
     await until('refresh activity', () =>
@@ -65,17 +60,11 @@ test('Escape during model refresh keeps chat usable', async () => {
     );
 
     assert.equal(session.closed, false);
-
     assert.equal(coordinator.snapshot.error, undefined);
-
     assert.ok(!ui.text().includes('Models ·'), ui.text());
-
     assert.ok(!ui.text().includes('This operation was aborted'), ui.text());
-
     ui.stdin.write('after canceled refresh');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
 
     await until(
@@ -88,21 +77,14 @@ test('Escape during model refresh keeps chat usable', async () => {
     );
 
     assert.equal(a.sessions.length, 1);
-
     assert.equal(a.inputs.length, 1);
-
     assert.equal(a.inputs[0]!.session, session.info.id);
-
     assert.match(a.inputs[0]!.prompt, /^after canceled refresh$/);
-
     b.models = discover;
-
     await openCommand(ui, '/model', 'Models ·');
   } finally {
     ui.unmount();
-
     aborted.resolve();
-
     await coordinator.close();
   }
 });
@@ -122,11 +104,8 @@ for (const [choice, keys, effort, outcome] of [
 
     try {
       await delay(60);
-
       await openCommand(ui, '/model', 'Model M');
-
       await delay(30);
-
       ui.stdin.write(ENTER);
 
       await until('the effort picker', () =>
@@ -134,9 +113,7 @@ for (const [choice, keys, effort, outcome] of [
       );
 
       await delay(30);
-
       ui.stdin.write(keys);
-
       await until('the selection', () => calls.length === 2);
 
       assert.deepEqual(calls, [
@@ -167,11 +144,8 @@ for (const [choice, keys, outcome] of [
 
     try {
       await delay(60);
-
       await openCommand(ui, '/model', 'Model M');
-
       await delay(30);
-
       ui.stdin.write(ENTER);
 
       await until('the effort picker', () =>
@@ -179,7 +153,6 @@ for (const [choice, keys, outcome] of [
       );
 
       await delay(30);
-
       ui.stdin.write(ENTER);
 
       await until('the window picker', () =>
@@ -187,9 +160,7 @@ for (const [choice, keys, outcome] of [
       );
 
       assert.match(ui.text(), /1M[\s\S]*Keep 200K/);
-
       await delay(30);
-
       ui.stdin.write(keys);
 
       await until(
@@ -220,7 +191,6 @@ test('Escape while a picked model is still being selected opens no context windo
 
   coordinator.selectModel = async (...args: unknown[]) => {
     calls.push(['selectModel', ...args]);
-
     await selecting.promise;
   };
 
@@ -232,11 +202,8 @@ test('Escape while a picked model is still being selected opens no context windo
 
   try {
     await delay(60);
-
     await openCommand(ui, '/model', 'Model M');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
 
     await until('the selection', () =>
@@ -244,17 +211,12 @@ test('Escape while a picked model is still being selected opens no context windo
     );
 
     ui.stdin.write('\u001b');
-
     await delay(60);
-
     selecting.resolve();
-
     await delay(100);
-
     assert.ok(!ui.text().includes('Context window'), ui.text());
   } finally {
     selecting.resolve();
-
     ui.unmount();
   }
 });
@@ -279,11 +241,8 @@ test('a failed 1M choice for a model without efforts stops the rest of the comma
 
   try {
     await delay(60);
-
     await openCommand(ui, '/model /clear', 'Model M');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
 
     await until('the window picker', () =>
@@ -291,7 +250,6 @@ test('a failed 1M choice for a model without efforts stops the rest of the comma
     );
 
     await delay(30);
-
     ui.stdin.write(ENTER);
 
     await until('the reported failure', () =>
@@ -322,15 +280,10 @@ test('a model picked on another runtime is never offered a context window', asyn
 
   try {
     await delay(60);
-
     await openCommand(ui, '/model', 'b · X');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the selection', () => calls.length === 2);
-
     await delay(60);
 
     assert.deepEqual(calls, [
@@ -360,11 +313,8 @@ test('a model id carrying a link sequence shows as plain text in the effort pick
 
   try {
     await delay(60);
-
     await openCommand(ui, '/model', 'Model M');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
 
     await until('the effort picker', () =>
@@ -395,13 +345,9 @@ for (const typed of ['gpt-5.1', 'gpt-6'])
 
     try {
       await delay(60);
-
       await openCommand(ui, '/model', 'gpt-5.1-codex');
-
       await delay(30);
-
       ui.stdin.write(`${typed}${ENTER}`);
-
       await until('the selection', () => calls.length === 2);
 
       assert.deepEqual(calls, [
@@ -431,7 +377,6 @@ test('a long picker shows as many choices as its rows hold', async () => {
 
   try {
     await delay(60);
-
     await openCommand(ui, '/model', 'Models ·');
 
     const shown = ui
@@ -462,15 +407,10 @@ for (const [typed, call] of [
 
     try {
       await delay(60);
-
       ui.stdin.write(typed);
-
       await delay(30);
-
       ui.stdin.write(ENTER);
-
       await until('the call', () => calls.length > 0);
-
       assert.deepEqual(calls, [call]);
     } finally {
       ui.unmount();
@@ -486,13 +426,9 @@ test('/model with an ID only another runtime lists selects that runtime', async 
 
   try {
     await delay(60);
-
     ui.stdin.write('/model x');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the call', () => calls.length > 0);
 
     assert.deepEqual(calls, [
@@ -516,15 +452,10 @@ for (const effort of ['low', undefined])
 
     try {
       await delay(60);
-
       await openCommand(ui, '/model', 'b · Same');
-
       assert.match(ui.text(), /a · Same/);
-
       await delay(30);
-
       ui.stdin.write(DOWN);
-
       ui.stdin.write(ENTER);
 
       await until('destination effort', () =>
@@ -532,13 +463,9 @@ for (const effort of ['low', undefined])
       );
 
       assert.match(ui.text(), /low/);
-
       assert.doesNotMatch(ui.text(), /high/);
-
       await delay(30);
-
       ui.stdin.write(`${effort ?? ''}${ENTER}`);
-
       await until('selection', () => calls.length === 2);
 
       assert.deepEqual(calls, [
@@ -559,33 +486,19 @@ test('closing the combined picker sends no selection and help advertises no agen
 
   try {
     await delay(60);
-
     assert.match(ui.text(), /Use \/model/);
-
     await openCommand(ui, '/model', 'a · M');
-
     await delay(30);
-
     ui.stdin.write('\u001b');
-
     await until('picker closed', () => !ui.text().includes('Models ·'));
-
     assert.deepEqual(calls, [['refreshModels']]);
-
     await openCommand(ui, '/help', 'Keyboard help');
-
     assert.match(ui.text(), /\/model/);
-
     assert.doesNotMatch(ui.text(), /\/agent/);
-
     ui.stdin.write('\u001b');
-
     await delay(60);
-
     await commands(ui);
-
     assert.match(ui.text(), /Choose model and reasoning/);
-
     assert.doesNotMatch(ui.text(), /Switch agent/);
   } finally {
     ui.unmount();
@@ -603,9 +516,7 @@ test('the composer stays closed while a second switch waits in the command queue
       throw new Error('Stop the current operation first');
 
     coordinator.publish({ phase: 'starting' });
-
     await switching.promise;
-
     coordinator.publish({ phase: 'idle' });
   };
 
@@ -613,39 +524,22 @@ test('the composer stays closed while a second switch waits in the command queue
 
   try {
     await delay(60);
-
     ui.stdin.write('/new b');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the switch', () => calls.length > 0);
-
     await delay(60);
-
     ui.stdin.write('hello');
-
     await delay(60);
-
     assert.ok(!ui.text().includes('┃ hello'));
-
     await commands(ui);
-
     ui.stdin.write(`new${ENTER}`);
-
     await delay(60);
-
     assert.deepEqual(calls, [['newConversation', 'b']]);
-
     assert.equal(coordinator.snapshot.commandsPending, true);
-
     await delay(60);
-
     ui.stdin.write('again');
-
     await delay(60);
-
     assert.ok(!ui.text().includes('┃ again'));
 
     coordinator.publish({
@@ -665,7 +559,6 @@ test('the composer stays closed while a second switch waits in the command queue
     ]);
 
     await delay(60);
-
     ui.stdin.write('there');
 
     await until('typing in the next conversation', () =>
@@ -673,7 +566,6 @@ test('the composer stays closed while a second switch waits in the command queue
     );
   } finally {
     switching.resolve();
-
     ui.unmount();
   }
 });
@@ -684,9 +576,7 @@ test('a prompt sent in the same read as a switch stays in the draft of the conve
 
   coordinator.newConversation = async (...args: unknown[]) => {
     calls.push(['newConversation', ...args]);
-
     coordinator.publish({ phase: 'starting' });
-
     await switching.promise;
   };
 
@@ -694,13 +584,9 @@ test('a prompt sent in the same read as a switch stays in the draft of the conve
 
   try {
     await delay(60);
-
     ui.stdin.write(`/new b${ENTER}hello${ENTER}`);
-
     await until('the switch', () => calls.length > 0);
-
     await delay(60);
-
     assert.deepEqual(calls, [['newConversation', 'b']]);
 
     coordinator.publish({
@@ -709,7 +595,6 @@ test('a prompt sent in the same read as a switch stays in the draft of the conve
     });
 
     switching.resolve();
-
     await until('the next conversation', () => !ui.text().includes('┃ hello'));
 
     coordinator.publish({
@@ -719,7 +604,6 @@ test('a prompt sent in the same read as a switch stays in the draft of the conve
     await until('the kept draft', () => ui.text().includes('┃ hello'));
   } finally {
     switching.resolve();
-
     ui.unmount();
   }
 });
@@ -737,19 +621,12 @@ test('the composer takes typing again once a switch fails', async () => {
 
   try {
     await delay(60);
-
     ui.stdin.write('/new b');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the switch', () => calls.length > 0);
-
     await delay(60);
-
     ui.stdin.write('hello');
-
     await until('typing', () => ui.text().includes('┃ hello'));
   } finally {
     ui.unmount();
@@ -767,9 +644,7 @@ for (const [name, keys] of [
 
     try {
       await delay(60);
-
       await commands(ui);
-
       ui.stdin.write(keys);
 
       await until('the conversations picker', () =>
@@ -777,11 +652,8 @@ for (const [name, keys] of [
       );
 
       await delay(30);
-
       ui.stdin.write(ENTER);
-
       await until('the selection', () => calls.length > 0);
-
       assert.deepEqual(calls, [['selectConversation', 'c2']]);
     } finally {
       ui.unmount();
@@ -794,9 +666,7 @@ test('a conversation picked in /sessions keeps the composer from typing until it
 
   coordinator.selectConversation = async (...args: unknown[]) => {
     calls.push(['selectConversation', ...args]);
-
     coordinator.publish({ phase: 'starting' });
-
     await switching.promise;
   };
 
@@ -804,9 +674,7 @@ test('a conversation picked in /sessions keeps the composer from typing until it
 
   try {
     await delay(60);
-
     await commands(ui);
-
     ui.stdin.write(`sess${ENTER}`);
 
     await until('the conversations picker', () =>
@@ -814,17 +682,11 @@ test('a conversation picked in /sessions keeps the composer from typing until it
     );
 
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the switch', () => calls.length > 0);
-
     await delay(60);
-
     ui.stdin.write('hello');
-
     await delay(60);
-
     assert.ok(!ui.text().includes('┃ hello'));
 
     coordinator.publish({
@@ -832,7 +694,6 @@ test('a conversation picked in /sessions keeps the composer from typing until it
     });
 
     await delay(60);
-
     ui.stdin.write('there');
 
     await until('typing in the next conversation', () =>
@@ -840,7 +701,6 @@ test('a conversation picked in /sessions keeps the composer from typing until it
     );
   } finally {
     switching.resolve();
-
     ui.unmount();
   }
 });
@@ -869,9 +729,7 @@ test('/sessions tells same-titled conversations apart by when they last changed'
 
   try {
     await delay(60);
-
     await commands(ui);
-
     ui.stdin.write(`sess${ENTER}`);
 
     await until('the conversations picker', () =>
@@ -879,11 +737,8 @@ test('/sessions tells same-titled conversations apart by when they last changed'
     );
 
     assert.ok(ui.text().includes("2026-11-03 23:46 · codex · what's next?"));
-
     ui.stdin.write(`01-02${ENTER}`);
-
     await until('the selection', () => calls.length > 0);
-
     assert.deepEqual(calls, [['selectConversation', 'older']]);
   } finally {
     ui.unmount();
@@ -896,9 +751,7 @@ test('a filter resets the picker selection within the same read', async () => {
 
   try {
     await delay(60);
-
     await commands(ui);
-
     ui.stdin.write(`${DOWN}conv${ENTER}`);
 
     await until('the new conversation', () =>
@@ -915,19 +768,12 @@ test('reopening the picker resets its selection', async () => {
 
   try {
     await delay(60);
-
     await commands(ui);
-
     ui.stdin.write(DOWN);
-
     await delay(30);
-
     ui.stdin.write('\u001b');
-
     await until('the chat view', () => !ui.text().includes('Commands'));
-
     await commands(ui);
-
     ui.stdin.write(ENTER);
 
     await until('the new conversation', () =>
@@ -956,9 +802,7 @@ for (const sameRead of [false, true])
 
       try {
         await delay(60);
-
         await commands(ui);
-
         ui.stdin.write('ex');
 
         await until(
@@ -977,7 +821,6 @@ for (const sameRead of [false, true])
           );
 
           assert.match(ui.text(), /Filter, then Enter/);
-
           ui.stdin.write(ENTER);
         }
 
@@ -987,7 +830,6 @@ for (const sameRead of [false, true])
         );
 
         assert.deepEqual(calls, [['newConversation', undefined]]);
-
         assert.equal(exits, 0);
       } finally {
         ui.unmount();
@@ -1028,9 +870,7 @@ test('/jobs lists each job on one row with its CPU, age and command, also after 
 
   try {
     await delay(60);
-
     await commands(ui);
-
     ui.stdin.write(`jobs${ENTER}`);
 
     // the row is cut to the picker's 98 cells with an ellipsis, and the 61 cells before the command's x's leave room for 36
@@ -1054,11 +894,8 @@ test('/jobs lists each job on one row with its CPU, age and command, also after 
     );
 
     ui.stdin.write(DOWN);
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the report', () => calls.length > 1);
 
     assert.deepEqual(calls, [
@@ -1094,9 +931,7 @@ test('/jobs without jobs or with none listed says none are running', async () =>
 
     try {
       await delay(60);
-
       await commands(ui);
-
       ui.stdin.write(`jobs${ENTER}`);
 
       await until('the empty picker', () =>
@@ -1122,11 +957,8 @@ test('/jobs reports a list that fails', async () => {
 
   try {
     await delay(60);
-
     await commands(ui);
-
     ui.stdin.write(`jobs${ENTER}`);
-
     await until('the report', () => calls.length > 0);
 
     assert.deepEqual(calls, [
@@ -1149,25 +981,15 @@ test('/compact dispatches locally and discards surrounding prose without sending
 
   try {
     await delay(60);
-
     ui.stdin.write('/compact');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('local compaction', () => calls.length === 1);
-
     assert.deepEqual(calls, [['compact']]);
-
     ui.stdin.write('/compact instructions');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('local compaction', () => calls.length === 2);
-
     assert.deepEqual(calls[1], ['compact']);
   } finally {
     ui.unmount();
@@ -1180,19 +1002,12 @@ test('/compact discards multiline prose without sending a prompt', async () => {
 
   try {
     await delay(60);
-
     ui.stdin.write('/compact first');
-
     ui.stdin.write(SHIFT_ENTER);
-
     ui.stdin.write('second');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('local compaction', () => calls.length > 0);
-
     assert.deepEqual(calls, [['compact']]);
   } finally {
     ui.unmount();

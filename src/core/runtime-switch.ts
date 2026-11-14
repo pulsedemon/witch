@@ -101,7 +101,6 @@ export class RuntimeSwitch {
   /** ends the forced usage refresh at once; the probe finishes under its own timeout. */
   stop(): void {
     this.stopping?.resolve();
-
     this.clearPending();
   }
 
@@ -206,7 +205,6 @@ export class RuntimeSwitch {
     };
 
     this.pending = request;
-
     this.exhaustedAt.set(request.conversation.agent, Date.now());
 
     return request;
@@ -215,7 +213,6 @@ export class RuntimeSwitch {
   private clearPending(): void {
     const request = this.pending;
     this.pending = undefined;
-
     request?.finished.resolve();
   }
 
@@ -302,7 +299,6 @@ export class RuntimeSwitch {
           if (notice === undefined) return;
 
           this.hopped = true;
-
           host.notice(notice);
         },
       },
@@ -330,7 +326,6 @@ export class RuntimeSwitch {
 
     try {
       await recovering;
-
       succeeded = true;
     } finally {
       const request = this.pending;
