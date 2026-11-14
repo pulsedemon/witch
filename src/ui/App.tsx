@@ -1125,7 +1125,12 @@ export function App({
           )}
         </Box>
         <Box height={fitted.activity} overflow="hidden" flexShrink={0}>
-          {working && <Activity />}
+          {working && (
+            <Activity
+              key={state.activityStartedAt}
+              startedAt={state.activityStartedAt}
+            />
+          )}
         </Box>
         <Box
           borderStyle={fitted.border ? 'bold' : undefined}

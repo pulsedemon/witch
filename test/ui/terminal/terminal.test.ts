@@ -37,6 +37,7 @@ function fixture(
 ) {
   const coordinator = source<Snapshot>({
     phase: 'idle',
+    activityStartedAt: Date.now(),
     conversation: { ...record('first', '/project'), title: 'First task' },
     items: [],
     queue: [],
