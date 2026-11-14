@@ -27,3 +27,16 @@ export function repositoryRead(fields: Partial<Repository> = {}): Repository {
     ...fields,
   };
 }
+
+/** `gh pr view --json` output for pull request #4 from `feat/x` into `develop`, before `fields`. */
+export const view = (fields: object) =>
+  JSON.stringify({
+    number: 4,
+    url: 'https://x.test/4',
+    headRefName: 'feat/x',
+    headRefOid: 'a1b2c3',
+    baseRefName: 'develop',
+    mergeable: 'MERGEABLE',
+    mergedAt: null,
+    ...fields,
+  });

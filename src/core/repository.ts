@@ -3,6 +3,7 @@ import { realpathSync, watch } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import { errorMessage, issuesText } from '../errors.js';
 import { within } from '../paths.js';
 
 export const execute = promisify(execFile);
@@ -43,6 +44,8 @@ export interface Repository {
   untracked: number;
   pullRequest?: PullRequest;
   pullRequestProject?: string;
+  /** why the branch's last pull request read, or its checks or base tip read, failed unexpectedly; unset once they work or while `gh` has no answer. */
+  pullRequestFailure?: string;
   /** the branch's pull request as last read conflicting, with its base's tip when that read looked it up. */
   conflict?: Conflict;
 }
@@ -268,6 +271,21 @@ export type Run = (
   },
 ) => Promise<{ stdout: string; stderr?: string }>;
 
+/**
+ * `gh` ran and said no, as without a pull request, a network or a login, ran out of time, or isn't installed. execFile
+ * rejects with an exit status or no code for those, and with another errno when the spawn itself failed. an answer that
+ * can't be parsed has no code either, and isn't one of them.
+ */
+function unavailable(error: unknown): boolean {
+  if (error instanceof SyntaxError || error instanceof z.ZodError) return false;
+  const { code } = error as { code?: unknown };
+  return typeof code !== 'string' || code === 'ENOENT';
+}
+
+/** a failed read on one line; zod's own message is a JSON document. */
+const reason = (error: unknown) =>
+  error instanceof z.ZodError ? issuesText(error) : errorMessage(error);
+
 /** how soon a change is read, so one save's several writes take one read. */
 const debounce = 100;
 
@@ -283,7 +301,8 @@ const fallback = 60_000;
  * `refreshPullRequest` asks. on macOS a change in the work tree or its Git dirs starts a read, at most
  * one per `interval`, and a minute without a read starts one, so a change whose event is lost shows within a minute
  * and one `interval`. elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
- * loses a file once it is replaced by rename. each read shows until the next; a failed one leaves its field out.
+ * loses a file once it is replaced by rename. each read shows until the next; a failed one leaves its field out, and a
+ * pull request read that failed for a reason nobody expects says why in `pullRequestFailure`.
  */
 export class RepositoryWatch {
   snapshot?: Repository;
@@ -297,6 +316,7 @@ export class RepositoryWatch {
     started: number;
     value?: PullRequest;
     project?: string;
+    failure?: string;
   };
   /** a failed read confirms nothing, so it leaves this. */
   private conflict?: { branch: string; conflict: Conflict };
@@ -503,6 +523,8 @@ export class RepositoryWatch {
       repository.pullRequest = known.value;
       if (known.project !== undefined)
         repository.pullRequestProject = known.project;
+      if (known.failure !== undefined)
+        repository.pullRequestFailure = known.failure;
     }
     this.publish(repository);
     if (this.watchers) {
@@ -528,9 +550,14 @@ export class RepositoryWatch {
     const commit = this.snapshot?.commit;
     let value: PullRequest | undefined;
     let project: string | undefined;
+    const failures = new Set<string>();
+    // the checks and base tip reads keep their fallbacks when they fail, and say why when nobody expects the failure
+    const report = (error: unknown) => {
+      if (!unavailable(error)) failures.add(reason(error));
+    };
     try {
       project = await this.project?.();
-      const { stdout } = await this.run(
+      const view = await this.run(
         'gh',
         [
           'pr',
@@ -539,37 +566,59 @@ export class RepositoryWatch {
           'number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable,mergedAt',
         ],
         { cwd: this.cwd, timeout: 30_000 },
-      );
-      value = parsePullRequest(stdout);
-      if (value.checks === 'none' && (await this.checksExpected(value)))
-        value.checks = 'pending';
-      const conflict = await this.conflicted(branch, value);
-      if (this.project && project !== (await this.project())) value = undefined;
-      if (
-        this.closed ||
-        this.snapshot?.branch !== branch ||
-        this.snapshot.commit !== commit
-      ) {
-        value = undefined;
-        this.refreshPullRequest();
+      ).catch((error: unknown) => {
+        if (!unavailable(error)) throw error;
+      });
+      if (view) {
+        value = parsePullRequest(view.stdout);
+        if (
+          value.checks === 'none' &&
+          (await this.checksExpected(value, report))
+        )
+          value.checks = 'pending';
+        const conflict = await this.conflicted(branch, value, report);
+        if (this.project && project !== (await this.project()))
+          value = undefined;
+        if (
+          this.closed ||
+          this.snapshot?.branch !== branch ||
+          this.snapshot.commit !== commit
+        ) {
+          value = undefined;
+          this.refreshPullRequest();
+        }
+        if (value) this.conflict = conflict;
       }
-      if (value) this.conflict = conflict;
-    } catch {
-      // no pull request, no gh or no network
+    } catch (error) {
       value = undefined;
+      failures.add(reason(error));
     } finally {
       this.fetching = undefined;
     }
-    this.pullRequest = { branch, at: Date.now(), started, value, project };
-    if (this.snapshot?.branch === branch)
-      this.publish({
-        ...this.snapshot,
-        pullRequest: value,
-        ...(project === undefined ? {} : { pullRequestProject: project }),
-      });
+    const failure = [...failures].join('; ') || undefined;
+    this.pullRequest = {
+      branch,
+      at: Date.now(),
+      started,
+      value,
+      project,
+      failure,
+    };
+    if (this.snapshot?.branch !== branch) return;
+    const repository: Repository = {
+      ...this.snapshot,
+      pullRequest: value,
+      ...(project === undefined ? {} : { pullRequestProject: project }),
+    };
+    if (failure === undefined) delete repository.pullRequestFailure;
+    else repository.pullRequestFailure = failure;
+    this.publish(repository);
   }
 
-  private async checksExpected(pr: PullRequest): Promise<boolean> {
+  private async checksExpected(
+    pr: PullRequest,
+    report: (error: unknown) => void,
+  ): Promise<boolean> {
     const github = gitHubRepository(pr.url);
     if (!github) return true;
     const [owner, name] = github.repository.split('/');
@@ -695,7 +744,8 @@ export class RepositoryWatch {
       return (
         current.headRefOid !== pr.commit || current.baseRefName !== pr.base
       );
-    } catch {
+    } catch (error) {
+      report(error);
       return true;
     }
   }
@@ -704,9 +754,10 @@ export class RepositoryWatch {
   private async conflicted(
     branch: string,
     value: PullRequest,
+    report: (error: unknown) => void,
   ): Promise<{ branch: string; conflict: Conflict } | undefined> {
     if (value.mergeable === 'CONFLICTING') {
-      const baseTip = await this.tip(value);
+      const baseTip = await this.tip(value, report);
       return {
         branch,
         conflict: { pullRequest: value, ...(baseTip ? { baseTip } : {}) },
@@ -721,7 +772,10 @@ export class RepositoryWatch {
   }
 
   /** the base branch's current tip, which gh's `baseRefOid` isn't, from the pull request's own repository. */
-  private async tip({ url, base }: PullRequest): Promise<string | undefined> {
+  private async tip(
+    { url, base }: PullRequest,
+    report: (error: unknown) => void,
+  ): Promise<string | undefined> {
     const github = gitHubRepository(url);
     if (!github) return;
     try {
@@ -738,7 +792,8 @@ export class RepositoryWatch {
         { cwd: this.cwd, timeout: 30_000 },
       );
       return stdout.trim() || undefined;
-    } catch {
+    } catch (error) {
+      report(error);
       return;
     }
   }

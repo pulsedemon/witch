@@ -15,12 +15,13 @@ import { dirname, join } from 'node:path';
 import { describe, test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import type { Run } from '../src/core/repository.js';
-import { exists } from '../src/memory/memory.js';
 import { readLedger } from '../src/persistence/directories.js';
 import { StateStore } from '../src/persistence/store.js';
 import { runSpawn, sessionsIn, spawnWorktrees } from '../src/spawn.js';
 import { scratch } from './fixtures/scratch.js';
 import { git } from './fixtures/git.js';
+import { unreadable } from './fixtures/unreadable.js';
+import { exists } from './fixtures/within.js';
 
 /**
  * a checkout on `main` tracking a bare origin, in its own scratch root so its `<main>-<i>` slots are removed with it.
@@ -488,6 +489,88 @@ test('a copy that a symlink the upstream tracks would carry outside the worktree
   );
   assert.deepEqual(await readdir(outside), []);
   assert.equal(await exists(join(slot(1), 'config')), true);
+});
+
+test('a slot spawn cannot look at reports why and does not stop the next one', async (t) => {
+  const { main, slot } = await checkout();
+  await spawnWorktrees(main, 2, {
+    run: recording().run,
+    live: async () => false,
+  });
+  unreadable(t, slot(1));
+  const { run, installs, tabs } = recording();
+  const { slots } = await spawnWorktrees(main, 2, {
+    run,
+    live: async () => false,
+  });
+  assert.deepEqual(slots, [
+    {
+      path: slot(1),
+      slot: false,
+      created: false,
+      opened: false,
+      error: `EACCES: permission denied, stat '${slot(1)}'`,
+    },
+    { path: slot(2), slot: true, created: false, opened: true },
+  ]);
+  assert.deepEqual(installs(), [slot(2)]);
+  assert.deepEqual(tabs(), [[slot(2)]]);
+});
+
+test('a new slot that cannot be looked at, or is gone, keeps the error it already had', async (t) => {
+  const { main, slot } = await checkout();
+  const { run: recorded } = recording();
+  const run: Run = async (command, args, options) => {
+    if (args[0] !== 'ls-files' || options.cwd === main)
+      return recorded(command, args, options);
+    if (options.cwd === slot(2)) await rm(slot(2), { recursive: true });
+    throw Object.assign(new Error('Command failed'), {
+      code: 128,
+      stdout: '',
+      stderr: 'fatal: bad index\n',
+    });
+  };
+  unreadable(t, slot(1));
+  const { slots } = await spawnWorktrees(main, 2, {
+    run,
+    live: async () => false,
+  });
+  const copies =
+    "copies the worktree doesn't ignore may remain: ls-files failed: fatal: bad index";
+  assert.deepEqual(
+    slots.map(({ error }) => error),
+    [
+      `${copies}, EACCES: permission denied, stat '${slot(1)}'`,
+      `${copies}, registered but missing; start Witch where it moved`,
+    ],
+  );
+});
+
+test('a lockfile spawn cannot look at skips that install and nothing else', async (t) => {
+  const { main, slot } = await checkout();
+  await spawnWorktrees(main, 2, {
+    run: recording().run,
+    live: async () => false,
+  });
+  const lockfile = join(slot(1), 'pnpm-lock.yaml');
+  unreadable(t, lockfile);
+  const { run, installs, tabs } = recording();
+  const { slots } = await spawnWorktrees(main, 2, {
+    run,
+    live: async () => false,
+  });
+  assert.deepEqual(slots, [
+    {
+      path: slot(1),
+      slot: true,
+      created: false,
+      opened: true,
+      error: `EACCES: permission denied, stat '${lockfile}'`,
+    },
+    { path: slot(2), slot: true, created: false, opened: true },
+  ]);
+  assert.deepEqual(installs(), [slot(2)]);
+  assert.deepEqual(tabs(), [[slot(1), slot(2)]]);
 });
 
 test('an ignored symlink whose target spawn cannot reach is still copied as the link', async () => {
@@ -989,6 +1072,26 @@ describe('moved checkouts', () => {
     assert.equal(code, 1);
     assert.deepEqual(calls, []);
     await assert.rejects(sessionsIn(f.state)(f.slot(1)), /directories\.json/);
+  });
+
+  test('outside a repository, a ledger spawn cannot read is named instead of only Git', async () => {
+    const root = await scratch('witch-spawn-');
+    const state = join(root, 'state');
+    await mkdir(join(root, 'plain'));
+    await mkdir(state);
+    await writeFile(join(state, 'directories.json'), '{');
+    const errors = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
+    try {
+      assert.equal(await runSpawn(join(root, 'plain'), 1, state), 1);
+      assert.match(
+        errors.mock.calls.map(([text]) => text).join(''),
+        /^witch: .*directories\.json: /,
+      );
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   test('spawn fails when it cannot record the worktrees it opened', async () => {

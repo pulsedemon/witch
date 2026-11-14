@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import type { SDKControlGetContextUsageResponse } from '@anthropic-ai/claude-agent-sdk';
 import { test, vi } from 'vitest';
 import { ClaudeContext } from '../src/agents/claude-context.js';
@@ -111,6 +112,70 @@ test('Claude keeps the percentage valid when its native safety reserve compacts 
   }));
   await policy.configure();
   assert.equal(percentage, '100');
+});
+
+test('Claude lets a failing usage publish reach its caller and keeps a failed context read quiet', async () => {
+  const control = {
+    getSettings: async () => ({ sources: [] }),
+    applyFlagSettings: async () => {},
+  };
+  const read = new ClaudeContext(() => ({
+    ...control,
+    getContextUsage: async () => context(1_000_000, 967_000),
+  }));
+  await assert.rejects(
+    read.read(
+      () => 'claude-opus-5-5',
+      () => {
+        throw new Error('publish failed');
+      },
+    ),
+    /^Error: publish failed$/,
+  );
+  const unread = new ClaudeContext(() => ({
+    ...control,
+    getContextUsage: async () => {
+      throw new Error('read failed');
+    },
+  }));
+  let published = false;
+  assert.equal(
+    await unread.read(
+      () => 'claude-opus-5-5',
+      () => {
+        published = true;
+      },
+    ),
+    undefined,
+  );
+  assert.equal(published, false);
+});
+
+test("a usage publish that throws in Claude's background context read leaves no unhandled rejection and a usable session", async () => {
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => unhandled.push(reason);
+  process.on('unhandledRejection', record);
+  let thrown = false;
+  const f = await launcher();
+  const session = await f.connect({
+    onEvent: (event) => {
+      // only the context read reports a percentage, and it does so first at connect
+      if (thrown || event.type !== 'usage' || event.usage.context === undefined)
+        return;
+      thrown = true;
+      throw new Error('publish failed');
+    },
+  });
+  try {
+    await until('the failed publish', () => thrown);
+    // Node reports a rejection nothing handles as the tick it happened in ends, so one more turn has seen it
+    await setImmediate();
+    assert.deepEqual(unhandled, []);
+    assert.equal((await session.send('hello')).status, 'completed');
+  } finally {
+    process.off('unhandledRejection', record);
+    await session.close();
+  }
 });
 
 test('Claude compact hooks retain the current context reader when an older turn releases its reader', async () => {

@@ -140,6 +140,64 @@ test('a conflict reaches the coordinator with one unsaved notice per conversatio
   assert.equal(observed.at(-1), mergeable);
 });
 
+test('a pull request read that failed gets one unsaved notice per failure, again after a read that works and in a new transcript', async (t) => {
+  const stub = stubRepository();
+  const { notices, publish } = fixture(t.onTestFinished, stub.repository);
+  const failed = (failure = 'number: missing') =>
+    status({ pullRequestFailure: failure });
+  const text = "Can't read this branch's pull request: number: missing";
+  const conversation = { id: 'c', cwd: '/w' } as never;
+  publish({ conversation: undefined });
+  await stub.publish(failed());
+  assert.equal(notices.length, 0, 'no conversation is open');
+  publish({ conversation });
+  await tick();
+  assert.deepEqual(notices, [{ text, save: false }]);
+  await stub.publish(failed());
+  assert.equal(notices.length, 1, 'the same failure again');
+  await stub.publish(status());
+  await stub.publish(failed());
+  assert.equal(notices.length, 1, 'gh had no answer in between');
+  await stub.publish(status({ pullRequest: pr() }));
+  await stub.publish(failed());
+  assert.equal(notices.length, 2, 'the failure came back after a read worked');
+  // both publications land before the scheduled check runs
+  void stub.publish(status({ pullRequest: pr() }));
+  await stub.publish(failed());
+  assert.equal(notices.length, 3, 'a read worked between two checks');
+  await stub.publish(failed('url: missing'));
+  assert.equal(notices.at(-1)!.text.endsWith('url: missing'), true);
+  assert.equal(notices.length, 4, 'a different failure');
+  publish({ conversation: { id: 'd', cwd: '/w' } as never, items: [] });
+  await tick();
+  assert.equal(notices.length, 5, 'a newly opened conversation');
+});
+
+test('a failure beside a pull request that was read gets one notice until a read has none', async (t) => {
+  const stub = stubRepository();
+  const { notices } = fixture(t.onTestFinished, stub.repository);
+  const partial = (fields: Partial<Repository> = {}) =>
+    status({
+      pullRequest: pr(),
+      pullRequestFailure: 'spawn gh EMFILE',
+      ...fields,
+    });
+  await stub.publish(partial());
+  await stub.publish(partial({ modified: 1 }));
+  assert.deepEqual(
+    notices.map(({ text }) => text),
+    ["Can't read this branch's pull request: spawn gh EMFILE"],
+    'the same failure at the next status',
+  );
+  await stub.publish(status({ pullRequest: pr() }));
+  await stub.publish(partial());
+  assert.equal(
+    notices.length,
+    2,
+    'the failure came back after a read without one',
+  );
+});
+
 test('a merge into the pull request base reads it again, and a pull request that turns conflicting reaches the coordinator', async (t) => {
   vi.useFakeTimers({
     toFake: ['setInterval', 'clearInterval', 'Date'],

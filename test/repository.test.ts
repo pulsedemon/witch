@@ -12,6 +12,7 @@ import {
   parseStatus,
 } from '../src/core/repository.js';
 import type { Run } from '../src/core/repository.js';
+import { view } from './fixtures/repository.js';
 import { scratch } from './fixtures/scratch.js';
 import { until } from './fixtures/within.js';
 
@@ -381,18 +382,6 @@ test('a detached head reads as HEAD, and branch.ab and unmerged entries count', 
     },
   );
 });
-
-const view = (fields: object) =>
-  JSON.stringify({
-    number: 4,
-    url: 'https://x.test/4',
-    headRefName: 'feat/x',
-    headRefOid: 'a1b2c3',
-    baseRefName: 'develop',
-    mergeable: 'MERGEABLE',
-    mergedAt: null,
-    ...fields,
-  });
 
 test('a failing pull request lists its failed runs and statuses with their details pages', () => {
   const read = (rollup: object[]) =>

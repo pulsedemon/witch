@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { inject } from 'vitest';
-import { exists } from '../../src/memory/memory.js';
 import { openLocked } from '../../src/persistence/lock.js';
 import { scratch } from './scratch.js';
+import { exists } from './within.js';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 let compiled: Promise<string> | undefined;

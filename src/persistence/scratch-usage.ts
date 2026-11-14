@@ -114,6 +114,7 @@ export async function scratchRequiresBoot(): Promise<boolean> {
       [...rows.values()].some(({ name }) => name === 'tmux')
     );
   } catch {
+    // a failed process listing can't rule tmux out, so this boot's cleanup waits
     return true;
   }
 }

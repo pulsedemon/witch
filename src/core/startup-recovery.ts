@@ -1,7 +1,8 @@
 import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../errors.js';
-import { branchOf, exists } from '../memory/memory.js';
+import { branchOf } from '../memory/memory.js';
 import type { Memory } from '../memory/memory.js';
+import { present } from '../persistence/directories.js';
 import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { createConversation } from './state.js';
@@ -69,10 +70,11 @@ export async function recoverConversations(
       await files?.close().catch(problem);
     }
     if (!reason) continue;
-    const gone = !(await exists(record.cwd));
-    lines.push(
-      `- ${record.title} in ${record.cwd}${gone ? ' (start Witch in its new location)' : ''}: ${reason}`,
+    const where = await present(record.cwd).then(
+      (found) => (found ? '' : ' (start Witch in its new location)'),
+      (error: unknown) => ` (can't be checked: ${errorMessage(error)})`,
     );
+    lines.push(`- ${record.title} in ${record.cwd}${where}: ${reason}`);
   }
   return lines.length
     ? `These conversations need attention. Open each from /sessions in its directory:\n${lines.join('\n')}`

@@ -200,6 +200,7 @@ export class CoordinationStore {
         .map((directory) => statSync(directory, { bigint: true }).mtimeNs)
         .join(':');
     } catch {
+      // no signature makes the caller refresh for real
       return undefined;
     }
   }

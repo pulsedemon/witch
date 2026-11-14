@@ -7,11 +7,12 @@ import { planDirectories } from './core/merged.js';
 import type { Run } from './core/repository.js';
 import { describeMoves, repairMoves, savedBefore } from './core/move-repair.js';
 import { listWorktrees } from './core/worktree-repair.js';
-import { exists, Memory, memoryRepository } from './memory/memory.js';
+import { Memory, memoryRepository } from './memory/memory.js';
 import {
   adoptIdentity,
   identify,
   mapper,
+  present,
   readLedger,
   sameIdentity,
   updateLedger,
@@ -93,10 +94,11 @@ async function seed(
   const plans = [...planDirectories.plans, planDirectories.ledgers].map(
     (plan) => join(main, plan),
   );
+  // a failed look reads as nothing to leave behind, so an ignored link into an unreadable directory is still copied
   const left = async (directory: string) =>
     basename(directory) === '.godot' ||
     !!(await stat(join(directory, '.git')).catch(() => undefined))?.isFile() ||
-    (await exists(join(directory, 'pyvenv.cfg')));
+    !!(await stat(join(directory, 'pyvenv.cfg')).catch(() => undefined));
   // deleted since the listing; any other failure to look is reported
   const listed = await unlessGone(lstat(source));
   if (!listed) return;
@@ -313,8 +315,13 @@ export async function spawnWorktrees(
         );
       }
     }
-    if (await exists(spawned.path)) spawned.slot = true;
-    else spawned.error = 'registered but missing; start Witch where it moved';
+    try {
+      if (await present(spawned.path)) spawned.slot = true;
+      else
+        report(spawned, 'registered but missing; start Witch where it moved');
+    } catch (error) {
+      report(spawned, failure(error));
+    }
   }
   const idle = async (spawned: Spawned) => {
     try {
@@ -328,7 +335,13 @@ export async function spawnWorktrees(
   for (const spawned of results) {
     if (!spawned.slot || !(await idle(spawned))) continue;
     installed.push(spawned);
-    if (await exists(join(spawned.path, 'pnpm-lock.yaml')))
+    const locked = await present(join(spawned.path, 'pnpm-lock.yaml')).catch(
+      (error: unknown) => {
+        report(spawned, failure(error));
+        return false;
+      },
+    );
+    if (locked)
       await run('pnpm', ['install', '--frozen-lockfile'], {
         cwd: spawned.path,
         timeout: 300_000,
@@ -400,7 +413,7 @@ function describe({ path, slot, created, opened, error }: Spawned): string {
 /**
  * repairs moved directories first, so a moved main checkout reuses its worktrees wherever they are, then spawns. a cwd
  * whose Git a move broke is repaired only when the ledger knows it, so a directory outside any repository still exits
- * with Git's error and leaves no state behind.
+ * with Git's error, or the ledger's when that can't be read, and leaves no state behind.
  */
 export async function runSpawn(
   cwd: string,
@@ -411,11 +424,8 @@ export async function runSpawn(
   try {
     await listWorktrees(run, cwd).catch(async (error: unknown) => {
       const identity = await identify(cwd);
-      const known = await readLedger(stateRoot).then(
-        ({ entries }) => entries.some((entry) => sameIdentity(entry, identity)),
-        () => false,
-      );
-      if (!known) throw error;
+      const { entries } = await readLedger(stateRoot);
+      if (!entries.some((entry) => sameIdentity(entry, identity))) throw error;
     });
     const store = await StateStore.open(stateRoot);
     const memory = new Memory(memoryRepository(stateRoot));

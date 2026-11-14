@@ -1353,7 +1353,8 @@ class ClaudeSession implements AgentSession {
 
   private readUsage(): void {
     if (this.options.answer) return;
-    void this.contextUsage();
+    // onEvent is the session's only reporting channel, so a failure of its own has nowhere to go
+    void this.contextUsage().catch(() => {});
     this.usageReader.refresh();
   }
 

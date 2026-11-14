@@ -35,6 +35,8 @@ async function transfer(
     a,
     b,
     requested,
+    /** the first session's periodic tick, which `pauseDiscovery` holds back. */
+    tick: () => ticks[0]!(),
     /** an exhausted owner's periodic tick must answer without a model turn. */
     answer: async (field: TransferField = 'transfer', owner = 0) => {
       await requested(field);
@@ -133,6 +135,85 @@ test('an owner that never reads the ledger times out and leaves no request', asy
   );
   assert.deepEqual(await registry.claims(), before);
   assert.equal(b.coordination.snapshot.error, undefined);
+});
+
+test('an owner whose handover fails shows why until one succeeds', async (t) => {
+  const { a, b, tick, requested } = await transfer(t);
+  // each session has its own store; the fixture's `registry` is a third
+  const local = a.coordination['registry'];
+  const handing = vi
+    .spyOn(local, 'handOver')
+    .mockRejectedValue(new Error('claims.json could not be written'));
+  let settled = false;
+  const taking = b.coordination
+    .takeTask('task:shared', 8000)
+    .finally(() => (settled = true));
+  await requested();
+  // a tick that lands while the owner's refresh is still running is dropped, so each wait keeps ticking
+  await until('the failure', () => {
+    tick();
+    return a.coordination.snapshot.error !== undefined;
+  });
+  assert.equal(
+    a.coordination.snapshot.error,
+    'claims.json could not be written',
+  );
+  handing.mockRestore();
+  await until('the handover', () => {
+    tick();
+    return settled;
+  });
+  await taking;
+  assert.equal(a.coordination.snapshot.error, undefined);
+  assert.equal(
+    b.coordination.snapshot.ownClaim?.owner.conversation,
+    b.coordinator.snapshot.conversation!.id,
+  );
+});
+
+test('a failed handover stops showing once its request is gone', async (t) => {
+  const { a, b, tick, requested, registry } = await transfer(t);
+  const before = await registry.claims();
+  vi.spyOn(a.coordination['registry'], 'handOver').mockRejectedValue(
+    new Error('claims.json could not be written'),
+  );
+  // watched from the start, since the request times out during the waits below
+  const unanswered = assert.rejects(
+    b.coordination.takeTask('task:shared', 3000),
+    /did not answer/,
+  );
+  await requested();
+  await until('the failure', () => {
+    tick();
+    return a.coordination.snapshot.error !== undefined;
+  });
+  await unanswered;
+  await until('the cleared failure', () => {
+    tick();
+    return a.coordination.snapshot.error === undefined;
+  });
+  assert.deepEqual(await registry.claims(), before);
+});
+
+test('a handover cut short by the owner quiescing is not shown as a failure', async (t) => {
+  const { a, b, tick, requested } = await transfer(t);
+  const local = a.coordination['registry'];
+  let cut = false;
+  vi.spyOn(local, 'handOver').mockImplementation(async () => {
+    // not awaited: quiesce waits for the operation this runs in
+    void a.coordination.quiesce();
+    cut = true;
+    throw new Error('claims.json could not be written');
+  });
+  const taking = b.coordination.takeTask('task:shared', 3000);
+  await requested();
+  await until('the cut handover', () => {
+    tick();
+    return cut;
+  });
+  await a.coordination.quiesce();
+  assert.equal(a.coordination.snapshot.error, undefined);
+  await assert.rejects(taking, /did not answer/);
 });
 
 test('a successful withdrawal clears a failed ledger poll', async (t) => {

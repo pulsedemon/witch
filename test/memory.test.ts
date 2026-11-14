@@ -15,7 +15,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { test } from 'vitest';
 import { promisify } from 'node:util';
 import { Memory, branchOf, main } from '../src/memory/memory.js';
@@ -24,6 +24,7 @@ import { fixture, save, git, repository } from './fixtures/memory.js';
 import type { GitHook } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
+import { unreadable } from './fixtures/unreadable.js';
 
 const execute = promisify(execFile);
 const lines = (changes: Record<number, string> = {}) =>
@@ -1191,6 +1192,35 @@ test('a stopped rebase is found under a state directory with a line break', asyn
   const gitdir = await git(workspace.root, 'rev-parse', '--absolute-git-dir');
   await mkdir(join(gitdir.slice(0, -1), 'rebase-merge'));
   assert.equal(await workspace.rebaseStopped(), true);
+});
+
+test('initialization fails on a root it cannot look at and builds nothing beside it', async (t) => {
+  const parent = await scratch('witch-memory-');
+  const root = join(parent, 'memory.git');
+  unreadable(t, root);
+  await assert.rejects(new Memory(root).initialize(), { code: 'EACCES' });
+  assert.deepEqual(await readdir(parent), []);
+});
+
+test('a worktree whose .git cannot be looked at is not read as missing', async (t) => {
+  const root = await scratch('witch-memory-');
+  const memory = await seededMemory(join(root, 'memory.git'));
+  const workspace = memory.workspace(join(root, 'conversations', 'a'), 'a');
+  await workspace.ensureWorktree();
+  unreadable(t, join(workspace.root, '.git'));
+  await assert.rejects(workspace.exists(), { code: 'EACCES' });
+});
+
+test('a rebase directory that cannot be looked at is not read as no rebase', async (t) => {
+  const root = await scratch('witch-memory-');
+  const memory = await seededMemory(join(root, 'memory.git'));
+  const workspace = memory.workspace(join(root, 'conversations', 'a'), 'a');
+  await workspace.ensureWorktree();
+  const gitdir = /^gitdir: (.+)\n$/.exec(
+    await readFile(join(workspace.root, '.git'), 'utf8'),
+  )![1]!;
+  unreadable(t, join(resolve(workspace.root, gitdir), 'rebase-merge'));
+  await assert.rejects(workspace.rebaseStopped(), { code: 'EACCES' });
 });
 
 test('a leftover rebase is aborted back onto the branch before publishing', async () => {
