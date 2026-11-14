@@ -212,29 +212,46 @@ test('a background failure continues completed work without changing its recorde
   assert.equal(conversation.lastTurn.status, 'completed');
 });
 
-test('a large completed report cannot crowd the request out of fallback context', () => {
-  const context = transcriptContext([
-    { id: 'request', kind: 'user', text: 'Check index migration.', cwd: '/w' },
-    {
-      id: 'report',
-      kind: 'tool',
-      title: 'Review completed',
-      done: true,
-      text: `Keep the unique index. ${'x'.repeat(70_000)}`,
-      cwd: '/w',
-    },
-    {
-      id: 'unread',
-      kind: 'user',
-      text: 'Queued request.',
-      unread: true,
-      cwd: '/w',
-    },
-  ]);
-  assert.match(context, /User: Check index migration\./);
-  assert.equal(context.split('User: Check index migration.').length, 2);
-  assert.match(context, /Keep the unique index/);
-  assert.match(context, /\[truncated\]/);
-  assert.ok(context.length <= 60_200);
-  assert.ok(!context.includes('Queued request.'));
-});
+for (const refused of [false, true])
+  test(`a large completed report retains the request with refusal ${refused}`, () => {
+    const context = transcriptContext([
+      {
+        id: 'request',
+        kind: 'user',
+        text: 'Check index migration.',
+        cwd: '/w',
+      },
+      {
+        id: 'report',
+        kind: 'tool',
+        title: 'Review completed',
+        done: true,
+        text: `Keep the unique index. ${'x'.repeat(70_000)}`,
+        cwd: '/w',
+      },
+      ...(refused
+        ? [
+            {
+              id: 'refusal',
+              kind: 'assistant' as const,
+              text: 'Usage limit reached',
+              cwd: '/w',
+            },
+          ]
+        : []),
+      {
+        id: 'unread',
+        kind: 'user',
+        text: 'Queued request.',
+        unread: true,
+        cwd: '/w',
+      },
+    ]);
+    assert.match(context, /User: Check index migration\./);
+    assert.equal(context.split('User: Check index migration.').length, 2);
+    assert.match(context, /Keep the unique index/);
+    assert.match(context, /\[truncated\]/);
+    assert.ok(context.length <= 60_200);
+    assert.equal(context.includes('Usage limit reached'), refused);
+    assert.ok(!context.includes('Queued request.'));
+  });

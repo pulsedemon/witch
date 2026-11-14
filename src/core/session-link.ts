@@ -208,11 +208,23 @@ export class SessionLink {
   }
 
   /** reuses the live session unless `scope` names project memory it was never granted. */
+  connect(
+    agent?: string,
+    scope?: MemoryScope,
+    selection?: ModelSelection,
+  ): Promise<AgentSession>;
+  connect(
+    agent: string | undefined,
+    scope: MemoryScope | undefined,
+    selection: ModelSelection | undefined,
+    ready: () => boolean,
+  ): Promise<AgentSession | undefined>;
   async connect(
     agent = this.host.conversation().agent,
     scope?: MemoryScope,
     selection?: ModelSelection,
-  ): Promise<AgentSession> {
+    ready?: () => boolean,
+  ): Promise<AgentSession | undefined> {
     const live = this.live(agent);
     if (live && (!scope || scope.project === this.sessionProject)) return live;
     const conversation = this.host.conversation();
@@ -225,6 +237,7 @@ export class SessionLink {
     await workspace.ensureWorktree();
     if (scope) await workspace.prepare(scope);
     else scope = await workspace.scope(conversation.cwd);
+    if (ready && !ready()) return;
     // an initial connect keeps the activation published when its conversation opened; a runtime switch drops questions once it activates
     await this.disconnect(!this.connected, true);
     const connection = (this.connection = {});

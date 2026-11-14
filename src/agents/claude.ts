@@ -1269,7 +1269,7 @@ class ClaudeSession implements AgentSession {
       const result = claudeResult(
         message,
         !!this.options.answer,
-        this.turn?.messages.text ?? '',
+        message.subtype === 'success' ? '' : (this.turn?.messages.text ?? ''),
       );
       const success = result.status === 'completed';
       const uuids = message.user_message_uuids ?? [message.user_message_uuid];

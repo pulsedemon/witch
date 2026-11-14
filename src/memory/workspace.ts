@@ -674,8 +674,12 @@ export class Workspace {
     for (const file of new Set(files.split('\0').filter(Boolean)))
       await this.checkedPath(file);
     if (!accept()) return;
+    const previous = await this.revision();
     await this.git(['add', '--all', '--force', '--', '.']);
-    if (accept()) await this.git(['commit', '--quiet', '-m', message]);
+    if (!accept()) return;
+    await this.git(['commit', '--quiet', '-m', message]);
+    // a rejection during git's commit leaves the notes pending for recovery.
+    if (!accept()) await this.git(['reset', '--soft', previous]);
   }
 
   /** the pending changes, with new files shown whole. */

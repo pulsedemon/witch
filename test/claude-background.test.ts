@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { TurnText } from '../src/agents/turn-text.js';
 import type { AgentEvent } from '../src/agents/types.js';
 import {
   fixture,
@@ -1153,6 +1154,25 @@ test('a fresh connection cannot switch from an unsolicited background rejection'
       false,
     );
   } finally {
+    await f.session.close();
+  }
+});
+
+test('successful native results do not rejoin the accumulated turn text', async () => {
+  const f = await background();
+  const text = vi.spyOn(TurnText.prototype, 'text', 'get');
+  try {
+    await f.emit(
+      result('First result'),
+      result('Second result'),
+      state('idle'),
+    );
+    const outcome = await f.turn;
+    assert.equal(outcome.status, 'completed');
+    assert.equal(outcome.text, 'Second result');
+    assert.equal(text.mock.calls.length, 0);
+  } finally {
+    text.mockRestore();
     await f.session.close();
   }
 });

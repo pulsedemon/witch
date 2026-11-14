@@ -52,11 +52,7 @@ import {
 } from './queue.js';
 import type { WorkTreeChanges } from './work-tree-changes.js';
 import type { SessionCoordination } from './coordination.js';
-import {
-  sessionWorking,
-  witchWorking,
-  taskActivity,
-} from './coordination-state.js';
+import { sessionWorking, witchWorking } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
@@ -177,7 +173,8 @@ export class Coordinator {
     session: () => this.link.session,
     send: (prompt, kind, images) =>
       this.turns.perform(prompt, kind, { images }),
-    connect: (choice) => this.link.connect(choice.agent, undefined, choice),
+    connect: (choice, ready = () => true) =>
+      this.link.connect(choice.agent, undefined, choice, ready),
     disconnect: () => this.link.disconnect(false, true),
     save: () => this.save(),
     publish: (update) => this.publish(update),
@@ -741,9 +738,8 @@ export class Coordinator {
       this.snapshot.phase === 'idle' &&
       !this.task &&
       !this.admissions &&
-      !this.snapshot.nativeRunning &&
+      !this.runtimes.backgroundBusy &&
       !this.runtimes.awaitingRecovery &&
-      !taskActivity(this.snapshot).running &&
       !this.automaticHeld &&
       !this.paused &&
       !this.opening &&

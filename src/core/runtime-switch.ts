@@ -1,6 +1,7 @@
 import type { AgentSession, TurnResult } from '../agents/types.js';
 import type { Memory } from '../memory/memory.js';
 import type { SessionCoordination } from './coordination.js';
+import { taskActivity } from './coordination-state.js';
 import { handoff } from './handoff.js';
 import { modelEffort, type ModelSelection } from './models.js';
 import { comparable, resolve } from './routing.js';
@@ -28,7 +29,10 @@ export interface SwitchHost {
     kind: 'turn' | 'handoff',
     images?: readonly string[],
   ): Promise<TurnResult>;
-  connect(selection: ModelSelection): Promise<AgentSession>;
+  connect(
+    selection: ModelSelection,
+    ready?: () => boolean,
+  ): Promise<AgentSession | undefined>;
   disconnect(): Promise<void>;
   save(): Promise<void>;
   publish(update: Partial<Snapshot>): void;
@@ -47,6 +51,7 @@ interface PendingSwitch {
   background: boolean;
   recovering: boolean;
   moving: boolean;
+  waiting: boolean;
   finished: PromiseWithResolvers<void>;
 }
 
@@ -103,6 +108,17 @@ export class RuntimeSwitch {
     return this.pending?.recovering === true;
   }
 
+  get backgroundBusy(): boolean {
+    const snapshot = this.host.snapshot();
+    return snapshot.nativeRunning || taskActivity(snapshot).running;
+  }
+
+  private deferBackground(request: PendingSwitch): boolean {
+    if (!request.background || !this.backgroundBusy) return false;
+    request.waiting = true;
+    return true;
+  }
+
   acceptMemory(agent: string): boolean {
     return (
       !this.pending?.background || this.pending.source?.info.agent !== agent
@@ -112,6 +128,7 @@ export class RuntimeSwitch {
   async continueBackground(): Promise<boolean> {
     if (!this.backgroundPending) return false;
     const request = this.pending!;
+    request.waiting = false;
     try {
       await this.host.prepareBackground();
     } catch (error) {
@@ -119,6 +136,7 @@ export class RuntimeSwitch {
       throw error;
     }
     if (this.pending !== request || this.host.cancelled()) return false;
+    if (this.deferBackground(request)) return false;
     return this.run(request);
   }
 
@@ -130,6 +148,7 @@ export class RuntimeSwitch {
       background,
       recovering: false,
       moving: false,
+      waiting: false,
       finished: Promise.withResolvers<void>(),
     };
     this.pending = request;
@@ -147,7 +166,7 @@ export class RuntimeSwitch {
     try {
       return await this.attempt(request);
     } finally {
-      if (this.pending === request && !request.recovering) {
+      if (this.pending === request && !request.recovering && !request.waiting) {
         if (this.host.conversation().agent === request.source?.info.agent)
           this.host.failed(true);
         this.clearPending();
@@ -211,7 +230,13 @@ export class RuntimeSwitch {
         },
       },
       selection,
-      { summarize: notice === undefined, continueTask },
+      {
+        summarize: notice === undefined,
+        continueTask,
+        ready: continueTask
+          ? () => !!this.pending && !this.deferBackground(this.pending)
+          : undefined,
+      },
     );
   }
 
@@ -272,7 +297,8 @@ export class RuntimeSwitch {
         } finally {
           this.stopping = undefined;
           request.moving = false;
-          if (host.conversation().agent === agent) host.failed(true);
+          if (!request.waiting && host.conversation().agent === agent)
+            host.failed(true);
         }
       })
       .catch(() => {});
@@ -306,6 +332,7 @@ export class RuntimeSwitch {
       host.session() !== request.source
     )
       return;
+    if (this.deferBackground(request)) return;
     const destinations = others.map((id) => this.destination(agent, id));
     const chosen = destinations.find((choice) => 'selection' in choice);
     const from = this.label(agent);

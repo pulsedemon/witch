@@ -34,12 +34,14 @@ interface HandoffOptions {
   /** false skips asking the source, which usage exhaustion leaves unable to answer. */
   summarize?: boolean;
   continueTask?: true;
+  /** rechecks background idleness immediately before the source disconnects. */
+  ready?(): boolean;
 }
 
 export async function handoff(
   host: HandoffHost,
   selection: ModelSelection,
-  { summarize = true, continueTask }: HandoffOptions = {},
+  { summarize = true, continueTask, ready }: HandoffOptions = {},
 ): Promise<void> {
   const { agent } = selection;
   const conversation = host.conversation();
@@ -77,7 +79,14 @@ export async function handoff(
     conversation.handoff = { from, to: agent, summary, activated: false };
     await host.save();
     if (host.cancelled()) throw new Error('Handoff was interrupted');
-    const session = await host.connect(selection);
+    const session = await host.connect(selection, ready);
+    if (!session) {
+      if (replaced) conversation.handoff = replaced;
+      else delete conversation.handoff;
+      overwritten = false;
+      await host.save();
+      return;
+    }
     const selected = await host.select(session, selection);
     if (host.cancelled()) throw new Error('Handoff was interrupted');
     conversation.agent = agent;
@@ -124,39 +133,52 @@ export async function handoff(
 
 /** handoff context rebuilt from the transcript when the source can't summarize. unread prompts are left out, since the queue sends them again. */
 export function transcriptContext(items: readonly DisplayItem[]): string {
-  const rows = items.toReversed().flatMap((item) => {
-    if (item.kind === 'user') return item.unread ? [] : [`User: ${item.text}`];
-    if (item.kind === 'assistant')
-      return [`${item.title ?? 'Assistant'}: ${item.text}`];
-    if (item.kind === 'tool')
-      return [
-        `Tool${item.done === false ? ' (unfinished)' : ''}: ${[item.title, item.path].filter(Boolean).join(' ')}${item.done && item.text ? `\n${item.text}` : ''}`,
-      ];
-    return [];
-  });
+  const rows = items
+    .toReversed()
+    .filter(
+      (item) =>
+        (item.kind === 'user' && !item.unread) ||
+        item.kind === 'assistant' ||
+        item.kind === 'tool',
+    );
   const kept = new Map<number, string>();
   let size = 0;
-  const request = rows.findIndex((row) => row.startsWith('User: '));
+  const request = rows.findIndex((row) => row.kind === 'user');
   const keep = (index: number, available: number) => {
-    const row = rows[index]!;
-    const text =
-      row.length > available
-        ? `${row.slice(0, Math.max(0, available - 12))} [truncated]`
-        : row;
+    const item = rows[index]!;
+    const parts =
+      item.kind === 'user'
+        ? ['User: ', item.text]
+        : item.kind === 'assistant'
+          ? [item.title ?? 'Assistant', ': ', item.text]
+          : [
+              'Tool',
+              item.done === false ? ' (unfinished)' : '',
+              ': ',
+              [item.title, item.path].filter(Boolean).join(' '),
+              ...(item.done && item.text ? ['\n', item.text] : []),
+            ];
+    const truncated =
+      parts.reduce((total, part) => total + part.length, 0) > available;
+    let remaining = truncated ? available - 12 : available;
+    let text = '';
+    for (const part of parts) {
+      text += part.slice(0, remaining);
+      remaining -= Math.min(part.length, remaining);
+      if (!remaining) break;
+    }
+    if (truncated) text += ' [truncated]';
     kept.set(index, text);
     size += text.length + 2;
+    return truncated;
   };
   // reports can fill the budget, but the destination still needs the request they answer.
   if (request !== -1) keep(request, transcriptLimit - 2);
-  for (const [index, row] of rows.entries()) {
+  for (const index of rows.keys()) {
     if (index === request) continue;
     const available = transcriptLimit - size - 2;
     if (available <= 12) break;
-    if (row.length <= available) keep(index, available);
-    else {
-      if (kept.size === (request === -1 ? 0 : 1)) keep(index, available);
-      break;
-    }
+    if (keep(index, available)) break;
   }
   const omitted = kept.size < rows.length ? ' Earlier rows are omitted.' : '';
   return [

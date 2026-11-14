@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import type { AccountReading } from '../src/agents/types.js';
+import { Workspace } from '../src/memory/workspace.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { Attachments } from '../src/core/attachments.js';
 import { callControl } from '../src/persistence/control.js';
@@ -1007,54 +1008,56 @@ test('background memory waits for recovery, then continues completed work on the
   }
 });
 
-test('background exhaustion during memory staging retains dirty notes without changing the completed outcome', async () => {
-  const { coordinator, claude, codex, hook, store } = await exhaustion();
-  let armed = false;
-  const emit = claude.sessions.at(-1)!.options.onEvent;
-  claude.onSend = async () => {
-    armed = true;
-  };
-  hook.current = async (command, run) => {
-    const result = await run();
-    if (armed && command[0] === 'add') {
-      armed = false;
-      emit({ type: 'running', running: true });
-      emit({ type: 'exhausted' });
-      emit({ type: 'running', running: false });
+for (const stage of ['add', 'commit'] as const)
+  test(`background exhaustion during memory ${stage} retains dirty notes without changing the completed outcome`, async () => {
+    const { coordinator, claude, codex, hook, store } = await exhaustion();
+    let armed = false;
+    const emit = claude.sessions.at(-1)!.options.onEvent;
+    claude.onSend = async () => {
+      armed = true;
+    };
+    hook.current = async (command, run) => {
+      const result = await run();
+      if (armed && command[0] === stage) {
+        armed = false;
+        emit({ type: 'running', running: true });
+        emit({ type: 'exhausted' });
+        emit({ type: 'running', running: false });
+      }
+      return result;
+    };
+    try {
+      await coordinator.send('remember-port');
+      assert.equal(coordinator.snapshot.phase, 'recovery');
+      assert.equal(
+        (await store.records()).records.find(
+          ({ id }) => id === coordinator.snapshot.conversation!.id,
+        )!.lastTurn!.status,
+        'completed',
+      );
+      assert.match(coordinator.snapshot.recovery!.diff, /4567/);
+      assert.equal(codex.inputs.length, 0);
+      assert.ok(
+        (await store.records()).records.find(
+          ({ id }) => id === coordinator.snapshot.conversation!.id,
+        )!.activity,
+      );
+      hook.current = passThrough;
+      await coordinator.recoverMemory('discard');
+      await until(
+        'continuation after discarding background memory',
+        () =>
+          codex.inputs.length === 1 && coordinator.snapshot.phase === 'idle',
+      );
+      assert.deepEqual(
+        codex.inputs.map(({ prompt }) => prompt),
+        [continuation],
+      );
+    } finally {
+      hook.current = passThrough;
+      await coordinator.close();
     }
-    return result;
-  };
-  try {
-    await coordinator.send('remember-port');
-    assert.equal(coordinator.snapshot.phase, 'recovery');
-    assert.equal(
-      (await store.records()).records.find(
-        ({ id }) => id === coordinator.snapshot.conversation!.id,
-      )!.lastTurn!.status,
-      'completed',
-    );
-    assert.match(coordinator.snapshot.recovery!.diff, /4567/);
-    assert.equal(codex.inputs.length, 0);
-    assert.ok(
-      (await store.records()).records.find(
-        ({ id }) => id === coordinator.snapshot.conversation!.id,
-      )!.activity,
-    );
-    hook.current = passThrough;
-    await coordinator.recoverMemory('discard');
-    await until(
-      'continuation after discarding background memory',
-      () => codex.inputs.length === 1 && coordinator.snapshot.phase === 'idle',
-    );
-    assert.deepEqual(
-      codex.inputs.map(({ prompt }) => prompt),
-      [continuation],
-    );
-  } finally {
-    hook.current = passThrough;
-    await coordinator.close();
-  }
-});
+  });
 
 test('a background switch with no destination reports a blocker and retains queued input', async () => {
   const { coordinator, claude, codex, emit } = await completedForBackground(
@@ -1392,3 +1395,100 @@ test('an old connection cannot exhaust a reconnected session with the same nativ
     await coordinator.close();
   }
 });
+
+for (const stage of [
+  'settlement',
+  'refresh',
+  'save',
+  'connection',
+  'task',
+] as const)
+  test(`background work restarted during ${stage} waits for its final report`, async () => {
+    const { coordinator, claude, codex, emit, hook } =
+      await completedForBackground();
+    let restarted = false;
+    const restart = () => {
+      if (restarted) return;
+      restarted = true;
+      emit({ type: 'running', running: true });
+      emit({
+        type: 'subagent',
+        subagent: {
+          id: 'late',
+          name: 'late review',
+          kind: 'review',
+          status: 'running',
+        },
+      });
+    };
+    const save = ConversationStore.prototype.save;
+    const scope = Workspace.prototype.scope;
+    if (stage === 'settlement')
+      hook.current = async (command, run) => {
+        if (command[0] === 'status') restart();
+        return run();
+      };
+    if (stage === 'refresh')
+      codex.accountRead = async () => {
+        restart();
+        return reading(40)();
+      };
+    if (stage === 'save')
+      vi.spyOn(ConversationStore.prototype, 'save').mockImplementation(
+        async function (this: ConversationStore, record) {
+          await save.call(this, record);
+          if (record.handoff?.to === 'codex' && !record.handoff.activated)
+            restart();
+        },
+      );
+    if (stage === 'connection')
+      vi.spyOn(Workspace.prototype, 'scope').mockImplementation(async function (
+        this: Workspace,
+        cwd,
+      ) {
+        const result = await scope.call(this, cwd);
+        if (coordinator.snapshot.conversation?.handoff?.to === 'codex')
+          restart();
+        return result;
+      });
+    try {
+      emit({ type: 'running', running: true });
+      if (stage === 'task') restart();
+      emit({ type: 'exhausted' });
+      await coordinator.send('Queued after report');
+      emit({ type: 'running', running: false });
+      await until(
+        'deferred background switch',
+        () => restarted && coordinator.snapshot.phase === 'idle',
+      );
+      assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
+      assert.equal(claude.sessions.at(-1)!.session.closed, false);
+      assert.equal(codex.inputs.length, 0);
+      emit({ type: 'running', running: false });
+      assert.equal(codex.inputs.length, 0);
+      emit({
+        type: 'subagent',
+        subagent: {
+          id: 'late',
+          name: 'late review',
+          kind: 'review',
+          status: 'completed',
+          report: 'Keep the foreign key.',
+        },
+      });
+      await until(
+        'report then queued input',
+        () =>
+          codex.inputs.length === 2 && coordinator.snapshot.phase === 'idle',
+      );
+      assert.deepEqual(
+        codex.inputs.map(({ prompt }) => prompt),
+        [continuation, 'Queued after report'],
+      );
+      assert.match(codex.inputs[0]!.context!, /Keep the foreign key/);
+      assert.equal(claude.inputs.length, 1);
+    } finally {
+      hook.current = passThrough;
+      await coordinator.close();
+    }
+  });
