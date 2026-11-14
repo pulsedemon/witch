@@ -550,10 +550,10 @@ export class RepositoryWatch {
     const commit = this.snapshot?.commit;
     let value: PullRequest | undefined;
     let project: string | undefined;
-    let failure: string | undefined;
+    const failures = new Set<string>();
     // the checks and base tip reads keep their fallbacks when they fail, and say why when nobody expects the failure
     const report = (error: unknown) => {
-      if (!unavailable(error)) failure ??= reason(error);
+      if (!unavailable(error)) failures.add(reason(error));
     };
     try {
       project = await this.project?.();
@@ -591,10 +591,11 @@ export class RepositoryWatch {
       }
     } catch (error) {
       value = undefined;
-      failure = reason(error);
+      failures.add(reason(error));
     } finally {
       this.fetching = undefined;
     }
+    const failure = [...failures].join('; ') || undefined;
     this.pullRequest = {
       branch,
       at: Date.now(),
