@@ -8,7 +8,6 @@ import { scratch } from './fixtures/scratch.js';
 
 test('empty memory keeps real project identity while refusing memory repository operations', async () => {
   const root = await scratch('witch-empty-memory-');
-
   const project = join(root, 'project');
 
   await mkdir(project);
@@ -51,9 +50,7 @@ test('empty memory keeps real project identity while refusing memory repository 
 
 test('empty memory refuses note edits instead of reporting successful publication', async () => {
   const root = await scratch('witch-empty-memory-');
-
   const memory = new EmptyMemory(join(root, 'memory.git'));
-
   const workspace = memory.workspace(join(root, 'conversation'), 'one');
 
   assert.equal(await workspace.branchExists(), false);

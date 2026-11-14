@@ -15,13 +15,9 @@ export function watchMerges(
   install?: string,
 ): () => void {
   const settled = new Set<string>();
-
   let attempted: string | undefined;
-
   let pending: NodeJS.Immediate | undefined;
-
   let retryTimer: NodeJS.Timeout | undefined;
-
   let stopped = false;
 
   let continuation:
@@ -32,13 +28,11 @@ export function watchMerges(
     pending = undefined;
 
     const status = repository.snapshot;
-
     const owner = coordinator.snapshot.conversation?.id;
 
     if (continuation && continuation.owner !== owner) continuation = undefined;
 
     const pullRequest = continuation?.request ?? status?.pullRequest;
-
     const { phase, error, queue } = coordinator.snapshot;
 
     if (

@@ -9,7 +9,6 @@ function bounded(text: string): string {
   if (Buffer.byteLength(text) <= 240) return text;
 
   let bytes = 3;
-
   let prefix = '';
 
   for (const point of text) {
@@ -25,7 +24,6 @@ function bounded(text: string): string {
 
 function waiting(snapshot: Snapshot) {
   const conversation = snapshot.conversation?.id ?? '';
-
   const request = snapshot.requests[0];
 
   if (request)
@@ -69,19 +67,12 @@ export function watchTerminal(
   schedule?: NotificationSchedule,
 ): () => void {
   let stopped = false;
-
   let title = '';
-
   let active: string | undefined;
-
   let timer: ReturnType<typeof setInterval> | undefined;
-
   let conversationId = coordinator.snapshot.conversation?.id;
-
   let delivered = coordinator.snapshot.completedTurn;
-
   let pending: ReturnType<typeof setImmediate> | undefined;
-
   let disabled = false;
 
   let desktop:
@@ -158,7 +149,6 @@ export function watchTerminal(
 
   function taskName(): string {
     const conversation = coordinator.snapshot.conversation;
-
     const claim = coordination?.snapshot.ownClaim;
 
     return (
@@ -282,7 +272,6 @@ export function watchTerminal(
   }
 
   const unsubscribe = coordinator.subscribe(update);
-
   const unsubscribeCoordination = coordination?.subscribe(update);
 
   function stop() {

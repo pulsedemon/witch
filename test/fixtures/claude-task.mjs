@@ -6,9 +6,7 @@ import { clearInterval, setInterval } from 'node:timers';
 import { spawn } from 'node:child_process';
 
 const mode = process.env.WITCH_FAMILIAR_FIXTURE;
-
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
-
 const session_id = 'native-review';
 
 const launch = {

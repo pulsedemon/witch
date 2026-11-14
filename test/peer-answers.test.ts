@@ -24,7 +24,6 @@ const first: PeerRequest = {
 };
 
 const second = { ...first, id: randomUUID(), message: 'second private text' };
-
 const requests = [first, second];
 
 test('the request file carries the messages and native context carries its path and metadata', async () => {
@@ -48,9 +47,7 @@ test('the request file carries the messages and native context carries its path 
 
 test('the native Draft 7 validator accepts the generated response contract', () => {
   const ajv = new Ajv({ strict: false, validateFormats: false });
-
   const validate = ajv.compile(peerAnswerOutputSchema);
-
   const answer = { answers: [{ id: first.id, message: 'one' }] };
 
   assert.equal(validate(answer), true, JSON.stringify(validate.errors));

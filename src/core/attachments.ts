@@ -8,7 +8,6 @@ import { shellCommand } from './prompts.js';
 import type { ConversationStore } from '../persistence/store.js';
 
 const markerPattern = /\[Image #(\d+)\]/g;
-
 // Claude Code's extensions, which are also the types Claude's API accepts
 const imageName = /\.(?:png|jpe?g|gif|webp)$/i;
 
@@ -21,7 +20,6 @@ const pngSignature = Buffer.from([
 ]);
 
 const largestSide = 2000;
-
 // Claude's per-image limit, which applies to the base64 encoding
 const largestEncoded = 5 * 1024 * 1024;
 
@@ -31,9 +29,7 @@ export const startsLikePng = (data: Buffer) =>
 /** the absolute paths a paste lists when every one names a readable image; a terminal drop arrives as such a paste. */
 export function imagePaste(text: string): string[] | undefined {
   const trimmed = text.trim();
-
   const matches = [...trimmed.matchAll(token)];
-
   const last = matches.at(-1);
 
   const listed =
@@ -104,7 +100,6 @@ export class Attachments {
     return Promise.all(
       ids.map((id) => {
         const { data, saved } = this.images.get(id)!;
-
         let saving = saved.get(store.directory);
 
         if (!saving) {
@@ -164,7 +159,6 @@ export async function convertImage(
 
   try {
     const input = join(directory, 'input');
-
     const output = join(directory, `output.${format}`);
 
     await writeFile(input, data);

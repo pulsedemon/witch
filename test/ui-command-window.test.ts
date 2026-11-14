@@ -98,7 +98,6 @@ for (const [columns, rows] of [
 
 test('instant completion keeps its title through idle, context clear and newer calls, without expanding the transcript', async () => {
   const { app, coordinator } = fake({ phase: 'running' });
-
   const ui = show(createElement(App, { coordinator: app, onExit() {} }));
 
   const publish = (item: DisplayItem) =>
@@ -573,7 +572,6 @@ test('wrapped tool hints and completions preserve the composer, reading line and
 
 test('a picker keeps its filter through an undersized window without accepting hidden keys', async () => {
   const { app, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit() {} }));
 
   try {

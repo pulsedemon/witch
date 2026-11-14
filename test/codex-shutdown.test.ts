@@ -30,7 +30,6 @@ for (const phase of ['start', 'response', 'completion', 'late response'])
       await appears(join(cwd, 'prompt.json'));
 
       const started = performance.now();
-
       const interruption = session.interrupt({ deadline: started + 3200 });
 
       if (phase === 'late response') {

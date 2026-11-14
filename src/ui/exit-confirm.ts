@@ -4,7 +4,6 @@ import { useLiveState } from './live-state.js';
 /** exits on a second press within a second, so one stray Ctrl+C doesn't end Witch. */
 export function useExitConfirm(onExit: () => void) {
   const [armed, armedRef, setArmed] = useLiveState(false);
-
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => () => clearTimeout(timer.current), []);

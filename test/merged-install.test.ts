@@ -22,7 +22,6 @@ configureGitEnvironment();
 
 test('the install pulls, installs and builds when clean on the base, and stays put otherwise', async () => {
   const { root, origin, other } = await merged({ 'a.txt': 'a\n' });
-
   const install = join(root, 'install');
 
   await git(root, 'clone', origin, install);
@@ -96,13 +95,11 @@ test('the install pulls, installs and builds when clean on the base, and stays p
 
 test('a busy install is skipped before fetching', async () => {
   const { root, origin } = await merged();
-
   const install = join(root, 'install');
 
   await git(root, 'clone', origin, install);
 
   const fetchMarker = join(root, 'fetches');
-
   const pack = join(root, 'upload-pack');
 
   await write(
@@ -147,11 +144,8 @@ test('a busy install is skipped before fetching', async () => {
 
 test('an install stays locked through install and build, aliases share it, and another install can refresh', async () => {
   const { root, origin } = await merged();
-
   const install = join(root, 'install');
-
   const independent = join(root, 'independent');
-
   const alias = join(root, 'alias');
 
   await git(root, 'clone', origin, install);
@@ -161,9 +155,7 @@ test('an install stays locked through install and build, aliases share it, and a
   await symlink(install, alias);
 
   const head = await git(origin, 'rev-parse', 'main');
-
   const rebuilt = `Rebuilt Witch at ${head.slice(0, 7)}, for its next start.`;
-
   const request = { ...pullRequest(head), branch: 'main' };
 
   const gates = {
@@ -265,21 +257,15 @@ test('an install stays locked through install and build, aliases share it, and a
 
 test('an install stays locked through revision reporting and releases on success or failure', async () => {
   const { root, origin } = await merged();
-
   const install = join(root, 'install');
 
   await git(root, 'clone', origin, install);
 
   const head = await git(origin, 'rev-parse', '--short', 'main');
-
   const directory = join(install, '.git');
-
   const marker = join(root, 'revision-lock');
-
   const bin = join(root, 'bin');
-
   const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-
   const previousPath = process.env.PATH;
 
   for (const failing of [false, true]) {
@@ -349,7 +335,6 @@ exec ${[
 
 test('an install lock lookup failure keeps the install context', async () => {
   const install = await scratch('witch-invalid-install-');
-
   const calls: string[][] = [];
 
   await assert.rejects(
@@ -376,13 +361,11 @@ test('an install lock lookup failure keeps the install context', async () => {
 
 test('an install lock open failure keeps its cause and install context', async () => {
   const { root, origin } = await merged();
-
   const install = join(root, 'install');
 
   await git(root, 'clone', origin, install);
 
   const directory = join(install, '.git');
-
   const calls: string[][] = [];
 
   await chmod(directory, 0o111);
@@ -417,7 +400,6 @@ test('an install lock open failure keeps its cause and install context', async (
 
 test("a failed rebuild names the install and keeps tsc's errors", async () => {
   const { root, origin } = await merged();
-
   const install = join(root, 'install');
 
   await git(root, 'clone', origin, install);
@@ -467,7 +449,6 @@ test("a failed rebuild names the install and keeps tsc's errors", async () => {
   );
 
   const head = await git(origin, 'rev-parse', 'main');
-
   const calls: string[][] = [];
 
   assert.equal(
@@ -484,7 +465,6 @@ test("a failed rebuild names the install and keeps tsc's errors", async () => {
 
 test("an edit made during the install's fetch keeps it from being pulled and built", async () => {
   const { root, origin, other } = await merged({ 'a.txt': 'a\n' });
-
   const install = join(root, 'install');
 
   await git(root, 'clone', origin, install);
@@ -527,7 +507,6 @@ test("an edit made during the install's fetch keeps it from being pulled and bui
 
 test('a branch switched to during the install fetch is left as it was and skips rebuilding', async () => {
   const { root, origin, other } = await merged();
-
   const install = join(root, 'install');
 
   await git(root, 'clone', origin, install);
@@ -578,7 +557,6 @@ test('a branch switched to during the install fetch is left as it was and skips 
 
 test("an ignored file the install's incoming commits would start tracking stops its rebuild before overwriting it", async () => {
   const { root, origin, other } = await merged({}, ['secret.txt']);
-
   const install = join(root, 'install');
 
   await git(root, 'clone', origin, install);

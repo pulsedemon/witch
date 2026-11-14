@@ -120,7 +120,6 @@ test('an exhausted turn whose source process died continues on another runtime',
 
 test("the continuation after an exhausted turn sends the saved images of that turn's prompt and accepted steers, not of earlier turns or unread steers", async () => {
   const { coordinator, claude, codex } = await exhaustion();
-
   const gate = new TurnGate();
 
   try {
@@ -137,9 +136,7 @@ test("the continuation after an exhausted turn sends the saved images of that tu
     await coordinator.send(`Earlier ${await paste('earlier')}`);
 
     const { session } = claude.sessions.at(-1)!;
-
     const send = session.send.bind(session);
-
     const unread = await paste('unread');
 
     vi.spyOn(session, 'send').mockImplementation(async (...args) => {
@@ -169,7 +166,6 @@ test("the continuation after an exhausted turn sends the saved images of that tu
     await sending;
 
     const prompt = claude.inputs.at(-1)!.images!;
-
     const [, steer] = claude.steerImages;
 
     assert.equal(prompt.length, 1);
@@ -236,7 +232,6 @@ test('a prompt queued behind an exhausted turn runs on the destination after the
 
 test('a continuation that fails without exhaustion keeps the queued prompt held', async () => {
   const { coordinator, claude, codex } = await exhaustion();
-
   const { gate, sending } = await exhaustWithQueue(coordinator, claude);
 
   try {
@@ -336,12 +331,10 @@ test('a pre-turn compaction that fails without exhaustion stays on the source an
 
 test('a steered prompt the exhausted turn left unread reaches the destination once', async () => {
   const { coordinator, claude, codex } = await exhaustion();
-
   const gate = new TurnGate();
 
   try {
     const { session } = claude.sessions.at(-1)!;
-
     const send = session.send.bind(session);
 
     vi.spyOn(session, 'send').mockImplementation(async (...args) => {
@@ -385,12 +378,10 @@ test('a steered prompt the exhausted turn left unread reaches the destination on
 
 test('a /model switch whose summary fails leaves out a steered prompt the failed turn left unread', async () => {
   const { coordinator, claude, codex } = await exhaustion();
-
   const gate = new TurnGate();
 
   try {
     const { session } = claude.sessions.at(-1)!;
-
     const send = session.send.bind(session);
 
     vi.spyOn(session, 'send').mockImplementationOnce(async (...args) => ({
@@ -647,7 +638,6 @@ test('a /model summary that runs out of usage also requires a later reading befo
 
 test('with memory pending, the switch runs once recovery settles, and a prompt sent during it reaches the destination', async () => {
   const { coordinator, claude, codex } = await exhaustion();
-
   const gate = new TurnGate();
 
   try {
@@ -765,7 +755,6 @@ test('Escape while recovery applies stops the switch it was holding', async () =
     await coordinator.send('remember-port');
 
     const entered = Promise.withResolvers<void>();
-
     const release = Promise.withResolvers<void>();
 
     hook.current = async (_, run) => {
@@ -798,7 +787,6 @@ test('Escape while recovery applies stops the switch it was holding', async () =
 
 test('pending commands make the switch yield with a notice', async () => {
   const { coordinator, claude, codex } = await exhaustion();
-
   const gate = new TurnGate();
 
   try {
@@ -903,9 +891,7 @@ test('a destination connect failure ends without activating, and the send resolv
 
 test('Escape during the forced refresh settles at once, returns the queue and does not switch', async () => {
   let armed = false;
-
   const entered = Promise.withResolvers<void>();
-
   const held = Promise.withResolvers<AccountReading>();
 
   const { coordinator, claude, codex } = await exhaustion((_, codex) => {
@@ -949,9 +935,7 @@ test('Escape during the forced refresh settles at once, returns the queue and do
 
 test('after a restart before activation, the next exhausted prompt switches once', async () => {
   const { coordinator, claude, codex, reopen } = await exhaustion();
-
   const connecting = Promise.withResolvers<void>();
-
   let restarted: Coordinator | undefined;
 
   try {
@@ -1067,11 +1051,8 @@ test('an exhausted answer turn does not switch', async (t) => {
   pauseDiscovery(vi.spyOn);
 
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
-
   const asker = await f.start('A');
-
   const owner = await f.start('B');
-
   const claimed = await owner.claim('task:b-work', 'b work');
 
   if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
@@ -1103,7 +1084,6 @@ test('an exhausted answer turn does not switch', async (t) => {
 
 test('an exhausted Copilot review turn does not switch', async (t) => {
   const { a: client, source } = await setup(t);
-
   const { coordinator, a, b } = client;
 
   a.exhaust = () => true;

@@ -21,7 +21,6 @@ import { resume } from './fixtures/coordination-request-races.js';
 /** a discovery read that, once armed, signals `observed` and waits for `finish` before returning. */
 function holdDiscovery(observed: { resolve(): void }, finish: Promise<void>) {
   const records = StateStore.prototype.records;
-
   let holding = false;
 
   const spy = vi
@@ -86,9 +85,7 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
     finishMutation = Promise.withResolvers<void>();
 
   const read = CoordinationStore.prototype.state;
-
   const claim = CoordinationStore.prototype.claim;
-
   let reads = 0;
 
   const reading = vi
@@ -124,9 +121,7 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
     });
 
   const refreshing = a.coordination.context();
-
   let claiming: ReturnType<typeof a.claim> | undefined;
-
   let unsubscribe = () => {};
 
   try {
@@ -190,7 +185,6 @@ test('a pre-mutation refresh cannot publish old ownership after commit', async (
 for (const outcome of ['success', 'failure'] as const)
   test(`newer background discovery ${outcome} survives mutation completion`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const refreshes = pauseDiscovery(vi.spyOn);
 
     const assignmentEntered = Promise.withResolvers<void>(),
@@ -219,7 +213,6 @@ for (const outcome of ['success', 'failure'] as const)
     );
 
     const file = join(store.root, 'conversations', peerId, 'state.json');
-
     const original = await readFile(file, 'utf8');
 
     const committed = Promise.withResolvers<TaskClaim>(),
@@ -245,7 +238,6 @@ for (const outcome of ['success', 'failure'] as const)
       });
 
     const reading = holdDiscovery(observed, finishDiscovery.promise);
-
     const claiming = a.claim('task:chosen');
 
     try {
@@ -336,9 +328,7 @@ for (const outcome of ['success', 'failure'] as const)
 for (const stage of ['waiting', 'verifying'] as const)
   test(`a refresh started while ${stage} never publishes ownership older than the commit`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const refreshes = pauseDiscovery(vi.spyOn);
-
     const { start, registry } = await unitCoordinationFixture(cleanup);
 
     const a = await start(),
@@ -400,7 +390,6 @@ for (const stage of ['waiting', 'verifying'] as const)
       });
 
     let capture = false;
-
     const state = CoordinationStore.prototype.state;
 
     const reading = vi
@@ -425,9 +414,7 @@ for (const stage of ['waiting', 'verifying'] as const)
       });
 
     const discovering = holdDiscovery(observed, finishDiscovery.promise);
-
     const claiming = a.claim('task:chosen');
-
     let unsubscribe = () => {};
 
     try {
@@ -522,7 +509,6 @@ for (const stage of ['waiting', 'verifying'] as const)
 
 test('a refresh started during verification retains peer claims after mutation completion', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const refreshes = pauseDiscovery(vi.spyOn);
 
   const assignmentEntered = Promise.withResolvers<void>(),
@@ -587,7 +573,6 @@ test('a refresh started during verification retains peer claims after mutation c
     );
 
   const state = local.state.bind(local);
-
   let background = false;
 
   const reading = vi
@@ -613,7 +598,6 @@ test('a refresh started during verification retains peer claims after mutation c
     });
 
   const claiming = a.claim('task:chosen', 'Own work');
-
   let refreshing: Promise<void> | undefined;
 
   try {
@@ -630,7 +614,6 @@ test('a refresh started during verification retains peer claims after mutation c
     proceed.resolve();
 
     const own = await within(committed.promise, 5000, 'own claim committed');
-
     const peerResult = await b.claim('task:peer', 'Later peer work');
 
     if (peerResult.kind !== 'claimed') assert.fail(JSON.stringify(peerResult));
@@ -688,9 +671,7 @@ test('a refresh started during verification retains peer claims after mutation c
 for (const readFails of [false, true])
   test(`post-commit finalization preserves peer claims${readFails ? ' after a later read fails' : ''}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const refreshes = pauseDiscovery(vi.spyOn);
-
     const { start, registry } = await unitCoordinationFixture(cleanup);
 
     const a = await start(),
@@ -721,7 +702,6 @@ for (const readFails of [false, true])
       });
 
     const state = CoordinationStore.prototype.state;
-
     let failing = false;
 
     const reading = vi
@@ -736,12 +716,10 @@ for (const readFails of [false, true])
       });
 
     const claiming = a.claim('task:chosen');
-
     let unsubscribe = () => {};
 
     try {
       const own = await within(committed.promise, 5000, 'own claim committed');
-
       const peer = await b.claim('task:peer', 'Peer work after commit');
 
       if (peer.kind !== 'claimed') assert.fail(JSON.stringify(peer));
@@ -831,13 +809,9 @@ for (const readFails of [false, true])
 for (const kind of ['claim', 'release'] as const)
   test(`committed ${kind} remains published after an overlapping ledger read fails`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const refreshes = pauseDiscovery(vi.spyOn);
-
     const { start, store } = await unitCoordinationFixture(cleanup);
-
     const a = await start();
-
     const binding = await a.binding();
 
     let action: CoordinationAction = {
@@ -861,7 +835,6 @@ for (const kind of ['claim', 'release'] as const)
       finishMutation = Promise.withResolvers<void>();
 
     const state = local.state.bind(local);
-
     let first = true;
 
     const reading = vi
@@ -889,7 +862,6 @@ for (const kind of ['claim', 'release'] as const)
     };
 
     const claim = local.claim.bind(local);
-
     const release = local.release.bind(local);
 
     const changing =
@@ -906,9 +878,7 @@ for (const kind of ['claim', 'release'] as const)
             );
 
     const file = join(store.root, 'coordination', 'claims.json');
-
     let saved: string | undefined;
-
     let request: ReturnType<typeof callControl> | undefined;
 
     refreshes[0]!();
@@ -974,9 +944,7 @@ for (const kind of ['claim', 'release'] as const)
 
 test('a newer discovery survives rejected mutation completion', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const refreshes = pauseDiscovery(vi.spyOn);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -1024,9 +992,7 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
     });
 
   const reading = holdDiscovery(observed, finishDiscovery.promise);
-
   const state = CoordinationStore.prototype.state;
-
   let finalizing = false;
 
   const finalRead = vi
@@ -1124,18 +1090,14 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
 
 test('a refresh that read the old ledger cannot erase a committed claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const refreshes = pauseDiscovery(vi.spyOn);
-
   const { start } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
 
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
 
   const read = CoordinationStore.prototype.state;
-
   let first = true;
 
   const reading = vi

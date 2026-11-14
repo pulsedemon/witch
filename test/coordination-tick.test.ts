@@ -72,7 +72,6 @@ async function idle(register: RegisterCleanup) {
   });
 
   const a = await fixture.start('A');
-
   const id = a.coordinator.snapshot.conversation!.id;
 
   await quiesce(fixture, id, a.coordination);
@@ -90,7 +89,6 @@ async function livePeer(
   f: Awaited<ReturnType<typeof idle>>,
 ): Promise<{ id: string; end: () => Promise<void> }> {
   const child = spawn('/bin/sleep', ['60']);
-
   const ended = once(child, 'close');
 
   register(async () => {
@@ -102,7 +100,6 @@ async function livePeer(
   await once(child, 'spawn');
 
   const id = 'peer-' + randomUUID();
-
   const held = await f.store.create(record(id, join(f.root, 'B')));
 
   register(() => held.close());
@@ -204,9 +201,7 @@ test('a merge another Witch records shows within a tick', async (t) => {
 
 test('a peer whose process ends without removing its presence leaves at the next minute reread', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await idle(cleanup);
-
   const peer = await livePeer(cleanup, f);
 
   await tick(f.a.coordination);
@@ -226,9 +221,7 @@ test('a peer whose process ends without removing its presence leaves at the next
 
 test('a discovery that failed outside the tick retries on the next tick', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
-
   const open = f.store.openConversations.bind(f.store);
-
   let failing = true;
 
   vi.spyOn(f.store, 'openConversations').mockImplementation(
@@ -260,9 +253,7 @@ test('a discovery that failed outside the tick retries on the next tick', async 
 
 test('a failed merge read retries on the next tick', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
-
   const read = CoordinationStore.prototype.mergeEvents;
-
   let failing = true;
 
   vi.spyOn(CoordinationStore.prototype, 'mergeEvents').mockImplementation(
@@ -294,15 +285,10 @@ test('a failed merge read retries on the next tick', async (t) => {
 
 test('a refresh that publishes nothing is retried on the next unchanged tick', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await idle(cleanup);
-
   const coordination = f.a.coordination;
-
   const store: CoordinationStore = coordination['registry'];
-
   const owner = { conversation: f.own.id, project: f.own.project };
-
   const input = { reference: 'task:held', summary: 'Held work' };
 
   const claim = (verify?: (ledger: Ledger) => Promise<void>) =>
@@ -324,9 +310,7 @@ test('a refresh that publishes nothing is retried on the next unchanged tick', a
   await tick(coordination);
 
   const ledger = await f.ledger();
-
   const peer = await livePeer(cleanup, f);
-
   const state = CoordinationStore.prototype.state;
 
   const held = Promise.withResolvers<void>(),
@@ -381,11 +365,8 @@ test('a refresh that publishes nothing is retried on the next unchanged tick', a
 
 test('a tick while a refresh runs leaves what that refresh missed to the next tick', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await idle(cleanup);
-
   const first = await livePeer(cleanup, f);
-
   const presences = CoordinationStore.prototype.presences;
 
   const held = Promise.withResolvers<void>(),
@@ -440,9 +421,7 @@ test('a tick while a refresh runs leaves what that refresh missed to the next ti
 
 test('a standing project failure retries one project read at a time', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
-
   const held = Promise.withResolvers<void>();
-
   let reads = 0;
 
   vi.spyOn(f.memory, 'scopePaths').mockImplementation(async () => {
@@ -484,7 +463,6 @@ test('a standing project failure retries one project read at a time', async (t) 
 
 test('an origin change moves the presence to the new project within a tick', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
-
   const cwd = join(f.root, 'A');
 
   await git('-C', cwd, 'remote', 'set-url', 'origin', join(f.root, 'other'));
@@ -505,15 +483,10 @@ test('an origin change moves the presence to the new project within a tick', asy
 
 test('project reads land in the order they started', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
-
   const cwd = join(f.root, 'A');
-
   const scope = f.memory.scopePaths.bind(f.memory);
-
   const old = await scope(cwd);
-
   const first = Promise.withResolvers<void>();
-
   let calls = 0;
 
   vi.spyOn(f.memory, 'scopePaths').mockImplementation(
@@ -553,9 +526,7 @@ test('project reads land in the order they started', async (t) => {
 
 test('a project change refreshes the peers within its tick', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
-
   const c = await f.start('C');
-
   const id = c.coordinator.snapshot.conversation!.id;
 
   await quiesce(f, id, f.a.coordination);
@@ -592,7 +563,6 @@ test('a repository created after activation is followed at the minute reread', a
   await mkdir(cwd);
 
   const d = await f.start('D');
-
   const id = d.coordinator.snapshot.conversation!.id;
 
   // a presence write landing inside the minute's ticks would start a refresh that skips the minute
@@ -618,9 +588,7 @@ test('a repository created after activation is followed at the minute reread', a
 
 test("a turn's project read stands in for the context's only while it matches and no read failed", async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
-
   const coordination = f.a.coordination;
-
   const reads = vi.spyOn(f.memory, 'scopePaths');
 
   await coordination.context(f.own.project);

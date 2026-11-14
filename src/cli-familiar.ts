@@ -69,19 +69,12 @@ export async function runClaudeFamiliar(
   args: readonly string[],
 ): Promise<number> {
   const argv = claudeArguments(args);
-
   const path = resolve(reportFile);
-
   const file = await open(path, 'wx', 0o600);
-
   const run = randomUUID();
-
   let stopped: NodeJS.Signals | undefined;
-
   let child: ReturnType<typeof spawn> | undefined;
-
   let escalation: ReturnType<typeof setTimeout> | undefined;
-
   let drain: ReturnType<typeof setTimeout> | undefined;
 
   const terminate = (signal: NodeJS.Signals) => {

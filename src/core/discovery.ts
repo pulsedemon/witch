@@ -44,7 +44,6 @@ export async function discover(
   await Promise.allSettled(reads);
 
   const [presences, opened] = await Promise.all(reads);
-
   const { records, unreadable } = await store.records([...opened.keys()]);
 
   if (unreadable.length)
@@ -82,7 +81,6 @@ export async function discover(
   );
 
   const live = new Map<string, SessionPresence>();
-
   const unregistered = new Map<string, CoordinationSnapshot['unregistered']>();
 
   for (const record of records) {
@@ -136,7 +134,6 @@ export function projectDiscovery(
   { claims, selections }: Ledger,
 ): CoordinationSnapshot {
   const { live, opened } = discovery;
-
   const positions = selectionStates(selections);
 
   const ownSelection = positions.find(

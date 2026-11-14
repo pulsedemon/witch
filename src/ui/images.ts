@@ -15,12 +15,9 @@ const diacritics = [
 ].map((code) => String.fromCodePoint(code));
 
 export const placeholder = '\u{10EEEE}';
-
 // read whole into memory and sent to the terminal in one transmission
 const largestFile = 64 * 1024 * 1024;
-
 const retryDelay = 2_000;
-
 export const imageFile = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
 
 interface Image {
@@ -68,7 +65,6 @@ export class Graphics {
   /** the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none until it loads, or when it can't. */
   rows(source: string, cwd: string, columns: number): string[] {
     const key = source.startsWith('data:') ? source : resolveFile(source, cwd);
-
     const image = this.entries.get(key);
 
     if (
@@ -88,7 +84,6 @@ export class Graphics {
 
     // a cell is about twice as tall as wide, and a small image keeps about 8 pixels a column
     const aspect = image.height / image.width / 2;
-
     const widest = Math.min(columns, Math.ceil(image.width / 8));
 
     const rows = Math.max(
@@ -97,7 +92,6 @@ export class Graphics {
     );
 
     const cells = Math.max(1, Math.min(widest, Math.round(rows / aspect)));
-
     const size = `${cells},${rows}`;
 
     if (image.placed !== size) {
@@ -174,12 +168,10 @@ export class Graphics {
             : key;
 
           const image = { id, link: pathToFileURL(file).href, ...loaded.size };
-
           const encoded = loaded.data.toString('base64');
 
           for (let start = 0; start < encoded.length; start += 4096) {
             const more = start + 4096 < encoded.length ? 1 : 0;
-
             const keys = start ? '' : `a=t,f=100,t=d,i=${image.id},q=2,`;
 
             this.write(

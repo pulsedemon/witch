@@ -24,7 +24,6 @@ test('a subdirectory of a repository shares its project memory, and its notes mo
   });
 
   const { workspace } = await open('a');
-
   const begun = await begin(workspace, src);
 
   await save(workspace, { [`${begun.scope.project}/x.md`]: 'X.\n' });
@@ -44,15 +43,12 @@ test('checkout adoption preserves unpublished notes until they are published', a
   await git(project, 'init', '--quiet');
 
   const { workspace } = await open('a');
-
   const before = await begin(workspace, project);
-
   const original = `${before.scope.project}/private.md`;
 
   await save(workspace, { [original]: 'Private note.\n' });
 
   const unpublished = await workspace.revision();
-
   const accepted = await memory.resolve(main);
 
   assert.notEqual(unpublished, accepted);
@@ -62,7 +58,6 @@ test('checkout adoption preserves unpublished notes until they are published', a
   await git(project, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
 
   const scope = await memory.scopePaths(project);
-
   const migrated = `${scope.project}/private.md`;
 
   assert.notEqual(original, migrated);
@@ -146,7 +141,6 @@ test("a turn merges the notes keyed by a checkout's path into its origin's proje
   ).scope.project;
 
   const copy = await repository(root, 'copy');
-
   const second = (await open('b')).workspace;
 
   await begin(second, copy, {
@@ -259,15 +253,10 @@ test("a turn merges the notes keyed by a checkout's path into its origin's proje
 
 test('migration keeps links to literal filenames that retain their names', async () => {
   const { memory, open, root, begin } = await fixture();
-
   const origin = 'https://example.org/team/project.git';
-
   const upstream = await repository(root, 'upstream', origin);
-
   const copy = await repository(root, 'copy');
-
   const { workspace } = await open('a');
-
   const target = (await begin(workspace, upstream)).scope.project;
 
   await save(workspace, {
@@ -312,15 +301,10 @@ test('migration keeps links to literal filenames that retain their names', async
 
 test('migration normalizes literal note directories before preserving link suffixes', async () => {
   const { memory, open, root, begin } = await fixture();
-
   const origin = 'https://example.org/team/project.git';
-
   const upstream = await repository(root, 'upstream', origin);
-
   const copy = await repository(root, 'copy');
-
   const { workspace } = await open('a');
-
   const target = (await begin(workspace, upstream)).scope.project;
 
   await save(workspace, {
@@ -329,7 +313,6 @@ test('migration normalizes literal note directories before preserving link suffi
   });
 
   const source = (await begin(workspace, copy)).scope.project;
-
   const parent = 'folder#tag/../'.repeat(16_000);
 
   await save(workspace, {
@@ -390,7 +373,6 @@ test("a move that loses to another clone's move is made again on the newer main"
   await begin(first, project, 'A version.\n');
 
   const copy = await repository(root, 'copy');
-
   const second = (await open('b')).workspace;
 
   await begin(second, copy, 'B version.\n');
@@ -440,11 +422,8 @@ test("a move that loses to another clone's move is made again on the newer main"
 
 test('a move that keeps losing to other clones gives up on main, so it never waits to publish', async () => {
   const { memory, open, root, begin } = await fixture();
-
   const { workspace } = await open('a');
-
   const copy = await repository(root, 'copy');
-
   const key = (await begin(workspace, copy)).scope.project;
 
   await save(workspace, { [`${key}/x.md`]: 'X.\n' });
@@ -468,13 +447,9 @@ test('a move that keeps losing to other clones gives up on main, so it never wai
 
 test("a note with no free path in the project stays under the checkout's key", async () => {
   const { memory, open, root, begin } = await fixture();
-
   const { workspace } = await open('a');
-
   const origin = 'https://github.com/o/r.git';
-
   const upstream = await repository(root, 'upstream', origin);
-
   const target = (await begin(workspace, upstream)).scope.project;
 
   await save(workspace, {
@@ -485,7 +460,6 @@ test("a note with no free path in the project stays under the checkout's key", a
   await workspace.publish();
 
   const app = await repository(root, 'app');
-
   const key = (await begin(workspace, app)).scope.project;
 
   await save(workspace, { [`${key}/x.md`]: 'Stays.\n' });
@@ -505,11 +479,8 @@ describe('a failed memory move preserves its error and reports a failed rollback
       rollbackFails ? 'failed rollback' : 'successful rollback',
       async () => {
         const { memory, open, root, hook, begin } = await fixture();
-
         const copy = await repository(root, 'copy');
-
         const { workspace } = await open('a');
-
         const source = (await begin(workspace, copy)).scope.project;
 
         await save(workspace, { [`${source}/note.md`]: 'Original.\n' });
@@ -527,9 +498,7 @@ describe('a failed memory move preserves its error and reports a failed rollback
         );
 
         const target = (await memory.scopePaths(copy)).project;
-
         const adoption = new Error('adoption failed');
-
         const rollback = new Error('rollback failed');
 
         hook.current = async (command, run) => {
@@ -571,7 +540,6 @@ describe('a failed memory move preserves its error and reports a failed rollback
         assert.equal(await workspace.isDirty(), rollbackFails);
 
         const present = rollbackFails ? target : source;
-
         const absent = rollbackFails ? source : target;
 
         assert.equal(
@@ -589,7 +557,6 @@ describe('a failed memory move preserves its error and reports a failed rollback
 
 test('a move that fails on an OS error fails the turn and leaves every note where it was', async () => {
   const { memory, open, root, hook, begin } = await fixture();
-
   const first = (await open('a')).workspace;
 
   const target = (
@@ -604,9 +571,7 @@ test('a move that fails on an OS error fails the turn and leaves every note wher
   await first.publish();
 
   const copy = await repository(root, 'copy');
-
   const second = (await open('b')).workspace;
-
   const key = (await begin(second, copy)).scope.project;
 
   await save(second, { [`${key}/a.md`]: 'A.\n', [`${key}/d/x.md`]: 'X.\n' });
@@ -646,7 +611,6 @@ test(
   { timeout: 20_000 },
   async () => {
     const { memory, open, root, begin: start } = await fixture();
-
     const { workspace } = await open('a');
 
     const begin = async (cwd: string, notes: Record<string, string> = {}) => {
@@ -668,7 +632,6 @@ test(
     };
 
     const origin = 'https://github.com/o/r.git';
-
     const upstream = await repository(root, 'upstream', origin);
 
     const target = await begin(upstream, {
@@ -723,15 +686,10 @@ describe('index migration preserves duplicate, empty and newline cases', () => {
   ] as const) {
     test(name, async () => {
       const { memory, root, open, begin } = await fixture();
-
       const origin = 'https://example.org/team/project.git';
-
       const upstream = await repository(root, 'upstream', origin);
-
       const copy = await repository(root, 'copy');
-
       const { workspace } = await open('a');
-
       const target = (await begin(workspace, upstream)).scope.project;
 
       await save(workspace, { [`${target}/MEMORY.md`]: index });

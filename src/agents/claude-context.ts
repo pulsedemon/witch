@@ -74,7 +74,6 @@ export class ClaudeContext {
     publish: (usage: Usage) => void,
   ): Promise<number | undefined> {
     const model = current();
-
     let usage: Usage;
 
     try {
@@ -85,7 +84,6 @@ export class ClaudeContext {
       this.observe(value);
 
       const percentage = z.number().safeParse(value.percentage);
-
       const capacity = z.number().safeParse(value.maxTokens);
 
       usage = {
@@ -135,10 +133,8 @@ export class ClaudeContext {
     if (!sample?.isAutoCompactEnabled) return;
 
     const { tokens } = compactionThreshold(sample.maxTokens);
-
     // the native percentage uses capacity before its 13k compaction buffer, not maxTokens.
     const capacity = sample.autoCompactThreshold + 13_000;
-
     // native rounding must keep the target token rather than lose one to floating point.
     const percentage = String(Math.min(100, ((tokens + 0.5) * 100) / capacity));
 

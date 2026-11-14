@@ -39,13 +39,9 @@ export function keepAwake(
   if (platform !== 'darwin') return () => {};
 
   let holder: ChildProcess | undefined;
-
   let working = false;
-
   let closing = false;
-
   let lost: Error | undefined;
-
   let reported: Conversation | undefined;
 
   const release = () => {
@@ -138,7 +134,6 @@ export function keepAwake(
   };
 
   const unsubscribe = coordinator.subscribe(update);
-
   const unsubscribeJobs = jobs.subscribe(update);
 
   update();

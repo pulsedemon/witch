@@ -17,7 +17,6 @@ export async function checkNativeSettings(
   signal: AbortSignal,
 ): Promise<void> {
   const cwd = join(directory, 'project');
-
   const config = join(directory, 'config');
 
   const projectConfig = join(
@@ -83,7 +82,6 @@ export async function checkNativeSettings(
   });
 
   const events: AgentEvent[] = [];
-
   const failure = new AbortController();
 
   const session: AgentSession = await adapter.connect({

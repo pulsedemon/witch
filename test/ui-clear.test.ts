@@ -10,9 +10,7 @@ import { show, fake, drag, left, ENTER, SHIFT_ENTER } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
 const reminder = 'Earlier messages shown here';
-
 const wheelUp = '\u001b[<64;5;5M';
-
 const wheelDown = '\u001b[<65;5;5M';
 
 const marker = (id: string): DisplayItem => ({
@@ -40,16 +38,13 @@ async function submit(ui: ReturnType<typeof show>, text: string) {
 
 test('clear runs in the current conversation and its visible boundary survives reopening', async () => {
   const f = await unitFixture();
-
   let c = f.coordinator;
-
   let ui: ReturnType<typeof show> | undefined;
 
   try {
     await c.send('earlier context');
 
     const id = c.snapshot.conversation!.id;
-
     const native = c.snapshot.native!.id;
 
     ui = show(createElement(App, { coordinator: c, onExit: () => {} }), 80, 25);
@@ -101,7 +96,6 @@ test('clear runs in the current conversation and its visible boundary survives r
 
 test('clear dispatches locally, discards prose and appears in help', async () => {
   const { app, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -249,7 +243,6 @@ test('only the latest clear boundary controls the reminder while scrolling', asy
 
 test('an empty clear and a transcript with no clear have no archived-row reminder', async () => {
   const { app, coordinator } = fake({ items: [message('ordinary')] });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -334,7 +327,6 @@ test('the reminder preserves archived colors, selection and hyperlink coordinate
   };
 
   const { app, coordinator } = fake({ items: [old, tool] });
-
   const copied: string[] = [];
 
   const ui = show(
@@ -349,13 +341,11 @@ test('the reminder preserves archived colors, selection and hyperlink coordinate
 
   const copy = async (text: string) => {
     const lines = ui.text().split('\n');
-
     const row = lines.findIndex((line) => line.includes(text));
 
     assert.ok(row >= 0, ui.text());
 
     const column = lines[row]!.indexOf(text);
-
     const count = copied.length;
 
     drag(ui, [column, row], [column + text.length - 1, row]);
@@ -419,9 +409,7 @@ test('the reminder preserves archived colors, selection and hyperlink coordinate
     screen.write(ui.frame());
 
     const rows = ui.text().split('\n');
-
     const row = rows.findIndex((line) => line.includes('archive'));
-
     const column = rows[row]!.indexOf('archive');
 
     assert.equal(screen.linkAt(column, row), 'https://example.com/archive');

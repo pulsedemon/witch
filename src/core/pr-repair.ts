@@ -38,7 +38,6 @@ export function repairInstruction(repair: Repair): string {
   if (repair.failed) return checkRepairInstruction(repair);
 
   const { url, commit, base } = repair.pullRequest;
-
   const { baseTip } = repair;
 
   return `Witch started this turn to repair the merge conflict on your existing task's pull request ${url}: head ${commit} conflicts with ${base}${baseTip ? `, whose tip was ${baseTip}` : ''}. This is not a new user request. First run gh pr view and stop if the pull request is no longer open, its head commit or base branch changed, or GitHub reports it MERGEABLE, or if the local branch isn't at ${commit}. Leave uncommitted changes not made in this turn untouched; if they would block the merge, or the project's rules for checks before publication require a clean checkout, stop and report them before merging. Without switching branches, fetch ${base} and merge it into the pull request branch without rebasing. Resolve each conflict so both sides' changes survive; stop on one that needs a product decision. Run the checks the project requires before publishing, following its pre-publication procedure where it has one and substituting ${base} for main in its fetch, merge and freshness commands; whenever ${base} has advanced again, merge it the same way and refresh the affected checks before pushing. Push without force. Don't merge or edit the pull request, and don't release the task. Stop and report anything that needs new authorization, within native permissions. When the repair can't finish, keep the merge and its resolution in the checkout unpushed and report the specific blocker. Report the merge commit and check results.`;
@@ -130,11 +129,8 @@ export class PullRequestRepair {
    */
   private candidate() {
     const record = this.host.record();
-
     const coordination = this.host.coordination();
-
     const repository = this.repository;
-
     const current = repository?.pullRequest;
 
     // the owner getter throws once the activation stops accepting work
@@ -204,9 +200,7 @@ export class PullRequestRepair {
     if (!found) return false;
 
     const { record, id } = found;
-
     let { repair } = found;
-
     let refusal: string | undefined;
 
     try {
@@ -328,9 +322,7 @@ export class PullRequestRepair {
     for (const entry of keys) this.declined.add(entry);
 
     const id = JSON.stringify(keys);
-
     const text = `Witch didn't repair the ${repair.failed ? 'failed checks' : 'conflict'} on #${repair.pullRequest.number}: ${error || "this session's checkout or claim no longer matches it."}`;
-
     const shown = JSON.stringify([record.id, id, text]);
 
     if (this.noticed.has(shown)) return;
@@ -361,12 +353,9 @@ export function watchConflicts(
   >,
 ): () => void {
   let conflict: Conflict | undefined;
-
   /** the read failure the notice was last shown for, until a read works. */
   let reported: string | undefined;
-
   let pending: NodeJS.Immediate | undefined;
-
   let stopped = false;
 
   const check = () => {
@@ -410,10 +399,8 @@ export function watchConflicts(
   };
 
   const seen = new Set<string>();
-
   // the start of the first open read, which covers merges recorded before it, even ones delivered later
   let opened: number | undefined;
-
   const coordination = coordinator.coordination;
 
   const merged = () => {
@@ -422,7 +409,6 @@ export function watchConflicts(
     if (request?.state !== 'OPEN') return;
 
     const boundary = (opened ??= repository.pullRequestReadAt);
-
     const conversation = coordinator.snapshot.conversation;
 
     if (!coordination || !conversation || boundary === undefined) return;

@@ -18,17 +18,11 @@ const execute = promisify(execFile);
 
 test('Claude installation preserves native argument ordering and retains installer diagnostics', async () => {
   const directory = await scratch('native-installer-');
-
   const home = join(directory, 'home');
-
   const root = join(home, '.local/share/claude');
-
   const executable = join(root, 'versions', '1.0.0');
-
   const launcher = join(home, '.local/bin/claude');
-
   const operation = join(directory, 'operation');
-
   const shell = join(directory, 'user-shell');
 
   await mkdir(dirname(executable), { recursive: true });

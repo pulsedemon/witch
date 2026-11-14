@@ -105,7 +105,6 @@ export function castSkills(
 
   if (ran.success && ran.data.source !== 'userShell') {
     const { cwd } = ran.data;
-
     const at = (path: string) => canonical(resolve(cwd, path));
 
     for (const raw of ran.data.commandActions ?? []) {
@@ -120,7 +119,6 @@ export function castSkills(
       if (step.type !== 'unknown') continue;
 
       const words = shellWords(step.command)?.words ?? [];
-
       const program = basename(words[0] ?? '');
 
       if (readers.includes(program))

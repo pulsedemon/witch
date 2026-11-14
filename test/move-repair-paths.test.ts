@@ -76,7 +76,6 @@ test('prompt history follows a move without rewriting the file', async () => {
   await f.store.addPrompt(f.at('w/main'), 'before the move');
 
   const prompts = f.at('state/prompts.jsonl');
-
   const original = await readFile(prompts);
 
   await rename(f.at('w'), f.at('c'));
@@ -528,7 +527,6 @@ test.skipIf(!darwin)(
     await f.repair('p/plain');
 
     const { entries } = await readLedger(f.at('state'));
-
     const at = (path: string) => entries.find((entry) => entry.path === path);
 
     assert.equal(at(f.at('p/plain'))?.main, f.at('p/plain'));
@@ -543,9 +541,7 @@ test.skipIf(!darwin)(
 
 test("checking a repaired worktree runs nothing the repository's config names", async () => {
   const f = await setup();
-
   const marker = f.at('ran');
-
   const hook = f.at('fsmonitor.sh');
 
   await writeFile(hook, `#!/bin/sh\ntouch ${quote(marker)}\n`, { mode: 0o755 });
@@ -569,9 +565,7 @@ test('a recreated source suspends its move', async () => {
   await rename(f.at('w/main'), f.at('c'));
 
   const holder = await StateStore.open(f.at('state'));
-
   const files = await holder.claim('held');
-
   const first = await f.repair('c');
 
   assert.ok(
@@ -602,9 +596,7 @@ test('an open conversation is reported and repaired after it closes', async () =
   await rename(f.at('w'), f.at('c'));
 
   const holder = await StateStore.open(f.at('state'));
-
   const files = await holder.claim('open');
-
   const report = await f.repair('c/main');
 
   assert.ok(

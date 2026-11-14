@@ -201,7 +201,6 @@ test('a refused /delegation change cancels the commands after it', async () => {
 
 test('an unreadable policy file is named in the error rather than replaced', async () => {
   const directory = `${await scratch('witch-delegation-')}/delegation`;
-
   const store = await DelegationStore.open(directory);
 
   await writeFile(`${directory}/policy.json`, '{"shiftAt": 90,');

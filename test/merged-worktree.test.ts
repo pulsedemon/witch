@@ -38,7 +38,6 @@ async function hook(checkout: string, body: string) {
 
 test('a main checkout whose path contains a newline switches to its base after a merge', async () => {
   const { root, checkout, other, tip } = await merged();
-
   const renamed = join(root, 'check\nout');
 
   await rename(checkout, renamed);
@@ -46,7 +45,6 @@ test('a main checkout whose path contains a newline switches to its base after a
   await merge(other, 'feat/x');
 
   const expected = await git(other, 'rev-parse', 'HEAD');
-
   const result = await cleanUpMerge(renamed, pullRequest(tip), idle);
 
   assert.deepEqual(result, {
@@ -106,7 +104,6 @@ test('a merged branch in a worktree detaches while the base is free, so the laun
 
 test('a main checkout whose base a linked worktree holds detaches and leaves that worktree alone', async () => {
   const { root, checkout, other, tip } = await merged();
-
   const holder = join(root, 'holder');
 
   await git(checkout, 'worktree', 'add', holder, 'main');
@@ -159,7 +156,6 @@ test("a clone's cleanup that first runs while the clone sits on its base still s
 
 test("a main checkout's cleanup interrupted before the detach keeps detaching on resume after the worktree lets go of the base", async () => {
   const { root, checkout, other, tip } = await merged();
-
   const holder = join(root, 'holder');
 
   await git(checkout, 'worktree', 'add', holder, 'main');
@@ -167,9 +163,7 @@ test("a main checkout's cleanup interrupted before the detach keeps detaching on
   await merge(other, 'feat/x');
 
   const controller = new AbortController();
-
   const progress: MergeCleanup = {};
-
   let checks = 0;
 
   // the second check comes after the fetches, right before the detach
@@ -221,7 +215,6 @@ for (const moved of [false, true])
     await hook(checkout, `touch '${entered}'\nsleep 30`);
 
     const controller = new AbortController();
-
     const progress: MergeCleanup = {};
 
     const first = cleanUpMerge(checkout, pullRequest(tip), idle, {
@@ -321,11 +314,8 @@ test("a worktree's detach that would overwrite an ignored file stops with git's 
 /** the base tracks `upstream`, where a fork merged `feat/x`, so `origin/main` and `upstream/main` differ. */
 async function upstreamMerged(files: Record<string, string> = {}) {
   const fixture = await merged(files, [], true);
-
   const { root, origin, checkout } = fixture;
-
   const upstream = join(root, 'upstream.git');
-
   const fork = join(root, 'fork');
 
   await git(root, 'clone', '--bare', origin, upstream);

@@ -47,12 +47,10 @@ export const worktreeList = (run: Run, cwd: string) =>
 
 async function registrations(common: string): Promise<Registration[]> {
   const names = (await unlessGone(readdir(join(common, 'worktrees')))) ?? [];
-
   const found: Registration[] = [];
 
   for (const name of names) {
     const admin = join(common, 'worktrees', name);
-
     const gitdir = await unlessGone(readFile(join(admin, 'gitdir'), 'utf8'));
 
     // a registration removed whole while this read is gone; one left without its gitdir can't be checked
@@ -110,9 +108,7 @@ async function linkRepair(
   if (!before.startsWith(prefix)) return undefined;
 
   const value = before.slice(prefix.length).trim();
-
   const named = resolvePath(base, value);
-
   // Git 2.45 lists a relative reverse link literally and marks its worktree prunable
   const absoluteReverse = prefix === '' && !isAbsolute(value);
 
@@ -179,18 +175,13 @@ async function repairWorktrees(
   );
 
   const moved: string[] = [];
-
   const checked: string[] = [];
-
   const linkRepairs: Array<() => Promise<void>> = [];
-
   let needed = false;
-
   const problems: Array<{ path: string; reason: string }> = [];
 
   for (const { name, registered } of await registrations(common)) {
     const destination = map(registered);
-
     const existing = await present(registered);
 
     const target = existing
@@ -218,7 +209,6 @@ async function repairWorktrees(
     checked.push(target);
 
     const admin = await namedAdmin(target);
-
     const expected = join(common, 'worktrees', name);
 
     // a .git naming the old common directory is this repository's only while nothing else sits there

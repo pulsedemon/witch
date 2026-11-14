@@ -353,7 +353,6 @@ test('terminal framing sanitizes names and preserves reasons within the UTF-8 li
     });
 
     const title = output.at(-2)!.slice('\u001b]2;'.length, -2);
-
     const body = notices().at(-1)!;
 
     assert.ok(title.startsWith('Witch | waiting | '));
@@ -645,7 +644,6 @@ async function scheduled() {
 
   const finish = async (index: number) => {
     const attempt = attempts[index]!;
-
     const message = attempt.message();
 
     if (message !== undefined) attempt.write(message);
@@ -790,7 +788,6 @@ test('an old wait callback stays cancelled when the same request returns', async
 
 test('scheduled completion is single delivery and reconstruction does not replay it', async (t) => {
   const f = await scheduled();
-
   let stop: ReturnType<typeof watchTerminal> | undefined = undefined;
 
   t.onTestFinished(() => {

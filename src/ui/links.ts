@@ -9,7 +9,6 @@ import { imageFile } from './images.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
-
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
 const controls = /(?![\n\t\r])\p{Cc}/u;
 
@@ -39,7 +38,6 @@ export function linkTarget(target: string, cwd: string): string {
     /:(\d+)(?::(\d+))?$/.exec(target) ?? /#L(\d+)(?:C(\d+))?$/.exec(target);
 
   const file = location ? target.slice(0, location.index) : target;
-
   const path = resolveFile(file, cwd);
 
   // the system's default viewer opens an image, which has no line to go to
@@ -63,7 +61,6 @@ export async function clickTarget(
 
   // open follows a symlink and picks the app by the real file's type, so a `.png` link to a script would run it
   const path = fileURLToPath(target.open);
-
   const real = await realpath(path);
 
   return imageFile.test(real) && (await stat(real)).isFile()
@@ -90,7 +87,6 @@ async function located(
   if (!bareNames.has(url)) return { notice: `No file at ${path}` };
 
   const name = basename(path);
-
   const notes: string[] = [];
 
   for (const directory of await memory())
@@ -175,7 +171,6 @@ export function markdownLink(
 
 function bareLinks(text: string, cwd: string): string {
   let output = '';
-
   let offset = 0;
 
   const sourceFiles = [...text.matchAll(files)].filter(
@@ -265,7 +260,6 @@ function pieces(text: string): string[] {
 
 function linked(text: string, cwd: string, target?: string) {
   let output = '';
-
   let buffer = '';
 
   const flush = () => {
@@ -283,7 +277,6 @@ function linked(text: string, cwd: string, target?: string) {
       flush();
 
       const separator = token.code.indexOf(';', 4);
-
       const terminator = token.code.endsWith('\u001b\\') ? 2 : 1;
 
       target = token.code.slice(separator + 1, -terminator) || undefined;
@@ -354,7 +347,6 @@ export function linkifyAppend(
   target?: string,
 ): LinkedAppend {
   const end = completeLinesEnd(text);
-
   let complete: string[] = [];
 
   if (end) {

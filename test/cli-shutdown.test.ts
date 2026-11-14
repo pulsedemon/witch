@@ -27,13 +27,9 @@ async function check(
   action: 'escape' | 'exit' | 'restart',
 ) {
   const root = await scratch(`witch-${runtime}-${action}-`);
-
   const cli = await compiledCli();
-
   const project = join(root, 'project');
-
   const bin = join(root, 'bin');
-
   const restartGate = join(root, 'restart');
 
   await mkdir(project, { recursive: true });
@@ -43,7 +39,6 @@ async function check(
   await symlink(git, join(bin, 'git'));
 
   const fixture = join(repo, `test/fixtures/${runtime}.mjs`);
-
   const mode = runtime === 'codex' ? 'brews' : 'background';
 
   await writeFile(
@@ -104,7 +99,6 @@ async function check(
   void closed.catch(() => {});
 
   let output = '';
-
   let stderr = '';
 
   child.stdout.on('data', (chunk) => {
@@ -189,7 +183,6 @@ async function check(
     await wait('initial native input', () => input(first));
 
     const native = (await record()).process!;
-
     const start = performance.now();
 
     if (action === 'escape') child.stdin.write('\x1b');

@@ -5,11 +5,8 @@ import type {
 import type { AgentStopOptions } from './types.js';
 
 const nativeStopTimeoutMs = 8000;
-
 export const terminateGraceMs = 2000;
-
 const killWaitMs = 1000;
-
 export const terminationReserveMs = terminateGraceMs + killWaitMs;
 
 /** carries shutdown policy through startup cancellation before a session exists. */

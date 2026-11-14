@@ -59,7 +59,6 @@ for (const runtime of ['Codex', 'Claude']) {
     );
 
     const { app } = fake({ items });
-
     const copied: string[] = [];
 
     const ui = show(
@@ -80,7 +79,6 @@ for (const runtime of ['Codex', 'Claude']) {
       );
 
       const at = rows().findIndex((row) => row.includes('+ ✓ claim task:'));
-
       const visible = rows()[at]!.slice(1, 84).trimEnd();
 
       assert.ok(visible.endsWith('…'));

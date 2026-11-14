@@ -8,7 +8,6 @@ import { unreadable } from './fixtures/unreadable.js';
 
 test('the launch sweep says when it cannot look at a directory and still reports the other conversations', async (t) => {
   const context = await fixture();
-
   const { root, memory, store } = context;
 
   await context.coordinator.close();
@@ -32,7 +31,6 @@ test('the launch sweep says when it cannot look at a directory and still reports
   };
 
   const hidden = await unfinished(blocked);
-
   const seen = await unfinished(context.project);
 
   unreadable(t, blocked);

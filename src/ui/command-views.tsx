@@ -56,9 +56,7 @@ export function useCommandViews({
   toEnd(): void;
 }) {
   const [view, viewRef, setView] = useLiveState<View>({ kind: 'chat' });
-
   const [batches] = useState(() => new CommandBatches(coordinator));
-
   const disposed = useRef(false);
 
   const pickerWait = useRef<PromiseWithResolvers<boolean> | undefined>(
@@ -79,9 +77,7 @@ export function useCommandViews({
   );
 
   const [query, setQuery] = useState('');
-
   const [selection, selectionRef, setSelection] = useLiveState(0);
-
   const [pageScroll, setPageScroll] = useState(0);
 
   const openPage = (next: View) => {
@@ -111,7 +107,6 @@ export function useCommandViews({
       );
 
   const choices = view.kind === 'picker' ? filter(view.choices, query) : [];
-
   const selected = Math.min(selection, Math.max(0, choices.length - 1));
 
   /** a task refusal stays transient, but stops the command batch that requested it. */
@@ -238,7 +233,6 @@ export function useCommandViews({
 
   const showHistory = async (file: string, active = () => true) => {
     const memory = await coordinator.memoryView();
-
     const history = await coordinator.memory.history(memory.revision, file);
 
     if (!active()) return false;
@@ -594,7 +588,6 @@ export function CommandView({
 
   if (view.kind === 'picker') {
     const count = Math.max(1, bodyHeight - 4 - (view.caption ? 1 : 0));
-
     const first = Math.max(0, selected - count + 1);
 
     return (

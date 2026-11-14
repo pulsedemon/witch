@@ -17,9 +17,7 @@ const merged: PullRequest = {
 
 test('concurrent observers freeze one recipient set and retain the event after reopening', async () => {
   const root = await scratch('witch-merge-events-');
-
   const a = await CoordinationStore.open(await StateStore.open(root));
-
   const b = await CoordinationStore.open(await StateStore.open(root));
 
   const [first, second] = await Promise.all([

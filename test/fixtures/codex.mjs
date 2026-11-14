@@ -51,17 +51,11 @@ if (process.argv.includes('--ignore-term')) {
 }
 
 let mainThreadId = 'native-thread';
-
 let threadStarts = 0;
-
 let model = 'model-a';
-
 let effort = 'low';
-
 const lines = readline.createInterface({ input: process.stdin });
-
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
-
 let answering = false;
 
 const notify = (method, params) =>
@@ -116,7 +110,6 @@ const held = async () => {
 
 // `spell-reads` lists one spell, `a`, which its turns cast by reading its SKILL.md
 const spellReads = [mode, familiar].includes('spell-reads');
-
 const spellPath = join(process.cwd(), '.agents', 'skills', 'a', 'SKILL.md');
 
 if (spellReads) {
@@ -217,11 +210,8 @@ const spellTurn = (prompt, input, turnId) => {
 };
 
 let spellTurns = 0;
-
 let skillAdded = false;
-
 let lastPrompt = '';
-
 /** a `!` command of `hold` runs until an interrupt or the test's release. */
 let shellHeld = false;
 
@@ -266,13 +256,9 @@ const skill = (name, fields) => ({
 });
 
 let brewTurn = 0;
-
 let terminalReads = 0;
-
 let threadReads = 0;
-
 let accountReads = 0;
-
 let questionTurn = 0;
 
 const finishQuestion = () => {

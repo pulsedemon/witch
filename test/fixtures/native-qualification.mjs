@@ -10,24 +10,17 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const mode = process.argv[2];
-
 const boundary = mode === 'app-server';
-
 const directory = boundary ? dirname(process.env.CODEX_HOME) : undefined;
 
 if (boundary)
   appendFileSync(join(directory, 'children.jsonl'), `${process.pid}\n`);
 
 let threadId = 'qualification-thread';
-
 let restricted = false;
-
 let sequence = 0;
-
 let turnId;
-
 let pending;
-
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 
 const event = (method, params) =>
@@ -62,7 +55,6 @@ const commandEvent = (method, id, name) =>
 
 for await (const line of createInterface({ input: process.stdin })) {
   const request = JSON.parse(line);
-
   const reply = (result) => send({ id: request.id, result });
 
   if (boundary) {

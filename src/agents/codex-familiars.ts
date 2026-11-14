@@ -48,7 +48,6 @@ export class CodexFamiliars {
       };
 
       const subagent = threadId && this.subagents.get(threadId);
-
       const spells = subagent && mergeCasts(subagent.spells, [cast]);
 
       if (!subagent) this.options.onEvent({ type: 'spell', cast });
@@ -59,7 +58,6 @@ export class CodexFamiliars {
   /** a thread's next turn can start before its last turn's items and end arrive, which then belong to no run. */
   receive(message: Notification, threadId: string): void {
     const subagent = this.subagents.get(threadId);
-
     const { params, item } = message;
 
     if (subagent && message.method === 'thread/settings/updated') {
@@ -129,7 +127,6 @@ export class CodexFamiliars {
       };
 
       const run = turnId.safeParse(message.params).data?.turn.id;
-
       const configured = this.subagentModels.get(threadId)?.configured;
 
       this.subagentModels.set(threadId, { configured });
@@ -150,7 +147,6 @@ export class CodexFamiliars {
 
     if (message.method === 'turn/completed') {
       const { turn } = completedTurn.parse(params);
-
       const current = this.subagents.get(threadId)!;
 
       if (current.run !== undefined && turn.id !== current.run) return;
@@ -169,7 +165,6 @@ export class CodexFamiliars {
 
   private async readSubagent(threadId: string): Promise<void> {
     const run = this.subagents.get(threadId)!.run;
-
     const identity = this.subagentModels.get(threadId);
 
     try {

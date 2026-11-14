@@ -29,7 +29,6 @@ const worktrees = async (main: string) =>
 
 test("spawn creates the missing worktrees detached at the main checkout's upstream and opens a tab for each", async () => {
   const { root, origin, main, slot } = await checkout();
-
   // the slots must sit on this commit, which the main checkout sees only after a fetch
   const other = join(root, 'other');
 
@@ -40,7 +39,6 @@ test("spawn creates the missing worktrees detached at the main checkout's upstre
   await git(other, 'push', 'origin', 'main');
 
   const later = await git(other, 'rev-parse', 'HEAD');
-
   const { run, calls, tabs } = recording();
 
   const { base, slots } = await spawnWorktrees(main, 2, {
@@ -81,7 +79,6 @@ test("spawn creates the missing worktrees detached at the main checkout's upstre
 
 test("spawn starts worktrees at the main checkout's own upstream, not origin's main", async () => {
   const { root, main, slot } = await checkout();
-
   const fork = join(root, 'fork.git');
 
   await git(root, 'init', '--bare', '-b', 'stable', fork);
@@ -301,7 +298,6 @@ test('spawn names slots from the main worktree when run inside one', async () =>
 
 test('spawn passes paths with spaces and quotes to osascript as arguments', async () => {
   const { main, slot } = await checkout("it's a repo");
-
   const { run, calls } = recording();
 
   await spawnWorktrees(main, 1, { run, live: async () => false });
@@ -596,7 +592,6 @@ test('a slot spawn cannot look at reports why and does not stop the next one', a
 
 test('a new slot that cannot be looked at, or is gone, keeps the error it already had', async (t) => {
   const { main, slot } = await checkout();
-
   const { run: recorded } = recording();
 
   const run: Run = async (command, args, options) => {
@@ -793,7 +788,6 @@ test('a left-out path that cannot be removed from a copy is reported, and the ot
 
 test('a failed check of the copies is reported and the slot still opens its tab', async () => {
   const { main, slot } = await checkout();
-
   const { run: recorded, tabs } = recording();
 
   const run: Run = (command, args, options) =>
@@ -948,7 +942,6 @@ test("spawn fails before creating anything when the main checkout's branch has n
 
 test('a session counts as open in a slot only while its conversation is locked and its cwd is in that slot', async () => {
   const root = await scratch('witch-spawn-sessions-');
-
   const main = join(root, 'repo');
 
   for (const path of [`${main}-1`, join(`${main}-2`, 'src'), `${main}-10`])
@@ -959,7 +952,6 @@ test('a session counts as open in a slot only while its conversation is locked a
   await symlink(`${main}-2`, link);
 
   const state = join(root, 'state');
-
   const store = await StateStore.open(state);
 
   const conversation = (id: string, cwd: string) => ({
@@ -999,7 +991,6 @@ test('a session counts as open in a slot only while its conversation is locked a
 
 test('a locked conversation that has not saved its record yet leaves ownership unknown', async () => {
   const root = await scratch('witch-spawn-sessions-');
-
   const state = join(root, 'state');
 
   const held = await (
@@ -1027,9 +1018,7 @@ test('a locked conversation that has not saved its record yet leaves ownership u
 
 test('an unreadable open conversation record blocks tabs and names its file', async () => {
   const { root, main, slot } = await checkout();
-
   const state = join(root, 'state');
-
   const store = await StateStore.open(state);
 
   const held = await store.create({
@@ -1191,7 +1180,6 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
 
 test('a repository without pnpm-lock.yaml gets its worktrees and tabs without pnpm', async () => {
   const { main, slot } = await checkout('repo', false);
-
   const { run, installs, tabs } = recording();
 
   await spawnWorktrees(main, 2, { run, live: async () => false });
@@ -1205,7 +1193,6 @@ test('a repository without pnpm-lock.yaml gets its worktrees and tabs without pn
 
 test('a slot whose session opens while a later slot installs gets no tab', async () => {
   const { main, slot } = await checkout();
-
   const { run, installs, tabs } = recording();
 
   const { slots } = await spawnWorktrees(main, 2, {
@@ -1225,7 +1212,6 @@ test('a slot whose session opens while a later slot installs gets no tab', async
 
 test('spawn runs no osascript when every slot has an open session', async () => {
   const { main, slot } = await checkout();
-
   const { run, calls } = recording();
 
   const { slots } = await spawnWorktrees(main, 2, {

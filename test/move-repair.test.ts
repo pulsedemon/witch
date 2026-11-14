@@ -500,7 +500,6 @@ for (const variant of [
     await git(f.at('other'), 'commit', '-q', '--allow-empty', '-m', 'other');
 
     let main = f.at('w/main');
-
     const foreign = f.at('w/main-1');
 
     if (variant === 'foreign worktree') {
@@ -555,7 +554,6 @@ for (const variant of [
       );
 
     const before = await snapshot();
-
     const report = await repairMoves(f.store, f.memory, main);
 
     assert.deepEqual(await snapshot(), before);
@@ -574,11 +572,8 @@ test('prompts added while repair waits for the ledger lock stay with the moved d
   await rename(f.at('w'), f.at('c'));
 
   let entered!: () => void;
-
   const inside = new Promise<void>((done) => (entered = done));
-
   let release!: () => void;
-
   const gate = new Promise<void>((done) => (release = done));
 
   const held = updateLedger(f.at('state'), async () => {
@@ -591,7 +586,6 @@ test('prompts added while repair waits for the ledger lock stay with the moved d
 
   // a repair asks for the ledger lock only after any boundary read outside it
   const asked = new Promise<void>((done) => (ledgerCalls.before = done));
-
   const repairing = f.repair('c/main');
 
   await asked;
@@ -623,7 +617,6 @@ const delivered = (deliveredProject: string) => ({
 for (const kind of ['origin-less repository', 'plain directory'])
   test(`a ${kind} repairs its conversations through repeated moves`, async () => {
     const f = await setup({ origin: false });
-
     const base = kind === 'plain directory' ? 'p' : 'w/main';
 
     if (base === 'p') await mkdir(f.at('p/sub'), { recursive: true });
@@ -700,7 +693,6 @@ test('a detected move into another project blocks its records', async () => {
 
 test('a declared move into a different project is refused before anything is written', async () => {
   const f = await setup();
-
   const key = (await f.memory.scopePaths(f.at('w/main'))).project;
 
   await f.save('kept', 'w/main', {
@@ -798,7 +790,6 @@ test('an unprovable move is reported with its command, and a declared one repair
   );
 
   const declared = { from: f.at('w/main'), to: f.at('c/main') };
-
   const preview = await f.repair('c/main', { declared, preview: true });
 
   assert.equal(preview.repaired[0]?.conversations, 1);
@@ -1024,7 +1015,6 @@ test('a failure on one path is reported and the rest repair', async () => {
 for (const held of ['main checkout', 'worktree'])
   test(`an inaccessible ${held} is reported and the rest repair`, async () => {
     const f = await setup();
-
     const other = f.at('locked/other');
 
     await mkdir(f.at('locked'));
@@ -1114,7 +1104,6 @@ test('a history that cannot be read blocks its conversation instead of moving it
 
 test('a prompt history that cannot be read stops the repair before any move is recorded', async () => {
   const f = await setup();
-
   const prompts = f.at('state/prompts.jsonl');
 
   await symlink(prompts, prompts);
@@ -1225,7 +1214,6 @@ test("a declared copy onto a deleted directory's path is repaired, not reported 
 
 test("repair's worktree check runs none of the repository's clean filters", async () => {
   const f = await setup();
-
   const marker = f.at('filtered');
 
   await git(
@@ -1318,7 +1306,6 @@ test("a repaired conversation's ownership counts from the mapping it followed, n
 
   // the listing record() makes comes after the mapping was taken and before the rewrite
   let lists = 0;
-
   let during = 0;
 
   await repairMoves(f.store, f.memory, f.at('c/main'), {
@@ -1391,7 +1378,6 @@ test("a tool row at a path the conversation's directory passed through keeps its
 
 test("another repository's worktree in a removed one's place is recorded, not blocked", async () => {
   const f = await setup();
-
   const other = f.at('other');
 
   await mkdir(other);

@@ -210,7 +210,6 @@ export function clearConversationContext(
   info?: SessionInfo,
 ): void {
   const previous = record.sessions[record.agent];
-
   const model = info?.model || previous?.model || '';
 
   record.sessions = {
@@ -243,7 +242,6 @@ export function appendedDisplayText(
   current: DisplayItem,
 ): string | undefined {
   const before = appends.get(previous);
-
   let after = appends.get(current);
 
   if (
@@ -398,7 +396,6 @@ export function foldDisplayUpdates(
   updates: readonly DisplayUpdate[],
 ): DisplayItem[] {
   const items: DisplayItem[] = [];
-
   const indexes = new Map<string, number>();
 
   for (const update of updates) {

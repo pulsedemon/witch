@@ -9,11 +9,8 @@ import { scratch } from './fixtures/scratch.js';
 
 async function spellTree() {
   const root = await scratch('witch-codex-spells-');
-
   const a = join(root, 'p', '.agents', 'skills', 'a', 'SKILL.md');
-
   const b = join(root, 'h', 'skills', 'b', 'SKILL.md');
-
   const c = join(root, 'sp ace', 'skills', 'c', 'SKILL.md');
 
   await mkdir(join(a, '..', 'scripts'), { recursive: true });
@@ -39,7 +36,6 @@ async function spellTree() {
 
 test('a selected spell and a command that reads a listed SKILL.md or runs one of its scripts cast that spell once each, and nothing else does', async () => {
   const { root, a, b, c, index } = await spellTree();
-
   const project = join(root, 'p');
 
   const command = (commandActions?: unknown[], fields = {}) => ({

@@ -25,7 +25,6 @@ export type Edit =
   | { type: Step };
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
 const words = new Intl.Segmenter(undefined, { granularity: 'word' });
 
 function normalize(text: string): string {
@@ -98,7 +97,6 @@ function wordStart(value: string, position: number): number {
 function wordEnd(value: string, position: number): number {
   for (let at = position; ;) {
     const [start, end] = lineAt(value, at);
-
     const word = lineWords(value, start, end).find(([, to]) => to > position);
 
     if (word) return word[1];
@@ -111,7 +109,6 @@ function wordEnd(value: string, position: number): number {
 
 export function editInput(state: InputBuffer, action: Edit): InputBuffer {
   const { value, cursor } = state;
-
   const [start, end] = lineAt(value, cursor);
 
   const left = () =>
@@ -181,7 +178,6 @@ export function editInput(state: InputBuffer, action: Edit): InputBuffer {
       if (start === 0) return state;
 
       const [previous] = lineAt(value, start - 1);
-
       const destination = Math.min(start - 1, previous + cursor - start);
 
       return {
@@ -196,7 +192,6 @@ export function editInput(state: InputBuffer, action: Edit): InputBuffer {
       if (end === value.length) return state;
 
       const nextEnd = lineAt(value, end + 1)[1];
-
       const destination = Math.min(nextEnd, end + 1 + cursor - start);
 
       return {

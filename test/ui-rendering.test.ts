@@ -37,9 +37,7 @@ function peerUpdates(coordinator: ReturnType<typeof fake>['coordinator']) {
 
 test('snapshot updates reuse composer wrapping while edits and resize update it', async () => {
   const value = `compiler-input\t${'abc '.repeat(30)}\nlast row`;
-
   const normalize = String.prototype.normalize;
-
   let wraps = 0;
 
   vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
@@ -52,7 +50,6 @@ test('snapshot updates reuse composer wrapping while edits and resize update it'
   });
 
   const { app, coordinator } = fake({ error: 'snapshot initial' });
-
   const ui = show(createElement(App, { coordinator: app, onExit() {} }));
 
   try {
@@ -100,9 +97,7 @@ test('recovery snapshots and scrolling reuse wrapping while changed diffs and wi
   );
 
   const changed = diff.replaceAll('recovery-line', 'updated-line');
-
   const normalize = String.prototype.normalize;
-
   let wraps = 0;
 
   vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
@@ -128,7 +123,6 @@ test('recovery snapshots and scrolling reuse wrapping while changed diffs and wi
   });
 
   const updatePeers = peerUpdates(coordinator);
-
   let commits = 0;
 
   const ui = show(
@@ -325,7 +319,6 @@ function memoryPicker() {
 
 test('memory picker snapshots reuse searchable text while a changed query updates results', async () => {
   const lower = String.prototype.toLowerCase;
-
   let searches = 0;
 
   vi.spyOn(String.prototype, 'toLowerCase').mockImplementation(function (
@@ -338,7 +331,6 @@ test('memory picker snapshots reuse searchable text while a changed query update
   });
 
   const { app, coordinator } = memoryPicker();
-
   const ui = show(createElement(App, { coordinator: app, onExit() {} }));
 
   try {
@@ -381,7 +373,6 @@ test('memory picker snapshots reuse searchable text while a changed query update
 
 test('note snapshots and scrolling reuse Markdown while opening another note updates it', async () => {
   const lex = Lexer.prototype.lex;
-
   let renders = 0;
 
   vi.spyOn(Lexer.prototype, 'lex').mockImplementation(function (
@@ -394,9 +385,7 @@ test('note snapshots and scrolling reuse Markdown while opening another note upd
   });
 
   const { app, coordinator } = memoryPicker();
-
   const updatePeers = peerUpdates(coordinator);
-
   let commits = 0;
 
   const ui = show(

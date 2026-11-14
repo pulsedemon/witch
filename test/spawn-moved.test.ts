@@ -17,9 +17,7 @@ describe('moved checkouts', () => {
   /** a checkout at `<root>/w/main` with its bare origin outside `w`, and `count` slots spawned there. */
   async function spawned(count: number) {
     const repository = await checkout('w/main');
-
     const state = join(repository.root, 'state');
-
     const first = recording();
 
     await printed(() => runSpawn(repository.main, count, state, first.run));
@@ -122,7 +120,6 @@ describe('moved checkouts', () => {
 
   test('spawn checks registrations even when nothing moved', async () => {
     const f = await spawned(1);
-
     const other = f.at('other');
 
     await git(f.root, 'init', '-b', 'main', other);
@@ -133,7 +130,6 @@ describe('moved checkouts', () => {
     );
 
     const { run, calls } = recording();
-
     const { code } = await printed(() => runSpawn(f.main, 1, f.state, run));
 
     assert.equal(code, 1);
@@ -147,7 +143,6 @@ describe('moved checkouts', () => {
     await writeFile(join(f.state, 'directories.json'), '{');
 
     const { run, calls } = recording();
-
     const { code } = await printed(() => runSpawn(f.main, 1, f.state, run));
 
     assert.equal(code, 1);
@@ -159,7 +154,6 @@ describe('moved checkouts', () => {
 
   test('outside a repository, a ledger spawn cannot read is named instead of only Git', async () => {
     const root = await scratch('witch-spawn-');
-
     const state = join(root, 'state');
 
     await mkdir(join(root, 'plain'));
@@ -186,7 +180,6 @@ describe('moved checkouts', () => {
 
   test('spawn fails when it cannot record the worktrees it opened', async () => {
     const f = await spawned(1);
-
     const { run: recorded } = recording();
 
     // breaks the ledger after repair read it, so only recording the slot fails
@@ -210,7 +203,6 @@ describe('moved checkouts', () => {
 
   test('a live session with a stale cwd still occupies its moved slot', async () => {
     const f = await spawned(1);
-
     const store = await StateStore.open(f.state);
 
     const held = await store.create({
@@ -252,7 +244,6 @@ describe('moved checkouts', () => {
     await rm(f.slot(2), { recursive: true });
 
     const { run, installs, tabs } = recording();
-
     const { output } = await printed(() => runSpawn(f.main, 2, f.state, run));
 
     assert.ok(output.includes(`${f.slot(1)}: exists`), output);
@@ -277,7 +268,6 @@ describe('moved checkouts', () => {
       await rename(f.slot(1), f.at('w/elsewhere'));
 
       const { run } = recording();
-
       const { output } = await printed(() => runSpawn(f.main, 1, f.state, run));
 
       assert.ok(output.includes(`${f.at('w/elsewhere')}: exists`), output);
@@ -329,7 +319,6 @@ describe('moved checkouts', () => {
       await rename(f.slot(1), f.slot(2));
 
       const once = recording();
-
       const kept = await printed(() => runSpawn(f.main, 1, f.state, once.run));
 
       assert.ok(kept.output.includes(`${f.slot(2)}: exists`), kept.output);
@@ -337,7 +326,6 @@ describe('moved checkouts', () => {
       assert.ok(!kept.output.includes('created'), kept.output);
 
       const twice = recording();
-
       const both = await printed(() => runSpawn(f.main, 2, f.state, twice.run));
 
       assert.ok(both.output.includes(`${f.slot(2)}: exists`), both.output);

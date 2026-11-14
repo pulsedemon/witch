@@ -25,9 +25,7 @@ async function commandReply(f: Awaited<ReturnType<typeof background>>) {
   });
 
   const command = "printf 'once\\n' >> executions; printf 'command-output\\n'";
-
   const prompt = `!${command}\n\nReply without running it again.`;
-
   const record = `<bash-input>${command}</bash-input>\n<bash-stdout>command-output\n</bash-stdout><bash-stderr></bash-stderr>`;
 
   assert.equal(await f.session.steer(prompt, { command }), true);
@@ -102,7 +100,6 @@ test('a session state received between turns makes subsequent results wait for i
     await f.emit(state('running'));
 
     const next = f.session.send('next');
-
     const isSettled = settled(next);
 
     await until('next input', async () => (await f.inputs()).length === 2);
@@ -155,7 +152,6 @@ test("a prompt sent while Claude Code runs on its own settles on its own result,
     await f.emit(state('running'));
 
     const next = f.session.send('next');
-
     const isSettled = settled(next);
 
     await until('next input', async () => (await f.inputs()).length === 2);
@@ -187,7 +183,6 @@ for (const task_type of ['local_agent', 'local_workflow'])
   for (const ending of ['notification', 'live set'])
     test(`without session state a ${task_type} holds the result until its ${ending} ends it`, async () => {
       const f = await background(false);
-
       const task = { task_id: 'holder', task_type, description: 'Holder' };
 
       try {
@@ -634,7 +629,6 @@ test('each steered prompt needs its own main-session consumption evidence', asyn
 
   try {
     const a = await f.steer('prompt A');
-
     const b = await f.steer('prompt B');
 
     await f.emit(
@@ -805,7 +799,6 @@ test('context updates retain consumption tracking without returning as unread us
 
   try {
     const text = 'Witch coordination update: claim checks are required';
-
     const context = await f.steer(text, { contextOnly: true });
 
     await f.emit(state('idle'));
@@ -873,7 +866,6 @@ test('an interrupt after the idle gap recovers only native-unread prompts', asyn
 
   try {
     const a = await f.steer('consumed A');
-
     const b = await f.steer('unread B');
 
     await f.emit(state('idle'));
@@ -996,9 +988,7 @@ test('an interrupt receipt retains the text of already consumed input', async ()
 
 test('SDK shutdown releases an interrupt waiting for input dispatch', async () => {
   const f = await launcher();
-
   const controller = new AbortController();
-
   const started = working();
 
   const session = await f.connect({
@@ -1052,7 +1042,6 @@ test('native exit settles a turn with unacknowledged input', async () => {
 
 test('successful native results do not rejoin the accumulated turn text', async () => {
   const f = await background();
-
   const text = vi.spyOn(TurnText.prototype, 'text', 'get');
 
   try {

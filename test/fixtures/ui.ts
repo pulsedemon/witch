@@ -61,7 +61,6 @@ class Keys extends EventEmitter {
 
 export function show(element: ReactElement, columns = 100, rows = 40) {
   const stdout = new Terminal(columns, rows);
-
   const stdin = new Keys();
 
   const instance = render(element, {
@@ -126,12 +125,9 @@ export function forgedLink(target: string, text: string) {
 /** a coordinator stand-in that publishes snapshots and records the calls the app makes. */
 export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
   const listeners = new Set<() => void>();
-
   const calls: unknown[][] = [];
-
   // the composer saves its text on every change, so these stay out of `calls`
   const drafts: [string, string][] = [];
-
   let holds = 0;
 
   const record =
@@ -265,15 +261,10 @@ export function prompts(found: string[]) {
 }
 
 export const ENTER = '\u001b[13u';
-
 export const SHIFT_ENTER = '\u001b[13;2u';
-
 export const DOWN = '\u001b[B';
-
 export const UP = '\u001b[A';
-
 export const LEFT = '\u001b[D';
-
 export const TAB = '\u001b[9u';
 
 /** types `command`, submits it and waits for its view to show `text`. */

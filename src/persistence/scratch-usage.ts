@@ -6,7 +6,6 @@ import { within } from '../paths.js';
 import { ps, sameProcess } from './process.js';
 
 const execute = promisify(execFile);
-
 export const scratchProbeTimeout = 10_000;
 
 export type ScratchUse = 'used' | 'unused' | 'unknown';
@@ -76,11 +75,8 @@ function files(output: string): {
   if (!output.endsWith('\0\n')) throw new Error('Incomplete file observation.');
 
   const pids = new Set<number>();
-
   const references: FileReference[] = [];
-
   let pid: number | undefined;
-
   let reference: FileReference | undefined;
 
   for (const field of output.split('\0')) {
@@ -162,13 +158,11 @@ export function classifyScratch(
 
   try {
     const before = processes(observation.before);
-
     const after = processes(observation.after);
 
     if (!before.has(process.pid) || !after.has(process.pid)) return results;
 
     const opened = files(observation.files);
-
     const commands = new Map<number, string>();
 
     for (const line of observation.commands) {
@@ -197,7 +191,6 @@ export function classifyScratch(
 
         while (index >= 0) {
           const end = index + directory.length;
-
           const next = command[end];
 
           if (next === undefined || /[\s/'"\\]/.test(next)) return true;

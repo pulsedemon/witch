@@ -295,7 +295,6 @@ export class JobWatch {
   /** the tracked jobs as of a fresh read, oldest first. */
   async list(): Promise<Job[]> {
     const tracked = await this.poll();
-
     // a read during describe replaces the map, so this keeps the generations of the read these rows came from
     const groups = this.groups;
 
@@ -309,7 +308,6 @@ export class JobWatch {
     return [...Map.groupBy(details, ({ pgid }) => pgid)]
       .map(([group, members]) => {
         const byStart = members.toSorted((a, b) => a.startedAt - b.startedAt);
-
         const named = byStart.find(({ pid }) => pid !== group) ?? byStart[0]!;
 
         return {
@@ -377,9 +375,7 @@ export class JobWatch {
 
   private async read(): Promise<Row[]> {
     const changes = this.activityChanges;
-
     const began = performance.now();
-
     // a group handed over while this read's ps runs can be missing from its rows, so it waits for the next read
     const handed = [...this.handed];
 
@@ -392,9 +388,7 @@ export class JobWatch {
     }
 
     const rows = await (this.options.processes ?? processTable)();
-
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
-
     const excluded = new Set<string>();
 
     const emacs = rows.filter(
@@ -458,7 +452,6 @@ export class JobWatch {
     );
 
     const groups = new Set(held);
-
     // stopping Witch's own group would end Witch. Codex's `shell_zsh_fork` and a Claude hook that sources
     // `$CLAUDE_ENV_FILE`, both off by default, put marked processes there, since neither agent is spawned detached
     const own = rows.find(({ pid }) => pid === process.pid)?.pgid;
@@ -479,7 +472,6 @@ export class JobWatch {
 
     // the first read only records identities so pre-existing processes cannot be adopted by their marks
     const { directory } = this.options;
-
     const { seen } = this;
 
     if (directory && seen) {

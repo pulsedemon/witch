@@ -42,9 +42,7 @@ for (const kind of [
     if (peer.kind !== 'claimed') assert.fail(JSON.stringify(peer));
 
     const turn = await selectionTurn(cleanup, a);
-
     let action: CoordinationAction;
-
     let expected: string;
 
     switch (kind) {
@@ -195,7 +193,6 @@ test('human release reuses its lookup and publishes the released state', async (
   pauseDiscovery(vi.spyOn);
 
   const { start, registry } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
 
   assert.equal((await a.claim()).kind, 'claimed');
@@ -243,9 +240,7 @@ test('a later query reads the peer reservation made between requests', async (t)
 for (const stage of ['acquisition', 'completion'] as const)
   test(`peer claims survive delayed read ${stage}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const refreshes = pauseDiscovery(vi.spyOn);
-
     const { start, store } = await unitCoordinationFixture(cleanup);
 
     const a = await start(),
@@ -260,7 +255,6 @@ for (const stage of ['acquisition', 'completion'] as const)
       finishDiscovery = Promise.withResolvers<void>();
 
     const state = CoordinationStore.prototype.state;
-
     let first = true;
 
     const reading = vi
@@ -293,7 +287,6 @@ for (const stage of ['acquisition', 'completion'] as const)
       });
 
     const open = store.openConversations.bind(store);
-
     let discoveries = 0;
 
     const observing = vi
@@ -313,7 +306,6 @@ for (const stage of ['acquisition', 'completion'] as const)
       });
 
     let request: ReturnType<typeof a.query> | undefined;
-
     let unsubscribe = () => {};
 
     refreshes[0]!();
@@ -394,21 +386,15 @@ for (const stage of ['acquisition', 'completion'] as const)
 
 test('an older successful ledger read cannot clear a later read failure', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const refreshes = pauseDiscovery(vi.spyOn);
-
   const { start, store } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const reserved = await a.claim('task:known', 'Known work');
 
   if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
 
   const binding = await a.binding();
-
   const file = join(store.root, 'coordination', 'claims.json');
-
   const original = await readFile(file, 'utf8');
 
   const entered = Promise.withResolvers<void>(),
@@ -418,9 +404,7 @@ test('an older successful ledger read cannot clear a later read failure', async 
     finishDiscovery = Promise.withResolvers<void>();
 
   const local = a.coordination['registry'];
-
   const lock = local['lock'];
-
   let first = true;
 
   local['lock'] = async (...args: Parameters<typeof lock>) => {
@@ -436,7 +420,6 @@ test('an older successful ledger read cannot clear a later read failure', async 
   };
 
   const state = local.state.bind(local);
-
   let failure: unknown;
 
   const reading = vi
@@ -456,7 +439,6 @@ test('an older successful ledger read cannot clear a later read failure', async 
     });
 
   const open = store.openConversations.bind(store);
-
   let discoveries = 0;
 
   const observing = vi
@@ -544,28 +526,21 @@ test('an older successful ledger read cannot clear a later read failure', async 
 
 test('an older ledger failure cannot replace a later successful observation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const refreshes = pauseDiscovery(vi.spyOn);
-
   const { start, store } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const reserved = await a.claim('task:known', 'Known work');
 
   if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
 
   const file = join(store.root, 'coordination', 'claims.json');
-
   const original = await readFile(file, 'utf8');
 
   const failed = Promise.withResolvers<unknown>(),
     finishFailure = Promise.withResolvers<void>();
 
   const local = a.coordination['registry'];
-
   const state = local.state.bind(local);
-
   let first = true;
 
   const reading = vi
@@ -676,7 +651,6 @@ test('cancellation publishes the next waiter without another discovery', async (
 
 test('claim finalization preserves newer background observations', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const refreshes = pauseDiscovery(vi.spyOn);
 
   const entered = Promise.withResolvers<void>(),
@@ -748,7 +722,6 @@ test('claim finalization preserves newer background observations', async (t) => 
 
 test('claim finalization preserves a newer discovery failure until recovery', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const refreshes = pauseDiscovery(vi.spyOn);
 
   const entered = Promise.withResolvers<void>(),
@@ -773,7 +746,6 @@ test('claim finalization preserves a newer discovery failure until recovery', as
   );
 
   const original = await readFile(file, 'utf8');
-
   const claiming = a.claim();
 
   try {

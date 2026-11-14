@@ -39,16 +39,12 @@ function rowStops(
   secret: boolean,
 ) {
   const [start, end] = lineAt(value, cursor);
-
   const line = visible(value.slice(start, end), secret);
-
   const at = visible(value.slice(start, cursor), secret).length;
-
   const rows: { from: number; to: number; text: string }[] = [];
 
   for (const row of wrap(line, width, end === value.length)) {
     const text = stripAnsi(row);
-
     const from = rows.at(-1)?.to ?? 0;
 
     rows.push({ from, to: from + text.length, text });
@@ -59,7 +55,6 @@ function rowStops(
   // the last boundary drawn at or before `length`; a row that starts inside an expanded tab takes the whole tab
   const offset = (length: number) => {
     let low = 0;
-
     let high = stops.length - 1;
 
     while (low < high) {
@@ -137,14 +132,11 @@ export function Input({
   );
 
   const reference = useRef<DOMElement>(null);
-
   const [origin, setOrigin] = useState<{ x: number; y: number }>();
-
   const { setCursorPosition } = useCursor();
 
   const { drawn, row, column, offset, lines } = useMemo(() => {
     const drawn = split(state, width, shell);
-
     const display = visible(drawn.text.value, secret);
 
     const cursor = visible(
@@ -153,16 +145,12 @@ export function Input({
     ).length;
 
     const wrapped = wrap(display, drawn.width);
-
     let consumed = 0;
-
     let row = 0;
-
     let column = 0;
 
     for (const [index, line] of wrapped.entries()) {
       const plain = stripAnsi(line);
-
       const end = consumed + plain.length;
 
       if (
@@ -181,7 +169,6 @@ export function Input({
     }
 
     const offset = Math.max(0, row - height + 1);
-
     const lines = wrapped.slice(offset, offset + height);
 
     return { drawn, row, column, offset, lines };
@@ -236,7 +223,6 @@ export function Input({
   usePaste(
     (text) => {
       const { mark, text: buffer } = split(current.current, width, shell);
-
       const before = buffer.value.slice(0, buffer.cursor);
 
       insert((!mark && onPaste?.(text, before)) || text);

@@ -19,7 +19,6 @@ async function files(root: string, paths: Record<string, string>) {
 
 test('a work tree lists tracked and untracked files under the cwd, without ignored or deleted ones', async () => {
   const root = await scratch('witch-files-');
-
   const git = (...args: string[]) => execute('git', ['-C', root, ...args]);
 
   await git('init', '-q');
@@ -102,11 +101,8 @@ test('a path in a merge conflict is listed once', async () => {
 
 test("the listing never runs the repository's fsmonitor command", async () => {
   const root = await scratch('witch-files-');
-
   const work = join(root, 'work');
-
   const marker = join(root, 'ran');
-
   const monitor = join(root, 'monitor.sh');
 
   await execute('git', ['init', '-q', work]);

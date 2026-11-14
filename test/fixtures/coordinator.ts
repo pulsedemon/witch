@@ -38,13 +38,9 @@ export function activity(): ConversationRecord['activity'] {
 /** holds the save after the session's first turn returns, where only Witch's settlement keeps the turn running. */
 export function holdSettlement(session: AgentSession) {
   const entered = Promise.withResolvers<void>();
-
   const held = Promise.withResolvers<void>();
-
   const save = ConversationStore.prototype.save;
-
   let armed: boolean | undefined;
-
   const send = session.send.bind(session);
 
   session.send = async (...args) => {
@@ -106,9 +102,7 @@ export async function fixture(
   await mkdir(project);
 
   const store = await StateStore.open(join(root, 'state'));
-
   const hook = { current: passThrough };
-
   const memoryRoot = join(store.root, 'memory.git');
 
   const memory = unit
@@ -116,13 +110,9 @@ export async function fixture(
     : await seededMemory(memoryRoot, hookedGit(hook));
 
   const a = new FixtureAgent('a');
-
   const b = new FixtureAgent('b');
-
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
-
   const tracked: number[] = [];
-
   /** the activity the coordinator reports to the job watch, once per change. */
   const active: boolean[] = [];
 
@@ -224,9 +214,7 @@ export async function stranded(
   cwd = context.project,
 ) {
   const { store, workspace } = context;
-
   const created = await store.create(record(randomUUID(), cwd));
-
   const id = created.record.id;
 
   await created.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });

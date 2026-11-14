@@ -76,9 +76,7 @@ export function languageOf(
   first: string | undefined,
 ): string | undefined {
   const name = basename(path);
-
   const candidates = [names.get(name.split('.')[0]!), extname(path).slice(1)];
-
   const line = first?.replace(/^\uFEFF/, '');
 
   if (line?.startsWith('#!'))

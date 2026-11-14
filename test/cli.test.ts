@@ -16,9 +16,7 @@ import { controlPrefix } from '../src/cli-control.js';
 import { quote } from '../src/shell.js';
 
 const identity = (await identifyProcess(process.pid))!;
-
 const repository = fileURLToPath(new URL('../', import.meta.url));
-
 const sourceCli = join(repository, 'src/cli.tsx');
 
 /** runs the CLI in an empty directory that is also its HOME, so a store opened at the default ~/.witch shows in `files`. */
@@ -44,7 +42,6 @@ async function run(args: readonly string[] | string, entry?: string) {
   );
 
   let stdout = '';
-
   let stderr = '';
 
   child.stdout.on('data', (chunk: Buffer) => {
@@ -121,13 +118,9 @@ test("witch --spawn outside a repository exits 1 with git's error, without a ter
 
 test('witch --recover-directory previews, applies and reports a blocked record without launching an agent', async () => {
   const root = await scratch('witch-cli-recover-');
-
   const state = join(root, 'state');
-
   const destination = join(root, 'destination');
-
   const bin = join(root, 'bin');
-
   const launched = join(root, 'launched');
 
   await mkdir(destination);
@@ -140,7 +133,6 @@ test('witch --recover-directory previews, applies and reports a blocked record w
     });
 
   const store = await StateStore.open(state);
-
   const source = join(root, 'gone');
 
   await (
@@ -211,11 +203,8 @@ test('witch --recover-directory previews, applies and reports a blocked record w
 
 test('headless controls preserve quoted paths, JSON, errors and conflicts without normal startup', async () => {
   const root = await scratch('witch-cli-control-');
-
   const directory = join(root, "owner's control files");
-
   const binding = { directory, conversation: 'a', activation: randomUUID() };
-
   const store = await CoordinationStore.open(await StateStore.open(root));
 
   const occupied = await store.claim(
@@ -404,9 +393,7 @@ test('claim warnings survive the control transport in JSON and plain output with
   };
 
   const registry = await CoordinationStore.open(await StateStore.open(root));
-
   const failures: unknown[] = [];
-
   const warning = 'GitHub assignment failed: permission denied';
 
   const host = await ControlHost.open(
@@ -431,7 +418,6 @@ test('claim warnings survive the control transport in JSON and plain output with
 
   try {
     const command = `${controlPrefix(binding, await compiledCli())} --claim https://github.com/acme/widget/issues/42 --summary 'Current work'`;
-
     const json = await run(`${command} --json`);
 
     assert.equal(json.code, 0);
@@ -488,9 +474,7 @@ test('an unavailable control host reports JSON failure without opening state', a
 // agents run control commands constantly, and loading the app triples their startup
 test('a control command starts without loading the app', async () => {
   const root = await scratch('witch-cli-loads-');
-
   const hook = join(root, 'record-loads.mjs');
-
   const loaded = join(root, 'loaded');
 
   await writeFile(

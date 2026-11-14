@@ -72,7 +72,6 @@ function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
   /** each block of an item on its own line, with a checkbox kept on the line it marks. */
   const item = (tokens: Token[]) => {
     const blocks: string[] = [];
-
     let checkbox = '';
 
     for (const token of tokens) {
@@ -137,9 +136,7 @@ export function markdownAppend(
   cwd: string,
 ): MarkdownAppend | undefined {
   const marked = new Marked({ gfm: true });
-
   const tokens = marked.lexer(text);
-
   let context = Object.keys(tokens.links).length > 0;
 
   void marked.walkTokens(tokens, (token) => {
@@ -153,9 +150,7 @@ export function markdownAppend(
     return undefined;
 
   const parser = new Parser({ renderer: terminalRenderer(cwd, cwd) });
-
   const rendered = tokens.map((token) => parser.parse([token]));
-
   // the last block can become empty, so retain its preceding visible block for trimEnd().
   const last = tokens.findLastIndex((token) => token.type !== 'space');
 

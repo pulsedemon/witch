@@ -19,15 +19,10 @@ import { until, within } from './fixtures/within.js';
 
 test('Escape during model refresh keeps chat usable', async () => {
   const { coordinator, a, b } = await coordinatorFixture();
-
   const entered = Promise.withResolvers<AbortSignal>();
-
   const aborted = Promise.withResolvers<void>();
-
   const discover = b.models.bind(b);
-
   const session = a.sessions[0]!.session;
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
   try {
@@ -463,7 +458,6 @@ for (const [typed, call] of [
 ] as const)
   test(`${typed} passes its arguments`, async () => {
     const { app, calls } = fake({});
-
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
     try {
@@ -600,7 +594,6 @@ test('closing the combined picker sends no selection and help advertises no agen
 
 test('the composer stays closed while a second switch waits in the command queue and opens after both finish', async () => {
   const { coordinator, app, calls } = fake({});
-
   const switching = Promise.withResolvers<void>();
 
   coordinator.newConversation = async (...args: unknown[]) => {
@@ -687,7 +680,6 @@ test('the composer stays closed while a second switch waits in the command queue
 
 test('a prompt sent in the same read as a switch stays in the draft of the conversation it was typed in', async () => {
   const { coordinator, app, calls } = fake({});
-
   const switching = Promise.withResolvers<void>();
 
   coordinator.newConversation = async (...args: unknown[]) => {
@@ -771,7 +763,6 @@ for (const [name, keys] of [
 ] as const)
   test(`${name} in one read pick the selected command`, async () => {
     const { app, calls } = fake({});
-
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
     try {
@@ -799,7 +790,6 @@ for (const [name, keys] of [
 
 test('a conversation picked in /sessions keeps the composer from typing until it opens', async () => {
   const { coordinator, app, calls } = fake({});
-
   const switching = Promise.withResolvers<void>();
 
   coordinator.selectConversation = async (...args: unknown[]) => {
@@ -902,7 +892,6 @@ test('/sessions tells same-titled conversations apart by when they last changed'
 
 test('a filter resets the picker selection within the same read', async () => {
   const { app, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -922,7 +911,6 @@ test('a filter resets the picker selection within the same read', async () => {
 
 test('reopening the picker resets its selection', async () => {
   const { app, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -957,7 +945,6 @@ for (const sameRead of [false, true])
       : 'reopening commands clears the visible filter and submits the first command',
     async () => {
       const { app, calls } = fake({});
-
       let exits = 0;
 
       const ui = show(
@@ -1158,7 +1145,6 @@ test('/jobs reports a list that fails', async () => {
 
 test('/compact dispatches locally and discards surrounding prose without sending a prompt', async () => {
   const { app, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -1190,7 +1176,6 @@ test('/compact dispatches locally and discards surrounding prose without sending
 
 test('/compact discards multiline prose without sending a prompt', async () => {
   const { app, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {

@@ -28,7 +28,6 @@ test('wire capture retains split JSON lines in both directions without consuming
   );
 
   const capture = observeWire(child);
-
   let output = '';
 
   child.stdout.on('data', (chunk) => {
@@ -147,7 +146,6 @@ test('capture normalization removes account identity and encoded project paths w
 
 test('replay binds request IDs consistently and rejects a changed payload', async () => {
   const cwd = await scratch('witch-native-wire-');
-
   const file = join(cwd, 'wire.jsonl');
 
   await writeFile(
@@ -172,9 +170,7 @@ test('replay binds request IDs consistently and rejects a changed payload', asyn
   );
 
   const replay = replayWire([file], cwd);
-
   const child = replay.launch();
-
   const capture = observeWire(child);
 
   child.stdin.write(
@@ -222,7 +218,6 @@ for (const [name, issued, expected, actual] of [
 ] as const) {
   test(`replay rejects a wrong server-issued ${name} on its first use`, async () => {
     const cwd = await scratch('witch-native-issued-id-');
-
     const file = join(cwd, 'wire.jsonl');
 
     await writeFile(
@@ -236,7 +231,6 @@ for (const [name, issued, expected, actual] of [
     );
 
     const replay = replayWire([file], cwd);
-
     const child = replay.launch();
 
     await new Promise<void>((resolve) =>
@@ -251,7 +245,6 @@ for (const [name, issued, expected, actual] of [
 
 test('closing replay with a missing client request fails instead of accepting a partial recording', async () => {
   const cwd = await scratch('witch-native-incomplete-');
-
   const file = join(cwd, 'wire.jsonl');
 
   await writeFile(

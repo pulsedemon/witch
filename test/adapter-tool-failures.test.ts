@@ -79,9 +79,7 @@ test('a Codex command that exits non-zero, fails or is declined marks its row fa
 
 test('a Claude tool result with is_error marks its row failed', async () => {
   const events: AgentEvent[] = [];
-
   const f = await launcher('background');
-
   const session = await f.connect({ onEvent: (event) => events.push(event) });
 
   const emit = frameWriter(

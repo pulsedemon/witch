@@ -29,7 +29,6 @@ function readProfile(
   requestFile?: string,
 ): Record<string, unknown> {
   const profile = object.parse(tomlSettings(value));
-
   const filesystem = object.parse(profile.filesystem ?? {});
 
   return {

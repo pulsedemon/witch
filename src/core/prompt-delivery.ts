@@ -256,9 +256,7 @@ export class PromptDelivery {
     }
 
     const skill = skillCall(prompt, this.host.snapshot().skills);
-
     const ids = this.attachments.resolve(prompt);
-
     let images: string[] | undefined;
 
     if (ids.length) {
@@ -375,7 +373,6 @@ export class PromptDelivery {
           if (!this.automaticReady()) return;
 
           const answers = `answer ${this.answerable().join(' ')}`;
-
           let ran: boolean;
 
           if (this.answerReady() && !tried.has(answers)) {
@@ -413,7 +410,6 @@ export class PromptDelivery {
         this.host.publish({ queue: queue.slice(batch.length) });
 
         let delivered = false;
-
         let result = undefined as TurnResult | undefined;
 
         try {
@@ -511,7 +507,6 @@ export class PromptDelivery {
       if (this.deliveryHeld || this.host.halted()) return;
 
       const followers = joining(this.host.snapshot().queue);
-
       const taken = followers.map((prompt) => ({ prompt }));
 
       this.taken.push(...taken);

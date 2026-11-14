@@ -20,7 +20,6 @@ test('Codex inserts complete context before the exact user request', async () =>
 
   try {
     const prompt = '  review target 17\nonly the selected files  ';
-
     const context = `context 29\n${'é'.repeat(5000)}\ncontext 41`;
 
     await writeFile(join(cwd, 'release'), 'yes');

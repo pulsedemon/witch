@@ -28,17 +28,13 @@ const execute = promisify(execFile);
 
 test('parallel initialization seeds one repository and leaves a stray build alone', async () => {
   const root = await scratch('witch-memory-init-');
-
   const stray = join(root, `memory.git.${randomUUID()}`);
 
   await git(root, 'init', '--bare', '--quiet', stray);
 
   const before = await readdir(stray, { recursive: true });
-
   const held = Promise.withResolvers<void>();
-
   const inited = Promise.withResolvers<void>();
-
   let calls = 0;
 
   const hook = {
@@ -90,7 +86,6 @@ test('parallel initialization seeds one repository and leaves a stray build alon
 
 test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend, hidden untracked files, log.follow and an external diff', async () => {
   const root = await scratch('witch-memory-identity-');
-
   const template = join(root, 'template');
 
   await mkdir(template);
@@ -191,7 +186,6 @@ test('memory works under user Git configuration with no identity, an empty templ
 
 test('pending notes show in the recovery diff, block the next turn and stay out of accepted snapshots', async () => {
   const { memory, open, project, begin } = await fixture();
-
   const { workspace, scope } = await open('a');
 
   await writeFile(join(scope.project, 'MEMORY.md'), 'Accepted project fact.');
@@ -238,11 +232,8 @@ test('pending notes show in the recovery diff, block the next turn and stay out 
 
 test('a .gitignore inside memory hides no note from the recovery diff, discard, publishing or the symlink check', async () => {
   const { memory, open } = await fixture();
-
   const { workspace, scope } = await open('a');
-
   const ignore = join(workspace.root, '.gitignore');
-
   const hidden = join(scope.global, 'hidden.md');
 
   await writeFile(ignore, '*\n');
@@ -276,7 +267,6 @@ test('a .gitignore inside memory hides no note from the recovery diff, discard, 
 
 test('global memory crosses projects while project notes remain scoped', async () => {
   const { memory, open, root } = await fixture();
-
   const { workspace, scope } = await open('a');
 
   await writeFile(join(scope.global, 'MEMORY.md'), 'Use concise replies.');
@@ -393,7 +383,6 @@ test('clones of one origin share project memory under its name across directorie
 
 test('configPath names the config Git reads the origin from', async () => {
   const { memory, root } = await fixture();
-
   const work = await repository(root, 'work', 'https://github.com/acme/w.git');
 
   await git(
@@ -448,7 +437,6 @@ test('a local origin names the repository git reaches through it: from the top l
   await symlink(join(root, 'b/child'), join(root, 'a/link'));
 
   const a = await clone('a/clone', '../upstream.git');
-
   const upstream = await key(a);
 
   assert.equal(await key(join(a, 'src')), upstream);
@@ -513,7 +501,6 @@ test('a local origin names the repository git reaches through it: from the top l
   );
 
   const later = await clone('i', join(root, 'alias/later.git'));
-
   const missing = await key(later);
 
   await git(root, 'init', '--quiet', '--bare', 'a/later.git');
@@ -525,11 +512,8 @@ test('a local origin names the repository git reaches through it: from the top l
   await writeFile(regular, 'not a directory');
 
   const child = `${regular}/child`;
-
   const underFile = await clone('under-file', child);
-
   const hash = createHash('sha256').update(child).digest('hex').slice(0, 16);
-
   const expected = `projects/child-${hash}`;
 
   assert.equal(await key(underFile), expected);
@@ -611,9 +595,7 @@ test(
   { timeout: 10_000 },
   async () => {
     const { memory, root } = await fixture();
-
     const scope = (path: string) => memory.scopePaths(path);
-
     const checkout = await repository(root, 'checkout');
 
     await mkdir(join(checkout, 'sub'));
@@ -642,7 +624,6 @@ test(
     await git(root, 'clone', '--quiet', checkout, 'clone');
 
     const upstream = await scope(checkout);
-
     const cloned = await scope(join(root, 'clone'));
 
     assert.equal(cloned.project, upstream.project);
@@ -765,7 +746,6 @@ for (const [note, neighbor] of [
 ] as const)
   test(`note history matches ${note} literally and restores its selected revisions`, async () => {
     const { memory, open } = await fixture();
-
     const { workspace } = await open('a');
 
     await save(workspace, { [neighbor]: 'Neighbor first.\n' });
@@ -783,7 +763,6 @@ for (const [note, neighbor] of [
     await save(workspace, { [neighbor]: 'Neighbor latest.\n' });
 
     const head = await workspace.revision();
-
     const history = await memory.history(head, note);
 
     assert.deepEqual(
@@ -823,13 +802,9 @@ for (const [note, neighbor] of [
 
 test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
   const { memory, open, project } = await fixture();
-
   const { workspace, scope } = await open('a');
-
   const paths = await memory.scopePaths(project);
-
   const path = join(scope.project, 'MEMORY.md');
-
   const note = `${paths.project}/MEMORY.md`;
 
   await writeFile(path, 'Use value A.');
@@ -885,13 +860,9 @@ test('restore recreates a deleted directory, produces a new accepted revision, a
 
 test('restore preserves note bytes in the working file and new commit', async () => {
   const { open } = await fixture();
-
   const { workspace } = await open('a');
-
   const note = 'global/note.bin';
-
   const destination = join(workspace.root, note);
-
   const expected = Buffer.from('89504e470d0a1a0afffe0080636166e9', 'hex');
 
   await writeFile(destination, expected);
@@ -922,9 +893,7 @@ test('restore preserves note bytes in the working file and new commit', async ()
 
 test('a changed note with a non-ASCII name reaches the agent as written', async () => {
   const { memory, open, project } = await fixture();
-
   const { workspace } = await open('a');
-
   const before = await workspace.revision();
 
   await save(workspace, { 'global/café.md': 'Order the café au lait.' });
@@ -945,9 +914,7 @@ test('a changed note with a non-ASCII name reaches the agent as written', async 
 
 test('preparing an existing note keeps its text', async () => {
   const { open } = await fixture();
-
   const { workspace, scope } = await open('a');
-
   const path = join(scope.project, 'MEMORY.md');
 
   await writeFile(path, 'Saved.');
@@ -959,7 +926,6 @@ test('preparing an existing note keeps its text', async () => {
 
 test('preparing a note outside the note directories is refused', async () => {
   const { open } = await fixture();
-
   const { workspace } = await open('a');
 
   for (const path of ['../outside.md', '.git'])
@@ -972,9 +938,7 @@ test('preparing a note outside the note directories is refused', async () => {
 
 test('a clean turn does not add an empty memory commit', async () => {
   const { open } = await fixture();
-
   const { workspace } = await open('a');
-
   const before = await workspace.revision();
 
   await workspace.commit('no changes');
@@ -985,9 +949,7 @@ test('a clean turn does not add an empty memory commit', async () => {
 test('commit, restore, note preparation and the note list refuse symlinked destinations and parent directories', async () => {
   for (const parent of [false, true]) {
     const { memory, open, project, root } = await fixture();
-
     const { workspace, scope } = await open('a');
-
     const path = join(scope.project, 'note.md');
 
     await writeFile(path, 'Saved preference.');
@@ -995,7 +957,6 @@ test('commit, restore, note preparation and the note list refuse symlinked desti
     await workspace.commit('save note');
 
     const revision = await workspace.revision();
-
     const outside = join(root, 'outside');
 
     await mkdir(outside);
@@ -1058,11 +1019,8 @@ test('commit, restore, note preparation and the note list refuse symlinked desti
 
 test('pending symlinks cannot be accepted or read through a recovery preview', async () => {
   const { open, root } = await fixture();
-
   const { workspace, scope } = await open('a');
-
   const before = await workspace.revision();
-
   const target = join(root, 'private.txt');
 
   await writeFile(target, 'External private content.');
@@ -1096,9 +1054,7 @@ test('pending symlinks cannot be accepted or read through a recovery preview', a
 
 test('a scope refuses a symlinked note directory without changing its target', async () => {
   const { open, root, project } = await fixture();
-
   const { workspace } = await open('a');
-
   const outside = join(root, 'outside');
 
   await mkdir(outside);
@@ -1118,7 +1074,6 @@ test('a scope refuses a symlinked note directory without changing its target', a
 
 test('a leftover rebase is aborted back onto the branch before publishing', async () => {
   const { memory, open, root } = await fixture();
-
   const { workspace } = await open('a');
 
   await save(workspace, { 'global/kept.md': 'Kept.' });
@@ -1152,11 +1107,8 @@ test('a leftover rebase is aborted back onto the branch before publishing', asyn
 
 test('begin recreates the project directory after its last note is deleted on main', async () => {
   const { memory, open, project, begin } = await fixture();
-
   const { workspace: first, scope } = await open('first');
-
   const { workspace: second } = await open('second');
-
   const paths = await memory.scopePaths(project);
 
   await writeFile(join(scope.project, 'MEMORY.md'), 'Project note.');
@@ -1182,9 +1134,7 @@ test('begin recreates the project directory after its last note is deleted on ma
 
 test('snapshot paths point into the worktree, never the bare repository', async () => {
   const { memory, open, project } = await fixture();
-
   const { workspace } = await open('a');
-
   const paths = await memory.scopePaths(project);
 
   const snapshot = await memory.snapshot(
@@ -1204,9 +1154,7 @@ test('snapshot paths point into the worktree, never the bare repository', async 
 
 test('begin returns the worktree revision when main moves during it', async () => {
   const { memory, open, hook, project, begin } = await fixture();
-
   const { workspace: first } = await open('first');
-
   const { workspace: second } = await open('second');
 
   await save(second, { 'global/later.md': 'Later.' });
@@ -1233,11 +1181,8 @@ test('begin returns the worktree revision when main moves during it', async () =
 
 test('publishing a clean worktree behind main leaves it where it was', async () => {
   const { open } = await fixture();
-
   const { workspace: first } = await open('first');
-
   const { workspace: second } = await open('second');
-
   const before = await first.revision();
 
   await save(second, { 'global/later.md': 'Later.' });
@@ -1251,9 +1196,7 @@ test('publishing a clean worktree behind main leaves it where it was', async () 
 
 test('status counts commits ahead of and behind main', async () => {
   const { open } = await fixture();
-
   const { workspace: first } = await open('first');
-
   const { workspace: second } = await open('second');
 
   const counts = async () => {
@@ -1277,7 +1220,6 @@ test('status counts commits ahead of and behind main', async () => {
 
 test('status gives no counts while the branch has another upstream', async () => {
   const { memory, open } = await fixture();
-
   const { workspace } = await open('a');
 
   await memory.git(memory.root, ['update-ref', 'refs/heads/other', main]);
@@ -1295,7 +1237,6 @@ test('status gives no counts while the branch has another upstream', async () =>
 
 test('discarding works when notes are named main and HEAD', async () => {
   const { memory, open } = await fixture();
-
   const { workspace } = await open('a');
 
   await save(workspace, { main: 'A note named main.', HEAD: 'And HEAD.' });
@@ -1313,9 +1254,7 @@ test('discarding works when notes are named main and HEAD', async () => {
 
 test('index lines both sides add to MEMORY.md merge without a conflict', async () => {
   const { memory, open } = await fixture();
-
   const { workspace: first } = await open('first');
-
   const { workspace: second } = await open('second');
 
   await save(first, {

@@ -19,7 +19,6 @@ test('polling speeds up for requests and outstanding feedback, then returns to q
   ];
 
   const reads: number[] = [];
-
   let pending = false;
 
   const watch = new CopilotReviewWatch(
@@ -86,7 +85,6 @@ test('a newly completed check triggers another read for delayed review publicati
   ];
 
   const published: number[] = [];
-
   let count = 0;
 
   const watch = new CopilotReviewWatch(
@@ -134,7 +132,6 @@ for (const state of ['CLOSED', 'MERGED'] as const) {
     ];
 
     const observations: string[] = [];
-
     let reads = 0;
 
     const watch = new CopilotReviewWatch(
@@ -172,13 +169,9 @@ test.each(['switch', 'close'])(
   'an old read cannot publish after %s',
   async (kind) => {
     const source = reviewSource();
-
     const pending = Promise.withResolvers<GitHubReviews>();
-
     const published: string[] = [];
-
     let calls = 0;
-
     let firstSignal: AbortSignal | undefined;
 
     const watch = new CopilotReviewWatch(
@@ -236,11 +229,8 @@ test.each(['switch', 'close'])(
 
 test('refresh requests coalesce while a read is running', async () => {
   const source = reviewSource();
-
   const pending = Promise.withResolvers<GitHubReviews>();
-
   let reads = 0;
-
   const publications: number[] = [];
 
   const watch = new CopilotReviewWatch(
@@ -277,11 +267,8 @@ test('repeated read errors do not erase published work or repeat the notice', as
   vi.useFakeTimers();
 
   const source = reviewSource();
-
   const publications: string[] = [];
-
   const notices: string[] = [];
-
   let fail = false;
 
   const watch = new CopilotReviewWatch(

@@ -471,7 +471,6 @@ async function clean(
   signal?: AbortSignal,
 ): Promise<{ text: string; cleaned: boolean } | 'changed' | undefined> {
   const { number, branch, commit, base } = pullRequest;
-
   let policy: Promise<string | undefined> | undefined;
 
   const defaultBranch = () =>
@@ -488,7 +487,6 @@ async function clean(
 
   if (progress.switchHead) {
     const status = await read(git);
-
     const head = await git('rev-parse', 'HEAD');
 
     if (changed(status)) return 'changed';
@@ -698,7 +696,6 @@ async function clean(
 
     // a post-checkout hook runs after the switch has moved the checkout, can fail it, and can move it again
     const after = await read(git).catch(stopped);
-
     const head = await git('rev-parse', 'HEAD').catch(stopped);
 
     if (!arrived(progress, base, after, head)) {
@@ -797,12 +794,9 @@ async function clean(
   }
 
   const deleted = progress.deleted;
-
   // with the config locked, branch -d deletes a branch and exits 0 with only a warning that its upstream stayed
   const configured = (progress.configured ??= []);
-
   const failures = (progress.failures ??= []);
-
   const pruned = (progress.pruned ??= []);
 
   await reconcilePruning(git, progress, signal);
@@ -851,7 +845,6 @@ async function clean(
     if (failures[index]!.startsWith(retainedFailure)) failures.splice(index, 1);
 
   let keptDefault: string | undefined;
-
   let common: string | undefined;
 
   if (refs.some(retained))
@@ -1051,7 +1044,6 @@ async function reconcilePruning(
   if (!progress.pruning) return;
 
   const { name, head, retained } = progress.pruning;
-
   const current = await refHead(git, name);
 
   if (current === head) return;
@@ -1146,7 +1138,6 @@ const creating = new Map([
  */
 function createdBranches(text: string): Set<string> {
   const created = new Set<string>();
-
   const add = (name: string) => created.add(name.replace(/[.,:]+$/, ''));
 
   // a backslash at a line's end continues the command
@@ -1242,12 +1233,10 @@ async function removePlans(
   progress.root = top;
 
   const ledgers = join(top, planDirectories.ledgers);
-
   const { removed, stayed } = progress;
 
   for (const directory of planDirectories.plans) {
     const plans = join(top, directory);
-
     let names: string[];
 
     try {
@@ -1372,9 +1361,7 @@ export async function refreshInstall(
     progress.checkout ??= {};
 
     const status = await read(git);
-
     const head = await git('rev-parse', 'HEAD');
-
     const checkout = progress.checkout;
 
     if (

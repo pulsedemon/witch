@@ -83,7 +83,6 @@ export async function installNative(
   }
 
   const temporary = join(directory, 'tmp');
-
   const bin = join(directory, 'bin');
 
   await mkdir(temporary, { recursive: true, mode: 0o700 });
@@ -116,7 +115,6 @@ export async function installNative(
     ];
   } else {
     const file = join(directory, `codex-install-${codexInstallerDigest}.sh`);
-
     let source = await unlessGone(readFile(file, 'utf8'));
 
     if (source === undefined) {
@@ -151,13 +149,9 @@ export async function installNative(
   signal.throwIfAborted();
 
   const log = join(directory, `${installation.runtime}-${target}-install.log`);
-
   const stopping = AbortSignal.any([signal, AbortSignal.timeout(6 * 60_000)]);
-
   const output = await open(log, 'a', 0o600);
-
   let interrupted = false;
-
   let code: number | null;
 
   try {

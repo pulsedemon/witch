@@ -137,7 +137,6 @@ export function App({
   );
 
   const state = useSyncExternalStore(subscription, () => coordinator.snapshot);
-
   const model = state.native?.model;
 
   const repositoryStatus = useSyncExternalStore(
@@ -156,30 +155,19 @@ export function App({
   );
 
   const size = useWindowSize();
-
   const undersized = size.columns < minimumColumns || size.rows < minimumRows;
-
   const columns = Math.max(minimumColumns, size.columns);
-
   const sidebar = columns - sidebarWidth >= 80;
-
   const width = sidebar ? columns - sidebarWidth : columns;
-
   /** inside the body's paddingX. */
   const bodyWidth = width - 2;
-
   /** inside the composer's border and paddingX. */
   const composerWidth = bodyWidth - 4;
-
   const height = Math.max(minimumRows, size.rows);
-
   const statusTime = useStatusTime();
-
   const usage = usagePlacement(state, sidebar, height, statusTime);
-
   // the compiler needs the native fallback's string type to memoize its consumers.
   const cwd = state.conversation?.cwd ?? String(process.cwd());
-
   const [top, topRef, setAnchor] = useLiveState<ScrollAnchor | null>(null);
 
   const [seen, seenRef, setSeen] = useLiveState({
@@ -218,14 +206,10 @@ export function App({
   } = commandViews;
 
   const toolFocus = useToolFocus(state.conversation?.id);
-
   const exit = useExitConfirm(onExit);
-
   const composer = useRef<InputHandle>(null);
-
   // this directory's prompts, newest first
   const [prompts, history, setHistory] = useLiveState<string[]>([]);
-
   const [browsing, recall, setRecall] = useLiveState(unbrowsed);
 
   const { drafts, draftOf, draftToAppend, merged, setDraft } = useDrafts(
@@ -245,9 +229,7 @@ export function App({
   >(undefined);
 
   const [files, setFiles] = useState<string[]>([]);
-
   const pendingPrompt = useRef(initialPrompt);
-
   const [layout] = useState(() => new TranscriptLayout(graphics));
 
   const transcript = useMemo(
@@ -277,11 +259,8 @@ export function App({
   >(undefined);
 
   const pressedAt = useRef<RangeEnd>(undefined);
-
   const transcriptBox = useRef<DOMElement>(null);
-
   const newMessagesBox = useRef<DOMElement>(null);
-
   const pressedNewMessages = useRef(false);
 
   const pointOf = (end: RangeEnd): Point | undefined => {
@@ -296,7 +275,6 @@ export function App({
 
   const endsOf = (dragged: typeof range) => {
     const from = dragged && pointOf(dragged.from);
-
     const to = dragged && pointOf(dragged.to);
 
     return from && to
@@ -320,7 +298,6 @@ export function App({
   /** what joins a row to the one above: a line break, or for a wrapped row the spaces its wrap trimmed. */
   const joint = (row: number) => {
     const here = transcript.anchorAt(row);
-
     const above = transcript.anchorAt(row - 1);
 
     if (!here || !above || here.item !== above.item || here.line !== above.line)
@@ -347,7 +324,6 @@ export function App({
     !['closing', 'error'].includes(snapshot.phase);
 
   const composerPhase = composerOpen(state, leaving);
-
   const working = agentWorking(state.phase);
 
   const commandEntries = commands.map(({ id, label, aliases }) => ({
@@ -438,7 +414,6 @@ export function App({
     );
 
   const tools = transcript.items.filter((item) => item.kind === 'tool');
-
   const selectedTool = tools[toolFocus.selected(tools, transcript.shownAs)];
 
   const diffHint =
@@ -447,15 +422,10 @@ export function App({
       : undefined;
 
   const request = state.requests[0];
-
   const recovering = state.phase === 'recovery';
-
   const chat = view.kind === 'chat' && !request && !recovering;
-
   const minimumTranscriptRows = 2;
-
   const toolHint = toolFocus.focused ? toolHintLines(bodyWidth, diffHint) : [];
-
   const minimumListRows = list ? 1 : toolHint.length;
 
   const fixedControlsRows =
@@ -496,7 +466,6 @@ export function App({
     : minimumListRows;
 
   const listFirst = Math.max(0, listSelected - listRows + 1);
-
   const controlsRows = fixedControlsRows + listRows;
 
   // leave the transcript's minimum height intact when the footer squeezes the body.
@@ -520,7 +489,6 @@ export function App({
   );
 
   const boundary = state.items[contextStart(state.items) - 1];
-
   const clearedAt = boundary && transcript.starts.get(boundary.id);
 
   const viewport = (anchor: ScrollAnchor | null, read = seen) => {
@@ -535,7 +503,6 @@ export function App({
     );
 
     const availableRows = Math.max(minimumTranscriptRows, freeRows - queueRows);
-
     const row = anchor === null ? Infinity : transcript.rowOf(anchor);
 
     // decide before the notice takes a row, so hiding the last old row cannot turn it off
@@ -545,9 +512,7 @@ export function App({
     );
 
     const pinned = clearedAt !== undefined && unpinnedTop < clearedAt;
-
     const height = availableRows - Number(pinned);
-
     const maxTop = Math.max(0, transcript.lines.length - height);
 
     return {
@@ -597,7 +562,6 @@ export function App({
 
     // the initial prompt can go out once browsing has begun, and every prompt browsed or kept is then a place further back
     const back = (at: number) => (at === -1 ? at : at + 1);
-
     const { index, texts } = recall.current;
 
     setRecall({
@@ -654,7 +618,6 @@ export function App({
   /** puts text back ahead of the draft, with the cursor after the text while the composer shows; it ends browsing, so the draft is the one typed before it. */
   const prepend = (text: string) => {
     const id = state.conversation?.id ?? '';
-
     const value = merged(text);
 
     setRecall(unbrowsed());
@@ -689,9 +652,7 @@ export function App({
   /** shows the next older or newer prompt, keeping the composer's text for when browsing comes back to its place. */
   const browse = (direction: 'up' | 'down', current: InputBuffer) => {
     const { index, texts } = recall.current;
-
     const next = index + (direction === 'up' ? 1 : -1);
-
     const value = texts.get(next) ?? history.current[next];
 
     if (value === undefined) return false;
@@ -709,7 +670,6 @@ export function App({
   /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces its token and a space already after it. */
   const complete = (open: CompletionList) => {
     const index = selectedIn(open, listIndexRef.current);
-
     const { value } = bufferRef.current;
 
     if (open.kind === 'command') {
@@ -718,7 +678,6 @@ export function App({
       composer.current?.set({ value: text, cursor: text.length });
     } else {
       const text = `@${open.items[index]!} `;
-
       const rest = value.slice(open.end).replace(/^ /, '');
 
       composer.current?.set({
@@ -861,7 +820,6 @@ export function App({
   }, [state.phase]);
 
   const recovery = recovering ? state.recovery : undefined;
-
   const conflict = recovery?.kind === 'conflict';
 
   const pageLines = useMemo(() => {
@@ -924,10 +882,8 @@ export function App({
     } = viewport(topRef.current, seenRef.current);
 
     const shown = Math.min(height, transcript.lines.length - first);
-
     // a queued scroll can move the notice before Ink moves the content box
     const origin = box.y + Number(currentPinned) - Number(pinned);
-
     const offset = Math.max(-1, Math.min(shown, row - origin));
 
     const at = Math.max(
@@ -969,7 +925,6 @@ export function App({
 
     // a tool's `+ ✓` cells hold no link, so a click on them toggles it
     const pressed = pressedAt.current;
-
     const item = transcript.items.find(({ id }) => id === pressed?.anchor.item);
 
     if (

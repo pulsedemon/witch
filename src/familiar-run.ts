@@ -118,7 +118,6 @@ export async function saveReport(
   report: string,
 ): Promise<void> {
   const bytes = Buffer.from(report);
-
   let offset = 0;
 
   while (offset < bytes.length) {

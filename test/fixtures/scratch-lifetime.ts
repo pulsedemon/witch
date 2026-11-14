@@ -14,7 +14,6 @@ import { ScratchSpace } from '../../src/persistence/scratch.js';
 import { until } from './within.js';
 
 const [mode, parent, value] = process.argv.slice(2) as [string, string, string];
-
 const deadline = setTimeout(() => process.exit(1), 30_000);
 
 try {
@@ -62,9 +61,7 @@ try {
     process.env.TMPDIR = directory;
 
     const marker = join(directory, 'marker');
-
     let worker = Number(process.argv[6]);
-
     let group = Number(process.argv[7]);
 
     try {
@@ -215,7 +212,6 @@ try {
 
       if (mode === 'uncertain') {
         const file = join(directory, '.witch-scratch.json');
-
         const record = JSON.parse(await readFile(file, 'utf8')) as object;
 
         await writeJson(file, { ...record, requiresBoot: true });

@@ -152,7 +152,6 @@ export function frameWriter(
 
   return async (...frames) => {
     const index = ++sequence;
-
     const text = `fixture barrier ${index}`;
 
     await writeJson(join(cwd, `events-${index}.json`), [

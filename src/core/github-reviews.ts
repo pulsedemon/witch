@@ -124,7 +124,6 @@ const metadata = gitHubPullRequestFields.extend({
 });
 
 const fields = 'id number url state headRefName headRefOid baseRefName isDraft';
-
 const pagedThread = thread.extend({ comments: connection(reviewComment) });
 
 const initial = metadata.extend({
@@ -137,7 +136,6 @@ const initial = metadata.extend({
 
 function target(pr: PullRequest) {
   const url = new URL(pr.url);
-
   const match = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/.exec(url.pathname);
 
   if (url.protocol !== 'https:' || !match)
@@ -242,9 +240,7 @@ export async function readGitHubReviews(
     firstPage: z.infer<ReturnType<typeof connection<T>>>,
   ): Promise<z.infer<T>[]> => {
     const nodes = [...firstPage.nodes];
-
     let page = firstPage;
-
     const cursors = new Set<string>();
 
     while (page.pageInfo.hasNextPage) {

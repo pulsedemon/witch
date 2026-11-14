@@ -32,11 +32,8 @@ import { orderedCleanup } from './fixtures/cleanup.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const identity = (await identifyProcess(process.pid))!;
-
 const owner = { conversation: 'a', project: 'project-p' };
-
 const input = { reference: 'task:shared', summary: 'First task' };
-
 const verify = async () => {};
 
 const claim = (
@@ -54,13 +51,9 @@ const release = (
 for (const size of [1, 8])
   test(`reconciliation batches ${size} groups and retains the exact live owners`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const root = await scratch('witch-reconcile-batch-');
-
     const store = await StateStore.open(root);
-
     const registry = await CoordinationStore.open(store);
-
     const exited = spawn(process.execPath, ['-e', '']);
 
     await once(exited, 'close');
@@ -127,7 +120,6 @@ for (const size of [1, 8])
     }
 
     const file = join(root, 'coordination', 'claims.json');
-
     const original = JSON.stringify({ version: 2, claims, selections });
 
     await writeFile(file, original);
@@ -157,11 +149,8 @@ for (const size of [1, 8])
 
 test('activation observation follows release without retaining ownership', async () => {
   const root = await scratch('witch-activation-observation-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   const activation = randomUUID();
-
   const close = await store.holdActivation(activation);
 
   try {
@@ -235,11 +224,8 @@ function contender(
 
 test('two independent claimants have one owner and only its work starts', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const root = await scratch('witch-coordination-race-');
-
   const a = contender(cleanup, root, 'a');
-
   const b = contender(cleanup, root, 'b');
 
   await Promise.all([a.ready, b.ready]);
@@ -252,7 +238,6 @@ test('two independent claimants have one owner and only its work starts', async 
   ]);
 
   const winner = results.find(({ kind }) => kind === 'claimed')!.claim;
-
   const loser = results.find(({ kind }) => kind === 'conflict')!.claim;
 
   assert.deepEqual(loser, winner);
@@ -269,13 +254,9 @@ test('two independent claimants have one owner and only its work starts', async 
 
 test('an alias collision stores none of the requested references', async () => {
   const root = await scratch('witch-coordination-alias-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   const reserved = await claim(store);
-
   const file = join(root, 'coordination', 'claims.json');
-
   const before = await readFile(file, 'utf8');
 
   await assert.rejects(
@@ -336,13 +317,9 @@ test('a retry preserves identity while updating its summary and merging aliases'
 
 test('only the matching owner and exact claim id can release a reservation', async () => {
   const root = await scratch('witch-coordination-release-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   const first = await claim(store);
-
   const file = join(root, 'coordination', 'claims.json');
-
   const before = await readFile(file, 'utf8');
 
   for (const wrong of [
@@ -426,7 +403,6 @@ for (const variant of [
 
 test('bounded ledger reads wait for the reservation lock and release it', async () => {
   const root = await scratch('witch-coordination-read-lock-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
 
   const lock = await openLocked(
@@ -459,7 +435,6 @@ test('bounded ledger reads wait for the reservation lock and release it', async 
 for (const damage of ['invalid JSON', 'unreadable'] as const) {
   test(`an ${damage} ledger refuses mutations without replacing its bytes`, async () => {
     const root = await scratch('witch-coordination-damaged-');
-
     const store = await CoordinationStore.open(await StateStore.open(root));
 
     await claim(store);
@@ -486,9 +461,7 @@ for (const damage of ['invalid JSON', 'unreadable'] as const) {
 
 test('verification receives the reconciled ledger under the reservation lock', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const root = await scratch('witch-coordination-authority-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
 
   const live = await claim(
@@ -548,11 +521,8 @@ test('verification receives the reconciled ledger under the reservation lock', a
 
 test('a failed mutation releases the ledger lock without releasing the task', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const root = await scratch('witch-coordination-failure-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   const held = await claim(store);
 
   await assert.rejects(
@@ -572,14 +542,11 @@ test('a failed mutation releases the ledger lock without releasing the task', as
 
 test('presence removal cannot delete a newer activation or its task claim', async () => {
   const root = await scratch('witch-coordination-presence-');
-
   const conversations = await StateStore.open(root);
-
   const files = await conversations.create(record('a', root));
 
   try {
     const store = await CoordinationStore.open(conversations);
-
     const held = await claim(store);
 
     const first: SessionPresence = {
@@ -629,11 +596,8 @@ async function transferFixture(
   field: TransferField,
 ) {
   const root = await scratch('witch-transfer-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   const sleeper = spawn('/bin/sleep', ['60']);
-
   const closed = once(sleeper, 'close');
 
   register(async () => {
@@ -649,7 +613,6 @@ async function transferFixture(
 
   const hold = async () => {
     const activation = randomUUID();
-
     const close = await store.holdActivation(activation);
 
     register(close);
@@ -701,7 +664,6 @@ test('automatic transfer never follows a released reference onto a replacement c
   await release(f.store, owner, original.id);
 
   const replacement = await claim(f.store);
-
   const { activation } = await f.hold();
 
   await assert.rejects(
@@ -720,13 +682,11 @@ test('automatic transfer never follows a released reference onto a replacement c
 
 test('automatic transfer refuses a claim that moved since the conflict', async (t) => {
   const f = await transferFixture(orderedCleanup(t.onTestFinished), 'transfer');
-
   const original = await claim(f.store);
 
   await f.request(taker, (await f.hold()).activation);
 
   const moved = await f.handOver(original.id);
-
   const third = { conversation: 'c', project: 'project-p' };
 
   await assert.rejects(
@@ -750,7 +710,6 @@ test('automatic transfer refuses a claim that moved since the conflict', async (
 for (const field of ['transfer', 'automaticTransfer'] as const)
   test(`${field} excludes a competing request of the other kind`, async (t) => {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
-
     const original = await claim(f.store);
 
     await f.request(taker, (await f.hold()).activation);
@@ -793,7 +752,6 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
     );
 
     const { activation } = await f.hold();
-
     const scope = { owner: taker, activation, turn: randomUUID() };
 
     const { ticket } = await f.store.beginSelection(
@@ -827,13 +785,11 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
 
   test(`${field}: a second requester is refused while a transfer is pending or refused`, async (t) => {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
-
     const original = await claim(f.store);
 
     await f.request(taker, (await f.hold()).activation);
 
     const third = { conversation: 'c', project: 'project-p' };
-
     const { activation } = await f.hold();
 
     for (const refusal of [undefined, 'It is running.']) {
@@ -854,9 +810,7 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
 
   test(`${field}: a refusal stays on the request, and a withdrawal clears only the requester's own request`, async (t) => {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
-
     const original = await claim(f.store);
-
     const { activation } = await f.hold();
 
     await f.request(taker, activation);
@@ -887,7 +841,6 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
 
   test(`${field}: a hand-over refuses a requester that has since claimed another task`, async (t) => {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
-
     const original = await claim(f.store);
 
     await f.request(taker, (await f.hold()).activation);
@@ -911,9 +864,7 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
 
   test(`${field}: reconcile drops a transfer whose requester activation is released or whose wait expired`, async (t) => {
     const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
-
     const original = await claim(f.store);
-
     const left = await f.hold();
 
     await f.request(taker, left.activation);
@@ -936,15 +887,10 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
 
 test('pause records track each recipient and replay only their own retry', async () => {
   const root = await scratch('witch-pauses-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   const issuer = { conversation: 'i', project: 'project-p' };
-
   const a = { conversation: 'a', project: 'project-p' };
-
   const b = { conversation: 'b', project: 'project-q' };
-
   const deadline = () => Date.now() + 1000;
 
   const status = async (id: string) =>

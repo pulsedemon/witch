@@ -23,7 +23,6 @@ import { until, within } from './fixtures/within.js';
 /** a small PNG written into `directory`, with the bracketed paste a terminal sends for its path. */
 async function image(directory: string) {
   const bytes = png(16, 16);
-
   const path = join(directory, 'shot.png');
 
   await writeFile(path, bytes);
@@ -37,7 +36,6 @@ const delivered = (images: readonly string[] = []) =>
 
 test('Enter during a turn sends the draft and empties the composer', async () => {
   const { app, calls } = fake({ phase: 'running' });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -73,7 +71,6 @@ test('queued prompts show above the command window with a hint, and ↑ on the f
     await until('the queue', () => ui.text().includes('❯ two lines'));
 
     const lines = ui.text().split('\n');
-
     const window = lines.findIndex((line) => line.trim() === 'TOOLS');
 
     assert.deepEqual(
@@ -118,7 +115,6 @@ test('queued prompts show above the command window with a hint, and ↑ on the f
 
 test('a queued prompt with an image marker, taken back with ↑ and sent again, is delivered with its image', async () => {
   const { coordinator, a, project } = await fixture();
-
   const gate = new TurnGate();
 
   a.gate = gate;
@@ -126,9 +122,7 @@ test('a queued prompt with an image marker, taken back with ↑ and sent again, 
   a.refuseSteer = true;
 
   const { bytes, paste } = await image(project);
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
-
   const sending = coordinator.send('held turn');
 
   try {
@@ -198,7 +192,6 @@ for (const [command, message] of [
 ] as const)
   test(`${command} leaves queued prompts runnable`, async () => {
     const { coordinator, a } = await fixture();
-
     const gate = new TurnGate();
 
     a.gate = gate;
@@ -206,7 +199,6 @@ for (const [command, message] of [
     a.refuseSteer = true;
 
     const ui = show(createElement(App, { coordinator, onExit: () => {} }));
-
     const sending = coordinator.send('held turn');
 
     try {
@@ -263,7 +255,6 @@ for (const [command, message] of [
 
 test('a /sessions choice refused during a turn leaves queued prompts runnable', async () => {
   const { coordinator, a } = await fixture();
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
   await coordinator.send('first prompt');
@@ -271,7 +262,6 @@ test('a /sessions choice refused during a turn leaves queued prompts runnable', 
   await coordinator.newConversation();
 
   const { id } = coordinator.snapshot.conversation!;
-
   const gate = new TurnGate();
 
   a.gate = gate;
@@ -335,9 +325,7 @@ test('a /sessions choice refused during a turn leaves queued prompts runnable', 
 
 test('accepting failed-turn memory returns queued prompts ahead of the draft', async () => {
   const { coordinator, a } = await fixture();
-
   const gate = new TurnGate();
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
   try {
@@ -437,7 +425,6 @@ test('a queue longer than the free rows shows its first prompts and keeps the co
 
 test('↑ in an open list moves its selection and leaves the queue', async () => {
   const { app, calls } = fake({ phase: 'running', queue: ['one'] });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -487,7 +474,6 @@ test('Tab and ↑ in one read move through tools and leave the queue', async () 
 
 test('↑ with nothing queued and no earlier prompts leaves the draft as typed', async () => {
   const { app, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -511,7 +497,6 @@ test('↑ with nothing queued and no earlier prompts leaves the draft as typed',
 
 test('↑ on the first line shows older prompts from this directory with the cursor at the end, and ↓ on the last line newer ones with the cursor at the start, back to the draft', async () => {
   const { app } = fake({});
-
   const { store } = prompts(['newer\nlines', 'older']);
 
   const ui = show(
@@ -559,7 +544,6 @@ test('↑ on the first line shows older prompts from this directory with the cur
 
 test('an edit to a recalled prompt survives browsing and is sent and recorded, the recalled prompt stays as it was, and browsing then starts at the newest', async () => {
   const { app, calls } = fake({});
-
   const { store, added } = prompts(['first', 'second']);
 
   const ui = show(
@@ -609,9 +593,7 @@ test('an edit to a recalled prompt survives browsing and is sent and recorded, t
 
 test('a prompt with an image marker recalled with ↑ delivers its image again', async () => {
   const { coordinator, a, store, project } = await fixture();
-
   const { bytes, paste } = await image(project);
-
   const ui = show(createElement(App, { coordinator, store, onExit: () => {} }));
 
   try {
@@ -659,7 +641,6 @@ test('a prompt with an image marker recalled with ↑ delivers its image again',
 
 test('a prompt and a Witch command are recorded once each, and neither a blank send nor a repeat of the newest is', async () => {
   const { app, calls } = fake({});
-
   const { store, added } = prompts([]);
 
   const ui = show(
@@ -713,7 +694,6 @@ test('a prompt and a Witch command are recorded once each, and neither a blank s
 
 test('↑ takes queued prompts back before it shows earlier ones, and ↓ returns to them', async () => {
   const { app, calls } = fake({ phase: 'running', queue: ['queued'] });
-
   const { store } = prompts(['earlier']);
 
   const ui = show(
@@ -743,7 +723,6 @@ test('↑ takes queued prompts back before it shows earlier ones, and ↓ return
 
 test('prompts that come back mid-browse end browsing and go ahead of the draft typed before it', async () => {
   const { app, coordinator } = fake({});
-
   const { store } = prompts(['one']);
 
   const ui = show(
@@ -787,7 +766,6 @@ test('prompts that come back mid-browse end browsing and go ahead of the draft t
 
 test('an initial prompt sent mid-browse leaves the browsed prompt in place without a list, and comes back between it and the draft', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
-
   const { store } = prompts(['/mo', 'older']);
 
   const ui = show(
@@ -840,7 +818,6 @@ test('an initial prompt sent mid-browse leaves the browsed prompt in place witho
 
 test('an initial prompt sent after browsing back to the draft is the first prompt ↑ shows', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
-
   const { store } = prompts(['newest', 'older']);
 
   const ui = show(
@@ -889,7 +866,6 @@ test('an initial prompt sent after browsing back to the draft is the first promp
 
 test('a recalled prompt opens no completion list until it is edited, even with the cursor in its file token, so ↑ goes on to older prompts', async () => {
   const { app } = fake({}, ['src/a.ts']);
-
   const { store } = prompts(['@src/a.ts\nnext', '/mo', 'older']);
 
   const ui = show(
@@ -937,9 +913,7 @@ test('a recalled prompt opens no completion list until it is edited, even with t
 
 test('a conversation switch starts browsing again at the newest prompt as recorded, and the conversation left gets back the draft typed before browsing', async () => {
   const { app, coordinator } = fake({});
-
   const { store } = prompts(['one', 'two']);
-
   const conversation = coordinator.snapshot.conversation!;
 
   const ui = show(
@@ -993,9 +967,7 @@ test('a conversation switch starts browsing again at the newest prompt as record
 
 test('a draft holding an image marker, left for another conversation and back, delivers the image when sent', async () => {
   const { coordinator, a, project } = await fixture();
-
   const { bytes, paste } = await image(project);
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
   try {

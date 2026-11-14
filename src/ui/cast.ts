@@ -3,17 +3,11 @@ import type { DisplayItem } from '../core/state.js';
 import { accent, accentDim, colors } from './theme.js';
 
 const stepMs = 100;
-
 export const castFrames = 20;
-
 export const castMs = castFrames * stepMs;
-
 const title = '✦ Spell';
-
 const hot = '#fff1c2';
-
 const fire = '#fb923c';
-
 const ember = '#7c3a2b';
 
 /** decoration stays on the heading's row; the cached title remains the copy and scroll anchor. */
@@ -70,7 +64,6 @@ export function castTitle(frame?: number, width = title.length): string {
     }
 
     const age = frame - 13;
-
     const glowing = (column * 7) % 11 >= (age * 10) / 6;
 
     return colors.hex(age < 3 ? ember : accentDim)(glowing ? '.' : ' ');

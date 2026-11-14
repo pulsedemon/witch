@@ -7,7 +7,6 @@ import { fixture, frameWriter } from './fixtures/claude-adapter.js';
 
 test('native familiar model-only frames preserve task state', async () => {
   const events: AgentEvent[] = [];
-
   const f = await fixture((event) => events.push(event), 'background');
 
   const emit = frameWriter(
@@ -144,7 +143,6 @@ test('native familiar model-only frames preserve task state', async () => {
 
 test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative and a spell under Witch's name, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
   const events: AgentEvent[] = [];
-
   const { session, cwd } = await fixture((event) => events.push(event));
 
   try {
@@ -233,7 +231,6 @@ test("a Claude familiar's tool calls give its latest activity, with a path under
 
 test("Claude's subagent tasks report their parent, run and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
   const events: AgentEvent[] = [];
-
   const { session } = await fixture((event) => events.push(event));
 
   try {
@@ -303,7 +300,6 @@ test("Claude's subagent tasks report their parent, run and how they finished, it
 
 test("Claude's background shells are commands from when the live set lists them, whether started there or moved there, until their notification, and neither foreground shells nor agents are", async () => {
   const events: AgentEvent[] = [];
-
   const { session } = await fixture((event) => events.push(event));
 
   try {

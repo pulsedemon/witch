@@ -52,15 +52,10 @@ export async function nativeScenario(
     writeFile(join(options.cwd, 'probe.mjs'), source);
 
   const probes = new Map<string, ProcessIdentity>();
-
   let nativeProcess: ProcessIdentity | undefined;
-
   const failures: unknown[] = [];
-
   let finished = false;
-
   const abort = new AbortController();
-
   let turnFailure: unknown;
 
   const watchTurn = (turn: Promise<TurnResult>) => {
@@ -124,7 +119,6 @@ export async function nativeScenario(
       return;
 
     const owned = new Set([nativeProcess.pid]);
-
     let added = true;
 
     while (added) {
@@ -298,7 +292,6 @@ export async function nativeScenario(
         'Run exactly `node probe.mjs` in the foreground. Do not use other tools, spells or delegation. When it ends reply only WITCH_CONTROL_309.';
 
       const started = events.length;
-
       const sending = session.send(prompt);
 
       watchTurn(sending);
@@ -326,7 +319,6 @@ export async function nativeScenario(
       assert.match(steered.text, /STEER_309/);
 
       const before = events.length;
-
       const interrupted = session.send(prompt);
 
       watchTurn(interrupted);
@@ -390,7 +382,6 @@ export async function nativeScenario(
       from = events.length;
 
       const prompt = '/probe-spell hello';
-
       const call = skillCall(prompt, skills);
 
       assert.ok(call, 'the probe spell is listed');

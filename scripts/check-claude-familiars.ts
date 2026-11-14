@@ -31,7 +31,6 @@ assert.ok(
 );
 
 const root = resolve(process.argv[2]);
-
 const project = join(root, 'project');
 
 for (const directory of [project, join(root, 'jobs'), join(root, 'tmp')])
@@ -59,9 +58,7 @@ await writeFile(
 );
 
 const state = await StateStore.open(join(root, 'state'));
-
 const memory = new Memory(join(root, 'state/memory.git'));
-
 const entry = fileURLToPath(new URL('../src/cli.tsx', import.meta.url));
 
 const coordination = await SessionCoordination.open(
@@ -110,11 +107,8 @@ const application = render(
 );
 
 let previous = '';
-
 let approved = new Set<string>();
-
 let observed = '';
-
 let pending: Promise<void> | undefined;
 
 const unsubscribe = coordinator.subscribe(() => {
@@ -354,7 +348,6 @@ try {
 
     if (mode === 'job-stop') {
       const group = Number((await ps('pgid=', [wrapper]))[0]!.trim());
-
       const job = (await jobs.list()).find((job) => job.group === group);
 
       assert.ok(job, 'registered review remains owned by jobs');
@@ -398,9 +391,7 @@ try {
   }
 
   const serverPid = Number(await readFile(join(project, 'server.pid'), 'utf8'));
-
   const group = Number((await ps('pgid=', [serverPid]))[0]!.trim());
-
   const job = (await jobs.list()).find((job) => job.group === group);
 
   assert.ok(job);

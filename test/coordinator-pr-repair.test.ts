@@ -103,7 +103,6 @@ test('a conflict on the claimed pull request starts one repair turn per head and
 
 test('a repair is flagged automatic from its admission read until it settles', async (t) => {
   const s = await setup(t);
-
   const refreshed = Promise.withResolvers<void>();
 
   s.c.repair.setRefresh(() => refreshed.promise);
@@ -145,7 +144,6 @@ test('a repair is flagged automatic from its admission read until it settles', a
 
 test('a conflict kept through an uncomputed read, or on an unclaimed pull request, starts no repair', async (t) => {
   const s = await setup(t);
-
   const conflicting = s.pullRequest();
 
   s.observe(s.read({ mergeable: 'UNKNOWN', commit: head(2) }, conflicting));
@@ -195,7 +193,6 @@ test('a conflict kept through an uncomputed read, or on an unclaimed pull reques
 
 test('a repair waits for the running and queued user turns, and a prompt sent during it queues', async (t) => {
   const s = await setup(t);
-
   const gate = new TurnGate();
 
   s.x.a.gate = gate;
@@ -254,7 +251,6 @@ test('a repair waits for the running and queued user turns, and a prompt sent du
 
 test('a stopped repair holds automatic turns until the next prompt and is never repeated', async (t) => {
   const s = await setup(t);
-
   const gate = new TurnGate();
 
   s.x.a.gate = gate;
@@ -294,7 +290,6 @@ test('a stopped repair holds automatic turns until the next prompt and is never 
 
 test('a failed repair keeps the queue for the composer and its head attempted', async (t) => {
   const s = await setup(t);
-
   const gate = new TurnGate();
 
   s.x.a.gate = gate;
@@ -328,7 +323,6 @@ test('a failed repair keeps the queue for the composer and its head attempted', 
 
 test('a restart during the repair keeps its head attempted, and a new head still repairs', async (t) => {
   const s = await setup(t);
-
   const gate = new TurnGate();
 
   s.x.a.gate = gate;
@@ -398,7 +392,6 @@ test('a checkout on another branch declines the repair with one notice until the
 
 test('an ownership check that refuses before native input declines the repair until the next prompt', async (t) => {
   const s = await setup(t);
-
   const repository = s.read();
 
   await s.c.send('connect');
@@ -441,7 +434,6 @@ test('an ownership check that refuses before native input declines the repair un
 test('losing the claim or the base during a repair stops it once', async (t) => {
   for (const kind of ['claim', 'base'] as const) {
     const s = await setup(t, kind === 'claim' ? 'A' : 'B');
-
     const gate = new TurnGate();
 
     s.x.a.gate = gate;
@@ -485,11 +477,8 @@ test('losing the claim or the base during a repair stops it once', async (t) => 
 /** holds the next admission's ownership check until `release`, then runs the real one. */
 function gateOwnership(s: Awaited<ReturnType<typeof setup>>) {
   const reviews = s.x.coordination.reviews;
-
   const owns = reviews.owns.bind(reviews);
-
   const entered = Promise.withResolvers<void>();
-
   const released = Promise.withResolvers<void>();
 
   vi.spyOn(reviews, 'owns').mockImplementationOnce(async (...args) => {
@@ -506,7 +495,6 @@ function gateOwnership(s: Awaited<ReturnType<typeof setup>>) {
 test('an admission overtaken by a prompt or a stop records nothing and repairs once they clear', async (t) => {
   for (const kind of ['prompt', 'stop'] as const) {
     const s = await setup(t, kind === 'prompt' ? 'A' : 'B');
-
     const gate = gateOwnership(s);
 
     s.observe(s.read());
@@ -545,7 +533,6 @@ test('an admission overtaken by a prompt or a stop records nothing and repairs o
 
 test("a head observed during another head's admission repairs in the same drain", async (t) => {
   const s = await setup(t);
-
   const gate = gateOwnership(s);
 
   s.observe(s.read());
@@ -569,9 +556,7 @@ test("a head observed during another head's admission repairs in the same drain"
 
 test('switching conversations during an admission admits nothing', async (t) => {
   const s = await setup(t);
-
   const original = s.c.snapshot.conversation!.id;
-
   const gate = gateOwnership(s);
 
   s.observe(s.read());
@@ -602,7 +587,6 @@ test('switching conversations during an admission admits nothing', async (t) => 
 
 test('a waiting peer answer runs before the repair, and one arriving during its admission runs after it', async (t) => {
   const s = await setup(t);
-
   const b = await s.f.start('B');
 
   await b.claim('task:asker');
@@ -662,7 +646,6 @@ test('a waiting peer answer runs before the repair, and one arriving during its 
 
 test('an ownership check that throws declines with its error, reported once per blocker and conversation', async (t) => {
   const s = await setup(t);
-
   const owns = vi.spyOn(s.x.coordination.reviews, 'owns');
 
   owns.mockRejectedValue(new Error('Ledger unavailable.'));
@@ -702,15 +685,10 @@ test('an ownership check that throws declines with its error, reported once per 
 
 test('a restart while the final ownership check runs keeps the head attempted', async (t) => {
   const s = await setup(t);
-
   const reviews = s.x.coordination.reviews;
-
   const owns = reviews.owns.bind(reviews);
-
   const entered = Promise.withResolvers<void>();
-
   const released = Promise.withResolvers<void>();
-
   let calls = 0;
 
   vi.spyOn(reviews, 'owns').mockImplementation(async (...args) => {
@@ -728,7 +706,6 @@ test('a restart while the final ownership check runs keeps the head attempted', 
   await within(entered.promise, 5000, 'final ownership check');
 
   const id = s.c.snapshot.conversation!.id;
-
   const closing = s.c.close({ restart: true });
 
   released.resolve();
@@ -750,7 +727,6 @@ test('a restart while the final ownership check runs keeps the head attempted', 
 
 test('a conflict observed while a Copilot admission reads GitHub repairs in the same drain', async (t) => {
   const s = await setup(t);
-
   const source = reviewSource();
 
   source.pullRequest = { ...s.pullRequest(), mergeable: undefined };
@@ -785,7 +761,6 @@ test('a conflict observed while a Copilot admission reads GitHub repairs in the 
 
 test('the wired conflict watch survives a conversation switch and a restart with a repair pending', async (t) => {
   const s = await setup(t);
-
   const listeners = new Set<() => void>();
 
   const repository = {
@@ -803,7 +778,6 @@ test('the wired conflict watch survives a conversation switch and a restart with
   s.x.coordination.updateRepository(repository.snapshot);
 
   const release = s.c.holdPromptDelivery();
-
   const stop = watchConflicts(repository, s.c);
 
   try {
@@ -829,7 +803,6 @@ test('the wired conflict watch survives a conversation switch and a restart with
 
 test('a new conflict does not steer prompts a replied turn refused', async (t) => {
   const s = await setup(t);
-
   const gate = new TurnGate();
 
   s.x.a.gate = gate;
@@ -862,7 +835,6 @@ test('a new conflict does not steer prompts a replied turn refused', async (t) =
 });
 
 const checkPrefix = 'Witch started this turn to repair the failed checks';
-
 const job = (n: number) => `https://github.com/o/r/actions/runs/1/job/${n}`;
 
 /** a mergeable read whose `verify` check failed, as `parsePullRequest` publishes it. */
@@ -963,7 +935,6 @@ test('failed checks on the claimed pull request start one repair turn per head a
 
 test('a check repair waits for the running and queued user turns', async (t) => {
   const s = await setup(t);
-
   const gate = new TurnGate();
 
   s.x.a.gate = gate;

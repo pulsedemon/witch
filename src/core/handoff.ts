@@ -45,30 +45,22 @@ export async function handoff(
   { summarize = true, continueTask, ready }: HandoffOptions = {},
 ): Promise<void> {
   const { agent } = selection;
-
   const conversation = host.conversation();
-
   const from = conversation.agent;
-
   const outcome = conversation.lastTurn?.status;
 
   const unfinished =
     continueTask || outcome === 'interrupted' || outcome === 'failed';
 
   const previous = conversation.sessions[agent];
-
   let activated = false;
-
   // the handoff this one replaced, which the source may already have consumed while summarizing
   let replaced: ConversationRecord['handoff'];
-
   let overwritten = false;
 
   try {
     let summary = '';
-
     const { items } = host.snapshot();
-
     const context = items.slice(contextStart(items));
 
     if (context.some((item) => item.kind === 'user' && !item.unread)) {
@@ -187,9 +179,7 @@ export function transcriptContext(items: readonly DisplayItem[]): string {
     );
 
   const kept = new Map<number, string>();
-
   let size = 0;
-
   const request = rows.findIndex((row) => row.kind === 'user');
 
   const keep = (index: number, available: number) => {
@@ -212,7 +202,6 @@ export function transcriptContext(items: readonly DisplayItem[]): string {
       parts.reduce((total, part) => total + part.length, 0) > available;
 
     let remaining = truncated ? available - 12 : available;
-
     let text = '';
 
     for (const part of parts) {

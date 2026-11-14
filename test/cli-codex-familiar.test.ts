@@ -43,7 +43,6 @@ async function fixture(
   beforeReply?: (request: ControlRequest) => Promise<void>,
 ) {
   const root = await scratch('codex-familiar-');
-
   const bin = join(root, 'bin');
 
   await mkdir(bin);
@@ -62,7 +61,6 @@ async function fixture(
   await chmod(join(bin, 'codex'), 0o700);
 
   const report = join(root, 'report.txt');
-
   const preload: string[] = [];
 
   if (options.pauseIntervals) {
@@ -117,9 +115,7 @@ syncBuiltinESMExports();
   };
 
   const requests: ControlRequest[] = [];
-
   const errors: unknown[] = [];
-
   let rejectUpdates = false;
 
   let response = options.waitForResponse
@@ -419,7 +415,6 @@ test("a Codex familiar lists its spells before its turn and reports its own and 
     );
 
     const path = await realpath(join(f.root, '.agents/skills/a/SKILL.md'));
-
     const final = f.updates().at(-1)!;
 
     assert.equal(final.status, 'completed');
@@ -632,9 +627,7 @@ test('a silent Codex task stops on interruption or loss of its reporting connect
 
 test('a Codex familiar survives an exhausted progress timeout and delivers its pending final report', async () => {
   const gate = Promise.withResolvers<void>();
-
   const entered = Promise.withResolvers<void>();
-
   let approvalResolved = false;
 
   const f = await fixture({ mode: 'gated-completion' }, async (request) => {
@@ -656,7 +649,6 @@ test('a Codex familiar survives an exhausted progress timeout and delivers its p
     await within(entered.promise, 5000, 'stalled progress after approval');
 
     const launch = await f.launch();
-
     const native = await identifyProcess(launch.pid);
 
     assert.ok(native);

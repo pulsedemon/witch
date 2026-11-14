@@ -49,7 +49,6 @@ try {
   await mkdir(dirname(destination), { recursive: true });
 
   const temporary = `${destination}.${randomUUID()}.tmp`;
-
   const file = await open(temporary, 'wx', 0o755);
 
   try {

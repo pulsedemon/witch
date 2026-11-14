@@ -22,9 +22,7 @@ export function router(
     signal?: AbortSignal,
   ): Promise<ControlOutcome> => {
     const { snapshot } = coordinator;
-
     const cwd = snapshot.conversation?.cwd;
-
     const caller = snapshot.native?.agent ?? snapshot.conversation?.agent;
 
     if (!cwd || !caller)

@@ -323,11 +323,8 @@ export class CopilotReviewController {
     if (this.abort.signal.aborted) return;
 
     const record = this.host.record();
-
     const state = record && this.state(record);
-
     const coordination = this.host.coordination();
-
     const claim = coordination?.snapshot.ownClaim;
 
     return state &&
@@ -341,9 +338,7 @@ export class CopilotReviewController {
 
   ready(): boolean {
     const record = this.host.record();
-
     const state = this.current();
-
     const retry = this.retry === state?.pullRequest.url;
 
     return (
@@ -384,9 +379,7 @@ export class CopilotReviewController {
 
   async run(): Promise<boolean> {
     const record = this.host.record();
-
     const source = this.source;
-
     const coordination = this.host.coordination();
 
     if (
@@ -576,11 +569,8 @@ export class CopilotReviewController {
     if (!state) return;
 
     const items = state.items.filter(({ present }) => present);
-
     const handled = items.filter(({ status }) => status === 'handled').length;
-
     const blocked = items.filter(({ status }) => status === 'blocked');
-
     const pending = items.length - handled - blocked.length;
 
     const reasons = [

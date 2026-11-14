@@ -32,7 +32,6 @@ vi.mock('../src/persistence/directories.js', async (importOriginal) => {
 /** a conversation saved in `old`, which the ledger knows beside `moves`, and a repair that returns its record. */
 async function held(moves: LedgerMove[] = []) {
   const root = await scratch('witch-clock-');
-
   const at = (path: string) => join(root, path);
 
   await mkdir(at('old'));
@@ -52,7 +51,6 @@ async function held(moves: LedgerMove[] = []) {
   );
 
   const store = await StateStore.open(at('state'));
-
   const memory = await seededMemory(at('state/memory.git'));
 
   const repair = async (cwd: string) => {
@@ -131,7 +129,6 @@ async function created(
   moves: (at: (path: string) => string) => Promise<LedgerMove[]>,
 ) {
   const root = await scratch('witch-clock-');
-
   const at = (path: string) => join(root, path);
 
   await mkdir(at('old'));
@@ -148,9 +145,7 @@ async function created(
   );
 
   const store = await StateStore.open(at('state'));
-
   const files = await store.create(createConversation(at('old'), 'a'));
-
   const { id } = files.record;
 
   await files.close();

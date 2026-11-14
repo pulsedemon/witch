@@ -74,7 +74,6 @@ export class JsonRpc {
     if (this.failure) return Promise.reject(this.failure);
 
     const id = ++this.sequence;
-
     const result = Promise.withResolvers<unknown>();
 
     this.pending.set(id, result);

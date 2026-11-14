@@ -101,9 +101,7 @@ async function groups(watch: JobWatch): Promise<number[]> {
 
 test('known orphan ownership survives repeated checkpoints', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   let rows = [agent, command, worker, unrelated];
-
   const original = watcher(cleanup, () => rows);
 
   assert.deepEqual(await groups(original), [100010]);
@@ -111,7 +109,6 @@ test('known orphan ownership survives repeated checkpoints', async (t) => {
   rows = [{ ...worker, ppid: 1 }, unrelated];
 
   const saved = await checkpoint(original);
-
   const restored = watcher(cleanup, () => rows, saved);
 
   assert.deepEqual(await groups(restored), [100010]);
@@ -133,9 +130,7 @@ test('known orphan ownership survives repeated checkpoints', async (t) => {
 
 test('restored jobs stop only their current generation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   let rows = [agent, command, worker, unrelated];
-
   const original = watcher(cleanup, () => rows);
 
   await original.list();
@@ -143,9 +138,7 @@ test('restored jobs stop only their current generation', async (t) => {
   rows = [{ ...worker, ppid: 1 }, unrelated];
 
   const saved = await checkpoint(original);
-
   const restored = watcher(cleanup, () => rows, saved);
-
   const [job] = await restored.list();
 
   assert.ok(job);
@@ -173,7 +166,6 @@ test('restored jobs stop only their current generation', async (t) => {
   rows = [{ ...worker, ppid: 1 }, unrelated];
 
   const selected = watcher(cleanup, () => rows, saved);
-
   const [oldSelection] = await selected.list();
 
   assert.ok(oldSelection);
@@ -191,9 +183,7 @@ test('restored jobs stop only their current generation', async (t) => {
 
 test('a checkpoint keeps ordinary members of withheld tmux groups', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   let rows = [agent, command, worker];
-
   const original = watcher(cleanup, () => rows);
 
   await original.list();
@@ -233,9 +223,7 @@ test('a checkpoint keeps ordinary members of withheld tmux groups', async (t) =>
 
 test('a checkpoint keeps exclusions after tmux descendants reparent', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   let rows = [agent, command, worker, tmux, pane];
-
   const original = watcher(cleanup, () => rows);
 
   assert.deepEqual(await groups(original), []);
@@ -270,9 +258,7 @@ test('a checkpoint keeps exclusions after tmux descendants reparent', async (t) 
 
 test('restoration does not adopt pre-existing marked or foreign workers', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   let rows = [agent, command, worker];
-
   const original = watcher(cleanup, () => rows);
 
   await original.list();
@@ -320,16 +306,12 @@ test('restoration does not adopt pre-existing marked or foreign workers', async 
 
 test('checkpoint waits for a fresh read after a pending poll', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const member = { ...worker, ppid: 1 };
 
   for (const ending of [false, true]) {
     const entered = Promise.withResolvers<void>();
-
     const old = Promise.withResolvers<Row[]>();
-
     let reads = 0;
-
     const rows = ending ? [] : [member];
 
     const watch = watcher(cleanup, () => rows, undefined, {
@@ -379,11 +361,8 @@ test('checkpoint rejects failed pending and fresh reads', async (t) => {
 
   for (const pendingFails of [false, true]) {
     const failure = new Error('checkpoint process read failed');
-
     const entered = Promise.withResolvers<void>();
-
     const old = Promise.withResolvers<Row[]>();
-
     let reads = 0;
 
     const watch = watcher(cleanup, () => [], undefined, {

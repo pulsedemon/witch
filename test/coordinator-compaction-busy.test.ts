@@ -22,7 +22,6 @@ test('a direct busy compact coalesces callers and holds later input until the or
     f.a.gate = gate;
 
     const native = f.a.sessions[0]!.session;
-
     const order: string[] = [];
 
     const send = native.send.bind(native),
@@ -107,7 +106,6 @@ for (const success of [true, false]) {
       native.session.compactDuringTurn = () => completed.promise;
 
       const release = c.holdPromptDelivery();
-
       const compact = c.compact();
 
       await c.send('later under new model');
@@ -133,7 +131,6 @@ for (const success of [true, false]) {
       assert.equal(await f.memory.read('main', note), 'Use port 4567.');
 
       const steered: [string, string][] = [];
-
       const steer = native.session.steer.bind(native.session);
 
       native.session.steer = async (prompt, options) => {
@@ -204,7 +201,6 @@ test('busy foreground compact waits for parent settlement before admitting model
     native.session.compactDuringTurn = () => completed.promise;
 
     const compact = c.compact();
-
     const isSettled = settled(compact);
 
     completed.resolve({ status: 'completed', text: '' });
@@ -239,7 +235,6 @@ test('a model choice after a busy compaction waits for the finished turn to sett
     gate = new TurnGate();
 
   const native = f.a.sessions.at(-1)!.session;
-
   const settlement = holdSettlement(native);
 
   try {
@@ -307,7 +302,6 @@ test('manual compact joins an automatic compact and restores the removed batch b
     await gate.entered;
 
     const release = c.holdPromptDelivery();
-
     const compact = c.compact();
 
     await c.send('later');
@@ -325,7 +319,6 @@ test('manual compact joins an automatic compact and restores the removed batch b
     assert.equal(f.a.compactions.length, 1);
 
     const observed: [string, string][] = [];
-
     const send = native.send.bind(native);
 
     native.send = (...args) => {
@@ -401,9 +394,7 @@ test('a compaction requested while a conversation changes never runs in the repl
 
   try {
     const before = c.snapshot.conversation!.id;
-
     const changing = c.newConversation();
-
     const compact = c.compact();
 
     await changing;
@@ -436,7 +427,6 @@ for (const closed of [false, true])
 
     // the held batch skips the turn's begin, so settlement reads the next status
     const status = Workspace.prototype.status;
-
     let armed = false;
 
     const override = vi

@@ -18,7 +18,6 @@ export function chooseModel(
   live?: () => boolean,
 ): Promise<boolean | void> {
   const { agents, conversation, models } = coordinator.snapshot;
-
   const active = conversation!.agent;
 
   const selection = modelTarget(

@@ -353,11 +353,8 @@ export class RuntimeSwitch {
 
   private async attempt(request: PendingSwitch): Promise<boolean> {
     const host = this.host;
-
     const { phase, error, commandsPending } = host.snapshot();
-
     const { agent } = host.conversation();
-
     const from = this.label(agent);
 
     if (host.closed() || error) return false;
@@ -411,7 +408,6 @@ export class RuntimeSwitch {
     request: PendingSwitch,
   ): Promise<void> {
     const host = this.host;
-
     const { agent, cwd } = host.conversation();
 
     const others = host
@@ -440,9 +436,7 @@ export class RuntimeSwitch {
     if (this.deferBackground(request)) return;
 
     const destinations = others.map((id) => this.destination(agent, id));
-
     const chosen = destinations.find((choice) => 'selection' in choice);
-
     const from = this.label(agent);
 
     if (!chosen || !('selection' in chosen)) {
@@ -475,21 +469,13 @@ export class RuntimeSwitch {
   /** `to` qualifies on room or usable credits observed after it last ran out, with a model comparable to the one `from` ran. */
   private destination(from: string, to: string): Destination {
     const { accounts, models, latest } = this.host.snapshot();
-
     const now = Date.now();
-
     const name = this.label(to);
-
     const account = accounts[to];
-
     const limits = account?.limits ?? [];
-
     const since = this.exhaustedAt.get(to) ?? -Infinity;
-
     const observed = Math.min(...limits.map(({ observedAt }) => observedAt));
-
     const room = headroom(limits, 100, now) && observed > since;
-
     const credits = creditCapacity(account, now);
 
     if (
@@ -516,7 +502,6 @@ export class RuntimeSwitch {
       return { reason: `${name} lists no models` };
 
     const model = this.host.conversation().sessions[from]?.model;
-
     const family = model && comparable(from, model, to);
 
     if (!family)

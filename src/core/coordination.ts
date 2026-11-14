@@ -361,7 +361,6 @@ export class SessionCoordination {
       .catch(() => undefined);
 
     const activation = randomUUID();
-
     const release = await this.registry.holdActivation(activation);
 
     const active: Activation = {
@@ -435,7 +434,6 @@ export class SessionCoordination {
   /** returns a way to restore this activation's prior admission if the transition defers after draining. */
   async quiesce(): Promise<() => void> {
     const active = this.active;
-
     const accepting = active?.accepting ?? false;
 
     if (active) active.accepting = false;
@@ -528,7 +526,6 @@ export class SessionCoordination {
     if (this.state) this.update(this.state);
 
     const active = this.active;
-
     const pullRequest = repository?.pullRequest;
 
     if (
@@ -627,7 +624,6 @@ export class SessionCoordination {
     this.flushingPauses ??= this.serialize(async () => {
       while (this.pauseWrites.length) {
         const { conversation, kind, pauses } = this.pauseWrites[0]!;
-
         const deadline = Date.now() + 1000;
 
         if (kind === 'resume')
@@ -765,7 +761,6 @@ export class SessionCoordination {
     snapshot: CoordinationSnapshot;
   }> {
     const active = this.admit();
-
     let moved: string[] = [];
 
     try {
@@ -919,9 +914,7 @@ export class SessionCoordination {
     if (state?.ledger) return state.ledger;
 
     const active = this.active;
-
     const project = active?.project;
-
     let revision = 0;
 
     const accept = () => {
@@ -1168,7 +1161,6 @@ export class SessionCoordination {
 
   private refreshProject(active: Activation, deadline?: number): Promise<void> {
     const previous = this.projecting;
-
     const controller = new AbortController();
 
     const cancel = () => {
@@ -1280,7 +1272,6 @@ export class SessionCoordination {
     if (this.refreshing || this.events.pending) return;
 
     const signature = this.registry.signature();
-
     const now = performance.now();
 
     const minute =
@@ -1350,7 +1341,6 @@ export class SessionCoordination {
         : this.refreshing.promise.then(() => this.refresh());
 
     const revision = ++this.revision;
-
     const current = () => this.current(active, project);
 
     const discovery = this.discover(revision).catch((error: unknown) => {

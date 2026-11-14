@@ -31,13 +31,9 @@ import { scratch } from './fixtures/scratch.js';
 import { settled, until, within } from './fixtures/within.js';
 
 const execute = promisify(execFile);
-
 const fixture = join(import.meta.dirname, 'fixtures/scratch-lifetime.ts');
-
 const loader = import.meta.resolve('tsx');
-
 const bootA = '11111111-1111-4111-8111-111111111111';
-
 const bootB = '22222222-2222-4222-8222-222222222222';
 
 const decisions = (candidates: readonly ScratchCandidate[], use: ScratchUse) =>
@@ -47,7 +43,6 @@ const unused = async (candidates: readonly ScratchCandidate[]) =>
   decisions(candidates, 'unused');
 
 const firstBoot = { boot: async () => bootA, inspect: unused };
-
 const laterBoot = { boot: async () => bootB, inspect: unused };
 
 async function runFixture(parent: string, mode = 'restart', ...args: string[]) {
@@ -85,7 +80,6 @@ async function holdFixture(
   );
 
   const ended = once(child, 'close');
-
   const output = createInterface({ input: child.stdout });
 
   const close = async () => {
@@ -123,20 +117,15 @@ async function holdFixture(
 
 test('fresh scratch waits for a competing sweep and records its owner', async (t) => {
   const parent = await scratch('witch-scratch-contention-');
-
   const created = Promise.withResolvers<string>();
-
   const mkdir = files.mkdir;
-
   let holder: Awaited<ReturnType<typeof holdFixture>> | undefined;
-
   let opening: Promise<ScratchSpace> | undefined;
 
   try {
     vi.spyOn(files, 'mkdir').mockImplementation(
       async (...args: Parameters<typeof files.mkdir>) => {
         const result = await mkdir(...args);
-
         const directory = String(args[0]);
 
         if (dirname(directory) === parent) {
@@ -154,7 +143,6 @@ test('fresh scratch waits for a competing sweep and records its owner', async (t
     opening = ScratchSpace.open(parent, firstBoot);
 
     const isSettled = settled(opening);
-
     const directory = await within(created.promise, 5000, 'competing sweep');
 
     await delay(150);
@@ -234,7 +222,6 @@ test('concurrent scratch opens retain distinct owned directories', async (t) => 
 
 test('scratch resumes in place and stays private, then an exited owner is reclaimed on the next launch', async () => {
   const parent = await scratch('witch-scratch-');
-
   const [before, after] = await runFixture(parent);
 
   assert.ok(before);
@@ -272,7 +259,6 @@ test('scratch resumes in place and stays private, then an exited owner is reclai
 
 test('retained scratch survives its boot and is swept after a different boot', async () => {
   const parent = await scratch('witch-scratch-');
-
   const retained = await ScratchSpace.open(parent, firstBoot);
 
   await writeFile(join(retained.directory, 'marker'), 'survivor');
@@ -329,9 +315,7 @@ test('retained scratch survives its boot and is swept after a different boot', a
 
 test("a held directory remains untouched during another instance's sweep", async (t) => {
   const parent = await scratch('witch-scratch-');
-
   const holder = await holdFixture(t, parent);
-
   const contender = await ScratchSpace.open(parent, laterBoot);
 
   await contender.close();
@@ -352,7 +336,6 @@ test("a held directory remains untouched during another instance's sweep", async
 
 test('the first restart adopts its numeric scratch without moving files', async () => {
   const parent = await scratch('witch-scratch-');
-
   const live = join(parent, String(process.pid));
 
   await mkdir(live);
@@ -405,7 +388,6 @@ for (const [mode, restarts] of [
 
     try {
       const reports = await runFixture(parent, mode, String(restarts));
-
       const first = reports[0]!;
 
       assert.equal(reports.length, restarts + 1);
@@ -475,19 +457,14 @@ for (const [mode, restarts] of [
 
 test('uncertain legacy scratch establishes a boot boundary without deleting data', async () => {
   const parent = await scratch('witch-scratch-');
-
   const child = spawn('/usr/bin/true');
 
   await once(child, 'exit');
 
   const abandoned = join(parent, String(child.pid));
-
   const incomplete = join(parent, randomUUID());
-
   const digits = join(parent, '123456789012');
-
   const invalid = join(parent, randomUUID());
-
   const denied = join(parent, '100001');
 
   for (const directory of [abandoned, incomplete, digits, invalid, denied]) {
@@ -542,7 +519,6 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
 
 test('a version 1 root naming an exited owner is judged and reclaimed in its boot', async () => {
   const parent = await scratch('witch-scratch-');
-
   const child = spawn('/usr/bin/true');
 
   await once(child, 'exit');
@@ -586,9 +562,7 @@ test('a version 1 root naming an exited owner is judged and reclaimed in its boo
 
 test('scratch resume rejects a different owner or an invalid location', async () => {
   const parent = await scratch('witch-scratch-');
-
   const original = await ScratchSpace.open(parent, firstBoot);
-
   let resuming: Promise<ScratchSpace> | undefined;
 
   try {
@@ -686,9 +660,7 @@ test('scratch resume rejects a different owner or an invalid location', async ()
 
 test('a live owner resumes while another root is still being inspected', async (t) => {
   const parent = await scratch('witch-scratch-restart-gap-');
-
   const holder = await holdFixture(t, parent, 'restart-gap');
-
   const abandoned = join(parent, randomUUID());
 
   await mkdir(abandoned);
@@ -701,7 +673,6 @@ test('a live owner resumes while another root is still being inspected', async (
   await writeFile(join(abandoned, 'marker'), 'abandoned');
 
   const inspecting = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
 
   const opening = ScratchSpace.open(parent, {
@@ -746,7 +717,6 @@ test('a live owner resumes while another root is still being inspected', async (
 
 test('uncertain ownership survives restart after the observed process has gone', async () => {
   const parent = await scratch('witch-scratch-uncertain-');
-
   const [before, after] = await runFixture(parent, 'uncertain');
 
   assert.ok(before);
@@ -773,13 +743,11 @@ test('uncertain ownership survives restart after the observed process has gone',
 
 test('concurrent cleaners retain a root until its owning sweep completes', async (t) => {
   const parent = await scratch('witch-scratch-cleaners-');
-
   const holder = await holdFixture(t, parent);
 
   await holder.release();
 
   const inspecting = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
 
   const opening = ScratchSpace.open(parent, {
@@ -823,15 +791,12 @@ test('concurrent cleaners retain a root until its owning sweep completes', async
 
 test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
   const parent = await scratch('witch-scratch-close-');
-
   const holder = await holdFixture(t, parent);
 
   await holder.release();
 
   const inspecting = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   let initial = true;
 
   const cleaner = await ScratchSpace.open(parent, {
@@ -896,7 +861,6 @@ test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
 
 test('a failed observation preserves files and the next periodic sweep reclaims them', async (t) => {
   const parent = await scratch('witch-scratch-retry-');
-
   const holder = await holdFixture(t, parent);
 
   await holder.release();
@@ -932,7 +896,6 @@ test('a failed observation preserves files and the next periodic sweep reclaims 
 for (const change of ['metadata', 'directory'] as const) {
   test(`cleanup leaves a ${change} changed during inspection untouched`, async (t) => {
     const parent = await scratch('witch-scratch-changed-');
-
     const holder = await holdFixture(t, parent);
 
     await holder.release();

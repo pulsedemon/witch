@@ -6,9 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
-
 let parent: Promise<string> | undefined;
-
 let made: string | undefined;
 
 process.once('exit', cleanScratch);

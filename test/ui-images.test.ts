@@ -33,7 +33,6 @@ test('typing stays responsive while an image converts, and the image shows once 
   });
 
   const conversions: Parameters<typeof childProcess.execFile>[] = [];
-
   const execute = childProcess.execFile;
 
   t.onTestFinished(() => {
@@ -79,7 +78,6 @@ test('typing stays responsive while an image converts, and the image shows once 
 
 test('a reopened conversation still draws the image a message was sent with after the pasted file is gone', async () => {
   const { coordinator, a, project, reopen } = await unitFixture();
-
   const shot = join(project, 'shot.png');
 
   await writeFile(shot, png(160, 80));
@@ -93,7 +91,6 @@ test('a reopened conversation still draws the image a message was sent with afte
   await rm(shot);
 
   const reopened = await reopen();
-
   const graphics = new Graphics(() => {});
 
   const ui = show(

@@ -31,7 +31,6 @@ const review = (runtime: string, ...findings: Finding[]): Review => ({
 });
 
 const both: Round = { number: 1, scope: 'full', runtimes: ['claude', 'codex'] };
-
 const json = (value: unknown) => `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``;
 
 test('parseFindings reads only the last json block and normalizes paths, and says why it read none', () => {
@@ -195,7 +194,6 @@ test('a change in a single-harness round brings every harness back', () => {
 
 test('a quiet diff round runs one closing pass with everyone', () => {
   const round: Round = { number: 2, scope: 'diff', runtimes: ['claude'] };
-
   const decided = decide({ round, reviews: [review('claude')] });
 
   assert.deepEqual(decided, { blockers: [], sittingOut: [] });

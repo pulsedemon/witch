@@ -82,7 +82,6 @@ const deliveredScope = async (
   if (!scopes.has(to)) scopes.set(to, scopeAt(memory, to));
 
   const { project, top } = await scopes.get(to)!;
-
   // a path-keyed project's key changes with the path, so the old paths' keys count too, including a stopped repair's
   // `from`
   const rest = top && to.slice(top.length);
@@ -179,7 +178,6 @@ async function recordMoves(
   // entries worth finding: Git-backed ones, and ones holding a seed or a record cwd before or after the ledger maps
   // it. the holders are collected once, so the check stays linear in entries and records
   const { map } = await mapper(ledger);
-
   const held = new Set<string>();
 
   for (const path of [
@@ -235,7 +233,6 @@ async function recordMoves(
       if (!within(entry.path, declared.from)) continue;
 
       const path = declared.to + entry.path.slice(declared.from.length);
-
       const identity = await identify(path);
 
       if (!identity) continue;
@@ -285,7 +282,6 @@ export async function repairMoves(
   };
 
   const { records, unreadable } = await store.records();
-
   const scopes: Scopes = new Map();
 
   if (asked)
@@ -294,7 +290,6 @@ export async function repairMoves(
     );
 
   const listed = await worktreeList(run, cwd);
-
   const seeds = [cwd, ...(listed ?? [])];
 
   if (asked && !isAbsolute(asked.from)) {
@@ -393,9 +388,7 @@ async function repairConversations(
   },
 ): Promise<Tally> {
   const { map, suspended } = await mapper(ledger);
-
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
-
   // each directory this repair resolved, by path, a ledger entry over a move found to the same place
   const resolvedPaths = new Map<string, Identity & { path: string }>();
 
@@ -502,7 +495,6 @@ async function record(
   };
 
   const paths = new Set([cwd, ...seeds, ...records.map(({ cwd }) => cwd)]);
-
   const spellings = new Map<string, string>();
 
   const spelling = async (path: string, identity?: Identity) => {
@@ -522,7 +514,6 @@ async function record(
   };
 
   const lists = new Map<string, string[]>();
-
   // every worktree of a repository lists the same registrations
   const listing = new Map<string, string[]>();
 
@@ -532,7 +523,6 @@ async function record(
     if (!identity) continue;
 
     const path = await spelling(original, identity);
-
     const read = listing.get(path) ?? (await worktreeList(run, path));
 
     const list =
@@ -727,7 +717,6 @@ function summarize(
 
   const line = (move: Move) => {
     const key = `${move.from}\0${move.to}`;
-
     let known = lines.get(key);
 
     if (!known) {
@@ -751,7 +740,6 @@ function summarize(
 
   for (const move of found) {
     const known = line(owner(move));
-
     const main = mainOf(move);
 
     if (main !== undefined && main !== move.to) known.worktrees++;

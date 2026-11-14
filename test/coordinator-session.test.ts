@@ -27,13 +27,9 @@ import { until, within } from './fixtures/within.js';
 
 test('the pentacle follows foreground work and every running local task', async () => {
   const { coordinator, a, store, memory } = await fixture();
-
   const activity = coordinator.pentacle;
-
   const gate = new TurnGate();
-
   const source = Symbol('independent work');
-
   const switching: boolean[] = [];
 
   const unsubscribe = coordinator.subscribe(() => {
@@ -391,13 +387,11 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
   for (const loss of [false, true])
     test(loss ? 'process exit' : 'completion in a later turn', async () => {
       const root = await scratch('witch-codex-brews-');
-
       const cwd = join(root, 'project');
 
       await mkdir(cwd);
 
       const store = await StateStore.open(join(root, 'state'));
-
       const memory = await seededMemory(join(root, 'state', 'memory.git'));
 
       const executable = fileURLToPath(
@@ -739,12 +733,10 @@ test("the live session's usage reaches the snapshot, and a new conversation star
 
 test('a reported shell is in the state, handed to the jobs, and cleared by the end report', async () => {
   const { coordinator, a, root, tracked } = await fixture();
-
   const sleeper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
 
   try {
     const id = coordinator.snapshot.conversation!.id;
-
     const { onShell } = a.sessions[0]!.options;
 
     await onShell!(sleeper.pid);
@@ -778,7 +770,6 @@ test("an agent connects with the job watch's mark", async () => {
 
 test('close ends a held turn when its interrupt throws', async () => {
   const { coordinator, a } = await fixture();
-
   const gate = new TurnGate();
 
   try {
@@ -853,7 +844,6 @@ test('close rejects with a publish failure and still closes the session and the 
   await coordinator.send('remember-port');
 
   const id = coordinator.snapshot.conversation!.id;
-
   let attempted = false;
 
   hook.current = async (command, run) => {
@@ -1066,7 +1056,6 @@ test('an idle tool timer write failure needs a restart without another operation
 
 test('a git failure in settle tells the user to restart before continuing', async () => {
   const { coordinator, a, hook } = await integrationFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -1126,7 +1115,6 @@ test('agent events reach the transcript with their own replace, append and cwd',
     options.onEvent({ ...tool, text: 'a', done: false, cwd: '/elsewhere' });
 
     const layout = new TranscriptLayout();
-
     const expanded = new Map([[coordinator.snapshot.items[1]!.id, true]]);
 
     assert.equal(
@@ -1197,7 +1185,6 @@ test("a tool's diff reaches its transcript row and comes back when the conversat
 
 test('coalesced history retains the latest receipt time instead of the write time', async () => {
   const { coordinator, a, root } = await fixture();
-
   const id = coordinator.snapshot.conversation!.id;
 
   vi.useFakeTimers({
@@ -1270,7 +1257,6 @@ test('a native skills change replaces the list, unless its session has closed', 
 
   try {
     const { options, session } = a.sessions.at(-1)!;
-
     const later = [{ name: 'later', description: 'Added later' }];
 
     options.onEvent({ type: 'skills', skills: later });
@@ -1289,7 +1275,6 @@ test('a native skills change replaces the list, unless its session has closed', 
 
 test('answers reach the agent and only a cancel interrupts the turn, a resolved request leaves the queue, and the settled turn leaves none', async () => {
   const { coordinator, a } = await fixture();
-
   const gate = new TurnGate();
 
   try {
@@ -1352,7 +1337,6 @@ test('answers reach the agent and only a cancel interrupts the turn, a resolved 
 
 test('an answered question stays in the transcript as the reply with each question and its answers, a secret answer hidden, and a declined question adds nothing', async () => {
   const { coordinator, a } = await fixture();
-
   const gate = new TurnGate();
 
   try {

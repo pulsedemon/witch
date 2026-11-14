@@ -6,11 +6,8 @@ import { within } from './fixtures/within.js';
 
 test('flush waits for queued inputs to finish consumer processing', async () => {
   const queue = new InputQueue<number>();
-
   const entered = [1, 2, 3].map(() => Promise.withResolvers<void>());
-
   const release = [1, 2, 3].map(() => Promise.withResolvers<void>());
-
   const processed: number[] = [];
 
   const reader = (async () => {

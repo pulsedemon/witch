@@ -7,9 +7,7 @@ export async function settleMemory(
   workspace: Workspace,
 ): Promise<{ recovery?: Recovery; failure?: string }> {
   let dirty = false;
-
   let conflict: MemoryConflict | undefined;
-
   let failure: string | undefined;
 
   if (await workspace.exists()) {

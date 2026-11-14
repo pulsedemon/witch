@@ -24,9 +24,7 @@ export async function setup(t: TestContext, name = 'A') {
   }));
 
   const x = await f.start(name);
-
   const c = x.coordinator;
-
   const cwd = c.snapshot.conversation!.cwd;
 
   await git('-C', cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/x');
@@ -42,7 +40,6 @@ export async function setup(t: TestContext, name = 'A') {
     kept?: PullRequest,
   ): Repository => {
     const current = pullRequest(fields);
-
     const conflict = current.mergeable === 'CONFLICTING' ? current : kept;
 
     return repositoryRead({

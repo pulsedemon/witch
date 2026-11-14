@@ -6,7 +6,6 @@ import type { Coordinator } from '../src/core/coordinator.js';
 import { unitFixture } from './fixtures/coordinator.js';
 
 const tdd = { id: 's1', name: 'tdd' };
-
 const review = { id: 's2', name: 'review' };
 
 const casts = (coordinator: Coordinator) =>
@@ -27,7 +26,6 @@ async function reconnect(f: Awaited<ReturnType<typeof unitFixture>>) {
 
 test('a spell event shows one cast row, which reopening keeps', async () => {
   const { coordinator, a, project, reopen } = await unitFixture();
-
   let reopened: Coordinator | undefined;
 
   try {

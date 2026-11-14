@@ -20,18 +20,14 @@ async function linear<T>(
 ): Promise<T> {
   const measure = async (share: number) => {
     const repair = await prepare(share);
-
     const before = process.cpuUsage();
-
     const result = await repair();
-
     const { user, system } = process.cpuUsage(before);
 
     return { result, ms: (user + system) / 1000 };
   };
 
   const quarter = await measure(0.25);
-
   const full = await measure(1);
 
   assert.ok(
@@ -46,7 +42,6 @@ test('repair with many known directories and conversations stays linear', async 
   // checking every entry against every conversation is quadratic
   const report = await linear(async (share) => {
     const root = await scratch('witch-scale-');
-
     const at = (path: string) => join(root, path);
 
     for (let index = 0; index < 2000 * share; index++) {
@@ -72,7 +67,6 @@ test('repair with many known directories and conversations stays linear', async 
     await mkdir(at('here'));
 
     const store = await StateStore.open(at('state'));
-
     const memory = await seededMemory(at('state/memory.git'));
 
     return () =>
@@ -89,7 +83,6 @@ test('repairing many conversations past many unrelated moves stays linear', asyn
   // each rewrite rechecks only the moves its own mapping followed
   const { report, store, at } = await linear(async (share) => {
     const root = await scratch('witch-scale-');
-
     const at = (path: string) => join(root, path);
 
     for (let index = 0; index < 100 * share; index++) {
@@ -122,7 +115,6 @@ test('repairing many conversations past many unrelated moves stays linear', asyn
     await rename(at('old'), at('new'));
 
     const store = await StateStore.open(at('state'));
-
     const memory = await seededMemory(at('state/memory.git'));
 
     return async () => ({
@@ -143,7 +135,6 @@ test('repairing many conversations past many unrelated moves stays linear', asyn
 
 test('conversations moving to the same place look up its project scope once', async () => {
   const root = await scratch('witch-scale-');
-
   const at = (path: string) => join(root, path);
 
   await mkdir(at('old'));
@@ -177,9 +168,7 @@ test('conversations moving to the same place look up its project scope once', as
   await rename(at('old'), at('new'));
 
   const store = await StateStore.open(at('state'));
-
   const memory = await seededMemory(at('state/memory.git'));
-
   const looked = vi.spyOn(memory, 'scopePaths');
 
   await repairMoves(store, memory, at('new'), {
@@ -196,7 +185,6 @@ test('previewing many moved conversations beside many known directories stays li
   // a preview skips the rewrites, so the per-conversation destination lookup dominates
   const report = await linear(async (share) => {
     const root = await scratch('witch-scale-');
-
     const at = (path: string) => join(root, path);
 
     for (let index = 0; index < 4000 * share; index++) {
@@ -229,7 +217,6 @@ test('previewing many moved conversations beside many known directories stays li
     await rename(at('old'), at('new'));
 
     const store = await StateStore.open(at('state'));
-
     const memory = await seededMemory(at('state/memory.git'));
 
     return () =>

@@ -42,9 +42,7 @@ export class NotificationSchedule {
 
     try {
       const file = join(this.directory, 'schedule.json');
-
       const previous = await readJson(file, recordSchema);
-
       const data = message();
 
       if (data === undefined) return;

@@ -60,25 +60,15 @@ export async function runCodexFamiliar(
   withoutMcp = false,
 ): Promise<number> {
   const argv = codexArguments(args);
-
   const path = resolve(reportFile);
-
   const file = await open(path, 'wx', 0o600);
-
   const run = randomUUID();
-
   const abort = new AbortController();
-
   let session: AgentSession | undefined;
-
   let closing: Promise<void> | undefined;
-
   let stopped = false;
-
   let ending = false;
-
   let failure: string | undefined;
-
   let heartbeat: ReturnType<typeof setInterval> | undefined;
 
   let childExit:
@@ -86,9 +76,7 @@ export async function runCodexFamiliar(
     | undefined;
 
   let progress: FamiliarProgress = { status: 'running', tools: 0 };
-
   const tools = new Set<string>();
-
   const prompts: string[] = [];
 
   const requests = new Map<
@@ -230,11 +218,8 @@ export async function runCodexFamiliar(
   process.on('SIGTERM', stop);
 
   let report = '';
-
   let status: FamiliarProgress['status'] = 'failed';
-
   let registered = false;
-
   const save = () => saveReport(file, report);
 
   try {

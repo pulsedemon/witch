@@ -38,7 +38,6 @@ const read = {
 
 test('observed init and unique top-level tool uses supply identity and activity until process exit', () => {
   const events: FamiliarProgress[] = [];
-
   const review = new ClaudeTask('/work', (progress) => events.push(progress));
 
   review.message(init);
@@ -115,7 +114,6 @@ const skill = (id: string, name: string, nested = {}) => ({
 
 test("a delegated Claude's spell call and familiar denial show Witch's names, and its spells, its own familiars' included, are reported once each", () => {
   const events: FamiliarProgress[] = [];
-
   const task = new ClaudeTask('/work', (progress) => events.push(progress));
 
   task.message(init);
@@ -178,7 +176,6 @@ test("a delegated Claude's spell call and familiar denial show Witch's names, an
 
 test('delegated Claude observes assistant model changes', () => {
   const events: FamiliarProgress[] = [];
-
   const task = new ClaudeTask('/work', (progress) => events.push(progress));
 
   const thinking = (model: string) => ({
@@ -227,7 +224,6 @@ test('delegated Claude observes assistant model changes', () => {
 
 test('native session model switches and reversions change displayed identity while local fallback leaves it alone', () => {
   const events: FamiliarProgress[] = [];
-
   const review = new ClaudeTask('/work', (progress) => events.push(progress));
 
   review.message(init);

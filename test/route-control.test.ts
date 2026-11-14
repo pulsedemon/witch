@@ -25,7 +25,6 @@ const window = (percent: number, observedAt = Date.now()): Limit => ({
 
 async function start(register: Parameters<typeof orderedCleanup>[0]) {
   const { start } = await unitCoordinationFixture(orderedCleanup(register));
-
   const session = await start('A');
 
   session.a.catalog.splice(0, 2, { id: 'a-2-model', label: 'A2', efforts: [] });
@@ -50,7 +49,6 @@ async function start(register: Parameters<typeof orderedCleanup>[0]) {
 
 test('a route answers during a running turn with no selection turn, and shows its choice in the transcript', async (t) => {
   const f = await start(t.onTestFinished);
-
   const gate = new TurnGate();
 
   f.a.gate = gate;
@@ -331,7 +329,6 @@ test('a read slower than the wait still gets a reply, routed on what is current'
     );
 
   const started = performance.now();
-
   const reply = await f.route();
 
   vi.restoreAllMocks();
@@ -391,7 +388,6 @@ test('--route takes the kind of work, the producer and a named model', () => {
 
 test('a policy that cannot be read refuses the route in the transcript as well as to the agent', async (t) => {
   const f = await start(t.onTestFinished);
-
   const unreadable = 'The delegation policy at /p/policy.json is unreadable.';
 
   f.coordination.router = router(f.coordinator, {

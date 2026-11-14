@@ -10,7 +10,6 @@ import { until, within } from './fixtures/within.js';
 
 test('clear starts a new native session while retaining the conversation, settings, transcript and memory workspace', async () => {
   const f = await fixture();
-
   const c = f.coordinator;
 
   try {
@@ -19,9 +18,7 @@ test('clear starts a new native session while retaining the conversation, settin
     await c.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
 
     const before = structuredClone(c.snapshot);
-
     const old = f.a.sessions.at(-1)!;
-
     const workspace = f.workspace();
 
     const branch = await f.memory.git(workspace.root, [
@@ -34,7 +31,6 @@ test('clear starts a new native session while retaining the conversation, settin
     await c.clear();
 
     const native = f.a.sessions.at(-1)!;
-
     const record = await readRecord(f.root, before.conversation!.id);
 
     assert.equal(old.session.closed, true);
@@ -157,7 +153,6 @@ test("clear preserves the resolved model, even one the agent wouldn't offer, wit
     });
 
     const native = f.a.sessions.at(-1)!;
-
     const resolved = { ...native.session.info, model: 'a-big' };
 
     Object.defineProperty(native.session, 'info', { get: () => resolved });
@@ -186,7 +181,6 @@ test("clear preserves the resolved model, even one the agent wouldn't offer, wit
 
 test('clear survives reopening and discards both runtime histories and unfinished handoff state', async () => {
   const f = await unitFixture();
-
   let c = f.coordinator;
 
   try {
@@ -291,7 +285,6 @@ async function recoverOutput(
 
 test('clear drops recovered and close-time output only for its own conversation', async () => {
   const f = await unitFixture();
-
   const c = f.coordinator;
 
   try {
@@ -341,9 +334,7 @@ test('clear drops recovered and close-time output only for its own conversation'
 for (const replied of [false, true]) {
   test(`clear refuses a ${replied ? 'replied held' : 'running'} turn without changing sessions`, async () => {
     const f = await unitFixture();
-
     const gate = new TurnGate();
-
     let sending: Promise<void> | undefined;
 
     try {
@@ -409,9 +400,7 @@ test('clear refuses pending memory recovery without dropping its queued input', 
 
 test('clear refuses already queued input after a failed turn', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
-
   let sending: Promise<void> | undefined;
 
   try {
@@ -452,11 +441,8 @@ test('clear refuses already queued input after a failed turn', async () => {
 
 test('input sent during a clear reconnect runs once in the new session', async () => {
   const f = await unitFixture();
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   let clearing: Promise<void> | undefined;
 
   try {
@@ -498,14 +484,12 @@ test('input sent during a clear reconnect runs once in the new session', async (
 for (const stage of ['close', 'connect'] as const) {
   test(`a clear ${stage} failure ${stage === 'close' ? 'keeps the old context' : 'cannot restore the old context'}`, async () => {
     const f = await unitFixture();
-
     const c = f.coordinator;
 
     try {
       await c.send('old history');
 
       const old = c.snapshot.native!.id;
-
       const id = c.snapshot.conversation!.id;
 
       f.a.sessions.at(-1)!.session.takeUnreadContext = () => [

@@ -14,9 +14,7 @@ import { until, within } from './fixtures/within.js';
 
 test('a tool row keeps the path its title shows and its expanded title through its result and a reopen', async () => {
   const { coordinator, a, reopen } = await unitFixture();
-
   let reopened: Coordinator | undefined;
-
   const title = 'Read  ./shot one.png';
 
   const row = (items: readonly DisplayItem[]) => {
@@ -60,11 +58,8 @@ test('a tool row keeps the path its title shows and its expanded title through i
 
 test('an unfinished tool keeps its original row through idle and later turns', async () => {
   const { coordinator, a, reopen } = await unitFixture();
-
   const first = new TurnGate();
-
   const second = new TurnGate();
-
   let reopened: Coordinator | undefined;
 
   const emit = (id: string, text: string, done: boolean, append = false) =>
@@ -163,7 +158,6 @@ test('an unfinished tool keeps its original row through idle and later turns', a
 
 test('completed tool IDs and new native connections get their own rows', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gates = [new TurnGate(), new TurnGate(), new TurnGate()];
 
   const emit = (id: string, text: string, done: boolean) =>
@@ -260,7 +254,6 @@ test('completed tool IDs and new native connections get their own rows', async (
 /** holds the snapshot's note listing until released. a turn takes a snapshot only after memory moves. */
 function holdSnapshot(hook: { current: GitHook }) {
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
 
   hook.current = async (command, run) => {
@@ -456,7 +449,6 @@ describe('pending command context waits until a prompt is dispatched', () => {
             a.failConnect = false;
           } else if (failure === 'snapshot') {
             const snapshot = holdSnapshot(hook);
-
             const sending = coordinator.send('blocked');
 
             try {
@@ -511,9 +503,7 @@ test('an interrupt during the memory snapshot delivers nothing and leaves the pr
     await coordinator.send('remember-port');
 
     const before = a.inputs.length;
-
     const snapshot = holdSnapshot(hook);
-
     const sending = coordinator.send('Second');
 
     await within(snapshot.entered, 2000, 'the snapshot');
@@ -568,7 +558,6 @@ describe('an interrupted initial reconnect leaves the prompt queued without an e
         });
 
         const connecting = Promise.withResolvers<void>();
-
         const release = Promise.withResolvers<void>();
 
         try {
@@ -614,7 +603,6 @@ describe('an unrelated initial reconnect failure remains visible', () => {
         });
 
         const connecting = Promise.withResolvers<void>();
-
         const release = Promise.withResolvers<void>();
 
         const failure = interrupt
@@ -688,9 +676,7 @@ test('a session that closes during the snapshot receives nothing', async () => {
     await coordinator.send('remember-port');
 
     const before = a.inputs.length;
-
     const snapshot = holdSnapshot(hook);
-
     const sending = coordinator.send('Second');
 
     await within(snapshot.entered, 2000, 'the snapshot');
@@ -717,11 +703,8 @@ test('a session that closes during the snapshot receives nothing', async () => {
 
 test('Ctrl+C during the save before sending reaches the agent', async () => {
   const { coordinator, a, hook } = await fixture();
-
   const gate = new TurnGate();
-
   const save = ConversationStore.prototype.save;
-
   const held = Promise.withResolvers<void>();
 
   try {
@@ -799,7 +782,6 @@ test('a spell, a native command and prompts sent during a turn join it in order 
   });
 
   const gate = new TurnGate();
-
   const prompts = ['/review now', '/context', 'One', 'Two'];
 
   try {
@@ -937,7 +919,6 @@ for (const [name, prompt, prepare] of [
 ] as const)
   test(`${name} waits in the queue, unseen until it goes as the next turn`, async () => {
     const { coordinator, a } = await unitFixture();
-
     const gate = new TurnGate();
 
     try {
@@ -1065,7 +1046,6 @@ test('a report after a queued turn stays on screen, and the prompts after it wai
 
 test('prompts sent together steer or queue in the order sent', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -1076,9 +1056,7 @@ test('prompts sent together steer or queue in the order sent', async () => {
     await within(gate.entered, 2000, 'the gated turn');
 
     const { session } = a.sessions.at(-1)!;
-
     const steer = session.steer.bind(session);
-
     let first = true;
 
     // only the first is refused, so the second queues by its place behind it
@@ -1188,7 +1166,6 @@ test('a prompt sent while the launch connects goes once the load ends', async ()
   );
 
   const connecting = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
 
   a.beforeConnect = holdConnect(connecting, release);
@@ -1238,7 +1215,6 @@ test('a prompt sent while a switch opens the next conversation is refused, so it
 
 test('a failed turn leaves what was queued behind it for the composer instead of running it', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -1277,7 +1253,6 @@ test('a failed turn leaves what was queued behind it for the composer instead of
 
 test('a prompt whose steer is refused after a failed turn has ended stays for the composer, and one sent at idle still runs', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -1330,7 +1305,6 @@ test('a prompt whose steer is refused after a failed turn has ended stays for th
 
 test('a failed handoff continuation leaves what was queued during the switch for the composer', async () => {
   const { coordinator, a, b } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -1373,7 +1347,6 @@ test('a prompt sent just before a switch stays queued for its conversation, so t
 
   try {
     const { id } = coordinator.snapshot.conversation!;
-
     const sending = coordinator.send('Stay');
 
     await assert.rejects(coordinator.newConversation(), /still queued/);
@@ -1423,7 +1396,6 @@ test('a conversation switch is refused while prompts are queued, which wait with
 for (const inputUnsent of [true, undefined]) {
   test(`failed input delivery ${inputUnsent ? 'preserves the original queue batch' : 'does not replay an uncertain submission'}`, async () => {
     const { coordinator, a } = await unitFixture();
-
     const submitted: string[] = [];
 
     a.sessions[0]!.session.send = async (prompt) => {

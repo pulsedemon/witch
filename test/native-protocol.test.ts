@@ -56,7 +56,6 @@ for (const runtime of ['codex', 'claude'] as const) {
   ) as NativeScenario[]) {
     test(`${runtime} replays native ${scenario} through its production adapter`, async () => {
       const cwd = await scratch('witch-native-protocol-');
-
       const files: string[] = manifest[runtime].scenarios[scenario].files;
 
       const replay = replayWire(
@@ -264,7 +263,6 @@ test('Codex wire validation rejects unknown methods and validates approval answe
 
 test('selected skills and child reads send native-shaped requests and consume their replies', async () => {
   const events: AgentEvent[] = [];
-
   const contract = new CodexSchema(schema);
 
   const f = await fixture((event) => events.push(event), {
@@ -312,7 +310,6 @@ test('selected skills and child reads send native-shaped requests and consume th
 
 test('images go to Codex as native localImage items after the text and selected skill of turn/start, and after the text of turn/steer', async () => {
   const contract = new CodexSchema(schema);
-
   const sent: RpcMessage[] = [];
 
   const f = await fixture(undefined, {
@@ -385,9 +382,7 @@ for (const [prompt, method, response] of [
 ] satisfies [string, string, UserResponse][]) {
   test(`the adapter's ${method} response satisfies the generated native contract`, async () => {
     let pending: UserRequest | undefined;
-
     const contract = new CodexSchema(schema);
-
     const replies: unknown[] = [];
 
     const f = await fixture(
@@ -468,7 +463,6 @@ test('a restricted Codex fork and its structured reply use the generated native 
 
 test('a compaction window change unsubscribes and resumes through the generated native contract', async () => {
   const contract = new CodexSchema(schema);
-
   const sent: string[] = [];
 
   const f = await fixture(undefined, {
@@ -514,9 +508,7 @@ test('a compaction window change unsubscribes and resumes through the generated 
 
 test('every Codex request method in production is covered by the native schema and an exercised call', () => {
   const methods = new CodexSchema(schema).methods();
-
   const exercised = new Set(requests.map(({ method }) => method));
-
   const agents = new URL('../src/agents/', import.meta.url);
 
   for (const file of readdirSync(agents).filter((name) =>
@@ -625,7 +617,6 @@ test('a recorded Claude result stays pending until its recorded native idle arri
   assert.ok(idle > 0);
 
   const replay = replayWire(files, cwd, { gates: [[idle]], fragmentBytes: 7 });
-
   let capture: ReturnType<typeof observeWire>;
 
   const adapter = new ClaudeAdapter(() => {
@@ -637,14 +628,11 @@ test('a recorded Claude result stays pending until its recorded native idle arri
   });
 
   const connect = adapter.connect.bind(adapter);
-
   let first: Promise<TurnResult> | undefined;
-
   let completed = false;
 
   adapter.connect = async (options) => {
     const session = await connect(options);
-
     const send = session.send.bind(session);
 
     session.send = (...args) => {

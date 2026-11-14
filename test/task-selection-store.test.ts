@@ -23,7 +23,6 @@ import { orderedCleanup } from './fixtures/cleanup.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const verify = async () => {};
-
 const deadline = () => Date.now() + 5000;
 
 const input = (number: number) => ({
@@ -33,9 +32,7 @@ const input = (number: number) => ({
 
 async function fixture(register: RegisterCleanup) {
   const root = await scratch('witch-selection-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   const identity = (await identifyProcess(process.pid))!;
 
   const scope = async (conversation: string, project = 'project-p') => {
@@ -117,13 +114,9 @@ function contender(register: RegisterCleanup, root: string, name: string) {
 
 test('three processes advance in enqueue order and reserve distinct tasks', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const a = contender(cleanup, f.root, 'A');
-
   const b = contender(cleanup, f.root, 'B');
-
   const c = contender(cleanup, f.root, 'C');
 
   await Promise.all([a.ready, b.ready, c.ready]);
@@ -185,11 +178,8 @@ test('three processes advance in enqueue order and reserve distinct tasks', asyn
 
 test('a dead head advances the next process while other live claims remain', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const a = contender(cleanup, f.root, 'A');
-
   const b = contender(cleanup, f.root, 'B');
 
   await Promise.all([a.ready, b.ready]);
@@ -215,7 +205,6 @@ test('a dead head advances the next process while other live claims remain', asy
 
 test('a crashed active owner releases its task while another process keeps its claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
 
   const a = contender(cleanup, f.root, 'A'),
@@ -245,7 +234,6 @@ test('a crashed active owner releases its task while another process keeps its c
 
 test('non-head and alias-conflicting recommendations preserve every byte and ticket', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
 
   const a = await f.scope('A'),
@@ -288,7 +276,6 @@ test('non-head and alias-conflicting recommendations preserve every byte and tic
 
 test('separate projects choose independently and recommendation retries cannot revise ownership', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
 
   const a = await f.scope('A'),
@@ -301,7 +288,6 @@ test('separate projects choose independently and recommendation retries cannot r
   assert.equal(second.position, 1);
 
   const recommended = await f.recommend(b, second.ticket.id, 18);
-
   const before = await readFile(f.file, 'utf8');
 
   assert.deepEqual(await f.recommend(b, second.ticket.id, 18), recommended);
@@ -327,13 +313,9 @@ test('separate projects choose independently and recommendation retries cannot r
 
 test('owner, activation and turn fence status, recommendation and cancellation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const a = await f.scope('A');
-
   const first = await f.begin(a);
-
   const before = await readFile(f.file, 'utf8');
 
   for (const wrong of [
@@ -371,7 +353,6 @@ test('owner, activation and turn fence status, recommendation and cancellation',
   await f.store.cancelSelection(a, undefined, deadline(), verify);
 
   const later = { ...a, turn: randomUUID() };
-
   const newest = await f.begin(later);
 
   await f.store.cancelSelection(a, undefined, deadline(), verify);
@@ -386,11 +367,8 @@ test('owner, activation and turn fence status, recommendation and cancellation',
 
 test('promotion keeps identity and aliases while different work replaces a suggestion', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const a = await f.scope('A');
-
   const first = await f.begin(a);
 
   const suggestion = await f.store.recommend(
@@ -420,9 +398,7 @@ test('promotion keeps identity and aliases while different work replaces a sugge
   assert.deepEqual(await f.store.claims(), []);
 
   const second = await f.begin(a);
-
   const old = await f.recommend(a, second.ticket.id, 18);
-
   const replacement = await f.claim(a, 19);
 
   assert.notEqual(replacement.id, old.id);
@@ -434,16 +410,13 @@ test('promotion keeps identity and aliases while different work replaces a sugge
 
 test('failed replacement preserves a suggestion and reselect releases it at the tail', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
 
   const a = await f.scope('A'),
     b = await f.scope('B');
 
   const first = await f.begin(a);
-
   const suggestion = await f.recommend(a, first.ticket.id, 17);
-
   const second = await f.begin(b);
 
   await f.store.claim(
@@ -474,7 +447,6 @@ test('failed replacement preserves a suggestion and reselect releases it at the 
 
 test('only a successful direct claim removes its selection', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
 
   const a = await f.scope('A'),
@@ -498,7 +470,6 @@ test('only a successful direct claim removes its selection', async (t) => {
 for (const active of [false, true])
   test(`a ${active ? 'claim' : 'suggestion'} survives activation loss but not a different process incarnation`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const f = await fixture(cleanup);
 
     const a = {
@@ -512,9 +483,7 @@ for (const active of [false, true])
     cleanup(release);
 
     const first = await f.begin(a);
-
     const reserved = await f.recommend(a, first.ticket.id, 17);
-
     const suggestion = active ? await f.claim(a, 17) : reserved;
 
     await release();
@@ -561,15 +530,10 @@ for (const active of [false, true])
 
 test('deadline and unknown activation failures preserve the ledger', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const a = await f.scope('A');
-
   const first = await f.begin(a);
-
   const before = await readFile(f.file, 'utf8');
-
   const expires = Date.now() + 1000;
 
   await assert.rejects(
@@ -607,11 +571,8 @@ test('deadline and unknown activation failures preserve the ledger', async (t) =
 
 test('version one migrates only on a change and unsupported ledgers stay untouched', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const conversations = await StateStore.open(f.root);
-
   const opened = await conversations.create(record('old', f.root));
 
   cleanup(() => opened.close());
@@ -633,7 +594,6 @@ test('version one migrates only on a change and unsupported ledgers stay untouch
   assert.equal(await readFile(f.file, 'utf8'), original);
 
   const a = await f.scope('A');
-
   const lock = join(f.root, 'conversations', 'old', 'lock');
 
   await chmod(lock, 0o000);

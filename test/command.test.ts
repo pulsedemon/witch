@@ -34,7 +34,6 @@ for (const cancellable of [false, true])
 
 test('a cancelled command cannot start another checkout mutation', async () => {
   const cwd = await scratch('witch-command-');
-
   const signal = AbortSignal.abort();
 
   await assert.rejects(

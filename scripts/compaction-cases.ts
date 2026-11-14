@@ -16,9 +16,7 @@ assert.ok(values.out, '--out is required');
 
 // prompts per packet before and after the compaction, as docs/compaction-check.md describes
 const before = 8;
-
 const after = 4;
-
 const out = resolve(values.out);
 
 /** `command` is a compaction Witch ran, at its threshold or for `/compact`; `native` is the runtime's own. */
@@ -126,13 +124,11 @@ class Rows {
  */
 async function* lines(file: string): AsyncGenerator<Row> {
   const parsed = new Rows(file);
-
   // a row's pieces, joined once at its newline, so a row spanning many chunks isn't rescanned
   let pieces: string[] = [];
 
   for await (const chunk of createReadStream(file, { encoding: 'utf8' })) {
     const text = chunk as string;
-
     let start = 0;
 
     for (
@@ -208,15 +204,10 @@ async function codexCompactions(): Promise<NativeCompaction[]> {
 
   for await (const file of jsonl(join(homedir(), '.codex', 'sessions'))) {
     let session: string | undefined;
-
     let turn: NativeCompaction[] = [];
-
     let output = false;
-
     let tokens: number | undefined;
-
     let window: number | undefined;
-
     // the usage Witch's pre-turn check read
     let start: number | undefined;
 
@@ -281,9 +272,7 @@ async function codexCompactions(): Promise<NativeCompaction[]> {
 /** the conversation as the user saw it: prompts, compaction notices and the last reply before each, a replaced reply kept at its first position. */
 async function transcript(file: string): Promise<Entry[]> {
   const entries: Entry[] = [];
-
   const byId = new Map<string, Entry>();
-
   // the queue sends an unread prompt again as a new row
   const unread = new Set<Entry>();
 
@@ -386,11 +375,8 @@ function trailing(entries: Entry[], from: number, to: number, count: number) {
 }
 
 const shown = (entry: Entry) => entry.kind !== 'compaction';
-
 const natives = [...(await claudeCompactions()), ...(await codexCompactions())];
-
 const conversations = join(homedir(), '.witch', 'conversations');
-
 // one history at a time, streamed, so tool output never accumulates in memory
 const read = [];
 
@@ -423,9 +409,7 @@ const latest = new Set(
 // one pass per history: each notice's last clear, the reply before it and its next boundary
 const notices = read.flatMap(({ id, sessions, entries }) => {
   const found = [];
-
   let cleared = -1;
-
   let previous: string | undefined;
 
   for (const [index, entry] of entries.entries()) {
@@ -477,7 +461,6 @@ natives.sort((a, b) => a.at - b.at);
 /** native compactions less than a minute from `at`, found by binary search over the sorted list. */
 function near(at: number): NativeCompaction[] {
   let low = 0;
-
   let high = natives.length;
 
   while (low < high) {
@@ -536,7 +519,6 @@ for (const { id, entries, index, cleared, end, current, native } of notices) {
   // a prompt whose turn compacts is answered after the compaction; Witch writes the prompt after its own
   // compaction before a turn, so a prompt before that one belongs to an earlier turn
   const last = entries[index - 1];
-
   const inTurn = entries[index + 1]?.kind === 'assistant';
 
   const prompt =

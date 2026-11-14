@@ -41,15 +41,12 @@ async function stopped(
   } = {},
 ) {
   const root = await scratch('witch-interrupted-');
-
   const at = (path: string) => join(root, path);
 
   await mkdir(at(home), { recursive: true });
 
   const store = await StateStore.open(at('state'));
-
   const memory = await seededMemory(at('state/memory.git'));
-
   const repair = (cwd: string) => repairMoves(store, memory, at(cwd));
 
   const files = await store.create({
@@ -117,7 +114,6 @@ for (const stop of ['before', 'after'] as const)
   for (const again of [true, false])
     test(`a repair stopped ${stop} its history write finishes at the next start${again ? ' after another move' : ''}`, async () => {
       const { at, repair, saved } = await stopped(stop, [['ran', 'tools']]);
-
       const final = again ? 'c' : 'b';
 
       if (again) await rename(at('b'), at('c'));

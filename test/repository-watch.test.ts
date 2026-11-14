@@ -11,7 +11,6 @@ import { scratch } from './fixtures/scratch.js';
 import { until } from './fixtures/within.js';
 
 const execute = promisify(execFile);
-
 // only macOS watches; Linux polls, as the polling tests in repository.test.ts cover
 const watching = test.skipIf(process.platform !== 'darwin');
 
@@ -45,9 +44,7 @@ function counting(hold?: (started: number) => Promise<void> | undefined) {
     if (command === 'gh') throw new Error('no pull requests found');
 
     const read = args.includes('status');
-
     const started = read ? ++status.started : 0;
-
     const { stdout } = await execute(command, args, options);
 
     if (read) {
@@ -69,7 +66,6 @@ const widened = (status: { finished: number }) =>
 /** waits until no status read has started for `window` ms; a watch that polls or wakes itself never gets there. */
 async function settled(status: { started: number }, window = 300) {
   let reads = status.started;
-
   let since = performance.now();
 
   await until('status reads to stop', () => {
@@ -91,7 +87,6 @@ watching(
     await quiet();
 
     const { run, status } = counting();
-
     const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
 
     t.onTestFinished(() => watch.close());
@@ -254,7 +249,6 @@ watching(
 
 watching("a linked worktree's staged change is read", async (t) => {
   const work = await workTree();
-
   const linked = join(dirname(work), 'linked');
 
   await git(work, 'worktree', 'add', '--quiet', linked);
@@ -262,7 +256,6 @@ watching("a linked worktree's staged change is read", async (t) => {
   await quiet();
 
   const { run, status } = counting();
-
   const watch = new RepositoryWatch(linked, run, undefined, { interval: 50 });
 
   t.onTestFinished(() => watch.close());
@@ -281,7 +274,6 @@ watching("a linked worktree's staged change is read", async (t) => {
 
 watching('a plain directory that becomes a repository gains Git', async (t) => {
   const directory = await scratch('witch-repository-plain-');
-
   const initialized = await scratch('witch-repository-initialized-');
 
   await git(initialized, 'init', '--quiet', '-b', 'main');
@@ -316,7 +308,6 @@ watching(
     });
 
     const parent = await scratch('witch-repository-parent-');
-
     const directory = join(parent, 'sub');
 
     await mkdir(directory);
@@ -373,7 +364,6 @@ watching(
     await quiet();
 
     const { run, status } = counting();
-
     const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
 
     t.onTestFinished(() => watch.close());
@@ -416,7 +406,6 @@ watching(
     await quiet();
 
     const { run, status } = counting();
-
     const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
 
     t.onTestFinished(() => watch.close());
@@ -548,7 +537,6 @@ watching('a closed watch reads nothing more', async (t) => {
   // a pending read would block the next change's read, so each close is checked alone
   for (const pending of [true, false]) {
     const { run, status } = counting();
-
     const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
 
     t.onTestFinished(() => watch.close());
@@ -577,7 +565,6 @@ watching('a watch whose watcher fails polls', async (t) => {
   await quiet();
 
   const { run, status } = counting();
-
   const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
 
   t.onTestFinished(() => watch.close());
@@ -630,7 +617,6 @@ watching(
   'pushing an already observed local commit refreshes the conflict before the normal GitHub poll',
   async (t) => {
     const work = await workTree();
-
     const remote = join(dirname(work), 'remote.git');
 
     await git(dirname(work), 'init', '--bare', '--quiet', '-b', 'main', remote);

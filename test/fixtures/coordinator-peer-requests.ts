@@ -48,15 +48,10 @@ export async function owners(
   createFixture = unitCoordinationFixture,
 ) {
   const refreshes = pauseDiscovery(vi.spyOn);
-
   const f = await createFixture(orderedCleanup(register));
-
   const a = await f.start('A');
-
   const b = await f.start('B');
-
   const claim = await claimed(b, task);
-
   const seen = { answering: false };
 
   b.coordinator.subscribe(() => {

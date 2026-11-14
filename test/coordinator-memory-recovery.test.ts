@@ -80,7 +80,6 @@ test('a publish failure in settle is reported and the phase goes idle', async ()
 
 test('a failed rebase abort stops in the error phase until restart', async () => {
   const context = await fixture();
-
   const { coordinator, hook } = context;
 
   try {
@@ -155,9 +154,7 @@ for (const decision of ['keep', 'discard'] as const) {
 
 test('keep mine publishes with the attribution of the conversation that kept its side', async () => {
   const context = await fixture();
-
   const { coordinator, a, memory, notes } = context;
-
   const gate = new TurnGate();
 
   try {
@@ -196,15 +193,12 @@ test('keep mine publishes with the attribution of the conversation that kept its
 
 test('two coordinators in two directories run turns at once and both publish', async () => {
   const context = await fixture();
-
   const { root, store, memory } = context;
-
   const other = join(root, 'other');
 
   await mkdir(other);
 
   const agents = [context.a, new FixtureAgent('a')];
-
   const gates = agents.map((agent) => (agent.gate = new TurnGate()));
 
   const coordinators = [
@@ -260,11 +254,8 @@ test('two coordinators in two directories run turns at once and both publish', a
 
 test('discard mine after a conflict between two coordinators keeps the other side', async () => {
   const context = await fixture();
-
   const { store, memory, project, notes } = context;
-
   const agents = [context.a, new FixtureAgent('a')];
-
   const gates = agents.map(() => new TurnGate());
 
   const coordinators = [
@@ -299,7 +290,6 @@ test('discard mine after a conflict between two coordinators keeps the other sid
     );
 
     const second = coordinators[1]!;
-
     const losing = context.workspace(second.snapshot.conversation!.id);
 
     for (const [path, text] of Object.entries({
@@ -367,9 +357,7 @@ test('discard after an activated handoff corrects both native sessions', async (
     await f.coordinator.send('Initial task');
 
     const source = f.a.sessions.at(-1)!;
-
     const sourceId = source.session.info.id;
-
     const send = source.session.send.bind(source.session);
 
     const writing = vi
@@ -440,7 +428,6 @@ test('discard after an activated handoff corrects both native sessions', async (
 for (const kind of ['pending', 'conflict'] as const) {
   test(`a failed ${kind} discard preserves memory delivery until retry`, async () => {
     const f = await fixture();
-
     const gate = new TurnGate();
 
     try {
@@ -512,7 +499,6 @@ for (const kind of ['pending', 'conflict'] as const) {
 
 test('the launch sweep publishes what it can and reports the rest in one message', async () => {
   const context = await fixture();
-
   const { root, memory, store } = context;
 
   await context.coordinator.close();
@@ -546,7 +532,6 @@ test('the launch sweep publishes what it can and reports the rest in one message
   await writeFile(join(dirty.memory.root, 'global', 'three.md'), 'Three.');
 
   const stateless = randomUUID();
-
   const orphan = await context.outsider(stateless);
 
   await writeFile(join(orphan.root, 'global', 'four.md'), 'Four.');
@@ -610,7 +595,6 @@ test('the launch sweep publishes what it can and reports the rest in one message
 
 test('a sweep failure after the claim is reported and releases the claim', async () => {
   const context = await fixture();
-
   const { root, store, memory } = context;
 
   await context.coordinator.close();
@@ -649,14 +633,12 @@ test('a sweep failure after the claim is reported and releases the claim', async
 
 test('a switch target with a broken worktree leaves the current conversation untouched', async () => {
   const context = await fixture();
-
   const { coordinator, store, a } = context;
 
   try {
     await coordinator.send('Start');
 
     const current = coordinator.snapshot.conversation!.id;
-
     const target = await stranded(context, { 'global/x.md': 'X.' });
 
     await target.files.close();
@@ -680,7 +662,6 @@ test('a switch target with a broken worktree leaves the current conversation unt
 
 test('opening a conversation aborts its stopped rebase before classifying it', async () => {
   const context = await fixture();
-
   const { coordinator } = context;
 
   try {

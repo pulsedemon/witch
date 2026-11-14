@@ -55,7 +55,6 @@ interface Outcome {
 }
 
 const target = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
-
 /** the runtime a reviewer's name carries, as `review-<run>-<round>-<runtime>`. */
 const runtimeOf = ({ name }: Reviewer) => name.split('-')[3]!;
 
@@ -74,9 +73,7 @@ async function harness(
   });
 
   const f = await createFixture(orderedCleanup(t.onTestFinished));
-
   const claude = new FixtureAgent('claude');
-
   const codex = new FixtureAgent('codex');
 
   if (options.usage) claude.connectUsage = options.usage;
@@ -88,7 +85,6 @@ async function harness(
   );
 
   const cwd = coordinator.snapshot.conversation!.cwd;
-
   const plan = join(cwd, 'plan.md');
 
   await writeFile(plan, options.plan ?? `${target.join('\n')}\n`);
@@ -251,7 +247,6 @@ async function harness(
 /** runs commands as the UI's batches do, recording the ones that ran. */
 function batches(h: Awaited<ReturnType<typeof harness>>) {
   const ran: string[] = [];
-
   const runner = new CommandBatches(h.coordinator);
 
   const submit = (commands: WitchCommand[]) =>
@@ -350,9 +345,7 @@ test('a single-harness change brings the quiet harness back', async (t) => {
 
 test("each round's reviewers use the familiar prefix current when it starts", async (t) => {
   const h = await harness(t);
-
   const prefixes = h.coordination.commandPrefixes.bind(h.coordination);
-
   let familiar = '/before';
 
   h.coordination.commandPrefixes = () => ({ ...prefixes(), familiar });
@@ -451,7 +444,6 @@ test("a settling round's non-blocking findings get a final turn", async (t) => {
 
 test("a correction turn that quotes a pasted image's marker sends no image", async (t) => {
   const h = await harness(t);
-
   const shot = join(h.cwd, 'shot.png');
 
   await writeFile(shot, png(1, 1));
@@ -633,7 +625,6 @@ test('a target whose name starts with two dots is inside the directory', async (
 
 test('a target Witch cannot stat stops the review with the error', async (t) => {
   const h = await harness(t);
-
   const locked = join(h.cwd, 'locked');
 
   await mkdir(locked);
@@ -844,7 +835,6 @@ test('a failure the mechanical correction introduces gets its own correction', a
 
 test('Escape while reviewers run aborts them with the native stop deadline', async (t) => {
   const h = await harness(t);
-
   const held = Promise.withResolvers<void>();
 
   h.state.hold = held.promise;
@@ -854,9 +844,7 @@ test('Escape while reviewers run aborts them with the native stop deadline', asy
   await until('the reviewers', () => h.rounds.length === 1, 500);
 
   const deadline = performance.now() + 2000;
-
   const interrupting = h.coordinator.interrupt({ deadline });
-
   const { signal } = h.rounds[0]!;
 
   await until('the abort', () => signal.aborted, 500);
@@ -878,7 +866,6 @@ test('Escape while reviewers run aborts them with the native stop deadline', asy
 
 test('a review refused while another runs leaves Escape able to stop the first', async (t) => {
   const h = await harness(t);
-
   const held = Promise.withResolvers<void>();
 
   h.state.hold = held.promise;
@@ -902,11 +889,8 @@ test('a review refused while another runs leaves Escape able to stop the first',
 
 test('Escape while a review settles fails it without a finished notice', async (t) => {
   const h = await harness(t);
-
   const settling = Promise.withResolvers<void>();
-
   const held = Promise.withResolvers<void>();
-
   const flush = ConversationStore.prototype.flush;
 
   h.state.during = async () => {
@@ -938,7 +922,6 @@ test('Escape while a review settles fails it without a finished notice', async (
 
 test('closing Witch during a review aborts its reviewers', async (t) => {
   const h = await harness(t);
-
   const held = Promise.withResolvers<void>();
 
   h.state.hold = held.promise;
@@ -962,7 +945,6 @@ test('closing Witch during a review aborts its reviewers', async (t) => {
 
 test('closing Witch as a round starts ends the review cleanly', async (t) => {
   const h = await harness(t);
-
   let closing: Promise<void> | undefined;
 
   const stop = h.coordinator.subscribe(() => {
@@ -984,7 +966,6 @@ test('closing Witch as a round starts ends the review cleanly', async (t) => {
 
 test('closing Witch fails when a reviewer outlives the stop deadline', async (t) => {
   const h = await harness(t);
-
   let started = false;
 
   h.coordinator.reviewers.run = ({ signal }) => {
@@ -1011,9 +992,7 @@ test('closing Witch fails when a reviewer outlives the stop deadline', async (t)
 
 test('Escape during routing launches no reviewer', async (t) => {
   const h = await harness(t);
-
   const held = Promise.withResolvers<void>();
-
   let routing: Promise<ControlOutcome> | undefined;
 
   h.coordination.router = () =>
@@ -1051,7 +1030,6 @@ async function cancelHeldRoute(
   held: { waiting: () => boolean; release: () => void },
 ) {
   const route = router(h.coordinator, { read });
-
   let routed: ReturnType<typeof route> | undefined;
 
   h.coordination.router = (action, signal) => (routed = route(action, signal));
@@ -1084,7 +1062,6 @@ test('a route cancelled during its policy read posts nothing later', async (t) =
 
   for (const outcome of ['read', 'failed']) {
     const gate = Promise.withResolvers<void>();
-
     let reading = false;
 
     await cancelHeldRoute(
@@ -1105,9 +1082,7 @@ test('a route cancelled during its policy read posts nothing later', async (t) =
 
 test('a route cancelled during its usage refresh posts nothing later', async (t) => {
   const h = await harness(t);
-
   const gate = Promise.withResolvers<void>();
-
   let refreshing = false;
 
   h.coordinator.accountUsage.refresh = async () => {

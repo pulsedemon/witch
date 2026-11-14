@@ -88,7 +88,6 @@ test('boot identity comes from the native boot session', async () => {
 
 test('process identities preserve native start strings across a batch', async (t) => {
   const live = spawn('/bin/sleep', ['30']);
-
   const ended = once(live, 'close');
 
   t.onTestFinished(async () => {

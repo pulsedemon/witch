@@ -21,7 +21,6 @@ export async function memoryView(
   cwd: string,
 ): Promise<MemoryView> {
   const revision = await memory.resolve(main);
-
   const scope = await memory.scopePaths(cwd);
 
   // an idle worktree stays where its last turn left it, behind anything published since

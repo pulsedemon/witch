@@ -35,13 +35,9 @@ interface DesktopEvent {
 
 test('the CLI opens the pressed link or image, copies selected text and runs queued prompts after desktop failures', async () => {
   const repository = fileURLToPath(new URL('../', import.meta.url));
-
   const root = await scratch('witch-cli-desktop-');
-
   const cli = await compiledCli();
-
   const project = join(root, 'project');
-
   const bin = join(root, 'bin');
 
   await mkdir(project, { recursive: true });
@@ -146,13 +142,9 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
   void closed.catch(() => {});
 
   const messages: DesktopEvent[] = [];
-
   const screen = new Screen({ columns: 80, rows: 30 });
-
   let output = '';
-
   let stderr = '';
-
   // the CLI's own Screen records only what Ink draws, so image transmissions, which go around Ink, are left out
   let transmission = '';
 
@@ -160,7 +152,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
     output += chunk.toString();
 
     const text = transmission + chunk.toString();
-
     const open = text.lastIndexOf('\u001b_G');
 
     const end =
@@ -378,9 +369,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       await wait('clickable target', () => linkCell(matches));
 
       const cell = linkCell(matches)!;
-
       const failedAt = output.length;
-
       const opened = messages.filter((m) => m.file === '/usr/bin/open').length;
 
       if (kind === 'copy')

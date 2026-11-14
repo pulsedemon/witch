@@ -14,7 +14,6 @@ import { until, within } from './fixtures/within.js';
 
 test('a missing result after restart stays blocked until a user prompt reconciles the existing reply', async (t) => {
   const x = await setup(t);
-
   const gate = new TurnGate();
 
   x.a.a.gate = gate;
@@ -26,7 +25,6 @@ test('a missing result after restart stays blocked until a user prompt reconcile
   await within(gate.entered, 5000, 'review dispatch');
 
   const id = x.c.snapshot.conversation!.id;
-
   const oldBatch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
 
   await unlink(oldBatch.result);
@@ -80,9 +78,7 @@ test('a missing result after restart stays blocked until a user prompt reconcile
 for (const change of ['edit', 'addition']) {
   test(`a ${change} observed during ownership validation cannot enter an older feedback packet`, async (t) => {
     const x = await setup(t);
-
     const settled = Promise.withResolvers<boolean>();
-
     const run = x.c.copilot.run.bind(x.c.copilot);
 
     vi.spyOn(x.c.copilot, 'run').mockImplementationOnce(async () => {
@@ -183,9 +179,7 @@ for (const outcome of ['handled', 'uncertain']) {
     );
 
     const original = (await record(x.f, x.a)).copilotReviews![0]!;
-
     const hold = x.c.holdPromptDelivery();
-
     const other = reviewSource();
 
     other.pullRequest = {
@@ -277,7 +271,6 @@ for (const outcome of ['handled', 'uncertain']) {
 
 test('absent feedback retains pending history without entering a packet until it returns', async (t) => {
   const x = await setup(t);
-
   const hold = x.c.holdPromptDelivery();
 
   await x.observe();
@@ -396,9 +389,7 @@ test('review turns on a second PR settle its own receipts without changing the f
   await x.handled();
 
   const first = structuredClone(x.source);
-
   const original = (await record(x.f, x.a)).copilotReviews![0]!;
-
   const second = reviewSource();
 
   second.pullRequest = {
@@ -494,7 +485,6 @@ test('review turns on a second PR settle its own receipts without changing the f
 for (const revoke of ['branch', 'CLOSED', 'MERGED'] as const) {
   test(`${revoke} review revocation preserves automatic peer answers`, async (t) => {
     const x = await setup(t);
-
     const b = await x.f.start('B');
 
     await b.claim('task:asker');
@@ -631,7 +621,6 @@ test('ordinary prompts show present review counts only while the PR is bound', a
 
 test('a head GitHub never asks Copilot to review reports that no review is pending until one arrives', async (t) => {
   const x = await setup(t);
-
   const review = x.source.reviews;
 
   x.source.reviews = [];
@@ -736,9 +725,7 @@ test('a failed post-turn GitHub read retains the result and recovers without ano
 
 test('an ordinary turn can reconcile a missing reply receipt before later feedback runs', async (t) => {
   const x = await setup(t);
-
   const session = x.a.a.sessions.at(-1)!.session;
-
   const send = session.send;
 
   session.send = async (...args) => {

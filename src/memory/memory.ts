@@ -46,17 +46,12 @@ const remote =
 
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
-
 const branches = 'conversations/';
-
 /** the branch a conversation's memory worktree is on. */
 export const branchOf = (id: string) => `${branches}${id}`;
-
 /** the note that indexes the rest of its scope. */
 export const indexNote = 'MEMORY.md';
-
 export const indexByteLimit = 6_000;
-
 const changeListByteLimit = 2_000;
 
 const staleReferences =
@@ -88,9 +83,7 @@ export const runGit: GitRunner = (args, { cwd, env, input, signal }) =>
     });
 
     const stdout: Buffer[] = [];
-
     let stderr = '';
-
     let failure: Error | undefined;
 
     child.stdout.on('data', (chunk: Buffer) => {
@@ -159,7 +152,6 @@ async function physical(path: string): Promise<string> {
 /** a note path relative to the memory root, refusing one that leaves the root or enters `.git`. */
 export function notePath(path: string): string {
   const file = posix.normalize(path);
-
   const [top] = file.split('/');
 
   if (top === '..' || top === '.git')
@@ -312,7 +304,6 @@ export class Memory {
     signal?.throwIfAborted();
 
     const project = projectKey(identity);
-
     const checkout = projectKey(top);
 
     return {
@@ -388,9 +379,7 @@ export class Memory {
     if (outside) return { identity: cwd, top: cwd };
 
     const [, url, scp, path] = (origin && remote.exec(origin)) || [];
-
     const host = url ?? scp;
-
     const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
 
     if (host) return { identity: `${host.toLowerCase()}/${path}`, top };
@@ -405,10 +394,8 @@ export class Memory {
     );
 
     const local = basename(given) === '.git' ? dirname(given) : given;
-
     // git reaches the first of these that is a repository, so a directory inside another repository isn't that repository
     const dotted = await physical(`${local}.git`);
-
     let repository: string | undefined;
 
     for (const [form, directory] of [
@@ -571,7 +558,6 @@ export class Memory {
     scope: MemoryScope,
   ): Promise<{ path: string; deleted: boolean }[]> {
     const present = new Set(await this.files(revision, scope));
-
     const history = await this.touchedPaths(revision, scope);
 
     return [...new Set([...present, ...history])]

@@ -223,16 +223,11 @@ export class FixtureAgent implements AgentAdapter {
     await options.onProcess(sleeper.pid);
 
     let closed = false;
-
     let turn: PromiseWithResolvers<TurnResult> | undefined;
-
     // apart from `turn`, so steering is refused while a command runs, as the real agents refuse it
     let shell: PromiseWithResolvers<TurnResult> | undefined;
-
     let steered: string[] = [];
-
     let usage: Usage = this.connectUsage ?? {};
-
     const replied = () => this.replied && !!turn && !closed;
 
     const shellRow = (command: string) =>

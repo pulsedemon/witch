@@ -26,7 +26,6 @@ test("Git's status counts staged, modified and untracked entries, and the branch
     });
 
   const remote = join(root, 'remote.git');
-
   const work = join(root, 'work');
 
   await git(root, 'init', '--bare', '-b', 'main', remote);
@@ -64,7 +63,6 @@ test("Git's status counts staged, modified and untracked entries, and the branch
   await writeFile(join(work, 'new', 'two.txt'), '2');
 
   const { stdout } = await git(work, 'status', '--porcelain=v2', '--branch');
-
   const commit = (await git(work, 'rev-parse', 'HEAD')).stdout.trim();
 
   // b.txt is staged and modified; the new directory is one entry
@@ -83,11 +81,8 @@ test("Git's status counts staged, modified and untracked entries, and the branch
 
 test("the watch's status read never runs the repository's fsmonitor command", async () => {
   const root = await scratch('witch-repository-');
-
   const work = join(root, 'work');
-
   const marker = join(root, 'ran');
-
   const monitor = join(root, 'monitor.sh');
 
   await execute('git', ['init', '--quiet', '-b', 'main', work]);
@@ -115,15 +110,10 @@ test.each([true, false])(
   'a partial clone leaves unavailable status out without SSH and keeps rename counts (no-fetch support: %s)',
   async (noFetchSupport) => {
     const root = await scratch('witch-repository-');
-
     const source = join(root, 'source');
-
     const work = join(root, 'work');
-
     const marker = join(root, 'ran');
-
     const ssh = join(root, 'ssh.sh');
-
     const contents = 'unchanged\n'.repeat(20);
 
     const git = (cwd: string, ...args: string[]) =>
@@ -238,15 +228,10 @@ test.each([true, false])(
 
 test("the watch's status read runs no filter driver from the repository's config, and keeps the user's own config", async () => {
   const root = await scratch('witch-repository-');
-
   const work = join(root, 'work');
-
   const marker = join(root, 'ran');
-
   const kept = join(root, 'kept');
-
   const filter = join(root, 'filter.sh');
-
   const global = join(root, 'global');
 
   const git = (...args: string[]) =>
@@ -331,13 +316,9 @@ test("the watch's status read runs no filter driver from the repository's config
 
 test("a submodule's own filter driver never runs, and changes inside its work tree don't count", async () => {
   const root = await scratch('witch-repository-');
-
   const sub = join(root, 'sub');
-
   const top = join(root, 'top');
-
   const marker = join(root, 'ran');
-
   const filter = join(root, 'filter.sh');
 
   const git = (cwd: string, ...args: string[]) =>
@@ -427,11 +408,8 @@ test("a submodule's own filter driver never runs, and changes inside its work tr
 
 test("a filter driver whose name isn't valid UTF-8 leaves Git out without running status", async () => {
   const root = await scratch('witch-repository-');
-
   const work = join(root, 'work');
-
   const marker = join(root, 'ran');
-
   const filter = join(root, 'filter.sh');
 
   await execute('git', ['init', '--quiet', '-b', 'main', work]);
@@ -477,7 +455,6 @@ test("a filter driver whose name isn't valid UTF-8 leaves Git out without runnin
   await utimes(join(work, 'a'), later, later);
 
   let listings = 0;
-
   let statuses = 0;
 
   const watch = new RepositoryWatch(
@@ -734,9 +711,7 @@ test.each<{
     moved,
   }) => {
     const calls: string[][] = [];
-
     let rulesRead = false;
-
     let confirmation: string[] | undefined;
 
     const workflow = {
@@ -777,7 +752,6 @@ test.each<{
       calls.push(args);
 
       const graphql = args.includes('graphql');
-
       const branch = args[3]?.startsWith('repos/owner/repo/branches/');
 
       if (failure === (graphql ? 'graphql' : branch ? 'branch' : 'rules'))
@@ -891,7 +865,6 @@ test.each<{
 
 test('reported checks skip configuration reads and replace a previous no-check state', async () => {
   let rollup: object[] = [];
-
   let configurationReads = 0;
 
   const watch = new RepositoryWatch(
@@ -991,9 +964,7 @@ test('the watch reads the pull request once per branch, again when the branch ch
   });
 
   let branch = 'main';
-
   const reads: string[] = [];
-
   let fields: string | undefined;
 
   const watch = new RepositoryWatch('/work', async (command, args) => {
@@ -1068,7 +1039,6 @@ test('a failed git read leaves Git out, and a failed gh read leaves the pull req
   });
 
   let repository = false;
-
   let reads = 0;
 
   const watch = new RepositoryWatch('/work', async (command) => {
@@ -1131,9 +1101,7 @@ test('a read still running skips the next ticks, and a pull request read for a b
   });
 
   let branch = 'main';
-
   const git: PromiseWithResolvers<{ stdout: string }>[] = [];
-
   const gh: PromiseWithResolvers<{ stdout: string }>[] = [];
 
   const watch = new RepositoryWatch('/work', (command, args) => {

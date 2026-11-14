@@ -262,7 +262,6 @@ export class RuntimeUpdates {
           if (journal && pendingUpdate(journal)) return { runtime, journal };
 
           let release: (() => void) | undefined;
-
           let installation: RuntimeInstallation | undefined;
 
           try {
@@ -368,14 +367,11 @@ export class RuntimeUpdates {
     if (installing && check.blocked) throw new Error(check.blocked);
 
     let qualified: UpdateJournal | undefined;
-
     let transaction: FileHandle | undefined;
 
     await this.maintain(check.installation.runtime, async (stop) => {
       const signal = AbortSignal.any([stop, AbortSignal.timeout(15 * 60_000)]);
-
       const installed = check.installation;
-
       const build = await this.build;
 
       if ((await this.identifyBuild()) !== build)
@@ -397,9 +393,7 @@ export class RuntimeUpdates {
       };
 
       let recorded = false;
-
       let changed = false;
-
       let evidence: string | undefined;
 
       try {
@@ -412,9 +406,7 @@ export class RuntimeUpdates {
           throw new Error('Recover the unfinished update first.');
 
         const registration = await this.registration(installed.runtime);
-
         const cwd = this.host.cwd?.() ?? process.cwd();
-
         const current = await this.native.inspect(registration, signal, cwd);
 
         if (
@@ -698,7 +690,6 @@ export class RuntimeUpdates {
   async recover(journal: UpdateJournal): Promise<void> {
     await this.maintain(journal.previous.runtime, async (signal) => {
       const transaction = await this.store.transaction(journal.previous.root);
-
       let exclusive: FileHandle | undefined;
 
       try {

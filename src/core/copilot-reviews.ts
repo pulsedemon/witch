@@ -5,9 +5,7 @@ import type { GitHubReviews } from './github-reviews.js';
 import { pullRequestSchema } from './repository.js';
 
 const itemIdentity = z.object({ id: z.string(), version: z.string() });
-
 const reason = z.string().trim().min(1);
-
 const replied = { reply: z.string().url(), reason };
 
 const disposition = z.discriminatedUnion('disposition', [
@@ -156,11 +154,8 @@ export function observeReviews(
   source: GitHubReviews,
 ): CopilotReviewState {
   const current = feedback(source);
-
   const present = new Set(current.map(({ id }) => id));
-
   const previous = new Map(state?.items.map((item) => [item.id, item]));
-
   const clear = findingsFree(source, current);
 
   return {
@@ -174,7 +169,6 @@ export function observeReviews(
           return { ...old, ...item, present: true };
 
         const receipts = old?.receipts ?? [];
-
         const known = receipts.find(({ version }) => version === item.version);
 
         const cleared =
@@ -231,7 +225,6 @@ export async function reconcileReviews(
     );
 
   const seen = new Set<string>();
-
   const admitted = new Map(batch.items.map(({ id, version }) => [id, version]));
 
   for (const entry of result.items) {
@@ -244,7 +237,6 @@ export async function reconcileReviews(
   }
 
   const commits = new Map<string, Promise<boolean>>();
-
   const waiting = new Set<string>();
 
   const items: ReviewResult['items'] = [
@@ -347,7 +339,6 @@ export async function reconcileReviews(
           'The reply was not found on the finding under the signed-in user.';
       else if (entry.disposition === 'fixed') {
         const url = new URL(source.pullRequest.url);
-
         const repository = url.pathname.split('/').slice(1, 3).join('/');
 
         if (

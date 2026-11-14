@@ -81,9 +81,7 @@ async function observer(
 
 test('concurrent probes never report a free file as held', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const root = await scratch('witch-lock-observers-');
-
   const store = await StateStore.open(root);
 
   await (await store.create(record('observed', root))).close();
@@ -105,9 +103,7 @@ test('concurrent probes never report a free file as held', async (t) => {
 
 test('observation never prevents a free conversation from opening', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const root = await scratch('witch-lock-acquisition-');
-
   const store = await StateStore.open(root);
 
   await (await store.create(record('observed', root))).close();
@@ -137,15 +133,10 @@ test('observation never prevents a free conversation from opening', async (t) =>
 
 test('batch observation preserves path identity and filesystem failures', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const root = await scratch('witch-lock-batch-');
-
   const heldPath = join(root, 'présence λ[]\nlock');
-
   const sharedPath = join(root, 'shared');
-
   const free = join(root, 'free');
-
   const missing = join(root, 'missing');
 
   await Promise.all([writeFile(heldPath, ''), writeFile(free, '')]);
@@ -195,7 +186,6 @@ test('batch observation preserves path identity and filesystem failures', async 
 
 test('query failure never reports an unlocked file', async () => {
   const root = await scratch('witch-lock-query-failure-');
-
   const file = join(root, 'free');
 
   await writeFile(file, '');

@@ -24,18 +24,14 @@ import { ephemeralFiles } from './ephemeral-files.js';
 import type { RegisterCleanup } from './cleanup.js';
 
 const execute = promisify(execFile);
-
 export const git = (...args: string[]) => execute('git', args);
-
 // a local origin costs every project read three more git processes to follow its repository
 const origin = 'https://example.com/witch/origin.git';
-
 const entry = fileURLToPath(new URL('../../src/cli.tsx', import.meta.url));
 
 /** keeps mailbox polling live while tests control periodic session discovery. */
 export function pauseDiscovery(spyOn: typeof vi.spyOn) {
   const refreshes: (() => void)[] = [];
-
   const interval = globalThis.setInterval;
 
   spyOn(globalThis, 'setInterval').mockImplementation(
@@ -60,9 +56,7 @@ export async function measureControl<T>(
   run: () => Promise<T>,
 ) {
   let discoveries = 0;
-
   let reads = 0;
-
   const open = StateStore.prototype.openConversations;
 
   const opening = spyOn(
@@ -153,7 +147,6 @@ export async function coordinationFixture(
   );
 
   const store = await StateStore.open(join(root, 'state'));
-
   const memoryRoot = join(store.root, 'memory.git');
 
   const memory = unit
@@ -161,7 +154,6 @@ export async function coordinationFixture(
     : await seededMemory(memoryRoot);
 
   const registry = await CoordinationStore.open(store);
-
   const clients: Coordinator[] = [];
 
   register(async () => {
@@ -184,7 +176,6 @@ export async function coordinationFixture(
     );
 
     const a = new FixtureAgent('a');
-
     const b = new FixtureAgent('b');
 
     a.skills = [{ name: 'review', description: 'Review changes' }];

@@ -29,7 +29,6 @@ function sips(
   { converted = Buffer.from('converted jpeg'), failures = 0 } = {},
 ) {
   const calls: { args: string[]; input: Buffer }[] = [];
-
   let failing = failures;
 
   t.onTestFinished(() => {
@@ -73,7 +72,6 @@ function sips(
 /** a conversation's store, closed when the test finishes. */
 async function conversationStore(t: TestContext, id = 'images') {
   const store = await StateStore.open(await scratch('witch-attachments-'));
-
   const files = await store.create(record(id, '/project'));
 
   t.onTestFinished(() => files.close());
@@ -97,15 +95,10 @@ function jpegSize(data: Buffer): [number, number] {
 
 test('a paste that lists only readable images gives their absolute paths, in order, however the terminal escaped or quoted them', async () => {
   const directory = await scratch('witch-paste-');
-
   const screenshot = join(directory, 'Screenshot 2026-10-14 at 8.56.35 AM.png');
-
   const every = join(directory, 'all \\ ()[]{}<>"\'`!#$&;|*?\t.png');
-
   const spaced = join(directory, 'a b.png');
-
   const backslashed = join(directory, 'quoted\\ name.png');
-
   const photo = join(directory, 'c.jpg');
 
   for (const path of [screenshot, every, spaced, backslashed, photo])
@@ -129,7 +122,6 @@ test('a paste that lists only readable images gives their absolute paths, in ord
 
 test('a paste is text when anything in it is not a readable image named by an absolute path', async () => {
   const directory = await scratch('witch-paste-');
-
   const shot = join(directory, 'shot.png');
 
   await writeFile(shot, png(1, 1));
@@ -152,7 +144,6 @@ test('a paste is text when anything in it is not a readable image named by an ab
 
 test('attached images are numbered from 1 and keep the bytes pasted, though the file is then removed', async (t) => {
   const directory = await scratch('witch-attach-');
-
   const [first, second] = [png(2, 2), png(3, 3)];
 
   await writeFile(join(directory, 'first.png'), first);
@@ -195,9 +186,7 @@ test('a prompt resolves the registered markers it names in order, each once, and
 
 test('a small PNG is saved byte for byte without sips, once per conversation, and saved again for another conversation', async (t) => {
   const calls = sips(t, [1, 1]);
-
   const directory = await scratch('witch-attach-');
-
   const [first, second] = [png(4, 4), png(5, 5)];
 
   await writeFile(join(directory, 'first.png'), first);
@@ -211,7 +200,6 @@ test('a small PNG is saved byte for byte without sips, once per conversation, an
   attachments.attach(join(directory, 'second.png'));
 
   const one = await conversationStore(t, 'one');
-
   const other = await conversationStore(t, 'other');
 
   // a steer and the turn that runs it prepare the same marker at once
@@ -245,7 +233,6 @@ test('a small PNG is saved byte for byte without sips, once per conversation, an
 
 test('an image whose conversion failed is converted again on its next delivery', async (t) => {
   const calls = sips(t, [64, 64], { failures: 1 });
-
   const directory = await scratch('witch-attach-');
 
   await writeFile(join(directory, 'photo.jpg'), 'jpeg bytes');
@@ -318,7 +305,6 @@ test('cancel stops a running conversion, and the next delivery converts again', 
   vi.restoreAllMocks();
 
   const calls = sips(t, [64, 64]);
-
   const [saved] = await attachments.prepare([1], store);
 
   assert.equal(calls.length, 2);
@@ -346,7 +332,6 @@ for (const [name, data, sides, fit] of [
     }
 
     const calls = sips(t, [...sides]);
-
     const directory = await scratch('witch-attach-');
 
     await writeFile(join(directory, 'image'), data);
@@ -356,7 +341,6 @@ for (const [name, data, sides, fit] of [
     attachments.attach(join(directory, 'image'));
 
     const [saved] = await attachments.prepare([1], await conversationStore(t));
-
     const [probe, convert] = calls;
 
     assert.equal(calls.length, 2);

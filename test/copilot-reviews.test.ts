@@ -21,7 +21,6 @@ import { scratch } from './fixtures/scratch.js';
 
 function fixture() {
   const source = reviewSource();
-
   const state = observeReviews(undefined, source);
 
   const batch: ReviewBatch = {
@@ -465,7 +464,6 @@ test('partial results retain missing findings as visible blockers', async () => 
 
 test('an omitted disposition retains its admitted version when the finding changes mid-turn', async () => {
   const f = fixture();
-
   const original = f.source.threads[0]!.comments[0]!.body;
 
   f.source.threads[0]!.comments[0]!.body = 'Edited during the review turn.';
@@ -526,9 +524,7 @@ test('an interrupted batch retains its identity and does not consume later feedb
 
 test('reopen and context clear retain receipts from legacy single-PR records', async (t) => {
   const root = await scratch('witch-review-record-');
-
   const store = await StateStore.open(root);
-
   const f = fixture();
 
   const record = conversationRecordSchema.parse({
@@ -588,12 +584,10 @@ test('reopen and context clear retain receipts from legacy single-PR records', a
 
 test('blocked receipts with blank errors survive save and reopen', async (t) => {
   const root = await scratch('witch-blank-review-error-');
-
   const store = await StateStore.open(root);
 
   for (const error of ['', ' \n']) {
     const f = fixture();
-
     const id = randomUUID();
 
     f.batch.owner = id;
@@ -695,7 +689,6 @@ for (const disposition of ['handled', 'blocked']) {
     );
 
     const before = settled.items.find(({ id }) => id === 'review-1')!;
-
     const body = f.source.reviews[0]!.body;
 
     f.source.reviews[0]!.body = '';
@@ -719,13 +712,11 @@ for (const disposition of ['handled', 'blocked']) {
 
 test('an omitted thread retains its attempted version and batch for reconciliation', () => {
   const f = fixture();
-
   const threads = f.source.threads;
 
   f.source.threads = [];
 
   const absent = observeReviews(f.state, f.source);
-
   const item = absent.items.find(({ id }) => id === 'thread-1')!;
 
   assert.equal(item.present, false);

@@ -12,15 +12,10 @@ import { until, within } from './fixtures/within.js';
 
 test('a same-runtime model choice made while a finished turn settles waits and applies once', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
-
   const { session } = a.sessions.at(-1)!;
-
   const settlement = holdSettlement(session);
-
   const sent: [string, string][] = [];
-
   const send = session.send.bind(session);
 
   session.send = (prompt, ...rest) => {
@@ -42,7 +37,6 @@ test('a same-runtime model choice made while a finished turn settles waits and a
     assert.equal(await coordinator.refreshModels(), true);
 
     const release = coordinator.holdPromptDelivery();
-
     const before = a.selections.length;
 
     gate.open();
@@ -109,15 +103,10 @@ for (const outcome of [
 ] as const)
   test(`a model choice waiting on a finished turn lapses after ${outcome}`, async () => {
     const { coordinator, a, root } = await unitFixture();
-
     const gate = new TurnGate();
-
     const { session } = a.sessions.at(-1)!;
-
     const settlement = holdSettlement(session);
-
     const sent: [string, string][] = [];
-
     const send = session.send.bind(session);
 
     session.send = (prompt, ...rest) => {
@@ -206,11 +195,8 @@ for (const outcome of [
 
 test('a model picker opened while a finished turn settles waits and refreshes once', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
-
   const { session } = a.sessions.at(-1)!;
-
   const settlement = holdSettlement(session);
 
   try {
@@ -271,11 +257,8 @@ test('a model picker opened while a finished turn settles waits and refreshes on
 for (const outcome of ['interrupt', 'close', 'failure'] as const)
   test(`a model picker waiting on a finished turn lapses after ${outcome}`, async () => {
     const { coordinator, a } = await unitFixture();
-
     const gate = new TurnGate();
-
     const { session } = a.sessions.at(-1)!;
-
     const settlement = holdSettlement(session);
 
     try {
@@ -326,15 +309,10 @@ for (const outcome of ['interrupt', 'close', 'failure'] as const)
 
 test('a close that starts while a finished turn settles keeps the closing phase', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
-
   const settlement = holdSettlement(a.sessions.at(-1)!.session);
-
   const save = ConversationStore.prototype.save;
-
   const settling = Promise.withResolvers<void>();
-
   const held = Promise.withResolvers<void>();
 
   try {

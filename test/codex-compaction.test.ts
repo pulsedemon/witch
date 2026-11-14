@@ -9,7 +9,6 @@ import { settled, until, within } from './fixtures/within.js';
 
 async function scripted() {
   const events: AgentEvent[] = [];
-
   const f = await fixture((e) => events.push(e), { mode: 'compaction' });
 
   const emit = frameWriter(f.cwd, (text) =>
@@ -18,7 +17,6 @@ async function scripted() {
 
   const compact = async () => {
     const result = f.session.compact();
-
     const isSettled = settled(result);
 
     await until('compact request', async () =>
@@ -214,7 +212,6 @@ test('Codex reports automatic replacement and drops context sampled for another 
 
 test('Codex process closure settles a compact request that never started', async () => {
   const f = await scripted();
-
   const pending = await f.compact();
 
   await writeFile(join(f.cwd, 'exit'), '');

@@ -54,20 +54,14 @@ function moveRows(
   to: string,
 ): { content: Buffer; changed: number } {
   const parts: Buffer[] = [];
-
   const decoder = new TextDecoder('utf-8', { fatal: true });
-
   let changed = 0;
 
   for (let start = 0; start < history.length;) {
     const newline = history.indexOf(10, start);
-
     const end = newline < 0 ? history.length : newline;
-
     const next = newline < 0 ? end : end + 1;
-
     const textEnd = history[end - 1] === 13 ? end - 1 : end;
-
     let line = history.subarray(start, next);
 
     try {
@@ -114,9 +108,7 @@ export async function moveHistory(
   checkpoint?: (move: { from: string; inode: number }) => Promise<void>,
 ): Promise<void> {
   const file = historyPath(directory);
-
   const times = await unlessGone(stat(file));
-
   const source = times && from(times.ino);
 
   if (!times || source === undefined) return;
@@ -150,7 +142,6 @@ async function tryLock(file: string, shared = false): Promise<FileHandle> {
 /** current Witches serialize on `coordinated`; the shared conversation lock excludes legacy owners and identifies current ones. */
 async function hold(directory: string): Promise<() => Promise<void>> {
   const coordinated = await tryLock(join(directory, 'coordinated'));
-
   let lock: FileHandle;
 
   try {
@@ -200,7 +191,6 @@ export class StateStore {
     unreadable: UnreadableRecord[];
   }> {
     const records: ConversationRecord[] = [];
-
     const unreadable: UnreadableRecord[] = [];
 
     for (const id of ids ?? (await readdir(conversationsPath(this.root)))) {
@@ -226,7 +216,6 @@ export class StateStore {
       if (cwd !== undefined && record.cwd !== cwd) continue;
 
       const directory = this.directory(record.id);
-
       const history = await unlessGone(stat(historyPath(directory)));
 
       if (history?.size) listed.push({ ...record, modified: history.mtimeMs });
@@ -261,7 +250,6 @@ export class StateStore {
     ].sort((a, b) => a - b);
 
     const mapped = new Map<string, string | undefined>();
-
     // lines come in offset order, so the count of boundaries passed only grows
     let passed = 0;
 
@@ -287,7 +275,6 @@ export class StateStore {
 
     for (let start = 0; start < content.length;) {
       const end = content.indexOf(10, start);
-
       const next = end < 0 ? content.length : end + 1;
 
       try {
@@ -344,12 +331,10 @@ export class StateStore {
     ) => Promise<Record<string, unknown> | undefined>,
   ): Promise<'repaired' | 'unchanged'> {
     const directory = this.directory(id);
-
     const unlock = await hold(directory);
 
     try {
       const file = recordPath(directory);
-
       const { atime, mtime } = await stat(file);
 
       const save = (record: Record<string, unknown>) =>
@@ -380,7 +365,6 @@ export class StateStore {
    */
   async create(conversation: Conversation): Promise<ConversationStore> {
     const directory = this.directory(conversation.id);
-
     // an unreadable ledger leaves `createdAt`, as move repair can't run until it reads
     const ledger = await readLedger(this.root).catch(() => undefined);
 
@@ -391,7 +375,6 @@ export class StateStore {
     await mkdir(directory, { mode: 0o700 });
 
     const unlock = await hold(directory);
-
     const files = new ConversationStore(directory, unlock, record);
 
     try {
@@ -407,14 +390,11 @@ export class StateStore {
 
   async claim(id: string): Promise<ConversationStore> {
     const directory = this.directory(id);
-
     const unlock = await hold(directory);
 
     try {
       const record = await readRecord(directory);
-
       const files = new ConversationStore(directory, unlock, record);
-
       // rows the conversation adds go to `cwd`, so a move repair a crash stopped finishes before any are added
       const { historyMove } = record;
 
@@ -456,9 +436,7 @@ export class StateStore {
     ids ??= await readdir(conversationsPath(this.root));
 
     const paths = ids.map((id) => join(this.directory(id), 'lock'));
-
     const locked = await lockedFiles(paths, options);
-
     const open = new Map<string, { coordinated: boolean }>();
 
     for (const [index, path] of paths.entries()) {
@@ -515,7 +493,6 @@ export class ConversationStore {
     if (this.released) throw new Error('This conversation is no longer open.');
 
     const directory = join(this.directory, 'images');
-
     const file = join(directory, `${randomUUID()}.${extension}`);
 
     const saving = mkdir(directory, { recursive: true, mode: 0o700 }).then(() =>
@@ -597,7 +574,6 @@ export class ConversationStore {
 
     try {
       const content = await readFile(historyPath(this.directory), 'utf8');
-
       const lines = content.split('\n');
 
       if (!content.endsWith('\n')) lines.pop();
@@ -671,16 +647,12 @@ export class ConversationStore {
 
     try {
       const { size } = await file.stat();
-
       const buffer = Buffer.alloc(Math.min(4096, size));
-
       let end = size;
-
       let length = Math.min(1, size);
 
       while (end) {
         const start = end - length;
-
         let read = 0;
 
         while (read < length) {

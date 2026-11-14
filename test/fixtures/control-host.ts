@@ -35,7 +35,6 @@ export function envelope(bound: ControlBinding): ControlRequest {
 /** a host that releases every request, counting how many reach its handler. */
 export async function countingHost(bound: ControlBinding) {
   let calls = 0;
-
   const failures: unknown[] = [];
 
   const host = await ControlHost.open(
@@ -54,7 +53,6 @@ export async function countingHost(bound: ControlBinding) {
 /** on macOS a write just after `ControlHost.open` can send no event, so this waits for one; the host skips names that aren't `.json`. */
 export async function watching(directory: string): Promise<void> {
   const readdir = vi.spyOn(files, 'readdir');
-
   const probe = join(directory, 'inbox', 'probe');
 
   try {

@@ -45,7 +45,6 @@ export function parsePeerAnswers(
   requests: readonly PeerRequest[],
 ): PeerAnswer[] {
   const { answers } = peerAnswerSchema.parse(JSON.parse(text));
-
   const expected = new Set(requests.map(({ id }) => id));
 
   for (const answer of answers)

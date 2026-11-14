@@ -23,7 +23,6 @@ import { orderedCleanup } from './fixtures/cleanup.js';
 for (const failed of [false, true]) {
   test(`${failed ? 'failed' : 'completed'} selection turns release the next waiter`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const f = await unitCoordinationFixture(cleanup);
 
     const a = await f.start(),
@@ -60,7 +59,6 @@ for (const failed of [false, true]) {
 
 test('failed head cleanup retries while idle and old cleanup cannot cancel a later turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -73,7 +71,6 @@ test('failed head cleanup retries while idle and old cleanup cannot cancel a lat
     queued = await second.select();
 
   const cancel = CoordinationStore.prototype.cancelSelection;
-
   let rejected = false;
 
   vi.spyOn(CoordinationStore.prototype, 'cancelSelection').mockImplementation(
@@ -117,7 +114,6 @@ test('failed head cleanup retries while idle and old cleanup cannot cancel a lat
   assert.equal(next.selection.position, 1);
 
   const later = await selectionTurn(cleanup, a);
-
   const newer = await later.select();
 
   await f.registry.cancelSelection(
@@ -136,17 +132,11 @@ test('failed head cleanup retries while idle and old cleanup cannot cancel a lat
 
 test('interruption revokes selection before native cancellation resolves', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start();
-
   const first = await selectionTurn(cleanup, a);
-
   const ticket = await first.select();
-
   const native = a.a.sessions.at(-1)!.session;
-
   const interrupt = native.interrupt.bind(native);
 
   const entered = Promise.withResolvers<void>(),
@@ -204,15 +194,10 @@ test('interruption revokes selection before native cancellation resolves', async
 
 test('a client-delayed request from an interrupted turn cannot enter a later turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start();
-
   const first = await selectionTurn(cleanup, a);
-
   const old = await first.select();
-
   const delayed = { kind: 'select-next' as const, turn: first.turn };
 
   await a.coordinator.interrupt();
@@ -220,7 +205,6 @@ test('a client-delayed request from an interrupted turn cannot enter a later tur
   await first.sending;
 
   const later = await selectionTurn(cleanup, a);
-
   const current = await later.select();
 
   assert.equal(first.binding.activation, later.binding.activation);
@@ -246,9 +230,7 @@ test('a client-delayed request from an interrupted turn cannot enter a later tur
 
 test('cancelled status and recommendation never recreate a selection', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start();
 
   const turn = await selectionTurn(cleanup, a),
@@ -292,7 +274,6 @@ test('cancelled status and recommendation never recreate a selection', async (t)
 
 test('recommendation keeps the next chooser waiting until a brew ends', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -305,7 +286,6 @@ test('recommendation keeps the next chooser waiting until a brew ends', async (t
     waiting = await second.select();
 
   const emit = a.a.sessions.at(-1)!.options.onEvent;
-
   const command = { id: 'triage', description: 'Inspect candidate tasks' };
 
   emit({ type: 'command', command: { ...command, status: 'running' } });
@@ -355,9 +335,7 @@ test('recommendation keeps the next chooser waiting until a brew ends', async (t
 
 test('normal exit releases a suggestion while restart and native handoff preserve it', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start();
 
   const turn = await selectionTurn(cleanup, a),
@@ -392,7 +370,6 @@ test('normal exit releases a suggestion while restart and native handoff preserv
 
 test('replacing a conversation releases every active alias and preserves another open owner', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -446,14 +423,12 @@ test('replacing a conversation releases every active alias and preserves another
 
 test('active claims survive reconnect and restart but normal close makes them available', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
 
   const a = await f.start(),
     b = await f.start('B');
 
   const binding = await a.binding();
-
   const first = await a.claim();
 
   if (first.kind !== 'claimed') assert.fail(JSON.stringify(first));
@@ -485,13 +460,9 @@ test('active claims survive reconnect and restart but normal close makes them av
 
 test('adopting a legacy claim preserves its aliases through restart without binding another legacy owner', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const id = randomUUID();
-
   const files = await f.store.create(record(id, join(f.root, 'A')));
-
   const other = await f.store.create(record('older-peer', join(f.root, 'B')));
 
   cleanup(() => other.close());
@@ -521,9 +492,7 @@ test('adopting a legacy claim preserves its aliases through restart without bind
   await files.close();
 
   const a = await f.start('A', { conversation: id });
-
   const adopted = { ...original, process: await identifyProcess(process.pid) };
-
   const migrated = JSON.parse(await f.ledger());
 
   assert.equal(migrated.version, 2);
@@ -562,7 +531,6 @@ test('adopting a legacy claim preserves its aliases through restart without bind
 
 test('restart recovers a departed claim release while preserving other open conversations', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -577,7 +545,6 @@ test('restart recovers a departed claim release while preserving other open conv
   if (other.kind !== 'claimed') assert.fail(JSON.stringify(other));
 
   const release = CoordinationStore.prototype.releaseConversation;
-
   let failing = true;
 
   vi.spyOn(
@@ -616,7 +583,6 @@ test('restart recovers a departed claim release while preserving other open conv
 
 test('failed target preparation keeps a suggestion and a successful switch releases it', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -668,9 +634,7 @@ test('failed target preparation keeps a suggestion and a successful switch relea
 
 test('switching away releases a suggestion even when native close rejects', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start();
 
   const turn = await selectionTurn(cleanup, a),
@@ -696,9 +660,7 @@ test('switching away releases a suggestion even when native close rejects', asyn
 
 test('an idle origin change retires a suggestion through ordinary reconnect', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start();
 
   const turn = await selectionTurn(cleanup, a),
@@ -728,9 +690,7 @@ test('an idle origin change retires a suggestion through ordinary reconnect', as
 
 test('an origin change inside ledger verification rejects and cancels without nested locking', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start();
 
   const turn = await selectionTurn(cleanup, a),
@@ -787,11 +747,8 @@ test('an origin change inside ledger verification rejects and cancels without ne
 
 test('cleanup failure is surfaced while shutdown still closes native work and activation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start();
-
   const turn = await selectionTurn(cleanup, a);
 
   await turn.select();
@@ -822,9 +779,7 @@ test('cleanup failure is surfaced while shutdown still closes native work and ac
 
 test('legacy peers block selection until closed while other projects select independently', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const publish = CoordinationStore.prototype.publish;
 
   vi.spyOn(CoordinationStore.prototype, 'publish').mockImplementation(function (
@@ -865,7 +820,6 @@ test('legacy peers block selection until closed while other projects select inde
 
 test('a recommendation survives final cleanup failure and advances the next waiter once', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -882,7 +836,6 @@ test('a recommendation survives final cleanup failure and advances the next wait
   assert.equal(queued.position, 2);
 
   const recommend = CoordinationStore.prototype.recommend;
-
   let pending: Promise<void> | undefined;
 
   const recommending = vi
@@ -973,7 +926,6 @@ test('a lost recommendation reply reconciles after a delayed ledger read to one 
     queued = await second.select();
 
   const recommend = CoordinationStore.prototype.recommend;
-
   let committed = false;
 
   vi.spyOn(CoordinationStore.prototype, 'recommend').mockImplementation(
@@ -1030,7 +982,6 @@ test('a lost recommendation reply reconciles after a delayed ledger read to one 
   assert.ok(recorded);
 
   const before = await f.ledger();
-
   const retried = await callControl(first.binding, action);
 
   assert.equal(retried.kind, 'claimed');
@@ -1054,9 +1005,7 @@ test('a lost recommendation reply reconciles after a delayed ledger read to one 
 for (const active of [false, true])
   test(`failed ${active ? 'active claim' : 'suggestion'} cleanup retries without removing a later recommendation`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const f = await unitCoordinationFixture(cleanup);
-
     const a = await f.start();
 
     const first = await selectionTurn(cleanup, a),
@@ -1075,7 +1024,6 @@ for (const active of [false, true])
     }
 
     const release = CoordinationStore.prototype.releaseConversation;
-
     let failing = true;
 
     vi.spyOn(

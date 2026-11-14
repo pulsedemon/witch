@@ -13,13 +13,9 @@ import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 async function fixture(register: RegisterCleanup, assign = assignGitHubTask) {
   const f = await unitCoordinationFixture(register, assign);
-
   const bin = join(f.root, 'bin');
-
   const policy = join(f.root, 'github-policy.json');
-
   const calls = join(f.root, 'github-calls.jsonl');
-
   const release = join(f.root, 'github-release');
 
   await mkdir(bin);
@@ -89,16 +85,12 @@ const input = {
 };
 
 const issue = 'repos/acme/widget/issues/42/assignees';
-
 const pull = 'repos/acme/widget/issues/77/assignees';
-
 const issueReference = 'github:acme/widget#42';
-
 const pullReference = 'github:acme/widget#77';
 
 test('a successful claim assigns its distinct GitHub references, and a conflicting claim never reaches GitHub', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
 
   const a = await f.start(),
@@ -151,15 +143,10 @@ test('a successful claim assigns its distinct GitHub references, and a conflicti
 
 test('a recommendation assigns only when promoted to an active claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const a = await f.start();
-
   const turn = await selectionTurn(cleanup, a);
-
   const selection = await turn.select();
-
   const suggested = await turn.recommend(selection.ticket.id);
 
   assert.deepEqual(await f.calls(), []);
@@ -210,11 +197,8 @@ for (const scenario of [
 ]) {
   test(`${scenario.name} returns a warning with ownership intact, and repeating the claim retries`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const f = await fixture(cleanup);
-
     const a = await f.start();
-
     const binding = await a.binding();
 
     await f.configure(scenario.policy);
@@ -265,11 +249,8 @@ for (const scenario of [
 
 test('a refreshed claim calls GitHub only for references it has not confirmed', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const binding = await (await f.start()).binding();
-
   const claimed = await callControl(binding, { kind: 'claim', input });
 
   if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
@@ -326,9 +307,7 @@ test('a refreshed claim calls GitHub only for references it has not confirmed', 
 
 test('a confirmed assignment the ledger cannot record warns and keeps the claim, and the next claim assigns again', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
-
   const binding = await (await f.start()).binding();
 
   vi.spyOn(
@@ -432,7 +411,6 @@ for (const [name, endpoint, expected] of [
 
 test('a pending GitHub assignment leaves the shared ledger available and drains before close releases its claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
 
   const a = await f.start(),
@@ -487,7 +465,6 @@ test('a pending GitHub assignment leaves the shared ledger available and drains 
 
 test('an expired assignment starts no command and a stalled GitHub command is reaped at its deadline', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await fixture(cleanup);
 
   assert.deepEqual(

@@ -93,7 +93,6 @@ export async function processArguments(
 
   for (let at = 0; at < fields.length - 1;) {
     const pid = Number(fields[at++]);
-
     const count = Number(fields[at++]);
 
     result.set(pid, fields.slice(at, at + count));
@@ -186,7 +185,6 @@ export async function identifyProcesses(
 
   for (const line of await ps('pid=,lstart=', probed, options)) {
     const [, id, started] = /^\s*(\d+)\s+(.+?)\s*$/.exec(line)!;
-
     const pid = Number(id);
 
     identities.set(pid, { pid, started: started! });

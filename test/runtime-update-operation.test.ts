@@ -14,7 +14,6 @@ import { runtimeUpdateFixture } from './fixtures/runtime-updates.js';
 
 test('an update selects and verifies the confirmed artifact before releasing admission', async () => {
   const f = await runtimeUpdateFixture();
-
   const verify = f.native.verify;
 
   f.native.verify = async (...args) => {
@@ -90,7 +89,6 @@ for (const failure of [
 
 test('a partial installer failure is reconciled and recovered', async () => {
   const f = await runtimeUpdateFixture();
-
   const install = f.native.install;
 
   f.native.install = async (...args) => {
@@ -131,7 +129,6 @@ test('installer success without selecting the target never produces a verified u
 
 test('a mismatched qualification identity triggers recovery', async () => {
   const f = await runtimeUpdateFixture();
-
   const verify = f.native.verify;
 
   f.native.verify = async (...args) => ({
@@ -153,7 +150,6 @@ test('a mismatched qualification identity triggers recovery', async () => {
 
 test('failed recovery keeps native launches blocked and can be retried without an agent', async () => {
   const f = await runtimeUpdateFixture();
-
   const install = f.native.install;
 
   f.native.verify = async () => {
@@ -263,7 +259,6 @@ test('preparation failure leaves the original selection usable', async () => {
 
 test('another transaction cannot overwrite an active update journal', async () => {
   const f = await runtimeUpdateFixture();
-
   const transaction = await f.store.transaction(f.root);
 
   try {
@@ -284,7 +279,6 @@ test('another transaction cannot overwrite an active update journal', async () =
 
 test('shared native use excludes installation and closes before a writer acquires it', async () => {
   const f = await runtimeUpdateFixture();
-
   const reader = holdRuntime(f.root, f.store.directory);
 
   await assert.rejects(
@@ -395,7 +389,6 @@ test('an offline refresh reports failure instead of claiming the installed versi
 
 test('a build change during qualification restores the old runtime', async () => {
   const f = await runtimeUpdateFixture();
-
   const verify = f.native.verify;
 
   f.native.verify = async (...args) => {
@@ -439,7 +432,6 @@ test('known installation users refuse an update before preparation or mutation',
 
 test('an omitted required check cannot qualify an update', async () => {
   const f = await runtimeUpdateFixture();
-
   const verify = f.native.verify;
 
   f.native.verify = async (...args) => ({
@@ -463,7 +455,6 @@ test('an omitted required check cannot qualify an update', async () => {
 
 test('confirmation rechecks native policy in the initiating conversation directory', async () => {
   let cwd = '/project/first';
-
   const observed: string[] = [];
 
   const f = await runtimeUpdateFixture({
@@ -602,9 +593,7 @@ for (const fails of [false, true]) {
       ' reconnect',
     async () => {
       const reconnect = Promise.withResolvers<void>();
-
       const finish = Promise.withResolvers<void>();
-
       const notices: string[] = [];
 
       const f = await runtimeUpdateFixture({
@@ -674,7 +663,6 @@ function successor(
   identifyBuild: () => Promise<string>,
 ) {
   const abort = new AbortController();
-
   const notices: string[] = [];
 
   const updates = new RuntimeUpdates(
@@ -900,7 +888,6 @@ for (const [name, mismatch] of [
 ] as const) {
   test(`qualifying refuses an earlier artifact that reports ${name}`, async () => {
     const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
     const inspect = f.native.inspect;
 
     f.native.inspect = async (registration, ...rest) => {
@@ -1000,7 +987,6 @@ test('a failed reconnect after a passed qualification keeps the record, its noti
   f.updates.close();
 
   let reconnecting = false;
-
   const notices: string[] = [];
 
   const updates = new RuntimeUpdates(
@@ -1080,7 +1066,6 @@ test('a failed build identity is reported by the operation instead of hiding the
 
 test('qualifying refuses an installation that changed since it was offered', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   let prepared = false;
 
   f.native.prepare = async () => {
@@ -1129,7 +1114,6 @@ for (const [name, tamper] of [
 ] as const) {
   test(`a qualification report that ${name} records nothing`, async () => {
     const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
     const verify = f.native.verify;
 
     f.native.verify = async (...args) => tamper(await verify(...args));

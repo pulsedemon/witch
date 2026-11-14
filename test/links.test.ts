@@ -25,7 +25,6 @@ const execute = promisify(execFile);
 
 function linkSpans(text: string) {
   const spans: { target: string; text: string }[] = [];
-
   let current: (typeof spans)[number] | undefined;
 
   for (const { value, styles } of styledCharsFromTokens(tokenize(text))) {
@@ -266,7 +265,6 @@ test('a non-ASCII filename keeps its whole target through appends and wrapping',
   );
 
   const text = next.complete.join('\n');
-
   const target = 'vscode://file/proj/docs/%C3%BCber/x.md';
 
   assert.equal(stripAnsi(text), 'docs/über/x.md');
@@ -434,11 +432,8 @@ test('a dotted word or a name with an unlisted extension and no directory stays 
 /** a project and both memory scopes, with `files` written under them. */
 async function clickRoots(files: string[]) {
   const root = await scratch('links-');
-
   const cwd = join(root, 'project');
-
   const global = join(root, 'memory', 'global');
-
   const project = join(root, 'memory', 'projects', 'p');
 
   for (const file of files) {
@@ -460,7 +455,6 @@ async function clickRoots(files: string[]) {
 
 test('a click on a path that cannot be looked at fails with why instead of calling the file missing', async (t) => {
   const { cwd } = await clickRoots(['project/here.md']);
-
   const hidden = join(cwd, 'hidden.md');
 
   unreadable(t, hidden);
@@ -609,7 +603,6 @@ test('long runs of filename characters, and links on many lines or one, link in 
     ['a line of JSON emails', emails(500), emails(2000)] as const,
   ]) {
     const smallTime = fastest(small);
-
     const largeTime = fastest(large);
 
     assert.ok(
@@ -621,7 +614,6 @@ test('long runs of filename characters, and links on many lines or one, link in 
 
 test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, but not inside a dropped path, so a link across the cut stays whole', () => {
   const file = `src/notes ${'n'.repeat(20)}.md`;
-
   const dropped = '/tmp/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
 
   const screenshot =
@@ -758,13 +750,9 @@ test('streaming links retain their targets and unresolved controls across chunks
 
     for (const chunks of streams) {
       let text = '';
-
       let pending = '';
-
       let carried: string | undefined;
-
       const complete: string[] = [];
-
       let actual = '';
 
       for (const chunk of chunks) {

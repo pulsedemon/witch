@@ -73,7 +73,6 @@ export function useToolFocus(conversation: string | undefined) {
       scrollTo: (id: string | null) => void,
     ) {
       const current = indexOf(tools, shownAs, selectionRef.current);
-
       let next = current;
 
       if (key.upArrow) next = Math.max(0, current - 1);

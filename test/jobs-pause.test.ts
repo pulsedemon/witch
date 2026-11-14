@@ -91,7 +91,6 @@ test('an active watch keeps reading with nothing tracked', async () => {
 
 test('an inactive watch keeps reading for settle after activity or its last job ends', async () => {
   const reads: number[] = [];
-
   let rows: Row[] = [];
 
   const jobs = new JobWatch({
@@ -140,7 +139,6 @@ test('a read that began before activity ended does not pause the watch', async (
   vi.useFakeTimers({ toFake: ['performance'] });
 
   const held = Promise.withResolvers<void>();
-
   let reads = 0;
 
   const jobs = new JobWatch({
@@ -170,7 +168,6 @@ test('a read that began before activity ended does not pause the watch', async (
 
 test('a tracked group keeps an inactive watch reading', async () => {
   const job = orphanRow(100961);
-
   let reads = 0;
 
   const jobs = new JobWatch({
@@ -202,7 +199,6 @@ test('a tracked group keeps an inactive watch reading', async () => {
 
 test('a job list while paused finds an orphan and resumes the reads', async () => {
   let rows: Row[] = [];
-
   let reads = 0;
 
   const jobs = new JobWatch({
@@ -239,9 +235,7 @@ test('a job list while paused finds an orphan and resumes the reads', async () =
 
 test('a watch is live while a group is tracked and from the end of activity until a read after it', async () => {
   const job = orphanRow(4242);
-
   let rows: Row[] = [];
-
   let held: Promise<void> | undefined;
 
   const jobs = new JobWatch({

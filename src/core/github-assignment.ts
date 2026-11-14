@@ -52,7 +52,6 @@ export async function assignGitHubTask(
   }
 
   const assigned: string[] = [];
-
   const failures: string[] = [];
 
   for (const { reference, endpoint } of issues) {

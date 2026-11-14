@@ -8,14 +8,11 @@ import { until } from './fixtures/within.js';
 
 test('usage process registration preserves the main identity and ignores reports after its conversation closes', async () => {
   const { coordinator, a, root, tracked } = await unitFixture();
-
   const helper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
 
   try {
     const id = coordinator.snapshot.conversation!.id;
-
     const before = await readRecord(root, id);
-
     const report = a.sessions[0]!.options.onUsageProcess!;
 
     await report(helper.pid);

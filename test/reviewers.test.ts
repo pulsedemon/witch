@@ -21,15 +21,12 @@ import { until, within } from './fixtures/within.js';
 /** a coordinator whose familiar mailbox asks its reviewers first, with `claude` and `codex` fixtures on a private PATH. */
 async function setup(register: Parameters<typeof orderedCleanup>[0]) {
   const { start } = await unitCoordinationFixture(orderedCleanup(register));
-
   const session = await start();
-
   const { coordinator, coordination, a } = session;
 
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
 
   const root = await scratch('witch-reviewers-');
-
   const bin = join(root, 'bin');
 
   await mkdir(bin);
@@ -87,7 +84,6 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
 
 async function nativePid(directory: string): Promise<number> {
   const launched = join(directory, 'launched.json');
-
   let pid: number | undefined;
 
   await until(
@@ -121,7 +117,6 @@ function alive(pid: number): boolean {
 
 test('a Witch-launched reviewer registers, reports and exits', async (t) => {
   const { coordinator, root, reviewer } = await setup(t.onTestFinished);
-
   const one = await reviewer('review-a1-1-claude-0');
 
   const [result] = await within(
@@ -157,7 +152,6 @@ test('a Witch-launched reviewer registers, reports and exits', async (t) => {
 
 test('an unexpected name falls through to the live session', async (t) => {
   const { coordination, a } = await setup(t.onTestFinished);
-
   const forwarded: [FamiliarAction, number][] = [];
 
   a.sessions.at(-1)!.session.familiar = {
@@ -190,7 +184,6 @@ test('an unexpected name falls through to the live session', async (t) => {
 
 test('a familiar request fails the reviewer', async (t) => {
   const { coordinator, root, reviewer } = await setup(t.onTestFinished);
-
   const asking = await reviewer('review-a1-1-codex-0', 'codex');
 
   const [result] = await within(
@@ -346,7 +339,6 @@ test("a command's stderr and a report read error come back as its diagnostics", 
 
 test('an aborted signal spawns nothing', async () => {
   const root = await scratch('witch-reviewers-');
-
   const controller = new AbortController();
 
   controller.abort();
@@ -370,11 +362,8 @@ test('an aborted signal spawns nothing', async () => {
 
 test('cleanup waits while macOS answers EPERM for an exiting group', async () => {
   const root = await scratch('witch-reviewers-');
-
   const kill = process.kill.bind(process);
-
   const sent: (string | number | undefined)[] = [];
-
   let probes = 0;
 
   const refuse = (code: string) =>
@@ -415,9 +404,7 @@ test('cleanup waits while macOS answers EPERM for an exiting group', async () =>
 
 test('a reviewer that outlives the stop deadline ends the run at the deadline', async () => {
   const root = await scratch('witch-reviewers-');
-
   const kill = process.kill.bind(process);
-
   const groups = new Set<number>();
 
   // group signals never arrive, as for a wrapper that survives them
@@ -433,7 +420,6 @@ test('a reviewer that outlives the stop deadline ends the run at the deadline', 
 
   try {
     const controller = new AbortController();
-
     const events: string[] = [];
 
     const reviewers = new Reviewers(({ subagent }) =>
@@ -522,9 +508,7 @@ setInterval(() => {}, 1000);
 
 test('an abort after the commands exit ends cleanup at its own deadline and stops probing', async () => {
   const root = await scratch('witch-reviewers-');
-
   const kill = process.kill.bind(process);
-
   const sent: (string | number | undefined)[] = [];
 
   // the group outlives every signal, as for a member stuck in the kernel
@@ -573,11 +557,8 @@ test('an abort after the commands exit ends cleanup at its own deadline and stop
 
 test('abort stops every reviewer', async (t) => {
   const { coordinator, root, reviewer } = await setup(t.onTestFinished);
-
   const first = await reviewer('review-a1-1-claude-0', 'claude', 'gated');
-
   const second = await reviewer('review-a1-1-claude-1', 'claude', 'gated');
-
   const controller = new AbortController();
 
   const running = coordinator.reviewers.run({
@@ -622,7 +603,6 @@ test('abort stops a native reviewer that ignores SIGTERM', async (t) => {
   });
 
   const pid = await nativePid(stubborn.directory);
-
   const deadline = performance.now() + 1500;
 
   controller.abort(new NativeStop({ deadline }));
@@ -634,7 +614,6 @@ test('abort stops a native reviewer that ignores SIGTERM', async (t) => {
 
 test('a killed reviewer gets a terminal event and no survivor', async (t) => {
   const { coordinator, root, reviewer } = await setup(t.onTestFinished);
-
   const killed = await reviewer('review-a1-1-claude-0', 'claude', 'gated');
 
   const running = coordinator.reviewers.run({
@@ -692,7 +671,6 @@ test('a killed reviewer gets a terminal event and no survivor', async (t) => {
 
 test("a native session closing leaves Witch's reviewers running", async (t) => {
   const { coordinator, a, root, reviewer } = await setup(t.onTestFinished);
-
   const held = await reviewer('review-a1-1-claude-0', 'claude', 'gated');
 
   const running = coordinator.reviewers.run({

@@ -26,9 +26,7 @@ function launch(cwd: string, tmp: string, ...args: string[]) {
   );
 
   const paths: string[] = [];
-
   const reported = Promise.withResolvers<string>();
-
   let partial = '';
 
   child.stdout.on('data', (chunk: Buffer) => {
@@ -49,15 +47,12 @@ function launch(cwd: string, tmp: string, ...args: string[]) {
 
 test("a file's scratch directories share one parent named for its process and outlive each of its tests, then go when it ends, a failed test included", async () => {
   const root = await scratch('witch-scratch-');
-
   const tmp = join(root, 'tmp');
 
   await mkdir(tmp);
 
   const run = launch(root, tmp, 'fail');
-
   const [code] = await within(run.closed, 10_000, 'the run');
-
   const [a, b, c] = run.paths;
 
   assert.equal(code, 1);
@@ -82,15 +77,10 @@ test("a file's scratch directories share one parent named for its process and ou
 
 test("the next run removes a killed run's scratch directories, locked ones included, and leaves a live or root-owned process's as they are, a linked directory and the rest of the temp dir", async () => {
   const root = await scratch('witch-scratch-');
-
   const tmp = join(root, 'tmp');
-
   const outside = join(root, 'outside');
-
   const live = join(tmp, 'witch-tests', `${process.pid}-live01`);
-
   const rooted = join(tmp, 'witch-tests', '1-other1');
-
   const rest = join(tmp, 'witch-other-abcdef');
 
   for (const directory of [outside, live, rooted, rest]) {
@@ -119,7 +109,6 @@ test("the next run removes a killed run's scratch directories, locked ones inclu
     assert.ok(existsSync(killed));
 
     const next = launch(root, tmp, 'fail');
-
     const [code] = await within(next.closed, 10_000, 'the next run');
 
     assert.equal(code, 1);

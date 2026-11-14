@@ -47,7 +47,6 @@ async function relocatedFixture() {
   );
 
   const scope = await f.memory.scopePaths(f.project);
-
   const destination = join(f.root, 'renamed project');
 
   // the coordinator repairs the move when it starts in the destination, with no command
@@ -166,11 +165,8 @@ test('recovered conversations reconnect with their saved IDs in the destination'
 
 test('directory recovery preserves pending memory and keeps a new turn queued', async () => {
   const f = await relocatedFixture();
-
   const note = `${f.scope.project}/pending.md`;
-
   const dirty = await stranded(f, { [note]: 'committed' });
-
   const pending = 'pending edit';
 
   await writeFile(join(dirty.memory.root, note), pending);
@@ -219,7 +215,6 @@ test('directory recovery preserves pending memory and keeps a new turn queued', 
 
 test('a recovered conversation with missing native history keeps its ID and transcript', async () => {
   const f = await relocatedFixture();
-
   const saved = record('missing-native', f.project);
 
   saved.sessions.a = {
@@ -336,7 +331,6 @@ test('a moved directory without an origin takes its notes into the project its n
   await f.coordinator.close();
 
   const before = await f.memory.scopePaths(f.project);
-
   const helper = f.memory.workspace(join(f.root, 'helper'), 'helper');
 
   await helper.ensureWorktree();
@@ -457,9 +451,7 @@ test('startup failures leave an exit-capable error state whose lookups reject ra
 
 async function sweepFixture() {
   const root = await scratch('witch-sweep-');
-
   const project = join(root, 'project');
-
   const fresh = join(root, 'fresh');
 
   await mkdir(project);
@@ -467,9 +459,7 @@ async function sweepFixture() {
   await mkdir(fresh);
 
   const store = await StateStore.open(join(root, 'state'));
-
   const memory = await seededMemory(join(root, 'state', 'memory.git'));
-
   const a = new FixtureAgent('a');
 
   const launch = async () => {
@@ -508,12 +498,10 @@ async function sweepFixture() {
 
 test('the launch sweep stops a live orphan in an unlocked conversation', async () => {
   const { root, launch, save } = await sweepFixture();
-
   const orphan = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
 
   try {
     const exited = once(orphan, 'exit');
-
     const process = await identifyProcess(orphan.pid!);
 
     await save('orphan', (saved) => {
@@ -538,9 +526,7 @@ test('the launch sweep stops a live orphan in an unlocked conversation', async (
 
 test('the launch sweep skips a conversation another instance holds', async () => {
   const { store, launch } = await sweepFixture();
-
   const sleeper = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
-
   const held = await store.create(record('held', '/elsewhere'));
 
   try {
@@ -803,7 +789,6 @@ test("/sessions lists only this directory's conversations", async () => {
 
 test('continue into a held conversation shows the lock error with the launch report', async () => {
   const context = await fixture();
-
   const { coordinator: first, store, root, project, a, memory } = context;
 
   await first.close();
@@ -811,7 +796,6 @@ test('continue into a held conversation shows the lock error with the launch rep
   await used(store, root, record('held', project), 1000);
 
   const holder = await store.claim('held');
-
   const elsewhere = join(root, 'elsewhere');
 
   await mkdir(elsewhere);
@@ -855,7 +839,6 @@ test('continue into a held conversation shows the lock error with the launch rep
 
 test('a publish failure while settling the launch is added to its report', async () => {
   const context = await fixture();
-
   const { coordinator: first, store, root, memory, hook, a } = context;
 
   await first.close();
@@ -974,7 +957,6 @@ async function relaunch(
   await context.coordinator.close();
 
   const a = new FixtureAgent('a');
-
   const b = new FixtureAgent('b');
 
   prepare?.(a);
@@ -1113,7 +1095,6 @@ test('a model the agent rejects while disconnected keeps the stored one, so the 
     );
 
     const id = coordinator.snapshot.conversation!.id;
-
     const saved = (await readRecord(root, id)).sessions.a;
 
     assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
@@ -1139,7 +1120,6 @@ test('an interrupt while a chosen model connects keeps the stored one', async ()
     await a.sessions.at(-1)!.session.close();
 
     const entered = Promise.withResolvers<void>();
-
     const release = Promise.withResolvers<void>();
 
     a.beforeConnect = holdConnect(entered, release);
@@ -1157,7 +1137,6 @@ test('an interrupt while a chosen model connects keeps the stored one', async ()
     await interrupting;
 
     const id = coordinator.snapshot.conversation!.id;
-
     const saved = (await readRecord(root, id)).sessions.a;
 
     assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
@@ -1175,7 +1154,6 @@ test('an interrupt while a reconnected session checks the choice keeps the store
     await a.sessions.at(-1)!.session.close();
 
     const entered = Promise.withResolvers<void>();
-
     const release = Promise.withResolvers<void>();
 
     a.beforeCheck = async () => {
@@ -1197,7 +1175,6 @@ test('an interrupt while a reconnected session checks the choice keeps the store
     await interrupting;
 
     const id = coordinator.snapshot.conversation!.id;
-
     const saved = (await readRecord(root, id)).sessions.a;
 
     assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
@@ -1227,7 +1204,6 @@ test('a rollback whose close fails still keeps the stored model and reports the 
     );
 
     const id = coordinator.snapshot.conversation!.id;
-
     const saved = (await readRecord(root, id)).sessions.a;
 
     assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
@@ -1307,7 +1283,6 @@ test.each([false, true])(
     if (resumed) first.notice('Saved history');
 
     const saved = [...first.snapshot.items];
-
     const previous = first.snapshot.conversation!.id;
 
     await first.close();
@@ -1375,7 +1350,6 @@ test.each([false, true])(
 
 test('a transient native notice shows without making an unused conversation resumable', async () => {
   const { coordinator, a, root } = await unitFixture();
-
   const id = coordinator.snapshot.conversation!.id;
 
   try {

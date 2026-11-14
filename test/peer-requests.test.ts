@@ -11,17 +11,11 @@ import { expireAfterLock } from './fixtures/coordination.js';
 import { scratch } from './fixtures/scratch.js';
 
 const identity = (await identifyProcess(process.pid))!;
-
 const project = 'projects/p';
-
 const a = { conversation: 'a', project };
-
 const b = { conversation: 'b', project };
-
 const c = { conversation: 'c', project };
-
 const verify = async () => {};
-
 const deadline = () => Date.now() + 5000;
 
 async function stores(count = 1) {
@@ -45,9 +39,7 @@ const claim = (store: CoordinationStore, owner: ClaimOwner, name: string) =>
 
 test('concurrent writers keep every change', async () => {
   const [one, two] = await stores(2);
-
   const claimB = await claim(one!, b, 'b');
-
   const claimC = await claim(two!, c, 'c');
 
   const [toB, toC, fromC] = await Promise.all([
@@ -96,11 +88,8 @@ test('concurrent writers keep every change', async () => {
 
 test('batch answers validate every addressee before committing any answer', async () => {
   const [store] = await stores();
-
   const claimB = await claim(store!, b, 'b');
-
   const claimC = await claim(store!, c, 'c');
-
   const first = await store!.askPeer(a, claimB.id, 'first', deadline(), verify);
 
   const second = await store!.askPeer(
@@ -162,11 +151,8 @@ test('batch answers validate every addressee before committing any answer', asyn
 
 test('automatic batches preserve existing replies while validating every pending answer', async () => {
   const [store] = await stores();
-
   const claimB = await claim(store!, b, 'b');
-
   const claimC = await claim(store!, c, 'c');
-
   const first = await store!.askPeer(a, claimB.id, 'first', deadline(), verify);
 
   const second = await store!.askPeer(
@@ -242,18 +228,14 @@ test('automatic batches preserve existing replies while validating every pending
 
 test('a repeated ask matches the asker, the claim and the text', async () => {
   const [store] = await stores();
-
   const claimB = await claim(store!, b, 'b');
-
   const claimC = await claim(store!, c, 'c');
 
   const ask = (sender: ClaimOwner, id: string) =>
     store!.askPeer(sender, id, 'Same?', deadline(), verify);
 
   const first = await ask(a, claimB.id);
-
   const toC = await ask(a, claimC.id);
-
   const fromC = await ask(c, claimB.id);
 
   const other = await store!.askPeer(
@@ -279,7 +261,6 @@ test('a repeated ask matches the asker, the claim and the text', async () => {
 
 test('an attempted request is not admitted again', async () => {
   const [store] = await stores();
-
   const owned = await claim(store!, b, 'b');
 
   const request = await store!.askPeer(
@@ -329,7 +310,6 @@ test('an attempted request is not admitted again', async () => {
 
 test('answers are single and addressed', async () => {
   const [store] = await stores();
-
   const owned = await claim(store!, b, 'b');
 
   const request = await store!.askPeer(
@@ -358,7 +338,6 @@ test('answers are single and addressed', async () => {
 
 test('status follows the claim id', async () => {
   const [store] = await stores();
-
   const owned = await claim(store!, b, 'b');
 
   const waiting = await store!.askPeer(
@@ -419,7 +398,6 @@ test('status follows the claim id', async () => {
 
 test('requests are isolated by project and party', async () => {
   const [store] = await stores();
-
   const owned = await claim(store!, b, 'b');
 
   const request = await store!.askPeer(
@@ -453,9 +431,7 @@ test('requests are isolated by project and party', async () => {
 
 test('a batch whose requests already have answers writes nothing, even past its deadline', async () => {
   const root = await scratch('witch-peer-requests-');
-
   const store = await CoordinationStore.open(await StateStore.open(root));
-
   const claimB = await claim(store!, b, 'b');
 
   const request = await store.askPeer(
@@ -473,7 +449,6 @@ test('a batch whose requests already have answers writes nothing, even past its 
     await utimes(join(root, directory), 0, 0);
 
   const before = store.signature();
-
   const answers = [{ id: request.id, message: 'automatic' }];
 
   assert.deepEqual(await store.answerPeers('b', answers, deadline(), true), []);

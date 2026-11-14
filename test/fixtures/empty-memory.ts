@@ -6,7 +6,6 @@ import type { MemoryScope } from '../../src/memory/memory.js';
 import { Workspace } from '../../src/memory/workspace.js';
 
 const revision = '0'.repeat(40);
-
 const integration = 'Use the real memory fixture for memory integration tests';
 
 /** clean, unchanged memory for coordinator tests; persistence and note edits require the real fixture. */
@@ -31,7 +30,6 @@ export class EmptyMemory extends Memory {
 
   override workspace(directory: string, id: string): Workspace {
     const root = join(directory, 'memory');
-
     let workspace = this.workspaces.get(root);
 
     if (!workspace) {

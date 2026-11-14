@@ -27,9 +27,7 @@ for (const [mode, expected] of [
 ] as const) {
   test(`qualification refuses ${mode} and retains its incomplete report`, async () => {
     const f = await runtimeUpdateFixture();
-
     const abort = new AbortController();
-
     let preparing = true;
 
     const options = {
@@ -63,9 +61,7 @@ for (const [mode, expected] of [
       preparing = false;
 
       const candidate = f.artifacts.get('2.0.0')!;
-
       const verified = verifyNativeUpdate(prepared, candidate, options);
-
       const refused = assert.rejects(verified, expected);
 
       if (mode === 'timeout') {
@@ -116,7 +112,6 @@ for (const [mode, expected] of [
 
 test('controlled Claude launches keep hooks and user MCP out while preserving isolated sessions', async () => {
   const f = await runtimeUpdateFixture();
-
   let observed: { args: string[]; env: NodeJS.ProcessEnv } | undefined;
 
   const adapter = await verificationAdapter('claude', f.directory, {
@@ -159,7 +154,6 @@ test('controlled Claude launches keep hooks and user MCP out while preserving is
 
 test('a failed control turn reports its native diagnostic without waiting for a nonexistent tool', async () => {
   const f = await runtimeUpdateFixture();
-
   const adapter = new FixtureAgent('codex');
 
   adapter.failNext = true;
@@ -183,7 +177,6 @@ test('a failed control turn reports its native diagnostic without waiting for a 
 for (const kind of ['answer', 'sandbox'] as const) {
   test(`${kind} qualification cancellation stops the restricted child and retains evidence`, async () => {
     const f = await runtimeUpdateFixture();
-
     const executable = join(f.directory, 'fake-codex.mjs');
 
     await copyFile(

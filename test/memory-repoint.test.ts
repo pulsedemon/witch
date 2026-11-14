@@ -41,11 +41,8 @@ const homeMove = (to: string): LedgerMove => ({
 
 test('repointText maps references at path boundaries and leaves look-alikes alone', async () => {
   const s = await scratch('witch-repoint-');
-
   const ledger = await moves([join(s, 'w/main'), join(s, 'c/main')]);
-
   const home = await scratch('witch-repoint-home-');
-
   const tilde = { ...homeMove(join(home, 'moved')), from: join(home, 'old') };
 
   ledger.moves.push(tilde);
@@ -55,13 +52,9 @@ test('repointText maps references at path boundaries and leaves look-alikes alon
   Object.assign(tilde, await identify(tilde.to));
 
   const { map } = await mapper(ledger);
-
   const w = join(s, 'w/main');
-
   const c = join(s, 'c/main');
-
   const forms = [w, tilde.from, '~/old'];
-
   const repoint = (text: string) => repointText(text, forms, map, home);
 
   for (const [before, after] of [
@@ -93,11 +86,8 @@ test('repointText maps references at path boundaries and leaves look-alikes alon
 
 test('a destination with a space gets angle brackets', async () => {
   const s = await scratch('witch-repoint-');
-
   const w = join(s, 'w/main');
-
   const to = join(s, 'new checkout');
-
   const { map } = await mapper(await moves([w, to]));
 
   assert.equal(
@@ -172,7 +162,6 @@ test('repointing a suspended chain stays linear in the number of references', as
   await rename(join(s, 'spare'), join(b, 'x'));
 
   const { map } = await mapper(ledger);
-
   const note = `${a}/x/f`;
 
   // linear work takes milliseconds here, so a second fails only a scan that rereads the line for each reference
@@ -190,9 +179,7 @@ test('repointing a suspended chain stays linear in the number of references', as
 
 test('a reference longer than any path is left alone', async () => {
   const s = await scratch('witch-repoint-');
-
   const w = join(s, 'w/main');
-
   const { map } = await mapper(await moves([w, join(s, 'c/main')]));
 
   for (const tail of ['x'.repeat(1100), 'é/'.repeat(350)]) {
@@ -204,19 +191,12 @@ test('a reference longer than any path is left alone', async () => {
 
 test('begin repoints moved paths in every scope as one published commit', async () => {
   const { memory, open, begin } = await fixture();
-
   const s = await scratch('witch-repoint-');
-
   const w = join(s, 'w/main');
-
   const c = join(s, 'c/main');
-
   const ledger = await moves([w, c]);
-
   const { workspace } = await open('a');
-
   const { scope } = await begin(workspace, s);
-
   const other = 'projects/other-0000/d.md';
 
   await save(workspace, {
@@ -267,19 +247,12 @@ test('begin repoints moved paths in every scope as one published commit', async 
 
 test('notes published later by another conversation get repointed at the next begin', async () => {
   const { memory, open, begin } = await fixture();
-
   const s = await scratch('witch-repoint-');
-
   const w = join(s, 'w/main');
-
   const c = join(s, 'c/main');
-
   const ledger = await moves([w, c]);
-
   const first = (await open('a')).workspace;
-
   const second = (await open('b')).workspace;
-
   const { scope } = await begin(first, s);
 
   await workspace(second, s, begin, { [`${scope.global}/late.md`]: `${w}\n` });
@@ -307,21 +280,13 @@ async function workspace(
 /** a MEMORY.md whose concurrent union merge brings an old link back after the first repoint publishes. */
 async function unionRace() {
   const f = await fixture();
-
   const s = await scratch('witch-repoint-');
-
   const w = join(s, 'w/main');
-
   const c = join(s, 'c/main');
-
   const ledger = await moves([w, c]);
-
   const first = (await f.open('a')).workspace;
-
   const second = (await f.open('b')).workspace;
-
   const { scope } = await f.begin(first, s);
-
   const index = `${scope.global}/MEMORY.md`;
 
   await save(first, { [index]: `- one ${w}\n` });
@@ -363,7 +328,6 @@ test('a repoint survives a concurrent union merge of MEMORY.md', async () => {
 
 test('a failed repoint after the first publish is still reported', async () => {
   const f = await unionRace();
-
   const hook = f.hook.current;
 
   f.hook.current = async (command, run, options) => {
@@ -385,7 +349,6 @@ test('a failed repoint after the first publish is still reported', async () => {
 
 test('a follow-up repoint that loses to another conversation starts the turn from main', async () => {
   const f = await unionRace();
-
   const publish = f.first.publish.bind(f.first);
 
   const spy = vi
@@ -412,17 +375,11 @@ test('a follow-up repoint that loses to another conversation starts the turn fro
 
 test('begin without matches makes no commit', async () => {
   const { memory, open, begin } = await fixture();
-
   const s = await scratch('witch-repoint-');
-
   const ledger = await moves([join(s, 'w/main'), join(s, 'c/main')]);
-
   const { workspace } = await open('a');
-
   const { scope } = await begin(workspace, s);
-
   const before = await memory.resolve(main);
-
   const begun = await workspace.begin(scope, ledger);
 
   assert.equal(begun.repointed, 0);
@@ -432,17 +389,11 @@ test('begin without matches makes no commit', async () => {
 
 test('a failed note write rolls back and the turn still begins', async () => {
   const { memory, open, begin } = await fixture();
-
   const s = await scratch('witch-repoint-');
-
   const w = join(s, 'w/main');
-
   const ledger = await moves([w, join(s, 'c/main')]);
-
   const { workspace } = await open('a');
-
   const { scope } = await begin(workspace, s);
-
   const note = `${scope.global}/z-locked.md`;
 
   await save(workspace, {

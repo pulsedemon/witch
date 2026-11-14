@@ -33,9 +33,7 @@ async function scripted(sessionState = true) {
 
   const compact = async () => {
     const result = f.session.compact();
-
     const isSettled = settled(result);
-
     let uuid = '';
 
     await until('compact request', async () =>
@@ -88,7 +86,6 @@ const result = (uuid: string) => ({
 
 async function busy() {
   const events: AgentEvent[] = [];
-
   const f = await fixture((event) => events.push(event), 'background');
 
   const emit = frameWriter(
@@ -99,7 +96,6 @@ async function busy() {
   );
 
   const parent = f.session.send('initial');
-
   const parentDone = settled(parent);
 
   await until('ordinary result', () =>
@@ -121,7 +117,6 @@ async function busy() {
     assert.ok(promise);
 
     const isSettled = settled(promise);
-
     let input: SDKUserMessage | undefined;
 
     await until('raw compact input', async () => {
@@ -581,15 +576,12 @@ test('Claude awaits a fresh context read without waiting for account usage and r
     await writeFile(join(f.cwd, 'hold-context'), '');
 
     const stale = f.session.contextUsage();
-
     const isSettled = settled(stale);
-
     const first = await contextRequest(f.cwd);
 
     assert.equal(isSettled(), false);
 
     const selecting = f.session.selectModel('claude-b');
-
     // the new model's own read proves setModel resolved, so the held sample is obsolete
     const second = await contextRequest(f.cwd, first);
 

@@ -10,7 +10,6 @@ import { within } from './fixtures/within.js';
 for (const race of ['source', 'parent', 'destination'])
   test(`a ${race} that changes while repair stops a leftover process keeps the conversation where it was`, async () => {
     const f = await setup();
-
     const cwd = race === 'parent' ? 'w/main/sub' : 'w/main';
 
     if (race === 'parent') await mkdir(f.at(cwd));
@@ -50,7 +49,6 @@ for (const race of ['source', 'parent', 'destination'])
 
 test('a destination replaced between two conversations keeps the later one where it was', async () => {
   const f = await setup();
-
   // whichever stop comes first swaps the destination; the other conversation is checked against the ledger
   const swap = `if (!fs.existsSync(${JSON.stringify(f.at('actual'))})) { fs.renameSync(${JSON.stringify(f.at('c/main'))}, ${JSON.stringify(f.at('actual'))}); fs.mkdirSync(${JSON.stringify(f.at('c/main'))}); }`;
 

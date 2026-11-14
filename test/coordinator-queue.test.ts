@@ -19,7 +19,6 @@ type Context = Awaited<ReturnType<typeof fixture>>;
 /** pastes a new noise PNG, so each image's bytes are its own. */
 async function paste(f: Context, name: string) {
   const path = join(f.root, `${name}.png`);
-
   const data = png(2, 2);
 
   await writeFile(path, data);
@@ -44,9 +43,7 @@ const userRows = (f: Context) =>
 /** holds image saves until released, as a slow conversion would. */
 function holdImages() {
   const entered = Promise.withResolvers<void>();
-
   const held = Promise.withResolvers<void>();
-
   const save = ConversationStore.prototype.saveImage;
 
   ConversationStore.prototype.saveImage = function (...args) {
@@ -91,7 +88,6 @@ for (const [source, expectedError] of [
       a.gate = gate;
 
       const before = coordinator.snapshot.items.length;
-
       const sending = coordinator.send('first after reconnect');
 
       await within(gate.entered, 3000, 'the reconnected turn');
@@ -269,7 +265,6 @@ test('prompts queued behind a queued prompt steer into the turn it starts, and a
   });
 
   const first = new TurnGate();
-
   const second = new TurnGate();
 
   try {
@@ -328,7 +323,6 @@ test('a spell refused behind a queued turn stays queued while the prompts after 
   });
 
   const first = new TurnGate();
-
   const second = new TurnGate();
 
   try {
@@ -383,7 +377,6 @@ test('an ordinary prompt refused behind a queued turn keeps the prompts after it
   });
 
   const first = new TurnGate();
-
   const second = new TurnGate();
 
   try {
@@ -399,9 +392,7 @@ test('an ordinary prompt refused behind a queued turn keeps the prompts after it
       await coordinator.send(prompt);
 
     const { session } = a.sessions.at(-1)!;
-
     const steer = session.steer.bind(session);
-
     const asked: string[] = [];
 
     session.steer = async (prompt, options) => {
@@ -444,7 +435,6 @@ test('an ordinary prompt refused behind a queued turn keeps the prompts after it
 
 test('a prompt sent behind a prompt the turn refused waits behind it', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -483,7 +473,6 @@ test('a prompt sent behind a prompt the turn refused waits behind it', async () 
 
 test('a queued prompt that starts with a path joins the prompts after it in one turn', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -516,12 +505,10 @@ test('a queued prompt that starts with a path joins the prompts after it in one 
 
 test('a turn whose input was never written puts its steered prompts back between the batch and the rest', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
     const { session } = a.sessions.at(-1)!;
-
     const send = session.send.bind(session);
 
     session.send = async (...args) => {
@@ -588,12 +575,10 @@ test('a prompt naming a pasted image sends the image saved in its conversation, 
 
 test('a queued batch sends the images of each of its prompts in order', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
     const first = await paste(f, 'first');
-
     const second = await paste(f, 'second');
 
     f.a.gate = gate;
@@ -636,14 +621,11 @@ test('a prompt or spell steered with a pasted image passes it, and its row appea
   });
 
   const gate = new TurnGate();
-
   const held = holdImages();
 
   try {
     const plain = await paste(f, 'plain');
-
     const spell = await paste(f, 'spell');
-
     const refused = await paste(f, 'refused');
 
     f.a.gate = gate;
@@ -706,7 +688,6 @@ test('a prompt or spell steered with a pasted image passes it, and its row appea
 
 test('a steered image prompt an interrupt leaves unread goes next with its image, and the row it first had gives up the image', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -761,12 +742,10 @@ test('a steered image prompt an interrupt leaves unread goes next with its image
 
 test('an interrupt while a turn saves its images sends nothing and leaves the prompt queued', async () => {
   const f = await unitFixture();
-
   const held = holdImages();
 
   try {
     const { marker } = await paste(f, 'shot');
-
     const sending = f.coordinator.send(`look ${marker}`);
 
     await within(held.entered, 2000, 'the held save');
@@ -824,7 +803,6 @@ test('an interrupt while a pasted image converts stops the conversion, sends not
     await writeFile(path, 'jpeg bytes');
 
     const marker = f.coordinator.paste(path, '')!;
-
     const sending = f.coordinator.send(`look ${marker}`);
 
     await within(started.promise, 2000, 'the conversion');
@@ -851,13 +829,9 @@ test('an interrupt while a pasted image converts stops the conversion, sends not
 
 test('an interrupt before a turn reaches its images starts no conversion', async (t) => {
   const f = await fixture();
-
   const entered = Promise.withResolvers<void>();
-
   const held = Promise.withResolvers<void>();
-
   const snapshot = Memory.prototype.snapshot;
-
   const conversions: unknown[] = [];
 
   t.onTestFinished(() => {
@@ -891,7 +865,6 @@ test('an interrupt before a turn reaches its images starts no conversion', async
     await writeFile(path, 'jpeg bytes');
 
     const marker = f.coordinator.paste(path, '')!;
-
     const sending = f.coordinator.send(`look ${marker}`);
 
     await within(entered.promise, 2000, 'the held context');
@@ -918,9 +891,7 @@ test('an interrupt before a turn reaches its images starts no conversion', async
 
 test('a delivery hold that starts while a steer saves its image refuses the steer, and the prompt waits in the queue for its own turn', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
-
   const held = holdImages();
 
   try {
@@ -971,9 +942,7 @@ test('a delivery hold that starts while a steer saves its image refuses the stee
 
 test('a turn that settles while a steer saves its image refuses the steer, and the prompt goes in its own turn', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
-
   const held = holdImages();
 
   try {
@@ -1016,9 +985,7 @@ test('a turn that settles while a steer saves its image refuses the steer, and t
 
 test("a steer whose image fails to save leaves its prompt queued without an error, and the prompt's own turn saves it again", async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
-
   const held = holdImages();
 
   try {
@@ -1067,12 +1034,10 @@ test("a steer whose image fails to save leaves its prompt queued without an erro
 
 test('a turn whose image fails to save reports the error before any input, and its prompt stays queued for the composer', async () => {
   const f = await unitFixture();
-
   const held = holdImages();
 
   try {
     const { marker } = await paste(f, 'shot');
-
     const sending = f.coordinator.send(`look ${marker}`);
 
     await within(held.entered, 2000, 'the held save');

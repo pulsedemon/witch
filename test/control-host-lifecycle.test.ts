@@ -156,9 +156,7 @@ test('expiry after asynchronous authority verification removes the exchange with
   );
 
   const verified = Promise.withResolvers<void>();
-
   const proceed = Promise.withResolvers<void>();
-
   const failures: unknown[] = [];
 
   const host = await ControlHost.open(
@@ -230,7 +228,6 @@ test('expiry after asynchronous authority verification removes the exchange with
 
 test('invalid envelopes never reach the action handler', async () => {
   const bound = await binding();
-
   const { host, failures, calls } = await countingHost(bound);
 
   try {
@@ -244,7 +241,6 @@ test('invalid envelopes never reach the action handler', async () => {
       { id: randomUUID() },
     ]) {
       const id = randomUUID();
-
       const request = { ...envelope(bound), id, ...fields };
 
       await writeJson(join(bound.directory, 'inbox', `${id}.json`), request);
@@ -277,7 +273,6 @@ test('an unread successful reply expires without undoing its claim', async () =>
   clock();
 
   const spy = spyWatch();
-
   const bound = await binding();
 
   const store = await CoordinationStore.open(
@@ -320,9 +315,7 @@ test('an unread successful reply expires without undoing its claim', async () =>
     };
 
     const name = `${request.id}.json`;
-
     const inbox = join(bound.directory, 'inbox');
-
     const replies = join(bound.directory, 'replies');
 
     // the answering read is the only read, so it alone has to set the expiry wake
@@ -372,7 +365,6 @@ test('an expired unanswered request is removed without dispatch', async () => {
   clock();
 
   const bound = await binding();
-
   const { host, failures, calls } = await countingHost(bound);
 
   try {
@@ -417,13 +409,9 @@ test('a handler finishing after expiry leaves no late reply', async () => {
   clock();
 
   const bound = await binding();
-
   let entered = false;
-
   const proceed = Promise.withResolvers<void>();
-
   const work = join(bound.directory, 'handled');
-
   const failures: unknown[] = [];
 
   const host = await ControlHost.open(
@@ -486,19 +474,12 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
   clock();
 
   const bound = await binding();
-
   const inbox = join(bound.directory, 'inbox');
-
   const replies = join(bound.directory, 'replies');
-
   const acknowledge = Promise.withResolvers<void>();
-
   const resumeHost = Promise.withResolvers<void>();
-
   let clientWaiting = false;
-
   let hostWaiting = false;
-
   const originalRead = files.readFile;
 
   vi.spyOn(files, 'readFile').mockImplementation(
@@ -525,7 +506,6 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
   );
 
   const work = join(bound.directory, 'handled');
-
   const failures: unknown[] = [];
 
   const host = await ControlHost.open(
@@ -586,13 +566,9 @@ for (const redirect of ['inbox', 'replies', 'reply'] as const)
     clock();
 
     const bound = await binding();
-
     const target = await scratch('witch-control-expiry-target-');
-
     const request = { ...envelope(bound), deadline: 1000 };
-
     const name = `${request.id}.json`;
-
     const outside = join(target, name);
 
     const contents =
@@ -667,13 +643,9 @@ test('a failed expiry deletion leaves the request available for retry', async ()
   clock();
 
   const spy = spyWatch();
-
   const bound = await binding();
-
   const request = { ...envelope(bound), deadline: 1000 };
-
   const name = `${request.id}.json`;
-
   const { host, failures, calls } = await countingHost(bound);
 
   try {
@@ -682,7 +654,6 @@ test('a failed expiry deletion leaves the request available for retry', async ()
     await watching(bound.directory);
 
     const inbox = join(bound.directory, 'inbox');
-
     const replies = join(bound.directory, 'replies');
 
     await files.mkdir(join(replies, name));
@@ -764,7 +735,6 @@ test('a request written during a read is answered after it', async () => {
   vi.useFakeTimers({ toFake: [...timers] });
 
   const spy = spyWatch();
-
   const bound = await binding();
 
   const first = {
@@ -773,13 +743,9 @@ test('a request written during a read is answered after it', async () => {
   };
 
   const second = envelope(bound);
-
   const actions: unknown[] = [];
-
   let blocked = false;
-
   const release = Promise.withResolvers<void>();
-
   const failures: unknown[] = [];
 
   const host = await ControlHost.open(
@@ -839,7 +805,6 @@ test('a request written during a read is answered after it', async () => {
 
 test('a client re-notifies a request whose change event was lost', async () => {
   const spy = spyWatch();
-
   const bound = await binding();
 
   const host = await ControlHost.open(
@@ -849,7 +814,6 @@ test('a client re-notifies a request whose change event was lost', async () => {
   );
 
   const touches: number[] = [];
-
   const lutimes = files.lutimes;
 
   vi.spyOn(files, 'lutimes').mockImplementation(
@@ -891,7 +855,6 @@ for (const failure of ['open', 'error'] as const)
     spy.failing = failure === 'open';
 
     const bound = await binding();
-
     const failures: unknown[] = [];
 
     const host = await ControlHost.open(
@@ -937,7 +900,6 @@ test('a request answered before the host reads it expires at its deadline', asyn
   clock();
 
   const bound = await binding();
-
   const { host, failures, calls } = await countingHost(bound);
 
   try {
@@ -946,13 +908,9 @@ test('a request answered before the host reads it expires at its deadline', asyn
     await watching(bound.directory);
 
     const access = vi.spyOn(files, 'access');
-
     const inbox = join(bound.directory, 'inbox');
-
     const replies = join(bound.directory, 'replies');
-
     const later = { ...envelope(bound), deadline: 3000 };
-
     const earlier = { ...envelope(bound), deadline: 2000 };
 
     for (const request of [later, earlier]) {
@@ -1007,7 +965,6 @@ test('a closed host keeps no timer or watch', async () => {
   vi.useFakeTimers({ toFake: [...timers] });
 
   const spy = spyWatch();
-
   const bound = await binding();
 
   const host = await ControlHost.open(
@@ -1024,9 +981,7 @@ test('a closed host keeps no timer or watch', async () => {
     await watching(bound.directory);
 
     const request = envelope(bound);
-
     const name = `${request.id}.json`;
-
     const inbox = join(bound.directory, 'inbox');
 
     await writeJson(join(inbox, name), request);
@@ -1078,7 +1033,6 @@ test('a far deadline sets no 1 ms timer', async () => {
     await watching(bound.directory);
 
     const request = { ...envelope(bound), deadline: Date.now() + 2 ** 32 };
-
     const name = `${request.id}.json`;
 
     await writeJson(join(bound.directory, 'inbox', name), request);

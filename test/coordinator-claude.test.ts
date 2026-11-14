@@ -19,11 +19,8 @@ import { until, within } from './fixtures/within.js';
 
 async function claudeCoordinator(mode: string) {
   const launched = await launcher(mode);
-
   const { adapter, cwd } = launched;
-
   const store = await StateStore.open(join(cwd, 'state'));
-
   const memory = await seededMemory(join(cwd, 'state', 'memory.git'));
 
   const coordinator = new Coordinator(store, memory, [
@@ -123,11 +120,8 @@ for (const [entry, route, failures] of [
         'printf "once\\n" >> executions; printf "retained-output\\n"';
 
       const record = `<bash-input>${command}</bash-input>\n<bash-stdout>retained-output\n</bash-stdout><bash-stderr></bash-stderr>`;
-
       const connect = adapter.connect.bind(adapter);
-
       const results: TurnResult[] = [];
-
       const writes: SDKUserMessage[][] = [];
 
       adapter.connect = async (options) => {
@@ -144,7 +138,6 @@ for (const [entry, route, failures] of [
         });
 
         const child = children[index]!;
-
         const write = child.stdin.write.bind(child.stdin);
 
         writes[index] = [];
@@ -177,9 +170,7 @@ for (const [entry, route, failures] of [
         await coordinator.initialize(cwd);
 
         const original = coordinator.snapshot.conversation!.id;
-
         let native: string | undefined;
-
         let turn: Promise<void>;
 
         if (entry === 'steered') {
@@ -315,9 +306,7 @@ for (const dispatch of [true, false])
       );
 
       const connect = adapter.connect.bind(adapter);
-
       let session: AgentSession | undefined;
-
       let result: TurnResult | undefined;
 
       adapter.connect = async (options) => {
@@ -386,7 +375,6 @@ test('an unread shell result survives reconnect as context without rerunning its
   );
 
   const command = 'printf "once\\n" >> executions; printf "retained-output\\n"';
-
   const record = `<bash-input>${command}</bash-input>\n<bash-stdout>retained-output\n</bash-stdout><bash-stderr></bash-stderr>`;
 
   try {
@@ -487,7 +475,6 @@ for (const mode of [
         await claudeCoordinator('coordinator-reporting');
 
       const connect = adapter.connect.bind(adapter);
-
       let session: AgentSession;
 
       adapter.connect = async (options) => {
@@ -509,7 +496,6 @@ for (const mode of [
       };
 
       const held = mode === 'held reply' || mode === 'native reconnect';
-
       const interrupted = mode === 'interrupted shell';
 
       const command =
@@ -528,7 +514,6 @@ for (const mode of [
         await coordinator.initialize(cwd);
 
         const original = coordinator.snapshot.conversation!.id;
-
         let turn: Promise<void>;
 
         if (held) {
@@ -652,7 +637,6 @@ test('a Claude model choice made as a familiar-held turn settles applies once', 
   );
 
   const connect = adapter.connect.bind(adapter);
-
   let session: AgentSession | undefined;
 
   adapter.connect = async (options) => (session = await connect(options));
@@ -740,7 +724,6 @@ async function backgroundCoordinator() {
   );
 
   const id = coordinator.snapshot.conversation!.id;
-
   const record = () => readRecord(cwd, id);
 
   const inputs = async () =>
@@ -787,15 +770,12 @@ for (const interrupted of [false, true]) {
 
       try {
         const uuid = await f.steer('memory follow-up');
-
         const initial = await f.record();
 
         assert.ok(initial.activity);
 
         const activity = initial.activity.id;
-
         const native = f.coordinator.snapshot.native!.id;
-
         const priorCompleted = f.coordinator.snapshot.completedTurn;
 
         const accepted = () =>

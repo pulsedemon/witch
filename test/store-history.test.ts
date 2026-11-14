@@ -41,7 +41,6 @@ async function recordedHistory(directory: string): Promise<DisplayUpdate[]> {
 
 test('display history keeps streamed deltas without duplicating final messages', async () => {
   const store = await StateStore.open(await scratch('witch-history-'));
-
   const files = await store.create(conversation('streamed'));
 
   try {
@@ -85,7 +84,6 @@ test('display history keeps streamed deltas without duplicating final messages',
 
 test('a history burst writes one replacement and settles its appends', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-burst-'));
-
   const held = await store.create(conversation('burst'));
 
   t.onTestFinished(() => held.close());
@@ -114,7 +112,6 @@ test(
   { timeout: 5000 },
   async (t) => {
     const store = await StateStore.open(await scratch('witch-history-timer-'));
-
     const held = await store.create(conversation('timer'));
 
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -128,7 +125,6 @@ test(
     });
 
     const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
-
     const first = held.append({ ...update, text: 'first' });
 
     vi.advanceTimersByTime(99);
@@ -167,7 +163,6 @@ test(
 
 test('history batches preserve first appearance order across returning ids', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-order-'));
-
   const held = await store.create(conversation('order'));
 
   t.onTestFinished(() => held.close());
@@ -200,7 +195,6 @@ test('history batches preserve first appearance order across returning ids', asy
 
 test('history batches snapshot metadata and retain it across appends and replacements', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-metadata-'));
-
   const held = await store.create(conversation('metadata'));
 
   t.onTestFinished(() => held.close());
@@ -345,13 +339,9 @@ for (const boundary of [
 
 test('close waits for in-flight history and drains the next batch once', async () => {
   const store = await StateStore.open(await scratch('witch-history-flight-'));
-
   const held = await store.create(conversation('flight'));
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   const opening = files.open;
 
   vi.spyOn(files, 'open').mockImplementation(
@@ -382,9 +372,7 @@ test('close waits for in-flight history and drains the next batch once', async (
 
   try {
     let appended = false;
-
     let closed = false;
-
     const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
 
     const first = held.append({ ...update, text: 'before' }).then(() => {
@@ -434,7 +422,6 @@ test('close waits for in-flight history and drains the next batch once', async (
 
 test('a timer write rejects its batch and later operations while releasing locks', async () => {
   const store = await StateStore.open(await scratch('witch-history-failure-'));
-
   const held = await store.create(conversation('failure'));
 
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -535,9 +522,7 @@ for (const kind of ['assistant', 'tool'] as const) {
 
 test('a truncated final record cannot corrupt history written after restart', async () => {
   const root = await scratch('witch-partial-');
-
   const store = await StateStore.open(root);
-
   let files = await store.create(conversation('c'));
 
   await files.append({
@@ -599,9 +584,7 @@ for (const [name, complete, partial, expectedRead] of [
     await writeFile(path, prefix + partial);
 
     const opening = files.open;
-
     let fullReads = 0;
-
     let bytesRead = 0;
 
     vi.spyOn(files, 'open').mockImplementation(
@@ -610,7 +593,6 @@ for (const [name, complete, partial, expectedRead] of [
 
         if (args[0] === path) {
           const read = file.read.bind(file);
-
           const readAll = file.readFile.bind(file);
 
           vi.spyOn(file, 'read').mockImplementation(
@@ -744,7 +726,6 @@ for (const [path, reduce] of [
 
 test("listing keeps this directory's conversations with history, newest history first, and a stray file is no unreadable record", async () => {
   const root = await scratch('witch-listing-');
-
   const store = await StateStore.open(root);
 
   for (const [id, cwd, history] of [
@@ -786,7 +767,6 @@ test("listing keeps this directory's conversations with history, newest history 
 
 test("listing keeps a conversation with a saved draft or queue but no history, placed by and carrying its record's time", async () => {
   const root = await scratch('witch-listing-');
-
   const store = await StateStore.open(root);
 
   const conversations: [
@@ -839,7 +819,6 @@ test("listing keeps a conversation with a saved draft or queue but no history, p
 
 test("prompts list this directory's newest first after a restart, keep line breaks, and skip a line a crash cut short without losing the next", async () => {
   const root = await scratch('witch-prompts-');
-
   const store = await StateStore.open(root);
 
   assert.deepEqual(await store.prompts('/a'), []);
@@ -885,9 +864,7 @@ test("a prompt's image markers are stored without their numbers, which name imag
 
 test('prompts one instance adds at once are stored newest first', async () => {
   const root = await scratch('witch-prompts-');
-
   const store = await StateStore.open(root);
-
   // long prompts take long enough to write that unordered appends land out of order in most runs
   const texts = [...'abcdefgh'].map((letter) => letter.repeat(2 ** 20));
 

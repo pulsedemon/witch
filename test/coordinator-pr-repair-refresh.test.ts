@@ -11,9 +11,7 @@ import { head, repairPrefix, setup } from './fixtures/pr-repair.js';
 
 test('fresh resolution or an uncertain read skips the cached conflict without recording an attempt', async (t) => {
   const s = await setup(t);
-
   const old = s.read();
-
   let reads = 0;
 
   for (const fresh of [
@@ -72,7 +70,6 @@ test('fresh resolution or an uncertain read skips the cached conflict without re
 
 test('fresh conflict admission uses the refreshed base tip and starts once', async (t) => {
   const s = await setup(t);
-
   let reads = 0;
 
   s.c.repair.setRefresh(async () => {
@@ -105,9 +102,7 @@ test('fresh conflict admission uses the refreshed base tip and starts once', asy
 
 test('a user turn queued during the freshness read runs before a new admission', async (t) => {
   const s = await setup(t);
-
   const entered = Promise.withResolvers<void>();
-
   const released = Promise.withResolvers<void>();
 
   t.onTestFinished(() => released.resolve());
@@ -141,9 +136,7 @@ test('a user turn queued during the freshness read runs before a new admission',
 
 test('unbinding the conflict watch during its refresh prevents admission', async (t) => {
   const s = await setup(t);
-
   const entered = Promise.withResolvers<void>();
-
   const released = Promise.withResolvers<void>();
 
   const repository = {
@@ -196,11 +189,8 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
     }));
 
     const x = await f.start();
-
     const c = x.coordinator;
-
     const cwd = c.snapshot.conversation!.cwd;
-
     const project = (await f.memory.scopePaths(cwd)).project;
 
     await git('-C', cwd, 'checkout', '-b', 'feat/x');
@@ -223,7 +213,6 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
     };
 
     const a = await commit('A');
-
     const url = 'https://github.com/o/r/pull/7';
 
     await x.claim(url, 'repair test');
@@ -333,7 +322,6 @@ test('a status failure during the fresh GitHub read cannot restore cached confli
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
 
   const entered = Promise.withResolvers<void>();
-
   const released = Promise.withResolvers<void>();
 
   let reads = 0,

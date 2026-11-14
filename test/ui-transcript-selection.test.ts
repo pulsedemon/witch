@@ -473,7 +473,6 @@ test('a selection follows its text as output above it grows, and drops for good 
   ];
 
   const { app, coordinator } = fake({ items: items('first') });
-
   const { ui, copied } = mounted(app);
 
   const select = async (
@@ -570,7 +569,6 @@ test('a selection drops when output arrives under one of its ends', async () => 
   });
 
   const { app, coordinator } = fake(reply('alpha\nbeta'));
-
   const { ui, copied } = mounted(app);
 
   try {
@@ -778,7 +776,6 @@ test('a held press whose width changes ends its drag, so the width coming back b
   });
 
   const { ui, copied } = mounted(app);
-
   // at 60 columns the message wraps before lambda, and at 120 it does not
   const narrow = () => /^ lambda/m.test(ui.text());
 
@@ -959,7 +956,6 @@ test('Cmd+C copies nothing while a page covers the selection or from blank rows 
 
 test('a composer press while scrolled above more transcript text cannot start a selection', async () => {
   const { app } = fake({ items: [long] });
-
   const { ui, copied } = mounted(app);
 
   try {
@@ -1036,7 +1032,6 @@ test('selection starts on the last text column and visible row but not the right
 
 test('a wheel step while the left button is held preserves the press anchor for later dragging', async () => {
   const { app } = fake({ items: [long] });
-
   const { ui, copied } = mounted(app);
 
   try {

@@ -138,7 +138,6 @@ export function pauseRecipients(
 
   if (to) {
     const ids = [...new Set(to)].filter((id) => id !== issuer.conversation);
-
     const missing = ids.filter((id) => !discovery.live.has(id));
 
     if (missing.length)

@@ -26,13 +26,11 @@ export async function exhaustion(
   prepare?: (claude: FixtureAgent, codex: FixtureAgent) => void,
 ) {
   const root = await scratch('witch-exhaustion-');
-
   const project = join(root, 'project');
 
   await mkdir(project);
 
   const store = await StateStore.open(join(root, 'state'));
-
   const hook = { current: passThrough };
 
   const memory = await seededMemory(
@@ -41,7 +39,6 @@ export async function exhaustion(
   );
 
   const claude = new FixtureAgent('claude');
-
   const codex = new FixtureAgent('codex');
 
   claude.catalog.splice(

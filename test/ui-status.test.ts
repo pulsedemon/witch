@@ -24,7 +24,6 @@ test('the status line waits for a live model and uses its runtime label, and the
   });
 
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-
   const row = (index: number) => ui.text().split('\n')[index] ?? '';
 
   try {
@@ -57,9 +56,7 @@ test('the status line waits for a live model and uses its runtime label, and the
 
 test('the phase row of an idle session reads background while a brew runs and running while the native agent runs on its own', async () => {
   const { app, coordinator } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-
   const phase = () => ui.text().split('\n')[0] ?? '';
 
   try {
@@ -148,7 +145,6 @@ test('a session that closes during reconnect discovery does not restore its disp
   });
 
   const ui = show(createElement(App, { coordinator, store, onExit: () => {} }));
-
   let closedStatus: Pick<Snapshot, 'native' | 'usage'> | undefined;
 
   try {
@@ -267,7 +263,6 @@ test('the pentacle follows independent activity across sidebar visibility change
   }
 
   const { app, coordinator } = fake({});
-
   const source = Symbol('ui activity');
 
   const ui = show(
@@ -1003,7 +998,6 @@ test("the status line shows the model's label, the effort the agent runs, its us
 
 test('while the agent works, a row above the composer names a verb and counts the seconds, and it leaves at idle', async () => {
   const { app, coordinator } = fake({ phase: 'running' });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   const row = () => {

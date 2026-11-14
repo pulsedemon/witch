@@ -3,6 +3,12 @@ import stylistic from '@stylistic/eslint-plugin';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
+const singleLineVariable = {
+  selector:
+    ':matches(VariableDeclaration, ExportNamedDeclaration[declaration.type="VariableDeclaration"])',
+  lineMode: 'singleline',
+};
+
 export default defineConfig(
   { ignores: ['dist/**', '.superpowers/**', 'docs/superpowers/**'] },
   js.configs.recommended,
@@ -15,6 +21,11 @@ export default defineConfig(
         'error',
         { blankLine: 'always', prev: '*', next: '*' },
         { blankLine: 'any', prev: 'import', next: 'import' },
+        {
+          blankLine: 'any',
+          prev: singleLineVariable,
+          next: singleLineVariable,
+        },
       ],
     },
   },

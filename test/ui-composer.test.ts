@@ -100,7 +100,6 @@ test('Tab completes a skill and the arguments typed in the same read follow it',
 
 test('Escape closes the list during a turn, a new token reopens it, and Escape then interrupts', async () => {
   const { ui, calls } = await launched({ skills, phase: 'running' });
-
   const open = () => ui.text().includes('/x-one First skill');
 
   try {
@@ -256,7 +255,6 @@ test('Up chooses in an open list without moving the cursor, and moves it once a 
 
 test('tool focus hides a remounted draft list, which shows once focus returns', async () => {
   const { ui, coordinator } = await launched({ skills });
-
   const conversation = coordinator.snapshot.conversation!;
 
   const open = (id: string) =>
@@ -323,14 +321,11 @@ test('Ctrl+P over an open list gives the picker its keys', async () => {
 
 test('the composer grows with its text up to half the body, sizes a ! command beside its !, and shrinks after a send', async () => {
   const { app, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   const composerRows = () => {
     const lines = ui.text().split('\n');
-
     const top = lines.findIndex((line) => line.trimStart().startsWith('┏'));
-
     const bottom = lines.findIndex((line) => line.trimStart().startsWith('┗'));
 
     return bottom - top - 1;
@@ -575,7 +570,6 @@ test('a skill description with a line break stays on its list row', async () => 
 });
 
 const POTION = '38;2;163;230;53';
-
 const VIOLET = '38;2;168;85;247';
 
 test('a draft starting with ! draws the border potion green and opens no file list, and Backspace over the ! brings violet and the list back', async () => {
@@ -585,7 +579,6 @@ test('a draft starting with ! draws the border potion green and opens no file li
   chalk.level = 3;
 
   const { ui } = await launched({}, ['src/a.ts']);
-
   const listed = () => /^ *@src\/a\.ts *$/m.test(ui.text());
 
   try {
@@ -624,7 +617,6 @@ test('a draft starting with ! draws the border potion green and opens no file li
 
 test('a ! command is sent and recorded with its !, and a lone ! sends nothing and stays in the draft', async () => {
   const { app, calls } = fake({});
-
   const { store, added } = prompts([]);
 
   const ui = show(
@@ -680,7 +672,6 @@ test('a conversation opened with a saved draft shows it in the composer, and typ
 
 test('↑ onto an earlier prompt keeps saving the draft typed before it', async () => {
   const { app, drafts } = fake({});
-
   const { store } = prompts(['earlier']);
 
   const ui = show(

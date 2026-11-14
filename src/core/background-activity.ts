@@ -66,7 +66,6 @@ export function updateBackgroundActivity(
   }
 
   const { command } = event;
-
   const listed = state.backgroundCommands.some(({ id }) => id === command.id);
 
   if (command.familiar) {

@@ -96,7 +96,6 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
   });
 
   const session = b.b.sessions.at(-1)!.session;
-
   const send = session.send;
 
   session.send = async () => ({
@@ -150,7 +149,6 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
 
 test('control requests stay scoped while an automatic answer is in flight', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   const other = await claimed(a, 'a-work');
 
   b.a.peerReply = (requests) =>
@@ -166,7 +164,6 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
   b.a.gate = gate;
 
   const request = await ask(a, claim, 'Hold on?');
-
   const second = await ask(a, claim, 'Second question');
 
   await refreshed(b);
@@ -176,7 +173,6 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
   assert.equal(b.coordinator.snapshot.answering, true);
 
   const binding = await b.binding();
-
   const peers = await callControl(binding, { kind: 'peers' });
 
   assert.equal(peers.kind, 'peers', JSON.stringify(peers));
@@ -230,9 +226,7 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
 
 test('answers follow native session receipts', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   const first = await ask(a, claim, 'First?');
-
   const gate = new TurnGate();
 
   a.a.gate = gate;
@@ -335,7 +329,6 @@ test('answers follow native session receipts', async (t) => {
 
 test('peer notices stay single across restart', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   const request = await ask(a, claim, 'Once?');
 
   await answer(b, request, 'Only once');
@@ -514,11 +507,8 @@ test('a failed admission clears and retries', async (t) => {
 
 test('a failed peer request read reports and clears', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
-
   const owner = b.coordinator.snapshot.conversation!.id;
-
   const read = CoordinationStore.prototype.peerRequests;
-
   let failing = true;
 
   vi.spyOn(CoordinationStore.prototype, 'peerRequests').mockImplementation(
@@ -551,9 +541,7 @@ test('a failed peer request read reports and clears', async (t) => {
 
 test('a failed merge read leaves peer requests flowing', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
-
   const owner = b.coordinator.snapshot.conversation!.id;
-
   const read = CoordinationStore.prototype.mergeEvents;
 
   vi.spyOn(CoordinationStore.prototype, 'mergeEvents').mockImplementation(
@@ -577,9 +565,7 @@ test('a failed merge read leaves peer requests flowing', async (t) => {
 
 test('a failed peer request read leaves merge events flowing', async (t) => {
   const { a, b } = await owners(t.onTestFinished);
-
   const owner = b.coordinator.snapshot.conversation!.id;
-
   const read = CoordinationStore.prototype.peerRequests;
 
   vi.spyOn(CoordinationStore.prototype, 'peerRequests').mockImplementation(
@@ -677,9 +663,7 @@ async function nativeOwner(
   pauseDiscovery(vi.spyOn);
 
   const f = await unitCoordinationFixture(orderedCleanup(register));
-
   const source = await f.start('A');
-
   const cwd = join(f.root, 'B');
 
   const executable = fileURLToPath(
@@ -718,7 +702,6 @@ async function nativeOwner(
         });
 
   const owner = await f.start('B', {}, [{ adapter, executable }]);
-
   const accepted = new Set<string>();
 
   register(
@@ -775,7 +758,6 @@ test("Claude answer turns are labeled as Witch's", async (t) => {
   assert.ok(user.endsWith('User request:\nuser turn'));
 
   const request = await answerTurn();
-
   const input = await content();
 
   assert.ok(input.endsWith(`Witch request:\n${answerInstruction}`));
@@ -792,7 +774,6 @@ test("Claude answer turns are labeled as Witch's", async (t) => {
 
 test('Codex answer turns keep peer text out of native input', async (t) => {
   const { cwd, answerTurn } = await nativeOwner(t.onTestFinished, 'codex');
-
   const request = await answerTurn();
 
   const injection = JSON.parse(

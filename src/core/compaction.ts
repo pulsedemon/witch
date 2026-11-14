@@ -40,7 +40,6 @@ export async function compactSession(
   notice: (text: string) => void,
 ): Promise<TurnResult> {
   const interrupted: TurnResult = { status: 'interrupted', text: '' };
-
   let result = interrupted;
 
   try {
@@ -155,7 +154,6 @@ export class Compaction {
     await exhaustion;
 
     let success: boolean | undefined;
-
     const state = this.owner.state();
 
     if (this.running) success = await this.running;

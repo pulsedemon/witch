@@ -16,13 +16,11 @@ const execute = promisify(execFile);
 
 export async function fixture() {
   const root = await scratch('witch-memory-');
-
   const project = join(root, 'project');
 
   await mkdir(project);
 
   const hook = { current: passThrough };
-
   const memory = await seededMemory(join(root, 'memory.git'), hookedGit(hook));
 
   const open = async (id: string) => {

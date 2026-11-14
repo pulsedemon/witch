@@ -34,11 +34,8 @@ test('discovery batches conversation ownership and keeps only open peers', async
     await (await store.create(record(id, join(root, 'A')))).close();
 
   const own = a.coordinator.snapshot.conversation!.id;
-
   const peer = b.coordinator.snapshot.conversation!.id;
-
   const batch = vi.spyOn(store, 'openConversations');
-
   const reading = vi.spyOn(files, 'readFile');
 
   syncBuiltinESMExports();
@@ -100,7 +97,6 @@ test('idle discovery without peers probes only conversation ownership', async (t
   });
 
   const a = await start('A');
-
   const { ps, perl } = await countProbes(() => a.coordination.context());
 
   assert.deepEqual({ ps, perl }, { ps: 0, perl: 1 });
@@ -108,17 +104,13 @@ test('idle discovery without peers probes only conversation ownership', async (t
 
 test('clones expose current task metadata without themselves or another project, and token-only updates do not write presence', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { root, start, registry } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const b = await start('B');
 
   await start('C');
 
   const title = a.coordinator.snapshot.conversation!.title;
-
   const first = await a.claim();
 
   assert.equal(first.kind, 'claimed');
@@ -178,13 +170,9 @@ test('clones expose current task metadata without themselves or another project,
 
 test('in-place title, cwd and agent changes publish without a phase change', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { root, start, registry } = await unitCoordinationFixture(cleanup);
-
   const { coordinator, coordination } = await start();
-
   const snapshot = coordinator.snapshot;
-
   const conversation = snapshot.conversation!;
 
   for (const [field, value] of [
@@ -216,7 +204,6 @@ test('in-place title, cwd and agent changes publish without a phase change', asy
 for (const assignmentFails of [false, true]) {
   test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     let pending: Promise<void> | undefined;
 
     const { start, registry } = await unitCoordinationFixture(
@@ -247,7 +234,6 @@ for (const assignmentFails of [false, true]) {
 
     try {
       const reference = 'https://github.com/acme/queue/issues/17';
-
       const result = await owner.claim(reference);
 
       if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
@@ -296,7 +282,6 @@ for (const assignmentFails of [false, true]) {
 
 test('pre-claim cleanup failure still refuses new ownership', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   let assignments = 0;
 
   const { start, registry } = await unitCoordinationFixture(
@@ -309,7 +294,6 @@ test('pre-claim cleanup failure still refuses new ownership', async (t) => {
   );
 
   const owner = await start();
-
   const turn = await selectionTurn(cleanup, owner);
 
   const cancelling = vi
@@ -340,7 +324,6 @@ test('pre-claim cleanup failure still refuses new ownership', async (t) => {
 for (const failures of [1, 2]) {
   test(`presence publication recovers after ${failures} failed ${failures === 1 ? 'write' : 'writes'} without another state update`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const { start, registry } = await unitCoordinationFixture(cleanup);
 
     const a = await start(),
@@ -355,7 +338,6 @@ for (const failures of [1, 2]) {
     );
 
     const publish = CoordinationStore.prototype.publish;
-
     let attempts = 0;
 
     const publication = vi
@@ -435,7 +417,6 @@ for (const failures of [1, 2]) {
 
 test('a slow presence retry preserves newer state without accumulating retries', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -454,7 +435,6 @@ test('a slow presence retry preserves newer state without accumulating retries',
     latest = Promise.withResolvers<void>();
 
   const publish = CoordinationStore.prototype.publish;
-
   const requests: number[] = [];
 
   let inFlight = 0,
@@ -563,11 +543,8 @@ test('a slow presence retry preserves newer state without accumulating retries',
 for (const action of ['switch', 'close'] as const) {
   test(`a presence retry cannot republish an activation after ${action}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const { start, registry } = await unitCoordinationFixture(cleanup);
-
     const a = await start();
-
     const bound = await a.binding();
 
     await until('initial idle presence', async () =>
@@ -580,7 +557,6 @@ for (const action of ['switch', 'close'] as const) {
       release = Promise.withResolvers<void>();
 
     const publish = CoordinationStore.prototype.publish;
-
     let attempts = 0;
 
     const publication = vi
@@ -634,7 +610,6 @@ for (const action of ['switch', 'close'] as const) {
       await within(transitioning, 5000, 'activation retirement');
 
       const retiredAttempts = attempts;
-
       const next = action === 'switch' ? await a.binding() : undefined;
 
       await delay(2100);
@@ -678,7 +653,6 @@ for (const action of ['switch', 'close'] as const) {
 
 test('waiting and idle background work stay visible and retain ownership through refusal, failure and interruption', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, ledger } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -687,7 +661,6 @@ test('waiting and idle background work stay visible and retain ownership through
   await a.claim();
 
   const before = await ledger();
-
   const emit = a.a.sessions.at(-1)!.options.onEvent;
 
   emit({
@@ -775,7 +748,6 @@ test('waiting and idle background work stay visible and retain ownership through
 
 test('task counts, pentacle and release follow running work', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -784,7 +756,6 @@ test('task counts, pentacle and release follow running work', async (t) => {
   assert.equal((await a.claim()).kind, 'claimed');
 
   const claims = await registry.claims();
-
   const emit = a.a.sessions.at(-1)!.options.onEvent;
 
   const familiar = (id: string, status: TaskStatus) =>

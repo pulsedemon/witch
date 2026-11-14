@@ -79,11 +79,8 @@ test('replaceFile leaves no temporary file when rename fails', async () => {
 
 test('replaceFile keeps the write error when close also fails', async () => {
   const root = await scratch('witch-json-');
-
   const sentinel = new Error('write failed');
-
   const closing = new Error('close failed');
-
   const closed = vi.fn(() => Promise.reject(closing));
 
   await withFaults(
@@ -103,7 +100,6 @@ test('replaceFile keeps the write error when close also fails', async () => {
 
 test('replaceFile cleans up when only close fails', async () => {
   const root = await scratch('witch-json-');
-
   const target = join(root, 'target');
 
   await writeFile(target, 'old');
@@ -125,13 +121,11 @@ test('replaceFile cleans up when only close fails', async () => {
 for (const step of ['sync', 'utimes'] as const)
   test(`replaceFile cleans up when ${step} fails`, async () => {
     const root = await scratch('witch-json-');
-
     const target = join(root, 'target');
 
     await writeFile(target, 'old');
 
     const sentinel = new Error(`${step} failed`);
-
     const times = { atime: new Date(0), mtime: new Date(0) };
 
     await withFaults({ [step]: rejecting(sentinel) }, async () => {
@@ -149,7 +143,6 @@ for (const step of ['sync', 'utimes'] as const)
 // this test and the next pass on the old code too; they guard against an unguarded rm or an unlink in finally
 test('replaceFile keeps the write error when removal fails', async () => {
   const root = await scratch('witch-json-');
-
   const sentinel = new Error('write failed');
 
   await withFaults({ writeFile: rejecting(sentinel) }, async (removing) => {
@@ -164,7 +157,6 @@ test('replaceFile keeps the write error when removal fails', async () => {
 
 test('replaceFile never removes after a successful rename', async () => {
   const root = await scratch('witch-json-');
-
   const target = join(root, 'target');
 
   await withFaults({}, async (removing) => {

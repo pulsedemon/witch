@@ -38,7 +38,6 @@ export function modelTarget(
   catalog: Catalog,
 ): Pick<ModelSelection, 'agent' | 'id'> {
   const colon = text.indexOf(':');
-
   const agent = text.slice(0, colon);
 
   if (colon < 0 || !agentIds.includes(agent)) {

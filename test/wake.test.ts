@@ -79,9 +79,7 @@ function recorder() {
       counts.launches++;
 
       const child = start(pid);
-
       const signals: (NodeJS.Signals | number)[] = [];
-
       const kill = child.kill.bind(child);
 
       child.kill = (signal) => {
@@ -130,7 +128,6 @@ async function fixture(
   launch: Launch | 'default' = idler,
 ) {
   const { coordinator, a, project, jobs } = await unitFixture();
-
   const emit = a.sessions[0]!.options.onEvent;
 
   const worker = {
@@ -142,13 +139,9 @@ async function fixture(
   };
 
   const { holders, counts, tracked, reap } = recorder();
-
   const failures: Error[] = [];
-
   const rows: Row[] = [];
-
   const watch = jobWatch(rows);
-
   let stop = () => {};
 
   return {
@@ -375,7 +368,6 @@ test('a startup failure is kept once on first load and reported in a later conve
   assert.equal(coordinator.snapshot.conversation, undefined);
 
   const failures: Error[] = [];
-
   let launches = 0;
 
   const stop = keepAwake(
@@ -554,7 +546,6 @@ test('closing holds the wake child, which the watcher never signals', async () =
 
 test('a failure reported after closing began leaves the wake child held', async () => {
   const coordinator = snapshotCoordinator();
-
   const { holders, tracked, reap } = recorder();
 
   const stop = keepAwake(coordinator, noJobs, assert.fail, {
@@ -583,7 +574,6 @@ test('a failure reported after closing began leaves the wake child held', async 
 
 test('automatic work holds an idle session', async () => {
   const coordinator = snapshotCoordinator();
-
   const { holders, tracked, reap } = recorder();
 
   const stop = keepAwake(coordinator, noJobs, assert.fail, {
@@ -691,11 +681,8 @@ test.skipIf(process.platform !== 'darwin')(
   'the default holder prevents idle sleep for its pid and ends with it',
   async () => {
     const watched = idler();
-
     const closed = closing(watched);
-
     const wake = await fixture({ pid: watched.pid }, 'default');
-
     const named = new RegExp(`Process ID ${watched.pid}\\b`);
 
     /** the line before each assertion detail naming the watched pid, which states the assertion's type. */
@@ -716,7 +703,6 @@ test.skipIf(process.platform !== 'darwin')(
     /** `until` counts attempts, and each of these reads spawns a process, so this one keeps to elapsed time. */
     const eventually = async (what: string, count: number) => {
       const deadline = performance.now() + 10_000;
-
       let seen: string[] = [];
 
       while (performance.now() < deadline) {

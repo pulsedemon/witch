@@ -202,7 +202,6 @@ export class ConversationEvents {
         if (!current()) return;
 
         const read: string[] = [];
-
         let changed = false;
 
         if (events.status === 'fulfilled') {
@@ -264,7 +263,6 @@ export function watchEventNotices(
     if (!conversation) return;
 
     const { events } = coordination;
-
     const shown = new Set(items.map(({ id }) => id));
 
     for (const notice of [

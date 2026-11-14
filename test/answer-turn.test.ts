@@ -55,7 +55,6 @@ const open = { closed: false, running: false, label: 'Fixture' };
 
 test('cancellation during connection aborts startup and waits for its cleanup', async () => {
   const entered = Promise.withResolvers<SessionOptions>();
-
   const cleanup = Promise.withResolvers<void>();
 
   const turn = new AnswerTurn(options, async (connected) => {
@@ -73,9 +72,7 @@ test('cancellation during connection aborts startup and waits for its cleanup', 
   });
 
   const running = turn.run(open, source, 'answer', undefined, input);
-
   const connected = await entered.promise;
-
   let stopped = false;
 
   const stopping = turn.interrupt({ deadline: 123, restart: true }).then(() => {
@@ -106,7 +103,6 @@ test('cancellation during connection aborts startup and waits for its cleanup', 
 
 test('startup cleanup failures remain visible after cancellation', async () => {
   const entered = Promise.withResolvers<void>();
-
   const failure = new NativeStopTimeout();
 
   const turn = new AnswerTurn(options, async (connected) => {
@@ -137,11 +133,8 @@ test('startup cleanup failures remain visible after cancellation', async () => {
 
 test('connected cancellation interrupts before close without aborting the native transport', async () => {
   const sending = Promise.withResolvers<void>();
-
   const finished = Promise.withResolvers<TurnResult>();
-
   const session = child();
-
   let connected!: SessionOptions;
 
   session.send = async () => {
@@ -181,9 +174,7 @@ test('connected cancellation interrupts before close without aborting the native
 
 test('cancellation during child close discards an otherwise completed answer', async () => {
   const closing = Promise.withResolvers<void>();
-
   const closed = Promise.withResolvers<void>();
-
   const session = child();
 
   session.close = async () => {
@@ -193,7 +184,6 @@ test('cancellation during child close discards an otherwise completed answer', a
   };
 
   const turn = new AnswerTurn(options, async () => session);
-
   const running = turn.run(open, source, 'answer', undefined, input);
 
   await closing.promise;
@@ -230,9 +220,7 @@ test('failed send and failed close both release the answer slot', async () => {
 
 test('a refused interrupt closes the child and joins the pending answer before rejecting', async () => {
   const sending = Promise.withResolvers<void>();
-
   const finished = Promise.withResolvers<TurnResult>();
-
   const session = child();
 
   session.send = async () => {
@@ -250,7 +238,6 @@ test('a refused interrupt closes the child and joins the pending answer before r
   });
 
   const turn = new AnswerTurn(options, async () => session);
-
   const running = turn.run(open, source, 'answer', undefined, input);
 
   await sending.promise;

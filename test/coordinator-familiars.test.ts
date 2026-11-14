@@ -4,7 +4,6 @@ import { unitFixture } from './fixtures/coordinator.js';
 
 test('a reported familiar replaces its brew and retitles observed identity without duplicating reports', async () => {
   const { coordinator, a } = await unitFixture();
-
   const emit = a.sessions[0]!.options.onEvent;
 
   const worker = {
@@ -58,7 +57,6 @@ test('a reported familiar replaces its brew and retitles observed identity witho
     );
 
     const start = coordinator.snapshot.subagents[0]!.rows.start;
-
     const startedAt = coordinator.snapshot.subagents[0]!.startedAt;
 
     emit({
@@ -146,7 +144,6 @@ test('a reported familiar replaces its brew and retitles observed identity witho
 
 test('each familiar notice posts once, before its end row', async () => {
   const { coordinator, a } = await unitFixture();
-
   const emit = a.sessions[0]!.options.onEvent;
 
   const worker = {
@@ -200,7 +197,6 @@ test('each familiar notice posts once, before its end row', async () => {
 
 test('a running familiar keeps the job watch active until it ends', async () => {
   const { coordinator, a, active } = await unitFixture();
-
   const emit = a.sessions[0]!.options.onEvent;
 
   const worker = {
@@ -234,9 +230,7 @@ test('a running familiar keeps the job watch active until it ends', async () => 
 
 test('familiar and brew rows retain identity, order and reports after reopening', async () => {
   const { coordinator, a, project, reopen } = await unitFixture();
-
   let reopened: typeof coordinator | undefined;
-
   const emit = a.sessions[0]!.options.onEvent;
 
   const worker = {

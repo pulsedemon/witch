@@ -5,7 +5,6 @@ import { onTestFinished, vi } from 'vitest';
 import type { RegisterCleanup } from './cleanup.js';
 
 const open = files.open;
-
 const directories = new Set<string>();
 
 /** skip disk flushes for opens under unit roots; integration fixtures retain their flushes. */

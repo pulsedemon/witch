@@ -49,7 +49,6 @@ function gone(pid: number): boolean {
 
 test("jobs are the groups an agent's commands start, one stays listed after its leader exits, and stop kills a member that ignores SIGTERM and leaves other groups alone", async () => {
   const jobs = new JobWatch({ interval: 50, grace: 300 });
-
   const spawnedAt = Date.now();
 
   // this test stands in for Witch, so its child stands in for an agent
@@ -171,7 +170,6 @@ test('the process-tree fixture and its MCP helpers exit after their test parent 
   );
 
   const exited = once(parent, 'exit');
-
   const owned = new Set<number>();
 
   try {
@@ -380,9 +378,7 @@ test("a job listed while a read gives its id to the agent's next command can't s
   });
 
   const group = sleep.pid!;
-
   let rows = commandRows(group, `${group} a`);
-
   const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
 
   try {
@@ -432,7 +428,6 @@ test('a job listed during a slower read keeps its generation', async () => {
 
   try {
     const overlapping = (await Promise.all([jobs.list(), jobs.list()])).flat();
-
     const later = await jobs.list();
 
     for (const job of overlapping)
@@ -629,7 +624,6 @@ test('a command holding a line separator is described', () => {
 
 test('a failed background read keeps the jobs it had', async () => {
   let rows: Row[] | undefined = commandRows(4242, '4242 a');
-
   let failures = 0;
 
   const jobs = new JobWatch({
@@ -682,7 +676,6 @@ test('a job whose processes exit after a read lists as nothing and stops without
   });
 
   const group = sleep.pid!;
-
   // how many more reads still show the command, as one taken just before it exits does
   let stale = Infinity;
 
@@ -924,7 +917,6 @@ test('a group handed to track while a read runs is a job at the next read and af
 test('a handed group stays a job while any process holds its id, and once a read finds it empty, a later group given its id is not', async () => {
   // each orphan is new to its read, so only the handed group reaches it
   const orphan = (pid: number) => orphanRow(pid, 100000);
-
   const tables = [[orphan(100001)], [orphan(100002)], [], [orphan(100000)]];
 
   const jobs = new JobWatch({
@@ -953,7 +945,6 @@ test('a handed group stays a job while any process holds its id, and once a read
 
 test('a shell that reports its pid makes its group a job after it exits, and its report is consumed', async () => {
   const directory = await scratch('witch-jobs-');
-
   const jobs = new JobWatch({ directory, interval: 60_000 });
 
   // as Claude Code runs a Bash command after its CLAUDE_ENV_FILE
@@ -1002,9 +993,7 @@ test('a shell that reports its pid makes its group a job after it exits, and its
 
 test("the report script, run ahead of a command by zsh or bash, reports that shell's pid, marks the command and drops CLAUDE_ENV_FILE, and the command runs unchanged when it can't write its report, even under errexit", async () => {
   const directory = await scratch("witch-jobs-'q-");
-
   const jobs = new JobWatch({ directory, interval: 60_000 });
-
   const text = await readFile(jobs.script!, 'utf8');
 
   const run = async (shell: string, command: string, prelude = '') => {
@@ -1249,7 +1238,6 @@ test("a marked process orphaned in Witch's own group doesn't make that group a j
 
 test("a launchd child the last read didn't list is a job when it or a process below it carries the mark, and one the last read listed isn't checked", async () => {
   const now = new Set<number>();
-
   const old = orphanRow(100001);
 
   const later = [
@@ -1304,9 +1292,7 @@ test("a launchd child the last read didn't list is a job when it or a process be
 
 test('a failed mark check fails the read, and the next read checks the same processes', async () => {
   const later = [orphanRow(100001), orphanRow(100004)];
-
   const tables = [[], later, later];
-
   let checks = 0;
 
   const jobs = new JobWatch({
@@ -1339,9 +1325,7 @@ test('a failed mark check fails the read, and the next read checks the same proc
 
 test("a launchd child carrying another instance's mark, or one extending this mark's path, is not a job", async () => {
   const directory = await scratch('witch-jobs-');
-
   const cwd = await scratch('witch-jobs-');
-
   const jobs = new JobWatch({ directory, interval: 60_000 });
 
   /** a node that writes `name` into cwd once it runs, left to launchd by its shell. */

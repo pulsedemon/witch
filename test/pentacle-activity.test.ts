@@ -4,17 +4,11 @@ import { PentacleActivity } from '../src/core/pentacle-activity.js';
 
 test('pentacle activity belongs to its sources and publishes only aggregate changes', () => {
   const activity = new PentacleActivity();
-
   const other = new PentacleActivity();
-
   const a = Symbol('work');
-
   const b = Symbol('work');
-
   const changes: boolean[] = [];
-
   const subscribe = activity.subscribe;
-
   const unsubscribe = subscribe(() => changes.push(activity.active));
 
   const check = (active: boolean, expected: boolean[]) => {

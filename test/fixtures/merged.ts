@@ -24,15 +24,10 @@ export async function merged(
   tip: string;
 }> {
   const root = await scratch('witch-merged-');
-
   const origin = join(root, 'origin.git');
-
   const launcher = join(root, 'launcher');
-
   const checkout = join(root, 'checkout');
-
   const other = join(root, 'other');
-
   const main = worktree ? launcher : checkout;
 
   await git(root, 'init', '--bare', origin);

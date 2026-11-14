@@ -10,7 +10,6 @@ import type { TurnResult } from '../src/agents/types.js';
 
 test('manual compaction preserves the conversation and makes persisted resume receive full accepted memory', async () => {
   const f = await fixture();
-
   const c = f.coordinator;
 
   try {
@@ -19,9 +18,7 @@ test('manual compaction preserves the conversation and makes persisted resume re
     await c.send('latest revision');
 
     const before = c.snapshot;
-
     const native = f.a.sessions.at(-1)!;
-
     const compact = native.session.compact.bind(native.session);
 
     native.session.compact = async () => {
@@ -96,7 +93,6 @@ test('automatic native replacement cannot be undone by successful ordinary-turn 
     await f.coordinator.send('latest revision');
 
     const native = f.a.sessions.at(-1)!;
-
     const send = native.session.send.bind(native.session);
 
     native.session.send = async (...args) => {
@@ -136,9 +132,7 @@ test('a native compaction hook receives full context before replacement notifica
     await f.coordinator.send('latest revision');
 
     const native = f.a.sessions.at(-1)!;
-
     let reader: (() => Promise<string | undefined>) | undefined;
-
     let retained: typeof reader;
 
     native.session.restoreCompactionContext = (read) => {
@@ -247,7 +241,6 @@ test('a compaction inside a turn resends once a refused steer is admitted after 
     native.session.compactDuringTurn = () => completed.promise;
 
     let refused = 0;
-
     const steer = native.session.steer.bind(native.session);
 
     native.session.steer = async (prompt, options) => {
@@ -296,7 +289,6 @@ for (const outcome of [
 ] as const) {
   test(`manual compaction ${outcome} holds queued input until explicit user action`, async () => {
     const f = await fixture();
-
     const gate = new TurnGate();
 
     try {
@@ -376,14 +368,12 @@ for (const outcome of [
 for (const outcome of ['cancelled', 'failed'] as const) {
   test(`a ${outcome} compaction keeps hook memory pending for recovery`, async () => {
     const f = await fixture();
-
     const gate = new TurnGate();
 
     try {
       await f.coordinator.send('seed');
 
       const native = f.a.sessions.at(-1)!.session;
-
       const compact = native.compact.bind(native);
 
       native.compact = async () => {
@@ -439,9 +429,7 @@ test('a successful compaction whose hook conflicts with accepted memory holds la
     await f.coordinator.send('remember:initial');
 
     const other = await f.outsider();
-
     const native = f.a.sessions.at(-1)!.session;
-
     const compact = native.compact.bind(native);
 
     native.compact = async () => {
@@ -576,7 +564,6 @@ test('compaction preserves the last ordinary-turn outcome', async () => {
     await f.coordinator.send('unfinished task');
 
     const id = f.coordinator.snapshot.conversation!.id;
-
     const previous = (await readRecord(f.root, id)).lastTurn;
 
     assert.equal(previous?.status, 'interrupted');
@@ -700,9 +687,7 @@ for (const [window, usage, compacted] of [
 
 test('automatic compaction awaits fresh usage and preserves original input when interrupted during the read', async () => {
   const f = await unitFixture();
-
   const read = Promise.withResolvers<number>();
-
   const entered = Promise.withResolvers<void>();
 
   try {
@@ -745,7 +730,6 @@ test('automatic compaction awaits fresh usage and preserves original input when 
 for (const outcome of ['cancelled', 'failed', 'completed'] as const) {
   test(`automatic compaction ${outcome} preserves delivery order for input received meanwhile`, async () => {
     const f = await unitFixture();
-
     const gate = new TurnGate();
 
     try {
@@ -923,7 +907,6 @@ test('a resumed native context sample schedules compaction and a model with no s
       assert.equal(f.a.inputs.at(-1)!.session, id);
 
       const native = f.a.sessions.at(-1)!.session;
-
       const select = native.selectModel.bind(native);
 
       native.selectModel = async (...args) => {

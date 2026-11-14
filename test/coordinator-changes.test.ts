@@ -134,7 +134,6 @@ test("a finished shell command's row gains what changed, keeps its output and su
 
 test("the native session starts only once its checkout's baseline has settled", async () => {
   const watcher = new Watcher();
-
   const baseline = Promise.withResolvers<void>();
 
   watcher.watching = () => baseline.promise;
@@ -169,11 +168,8 @@ test("the native session starts only once its checkout's baseline has settled", 
 
 test('an interrupt during the baseline wait starts no native session', async () => {
   const watcher = new Watcher();
-
   const { coordinator, a } = await fixture(undefined, undefined, true, watcher);
-
   const baseline = Promise.withResolvers<void>();
-
   let clearing: Promise<void> | undefined;
 
   try {
@@ -200,7 +196,6 @@ test('an interrupt during the baseline wait starts no native session', async () 
 
 test('only shell commands are read, and counts alone append without a diff', async () => {
   const watcher = new Watcher();
-
   const { coordinator, a } = await fixture(undefined, undefined, true, watcher);
 
   try {
@@ -326,7 +321,6 @@ test('a failure posts one notice until its text changes, and a failed baseline l
     assert.equal(a.inputs.length, 1);
 
     const { onEvent } = a.sessions.at(-1)!.options;
-
     const failure = () => Promise.reject(new Error("Couldn't read: twice"));
 
     watcher.reads = [failure(), failure()];
@@ -364,14 +358,12 @@ test('a failure posts one notice until its text changes, and a failed baseline l
 
 test('a failure that comes back after a success posts again', async () => {
   const watcher = new Watcher();
-
   const { coordinator, a } = await fixture(undefined, undefined, true, watcher);
 
   try {
     await coordinator.send('first');
 
     const { onEvent } = a.sessions.at(-1)!.options;
-
     const failure = () => Promise.reject(new Error("Couldn't read: again"));
 
     watcher.reads = [failure()];
@@ -436,9 +428,7 @@ test('a read that settles after its conversation closed shows and posts nothing'
     await coordinator.send('first');
 
     const { onEvent } = a.sessions.at(-1)!.options;
-
     const shown = Promise.withResolvers<Changes>();
-
     const failed = Promise.withResolvers<Changes>();
 
     watcher.reads = [shown.promise, failed.promise];

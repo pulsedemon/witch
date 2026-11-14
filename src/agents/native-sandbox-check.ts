@@ -26,9 +26,7 @@ async function checkProfile(
   named: boolean,
 ): Promise<void> {
   const config = join(directory, 'config');
-
   const cwd = join(directory, 'project');
-
   const temporary = join(directory, 'tmp');
 
   await Promise.all(
@@ -42,7 +40,6 @@ async function checkProfile(
   await writeFile(requestFile, '{"marker":"REQUEST_TOKEN"}');
 
   const sibling = join(directory, 'private-sibling');
-
   const denied = join(cwd, 'denied');
 
   await writeFile(sibling, 'PRIVATE_TOKEN');
@@ -50,13 +47,9 @@ async function checkProfile(
   await writeFile(denied, 'DENIED_TOKEN');
 
   let phase: 'ordinary' | 'answer' | 'after' = 'ordinary';
-
   let failure: unknown;
-
   let session: AgentSession | undefined;
-
   const outputs: Record<string, string> = {};
-
   const calls = new Set<string>();
 
   const server = createServer((request, response) => {

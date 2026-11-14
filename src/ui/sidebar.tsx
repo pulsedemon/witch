@@ -24,7 +24,6 @@ function fit<T>(
   room: number,
 ): { shown: readonly T[]; hidden: number } {
   let used = entries.reduce((sum, entry) => sum + cost(entry), 0);
-
   let hidden = 0;
 
   if (used > room) {
@@ -40,7 +39,6 @@ function lineage(
   subagents: readonly TimedSubagent[],
 ): { subagent: TimedSubagent; depth: number }[] {
   const ids = new Set(subagents.map(({ id }) => id));
-
   const lines: { subagent: TimedSubagent; depth: number }[] = [];
 
   const visit = (parent: string | undefined, depth: number) => {
@@ -86,14 +84,12 @@ export function Sidebar({
   );
 
   const [angle, setAngle] = useState(restAngle);
-
   const [now, setNow] = useState(Date.now);
 
   const familiars = lineage(
     subagents.filter(({ status }) => status === 'running'),
   ).map(({ subagent, depth }) => {
     const indent = '  '.repeat(Math.min(depth + 1, 2));
-
     const identity = oneLine(familiarIdentity(subagent));
 
     return {
@@ -108,7 +104,6 @@ export function Sidebar({
   });
 
   const running = familiars.length > 0;
-
   const usage = usageText.length > 0;
 
   useEffect(() => {
@@ -133,7 +128,6 @@ export function Sidebar({
   }, [spinning]);
 
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
-
   const below = rows + (usage ? 1 + usageText.length : 0);
 
   // brews take the rows above the pentacle first, less a running familiar's heading and count
@@ -150,11 +144,8 @@ export function Sidebar({
       : 0;
 
   const above = height - below - peerRows;
-
   const brewRoom = above - (running ? 2 : 0) - 1;
-
   const brewing = brews.length > 0 && brewRoom > 0;
-
   const listedBrews = fit(brews, () => 1, brewRoom);
 
   const brewRows = brewing

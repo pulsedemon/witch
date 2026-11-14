@@ -26,13 +26,9 @@ test('an image arriving with an append replaces the text-only cached block', asy
   await writeFile(join(directory, 'shot.png'), png(160, 80));
 
   const graphics = new Graphics(() => {});
-
   const layout = new TranscriptLayout(graphics);
-
   const expanded = new Map([['tool', true]]);
-
   let items = applyDisplayUpdate([], { ...tool('read\n'), cwd: directory });
-
   const before = layout.render(items, 100, expanded);
 
   assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
@@ -50,9 +46,7 @@ test('an image arriving with an append replaces the text-only cached block', asy
   await loaded(graphics);
 
   const frame = layout.render(items, 100, expanded);
-
   const rows = frame.lines.slice();
-
   const first = rows.findIndex((line) => line.includes(placeholder));
 
   assert.equal(rows.filter((line) => line.includes(placeholder)).length, 5);
@@ -72,11 +66,8 @@ test('an append after the retry delay retries a named image that was unavailable
     ['waiting\n', 3],
   ] as const) {
     const directory = await scratch('witch-layout-');
-
     const graphics = new Graphics(() => {});
-
     const layout = new TranscriptLayout(graphics);
-
     const expanded = new Map([['tool', true]]);
 
     let items = applyDisplayUpdate([], {
@@ -106,9 +97,7 @@ test('an append after the retry delay retries a named image that was unavailable
     await loaded(graphics);
 
     const frame = layout.render(items, 100, expanded);
-
     const rows = frame.lines.slice();
-
     const first = rows.findIndex((line) => line.includes(placeholder));
 
     assert.equal(rows.filter((line) => line.includes(placeholder)).length, 5);
@@ -134,9 +123,7 @@ test('a message shows its images below its text, and a tool shows its images onl
   await writeFile(join(directory, 'shot.png'), png(160, 80));
 
   const writes: string[] = [];
-
   const graphics = new Graphics((data) => writes.push(data));
-
   const layout = new TranscriptLayout(graphics);
 
   const message: DisplayItem = {
@@ -184,7 +171,6 @@ test('a message shows its images below its text, and a tool shows its images onl
   );
 
   const collapsed = layout.render([message, tool], 100, new Map());
-
   const [shown] = collapsed.blocks;
 
   assert.equal(imageRows(shown!.slice()), 5);
@@ -214,7 +200,6 @@ test('a message shows its images below its text, and a tool shows its images onl
 
 test('a message draws no image for a path typed into its text, even one already loaded', async () => {
   const directory = await scratch('witch-layout-');
-
   const shot = join(directory, 'shot.png');
 
   await writeFile(shot, png(160, 80));
@@ -261,9 +246,7 @@ for (const kind of ['tool', 'user'] as const) {
     };
 
     const graphics = new Graphics(() => {});
-
     const layout = new TranscriptLayout(graphics);
-
     const expanded = new Map([['images', true]]);
 
     layout.render([item], 40, expanded);
@@ -279,7 +262,6 @@ for (const kind of ['tool', 'user'] as const) {
 
     // the width is unchanged since the last render, so only the missing images rebuild it
     const wide = layout.render([item], 100, expanded);
-
     const narrow = layout.render([item], 40, expanded);
 
     assert.equal(narrow.lines.length, 12);
@@ -306,9 +288,7 @@ for (const kind of ['tool', 'user'] as const) {
 
 test('a block whose image failed is reused across renders, not rewrapped each time', async () => {
   const directory = await scratch('witch-layout-');
-
   const graphics = new Graphics(() => {});
-
   const layout = new TranscriptLayout(graphics);
 
   const item: DisplayItem = {
@@ -361,7 +341,6 @@ test('a shown image and the closing blank keep their anchors while an image befo
     .findIndex((line) => line.includes(placeholder));
 
   const image = before.anchorAt(row)!;
-
   const blank = before.anchorAt(before.lines.length - 1)!;
 
   await loaded(graphics);
@@ -404,9 +383,7 @@ test('an image anchor follows wrapped diff output', async () => {
   };
 
   const graphics = new Graphics(() => {});
-
   const layout = new TranscriptLayout(graphics);
-
   const expanded = new Map([['mixed', true]]);
 
   layout.render([item], 40, expanded);
@@ -414,7 +391,6 @@ test('an image anchor follows wrapped diff output', async () => {
   await loaded(graphics);
 
   const narrow = layout.render([item], 40, expanded);
-
   const wide = layout.render([item], 100, expanded);
 
   const narrowImage = narrow.lines

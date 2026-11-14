@@ -27,11 +27,8 @@ const source =
 
 async function fixture() {
   const root = await scratch('witch-install-');
-
   const checkout = join(root, "owner's old checkout");
-
   const entry = join(checkout, 'dist', 'cli.js');
-
   const launcher = join(root, "owner's bin", 'witch');
 
   await mkdir(dirname(entry), { recursive: true });
@@ -132,7 +129,6 @@ test.skipIf(process.platform !== 'darwin')(
 
 test('launcher diagnoses a checkout it can not find, and a reinstall restores it', async () => {
   const { root, checkout, entry, launcher, install } = await fixture();
-
   const copy = join(root, 'copy');
 
   await cp(checkout, copy, { recursive: true });

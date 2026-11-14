@@ -42,7 +42,6 @@ export const tokenCount = new Intl.NumberFormat('en', {
 /** white until 40%, then warming through yellow to red by 60%. */
 function bar(percent: number): string {
   const filled = Math.min(10, Math.floor((percent * 10) / 100));
-
   const cells = '█'.repeat(filled) + '░'.repeat(10 - filled);
 
   if (percent >= 60) return colors.rgb(255, 0, 0)(cells);
@@ -66,7 +65,6 @@ function bar(percent: number): string {
 
 function duration(milliseconds: number): string {
   const minutes = Math.floor(milliseconds / 60_000);
-
   const hours = Math.floor(minutes / 60);
 
   return hours > 0
@@ -191,7 +189,6 @@ export function statusLines(
   maxRows = Infinity,
 ): [string, string, ...string[]] {
   const { usage, repository } = status;
-
   const context = Math.floor(usage.context ?? 0);
 
   const capacity =
@@ -219,11 +216,8 @@ export function statusLines(
   };
 
   const full = first(true);
-
   const compact = stringWidth(full) > width ? first(false) : full;
-
   const funded = hasFunding(status);
-
   const request = repository && pullRequest(repository);
 
   const lines: [string, string, ...string[]] = [

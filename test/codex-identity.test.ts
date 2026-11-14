@@ -154,7 +154,6 @@ test('child settings cannot settle parent settings', async () => {
     await f.emit(turnFrame('child-run', 'inProgress', 'child'));
 
     const selection = f.session.selectModel('parent-next');
-
     const done = settled(selection);
 
     await appears(join(f.cwd, 'settings.json'));

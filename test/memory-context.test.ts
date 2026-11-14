@@ -7,11 +7,8 @@ import { passThrough } from './fixtures/git.js';
 
 async function context() {
   const { memory, open, project, hook } = await fixture();
-
   const { workspace } = await open('context');
-
   const scope = await memory.scopePaths(project);
-
   const projectIndex = `${scope.project}/MEMORY.md`;
 
   await save(workspace, {
@@ -68,7 +65,6 @@ test('a snapshot reads its captured commit when the branch advances after enumer
 
 test('snapshots and standalone text and byte reads reject a committed symlink index', async () => {
   const f = await context();
-
   const index = 'global/MEMORY.md';
 
   await rm(join(f.workspace.root, index));
@@ -102,9 +98,7 @@ test('an unrelated project commit produces no memory update', async () => {
 for (const changed of ['global', 'project'] as const) {
   test(`a ${changed} index update replaces only its own accepted scope`, async () => {
     const f = await context();
-
     const file = changed === 'global' ? 'global/MEMORY.md' : f.projectIndex;
-
     const replacement = `${changed} replacement 41.\n`;
 
     await save(f.workspace, { [file]: replacement });
@@ -259,7 +253,6 @@ test('index limits count UTF-8 bytes and preserve complete inline or referenced 
     await save(f.workspace, { [f.projectIndex]: body });
 
     const snapshot = await f.snapshot();
-
     const file = join(f.workspace.root, f.projectIndex);
 
     if (inline) assert.ok(snapshot.includes(`${file}\n${body}`));
@@ -326,7 +319,6 @@ test('many notes produce bounded baselines and complete reference invalidation o
 
 test('a filename with Unicode and control characters remains identifiable in a change notice', async () => {
   const f = await context();
-
   const file = 'global/café\tline\nquote".md';
 
   await save(f.workspace, { [file]: 'Reference body 101.' });

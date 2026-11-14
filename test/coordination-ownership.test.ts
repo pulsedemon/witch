@@ -38,12 +38,9 @@ test('a live legacy owner blocks new work until its lock closes, and a reused id
     await unitCoordinationFixture(cleanup);
 
   const a = await start();
-
   // select-next refuses while the legacy lock is held, so the ticket comes first
   const choosing = await selectionTurn(cleanup, a);
-
   const { ticket } = await choosing.select();
-
   const legacy = record(randomUUID(), join(root, 'B'));
 
   await (await store.create(legacy)).close();
@@ -103,13 +100,9 @@ for (const name of ['B', 'C']) {
       await unitCoordinationFixture(cleanup);
 
     const a = await start();
-
     const choosing = await selectionTurn(cleanup, a);
-
     const cwd = join(root, name);
-
     const { project } = await memory.scopePaths(cwd);
-
     const legacy = record(randomUUID(), cwd);
 
     await (await store.create(legacy)).close();
@@ -181,11 +174,8 @@ for (const failure of [
       await unitCoordinationFixture(cleanup);
 
     const a = await start();
-
     const choosing = await selectionTurn(cleanup, a);
-
     const cwd = join(root, 'B');
-
     const legacy = record(randomUUID(), cwd);
 
     await (await store.create(legacy)).close();
@@ -195,7 +185,6 @@ for (const failure of [
     cleanup(() => lock.close());
 
     const scopePaths = memory.scopePaths.bind(memory);
-
     const error = Object.assign(new Error('Cannot determine project'), failure);
 
     vi.spyOn(memory, 'scopePaths').mockImplementation((directory: string) =>
@@ -224,7 +213,6 @@ for (const failure of [
 
 test('closing a conversation releases its claim even if its stale presence says it runs', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -253,14 +241,12 @@ test('closing a conversation releases its claim even if its stale presence says 
 
 test('a failed presence removal cannot register a later legacy lock owner', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, store, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
     b = await start('B');
 
   const old = await a.binding();
-
   const remove = CoordinationStore.prototype.removePresence;
 
   vi.spyOn(CoordinationStore.prototype, 'removePresence').mockImplementation(
@@ -307,20 +293,15 @@ test('a failed presence removal cannot register a later legacy lock owner', asyn
 for (const window of ['opening', 'closing', 'reconnecting'] as const) {
   test(`a peer ${window} a conversation neither refuses a claim nor ends a selection wait`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const { start, store, registry } = await unitCoordinationFixture(cleanup);
 
     const a = await start(),
       b = await start('B');
 
     const choosing = await selectionTurn(cleanup, a);
-
     const { ticket } = await choosing.select();
-
     const id = b.coordinator.snapshot.conversation!.id;
-
     const gate = Promise.withResolvers<void>();
-
     let pending: Promise<void>;
 
     if (window !== 'closing') {
@@ -392,11 +373,8 @@ test('unknown discovery refuses both a successful query and new ownership', asyn
   pauseDiscovery(vi.spyOn);
 
   const { start, store, registry } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const id = randomUUID();
-
   const directory = join(store.root, 'conversations', id);
 
   const held = await store.create(
@@ -513,11 +491,8 @@ test('an origin change leaves a discoverable reservation in the original project
 
 test('closing rejects a mutation waiting for the ledger and drains one already committing', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, store, registry } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const bound = await a.binding();
 
   const lock = await openLocked(
@@ -528,9 +503,7 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
 
   // a request the host hasn't read when it closes gets no reply, so wait for the request's own ledger read
   const deadline = Date.now() + 10_000;
-
   const waiting = Promise.withResolvers<void>();
-
   const state = CoordinationStore.prototype.state;
 
   vi.spyOn(CoordinationStore.prototype, 'state').mockImplementation(function (
@@ -549,7 +522,6 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
   );
 
   let closing: ReturnType<typeof a.coordinator.close> | undefined;
-
   const reads = Promise.withResolvers<void>();
 
   try {
@@ -614,7 +586,6 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
   });
 
   const committing = b.claim();
-
   let draining: ReturnType<typeof b.coordinator.close> | undefined;
 
   try {
@@ -648,18 +619,14 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
 
 test('a delayed presence writer drains before replacement activation publishes', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const bound = await a.binding();
 
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
 
   const publish = CoordinationStore.prototype.publish;
-
   let held = false;
 
   vi.spyOn(CoordinationStore.prototype, 'publish').mockImplementation(
@@ -680,7 +647,6 @@ test('a delayed presence writer drains before replacement activation publishes',
   );
 
   const deactivating = Promise.withResolvers<void>();
-
   const deactivate = SessionCoordination.prototype.deactivate;
 
   vi.spyOn(SessionCoordination.prototype, 'deactivate').mockImplementation(
@@ -748,7 +714,6 @@ for (const size of [1, 8])
       });
 
       const a = await start();
-
       const own = (await registry.presences())[0]!;
 
       const claims: TaskClaim[] = [],
@@ -763,7 +728,6 @@ for (const size of [1, 8])
 
       for (let index = 0; index < size; index++) {
         const child = spawn('/bin/sleep', ['60']);
-
         const ended = once(child, 'close');
 
         cleanup(async () => {
@@ -778,7 +742,6 @@ for (const size of [1, 8])
 
         for (const duplicate of [false, true]) {
           const id = 'peer-' + index + '-' + duplicate;
-
           const held = await store.create(record(id, join(root, 'B')));
 
           cleanup(() => held.close());
@@ -786,7 +749,6 @@ for (const size of [1, 8])
           expectedOpenStatePaths.add(join(held.directory, 'state.json'));
 
           const activation = randomUUID();
-
           const release = await registry.holdActivation(activation);
 
           cleanup(release);
@@ -821,7 +783,6 @@ for (const size of [1, 8])
         }
 
         const id = 'legacy-' + index;
-
         const held = await store.create(record(id, join(root, 'B')));
 
         cleanup(() => held.close());
@@ -881,7 +842,6 @@ for (const size of [1, 8])
       }
 
       const readStatePaths: string[] = [];
-
       const read = files.readFile;
 
       const reading = vi
@@ -969,7 +929,6 @@ for (const damage of ['JSON', 'EACCES'])
             action === 'recommend' ? await choosing!.select() : undefined;
 
           const id = randomUUID();
-
           const held = await store.create(record(id, join(root, 'B')));
 
           cleanup(() => held.close());

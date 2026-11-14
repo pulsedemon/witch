@@ -124,11 +124,8 @@ test('headings, emphasis, line breaks, quotes, rules and tables render as termin
 
 function streamMarkdown(chunks: readonly string[]): string[] {
   let source = '';
-
   let pending = '';
-
   let full = false;
-
   const complete: string[] = [];
 
   return chunks.map((chunk) => {

@@ -12,9 +12,7 @@ import { until, within } from './fixtures/within.js';
 for (const phase of ['dispatch', 'response', 'idle', 'late response'])
   test(`Claude interruption bounds missing input ${phase} without replaying uncertain input`, async () => {
     const f = await launcher('background');
-
     const events: AgentEvent[] = [];
-
     const session = await f.connect({ onEvent: (event) => events.push(event) });
 
     try {
@@ -51,7 +49,6 @@ for (const phase of ['dispatch', 'response', 'idle', 'late response'])
         await writeFile(join(f.cwd, 'late-interrupt'), '');
 
       const first = session.interrupt({ deadline: performance.now() + 3200 });
-
       const second = session.interrupt();
 
       await within(
@@ -102,7 +99,6 @@ for (const phase of ['dispatch', 'response', 'idle', 'late response'])
 
 test('Claude closure bounds a missing familiar stop acknowledgment and resolves its request', async () => {
   const f = await launcher('background');
-
   const events: AgentEvent[] = [];
 
   const binding = {

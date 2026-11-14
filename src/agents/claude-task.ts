@@ -94,7 +94,6 @@ export class ClaudeTask {
 
       if (message.type === 'system' && message.subtype === 'init') {
         const identity = init.parse(value);
-
         const changed = identity.model !== this.identity?.model;
 
         this.identity = identity;
@@ -224,7 +223,6 @@ export class ClaudeTask {
   /** returns whether the frame cast a spell not seen before. */
   private addCasts(value: unknown): boolean {
     const content = castContent.safeParse(value).data?.message.content ?? [];
-
     const spells = mergeCasts(this.spells, skillCasts(content));
 
     if (spells) this.spells = spells;

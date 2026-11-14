@@ -71,7 +71,6 @@ print join(' ', @results);
 
 // macOS flock flags, which Node doesn't export
 const sharedLock = 0x10;
-
 const exclusiveLock = 0x20;
 
 /** native launches must hold admission before spawn returns a child. */

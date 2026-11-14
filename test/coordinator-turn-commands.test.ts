@@ -8,9 +8,7 @@ import { within } from './fixtures/within.js';
 
 test('an unsent follow-up prompt never reruns an executed command', async () => {
   const { coordinator, a } = await unitFixture();
-
   const session = a.sessions[0]!.session;
-
   const send = session.send.bind(session);
 
   session.send = async () => ({
@@ -85,7 +83,6 @@ test('a ! prompt runs its command, then a turn that sends the prompt as typed an
 
 test('a ! prompt sent during a turn waits in the queue and runs alone before the prompts after it', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -149,7 +146,6 @@ test('a ! command that fails posts its error and sends no turn', async () => {
 
 test('an interrupt that lands as a ! command finishes sends no turn', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -183,7 +179,6 @@ test('an interrupt that lands as a ! command finishes sends no turn', async () =
 
 test('after the reply, while a familiar holds the turn, a ! prompt runs at once and steers its reply, shown after the prompt', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -269,7 +264,6 @@ test('after the reply, a listed spell steers trimmed with its call, and an unlis
 
 test("a model change runs during a replied turn without waiting, and is refused during one that hasn't replied", async () => {
   const { coordinator, a, b } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -297,7 +291,6 @@ test("a model change runs during a replied turn without waiting, and is refused 
     assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
 
     const discoveries = b.discoveries.length;
-
     const sourceInputs = a.inputs.length;
 
     await assert.rejects(
@@ -325,20 +318,14 @@ test("a model change runs during a replied turn without waiting, and is refused 
 
 test('a model change during a replied turn refuses another until it finishes, and the refusal reports as a notice', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   let first: Promise<void> | undefined;
-
   let duplicate: Promise<void> | undefined;
 
   try {
     const { session } = a.sessions.at(-1)!;
-
     const select = session.selectModel.bind(session);
 
     session.selectModel = async (...args) => {
@@ -426,24 +413,16 @@ for (const rejected of [false, true])
       : 'a replied model change finishes before the next queued turn starts',
     async () => {
       const { coordinator, a, root } = await unitFixture();
-
       const gate = new TurnGate();
-
       const entered = Promise.withResolvers<void>();
-
       const release = Promise.withResolvers<void>();
-
       const atNextSend: { model: string; effort?: string }[] = [];
-
       const order: string[] = [];
-
       let selecting: Promise<void> | undefined;
-
       let sending: Promise<void> | undefined;
 
       try {
         const { session } = a.sessions.at(-1)!;
-
         const select = session.selectModel.bind(session);
 
         session.selectModel = async (...args) => {
@@ -564,7 +543,6 @@ for (const rejected of [false, true])
 
 test('a replied turn opens the model list from its connect without refreshing', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -598,7 +576,6 @@ test('a replied turn opens the model list from its connect without refreshing', 
 
 test('commands that need idle say familiars or workflows hold the turn, and the usual refusal otherwise', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {

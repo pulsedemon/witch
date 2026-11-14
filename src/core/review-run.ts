@@ -86,7 +86,6 @@ async function runReview(
   host: ReviewHost,
 ): Promise<ReviewOutcome | undefined> {
   const { conversation, coordination, signal } = host;
-
   const { cwd } = conversation;
 
   const label = (runtime: string) =>
@@ -122,9 +121,7 @@ async function runReview(
   for (const file of named) {
     // file completion inserts `@path`
     const path = resolve(cwd, file.replace(/^@/, ''));
-
     const inside = relative(cwd, path);
-
     const exists = (await unlessGone(stat(path)))?.isFile() ?? false;
 
     if (
@@ -161,7 +158,6 @@ async function runReview(
   };
 
   const directory = await mkdtemp(join(tmpdir(), 'review-'));
-
   const run = randomBytes(4).toString('hex');
 
   const read = async (): Promise<Texts> =>
@@ -189,16 +185,11 @@ async function runReview(
   };
 
   let known: CheckFailure[] = [];
-
   /** the failures a correction turn received, so each gets one attempt. */
   let sent = new Set<string>();
-
   let reviewed: Texts | undefined;
-
   let next = { number: 1, closing: false };
-
   let sittingOut: SitOut[] = [];
-
   let nonBlocking = 0;
 
   const outcome = (
@@ -219,17 +210,13 @@ async function runReview(
 
   for (;;) {
     const number = next.number;
-
     const incomplete = `round ${number} did not complete`;
-
     let texts = await read();
-
     let failures = await checkTargets(cwd, files);
 
     // a second pass sends failures the first correction introduced
     for (let pass = 0; pass < 2; pass++) {
       const seen = identities(failures, texts);
-
       const fresh = failures.filter((_, index) => !sent.has(seen[index]!));
 
       if (!fresh.length) break;
@@ -251,15 +238,12 @@ async function runReview(
     sent = new Set(current.filter((identity) => sent.has(identity)));
 
     const reported = failures.filter((_, index) => sent.has(current[index]!));
-
     const delta = reviewed ? changes(reviewed, texts) : undefined;
-
     const scope = scopeFor(next, delta?.ratio ?? 0);
 
     if (signal.aborted) return stopped(incomplete);
 
     const cancelled = Promise.withResolvers<undefined>();
-
     const cancel = () => cancelled.resolve(undefined);
 
     signal.addEventListener('abort', cancel, { once: true });
@@ -316,7 +300,6 @@ async function runReview(
 
     const reviewers: (Reviewer & { route: Routed })[] = routes.map((route) => {
       const name = `review-${run}-${number}-${route.runtime}`;
-
       const reportFile = join(directory, `${name}.md`);
 
       return {
@@ -338,12 +321,10 @@ async function runReview(
     if (signal.aborted) return stopped(incomplete);
 
     const reviews: Review[] = [];
-
     const failed: string[] = [];
 
     for (const [index, result] of results.entries()) {
       const { route, name, reportFile } = reviewers[index]!;
-
       const findings = parseFindings(result.report, cwd, files);
 
       const reason =

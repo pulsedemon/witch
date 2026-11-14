@@ -132,7 +132,6 @@ export async function delegation(
     .map(({ id }) => id);
 
   const catalog = { models: snapshot.models, latest: snapshot.latest };
-
   let current = (await policy?.read()) ?? defaultPolicy;
 
   if (argument) {

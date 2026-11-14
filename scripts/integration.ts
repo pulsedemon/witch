@@ -12,21 +12,13 @@ import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 
 const execute = promisify(execFile);
-
 const root = await mkdtemp(join(tmpdir(), 'witch-live-'));
-
 const project = join(root, 'project');
-
 const otherProject = join(root, 'other-project');
-
 const state = join(root, 'state');
-
 const claudeModel = process.env.WITCH_CLAUDE_MODEL ?? 'default';
-
 const codexModel = process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol';
-
 const memory = new Memory(join(state, 'memory.git'));
-
 const agents = await installedAgents();
 
 assert.ok(
@@ -140,7 +132,6 @@ async function duringTool(
   expected?: string,
 ): Promise<Coordinator['snapshot']['items']> {
   const before = coordinator.snapshot.items.length;
-
   let done = false;
 
   const running = send(
@@ -176,7 +167,6 @@ async function duringTool(
 /** a prompt sent while the agent runs a tool must reach that turn, not wait for the next. */
 async function steer(prompt: (marker: string) => string): Promise<void> {
   const marker = `steer-${randomUUID().slice(0, 8)}`;
-
   const agent = coordinator.snapshot.conversation!.agent;
 
   const items = await duringTool(async () => {
@@ -205,9 +195,7 @@ async function steer(prompt: (marker: string) => string): Promise<void> {
 /** a spell sent mid-turn runs natively: Claude runs it within the turn, and Codex as the next turn, without holding the prompt sent after it. */
 async function steerSpell(): Promise<void> {
   const marker = `after-${randomUUID().slice(0, 8)}`;
-
   const agent = coordinator.snapshot.conversation!.agent;
-
   const waiting = agent === 'codex' ? ['/witch-probe'] : [];
 
   const items = await duringTool(async () => {
@@ -366,7 +354,6 @@ try {
   );
 
   const sourceId = coordinator.snapshot.conversation!.sessions.codex!.id;
-
   const codexCompletion = coordinator.snapshot.completedTurn;
 
   assert.ok(codexCompletion);

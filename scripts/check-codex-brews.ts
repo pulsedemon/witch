@@ -24,7 +24,6 @@ import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 
 const execute = promisify(execFile);
-
 const names = ['alpha', 'beta', 'gamma'] as const;
 
 type Worker = (typeof names)[number];
@@ -115,11 +114,8 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
   console.log(`${version} evidence: ${directory}`);
 
   const home = join(directory, 'home');
-
   const cwd = join(directory, 'project');
-
   const temporary = join(directory, 'tmp');
-
   const state = join(directory, 'state');
 
   const trace: Observation<{
@@ -134,13 +130,9 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
   >[] = [];
 
   const model: Observation<unknown>[] = [];
-
   const workers = new Map<Worker, ProcessIdentity>();
-
   const descriptions = new Map<Worker, string>();
-
   const held = new Map<string, ServerResponse>();
-
   const steps = new Map<string, number>();
 
   const pending = new Map<
@@ -153,37 +145,21 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
   void failure.promise.catch(() => {});
 
   let error: Error | undefined;
-
   let order = 0;
-
   let responseId = 0;
-
   let requestId = 0;
-
   let closing = false;
-
   let coordinator: Coordinator | undefined;
-
   let native: ProcessIdentity | undefined;
-
   let child: ChildProcessWithoutNullStreams | undefined;
-
   let childClosed: Promise<void> | undefined;
-
   let watching: Promise<void> | undefined;
-
   let unsubscribe: (() => void) | undefined;
-
   let stderr = '';
-
   let nativeVersion = '';
-
   let revision = '';
-
   let port: number | undefined;
-
   const checks: string[] = [];
-
   const cleanupErrors: string[] = [];
 
   const observe = <T>(value: T): Observation<T> => ({
@@ -418,7 +394,6 @@ const poll = setInterval(() => {
       (input) => input.type === 'function_call_output',
     )) {
       const id = z.string().parse(item.call_id);
-
       const output = z.string().parse(item.output);
 
       if (id === 'shared-command')
@@ -611,7 +586,6 @@ const poll = setInterval(() => {
     assert.ok(child);
 
     const id = `brew-check-${++requestId}`;
-
     const result = Promise.withResolvers<unknown>();
 
     pending.set(id, result);

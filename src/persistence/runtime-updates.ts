@@ -54,7 +54,6 @@ export const participantFile = (directory: string, pid: number) =>
 /** the participant records under `directory`; a participant is one whose record is still locked. */
 export async function listParticipants(directory: string): Promise<string[]> {
   const folder = participantsDirectory(directory);
-
   const files = (await unlessGone(readdir(folder))) ?? [];
 
   return files

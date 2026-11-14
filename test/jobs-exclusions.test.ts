@@ -92,7 +92,6 @@ for (const admission of ['direct', 'handed', 'reported', 'marked']) {
 
 test('a mixed group preserves ordinary ownership while excluding tmux', async () => {
   const command = commandRows(100201, '100201 a')[1]!;
-
   const orphan = { ...command, ppid: 1 };
 
   const tmux = {
@@ -103,11 +102,8 @@ test('a mixed group preserves ordinary ownership while excluding tmux', async ()
   };
 
   const pane = { ...orphanRow(100203), ppid: tmux.pid };
-
   const child = { ...orphanRow(100204), ppid: orphan.pid };
-
   const later = { ...orphanRow(100205), ppid: orphan.pid };
-
   let rows = [agentRow, command];
 
   const jobs = new JobWatch({
@@ -297,9 +293,7 @@ test('a stale selection cannot stop a group that became tmux', async () => {
 
 test('a failed read does not commit partial tmux exclusions', async () => {
   const original = commandRows(100601, '100601 a');
-
   let rows = original;
-
   let fail = false;
 
   const jobs = new JobWatch({

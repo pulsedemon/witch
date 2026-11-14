@@ -74,11 +74,8 @@ test('asks need a live same-project owner that supports requests', async (t) => 
     c = await start('C');
 
   const own = await claimed(a, 'a');
-
   const older = await claimed(b, 'b');
-
   const elsewhere = await claimed(c, 'c');
-
   const unknown = '00000000-0000-4000-8000-000000000000';
 
   for (const [claim, message] of [
@@ -122,9 +119,7 @@ test('a repeated ask returns the pending request', async (t) => {
     b = await start('B');
 
   const owned = await claimed(b, 'b');
-
   const first = await ask(a, owned.id, 'Which port?');
-
   const again = await ask(a, owned.id, ' Which port? ');
 
   if (first.kind !== 'peer-request' || again.kind !== 'peer-request')
@@ -175,13 +170,11 @@ test('only the parties read a request', async (t) => {
     third = await start();
 
   const owned = await claimed(b, 'b');
-
   const asked = await ask(a, owned.id, 'Which port?');
 
   if (asked.kind !== 'peer-request') assert.fail(JSON.stringify(asked));
 
   const { id } = asked.request;
-
   const refused = await read(third, id);
 
   assert.equal(refused.kind, 'error', JSON.stringify(refused));

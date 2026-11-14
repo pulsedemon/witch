@@ -89,7 +89,6 @@ export class CopilotReviewWatch {
     if (!pr || this.closed || this.running) return;
 
     const generation = this.generation;
-
     const abort = new AbortController();
 
     this.running = abort;
@@ -199,9 +198,7 @@ export function watchCopilotReviews(
   };
 
   let reviewing = false;
-
   let conversation: string | undefined;
-
   let claim = '';
 
   const owner = () => {

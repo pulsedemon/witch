@@ -13,11 +13,8 @@ const plainRows = (files: FileDiff[], width = 30) =>
   rows(files, width).map((row) => stripAnsi(row).trimEnd());
 
 const green = '\u001b[48;2;34;92;43m';
-
 const red = '\u001b[48;2;122;41;54m';
-
 const addedWord = '\u001b[48;2;56;166;96m';
-
 const removedWord = '\u001b[48;2;179;89;107m';
 
 test('a prepared diff preserves earlier rows while rendering new widths', () => {
@@ -45,14 +42,11 @@ test('a prepared diff preserves earlier rows while rendering new widths', () => 
 
   for (const full of [false, true]) {
     const render = prepareDiff(files, '/work', full);
-
     const earlier = render(78);
-
     const saved = structuredClone(earlier);
 
     for (const width of [28, 198, 78]) {
       const drawn = render(width);
-
       const plain = drawn.flat().map((line) => stripAnsi(line).trimEnd());
 
       assert.equal(plain[0], 'Create ./new.ts +12');
@@ -93,7 +87,6 @@ test('whole-file expansion exposes every supplied line without changing updates 
     };
 
     const original = structuredClone(file);
-
     const preview = plainRows([file]).join('\n');
 
     assert.match(preview, /line_10/);
@@ -581,7 +574,6 @@ test("words a removed row and the added row at its place in the next run changed
     drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
 
   const count = (text: string, part: string) => text.split(part).length - 1;
-
   const removed = row('-const answer = one;');
 
   assert.ok(removed.includes(`${removedWord}one\u001b[49m`));
@@ -633,7 +625,6 @@ test("words a removed row and the added row at its place in the next run changed
 
 test('repeated shared tokens keep a pair at 400 token edits colored and 401 uncolored, counting emoji tokens rather than their string lengths', () => {
   const prefix = '+ '.repeat(250) + 'x'.repeat(1200) + ' ';
-
   const before = '🧙'.repeat(200);
 
   for (const [suffix, colored] of [
@@ -723,16 +714,13 @@ test('unrelated large diff lines draw within twice the cost of equally sized col
   ];
 
   const inputs = [files(unrelated), files(before.replace('old500', 'new500'))];
-
   // the drawing thread's CPU time, since wall time also counts preemption by a loaded machine
   const elapsed: number[][] = [[], []];
 
   for (let run = 0; run < 4; run++) {
     for (const index of run % 2 ? [1, 0] : [0, 1]) {
       const start = process.threadCpuUsage();
-
       const drawn = rows(inputs[index]!, 100);
-
       const { user, system } = process.threadCpuUsage(start);
 
       if (run) elapsed[index]!.push(user + system);
@@ -823,7 +811,6 @@ test("a long line past the highlighting budget draws plain while shorter lines k
   assert.ok(colored(next!));
 
   const words = Array.from({ length: 1200 }, (_, index) => `w${index}`);
-
   const changed = words.map((word, index) => (index % 5 ? word : `v${index}`));
 
   const paired = rows([
@@ -972,9 +959,7 @@ test('syntax coloring includes the exact file budget and charges only lines long
   );
 
   const within = syntaxSpans([inputs[0]!], 'javascript');
-
   const exhausted = syntaxSpans(inputs.slice(1), 'javascript');
-
   const rendered = [...within, ...exhausted];
 
   assert.deepEqual(

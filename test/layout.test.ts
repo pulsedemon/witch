@@ -9,7 +9,6 @@ import { applyDisplayUpdate } from '../src/core/state.js';
 
 test('single-line tool titles fit the viewport while expansion retains the full command across resizes', () => {
   const title = `claim task:${'界review '.repeat(30)}`;
-
   const command = `'node' 'witch' --claim '${title.slice(6)}' --summary 'original command end'`;
 
   const item: DisplayItem = {
@@ -27,7 +26,6 @@ test('single-line tool titles fit the viewport while expansion retains the full 
 
   for (const width of [83, 42, 120, 83]) {
     const collapsed = layout.render([item], width, new Map());
-
     const rows = collapsed.lines.slice().map(stripAnsi).filter(Boolean);
 
     assert.equal(rows.length, 1);
@@ -43,7 +41,6 @@ test('single-line tool titles fit the viewport while expansion retains the full 
     assert.equal(collapsed.rowOf(anchor), 0);
 
     const expanded = layout.render([item], width, new Map([['control', true]]));
-
     const text = stripAnsi(expanded.lines.slice().join('\n'));
 
     assert.ok(text.includes("'node' 'witch' --claim"));
@@ -75,7 +72,6 @@ test('an expanded title change invalidates an appended tool output cache', () =>
   });
 
   const layout = new TranscriptLayout();
-
   const expanded = new Map([['t', true]]);
 
   layout.render(items, 83, expanded);
@@ -137,7 +133,6 @@ test('full diff choices survive cached renders and resizes', () => {
   };
 
   const items = [item, following];
-
   const layout = new TranscriptLayout();
 
   for (const full of [false, true, false, true]) {
@@ -155,7 +150,6 @@ test('full diff choices survive cached renders and resizes', () => {
   }
 
   const full = new Set(['full']);
-
   const initial = layout.render(items, 40, new Map(), full);
 
   const last = initial.anchorAt(
@@ -320,7 +314,6 @@ test('completed output is cached when another message streams', () => {
   ];
 
   const layout = new TranscriptLayout();
-
   const first = layout.render(items, 80, new Map([['large', true]]));
 
   const second = layout.render(
@@ -349,7 +342,6 @@ test('a reading anchor follows its original log line when a narrower window wrap
   };
 
   const layout = new TranscriptLayout();
-
   const wide = layout.render([item], 100, new Map([['log', true]]));
 
   const row = wide.lines
@@ -357,7 +349,6 @@ test('a reading anchor follows its original log line when a narrower window wrap
     .findIndex((line) => stripAnsi(line).startsWith('Line 700:'));
 
   const anchor = wide.anchorAt(row)!;
-
   const narrow = layout.render([item], 30, new Map([['log', true]]));
 
   assert.match(stripAnsi(narrow.lines.at(narrow.rowOf(anchor))!), /^Line 700:/);
@@ -416,11 +407,8 @@ test('a reading anchor keeps its position within a wrapped line after resize', (
   };
 
   const layout = new TranscriptLayout();
-
   const expanded = new Map([['log', true]]);
-
   const original = layout.render([item], 80, expanded);
-
   const anchor = original.anchorAt(90)!;
 
   assert.equal(original.rowOf(anchor), 90);
@@ -448,11 +436,8 @@ test('an anchor on a line that no longer renders falls back to its item start', 
   };
 
   const layout = new TranscriptLayout();
-
   const expanded = layout.render([notice, item], 80, new Map([['log', true]]));
-
   const anchor = expanded.anchorAt(expanded.starts.get('log')! + 2)!;
-
   const collapsed = layout.render([notice, item], 80, new Map());
 
   assert.ok(collapsed.starts.get('log')! > 0);
@@ -474,9 +459,7 @@ test('a reading anchor includes spaces trimmed while wrapping a title', () => {
   };
 
   const layout = new TranscriptLayout();
-
   const narrow = layout.render([item], 40, new Map());
-
   const anchor = narrow.anchorAt(2)!;
 
   assert.match(stripAnsi(narrow.lines.at(2)!), /^word009/);
@@ -526,7 +509,6 @@ test('anchors keep item boundaries and wrapped offsets in their own render frame
   ];
 
   const layout = new TranscriptLayout();
-
   const first = layout.render(items, 12, new Map([['middle', true]]));
 
   const expected = [
@@ -593,9 +575,7 @@ test('anchor lookups stay fast across ten thousand messages', () => {
   );
 
   const started = performance.now();
-
   const actual = output.lines.slice().map((_, row) => output.anchorAt(row));
-
   const elapsed = performance.now() - started;
 
   assert.deepEqual(actual, expected);
@@ -849,7 +829,6 @@ test('explicit expansion choices survive a project diff arriving', () => {
     [false, false, false],
   ] as const) {
     const layout = new TranscriptLayout();
-
     const choices = new Map<string, boolean>();
 
     if (choice !== undefined) choices.set(pending.id, choice);
@@ -912,9 +891,7 @@ test('a scroll anchor on a diff line stays on that line when a resize rewraps th
     .findIndex((line) => stripAnsi(line).includes('tail'));
 
   const continuation = narrow.anchorAt(3)!;
-
   const anchor = narrow.anchorAt(tail)!;
-
   const wide = layout.render([item], 200, new Map());
 
   assert.equal(

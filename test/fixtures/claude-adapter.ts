@@ -19,11 +19,8 @@ export async function launcher(
   { sessionState = true } = {},
 ) {
   const cwd = await scratch('witch-claude-');
-
   const children: ChildProcessWithoutNullStreams[] = [];
-
   const args: string[][] = [];
-
   const envs: NodeJS.ProcessEnv[] = [];
 
   const usageChildren: {
@@ -150,7 +147,6 @@ export function frameWriter(
   child: ChildProcessWithoutNullStreams,
 ) {
   let stdout = '';
-
   let stderr = '';
 
   const captureOut = (chunk: Buffer) => {

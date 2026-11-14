@@ -17,7 +17,6 @@ import { URL } from 'node:url';
 
 // modes that a prompt can't reach come from the command line
 const mode = process.argv[2] ?? '';
-
 const sessionState = !process.argv.includes('--no-session-state');
 
 if (mode === 'ignore-term') {
@@ -32,9 +31,7 @@ const mcpServers = () =>
     : [];
 
 const lines = readline.createInterface({ input: process.stdin });
-
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
-
 const session_id = randomUUID();
 
 const nativeVersion = JSON.parse(
@@ -56,19 +53,13 @@ const stateCommands = [
 }));
 
 let initialization = 0;
-
 let model = 'claude-a';
-
 let lastPrompt = '';
-
 let lastInput = '';
-
 /** the uuids of prompts sent during a steerable turn. */
 const steered = [];
-
 /** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, `idle`, or `running` again. */
 let reporting = '';
-
 /** the uuids of prompts the CLI holds unread for an interrupt receipt. */
 const held = [];
 
@@ -336,7 +327,6 @@ for await (const line of lines) {
 
   if (message.type === 'control_request') {
     const request = message.request;
-
     let response = {};
 
     if (request.subtype === 'initialize') {

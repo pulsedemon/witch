@@ -39,7 +39,6 @@ const link = (text: string, target: string) =>
 
 test('a link Ink draws is found at its cells, and a redraw that moves it leaves no link behind', async () => {
   const tty = new Tty(40, 6);
-
   const screen = new Screen(tty);
 
   const frame = (row: number) =>
@@ -114,13 +113,9 @@ test('wide characters before a link move it right, and a line that fills the wid
 
 test('repeated graphemes reuse their widths across writes and resize', () => {
   const segmentation = vi.spyOn(Intl.Segmenter.prototype, 'segment');
-
   const size = { columns: 40, rows: 2 };
-
   const screen = new Screen(size);
-
   const graphemes = ['─', '漢', '👩‍💻', '\u200B'];
-
   const text = graphemes.join('').repeat(2);
 
   for (const [columns, label, target] of [
@@ -149,7 +144,6 @@ test('repeated graphemes reuse their widths across writes and resize', () => {
 
 test('ASCII links need no grapheme measurements', () => {
   const segmentation = vi.spyOn(Intl.Segmenter.prototype, 'segment');
-
   const screen = new Screen({ columns: 20, rows: 1 });
 
   screen.write(`plain ${link('AB', docs)}`);
@@ -188,7 +182,6 @@ test('keycaps keep both cells before a link, including at the right margin', () 
 
 test('a resize starts a new grid of the new size, and a terminal that reports no size gets 80 by 24', () => {
   const size = { columns: 4, rows: 2 };
-
   const screen = new Screen(size);
 
   screen.write(link('ab', docs));
@@ -296,7 +289,6 @@ test('only http, https, vscode and image file links open, since open would launc
 });
 
 const hand = '\u001b]22;pointer\u0007';
-
 const arrow = '\u001b]22;default\u0007';
 
 test('styles preserve link cells and pointer positions', () => {
@@ -353,7 +345,6 @@ test('the recorded stream follows a frame with the shape change it makes', () =>
   screen.point(2, 0);
 
   const stream = recorded(stub, screen);
-
   const frame = `ab${link('cd', docs)}`;
 
   stream.write(frame);
@@ -375,7 +366,6 @@ test('a shape change waits for the write that ends a split sequence, so it never
   screen.point(2, 0);
 
   const stream = recorded(stub, screen);
-
   const start = `ab\u001b]8;;${docs}\u0007cd\u001b]8;;`;
 
   stream.write(start);
@@ -399,7 +389,6 @@ test('a shape change waits for a split style sequence to finish', () => {
   screen.point(2, 0);
 
   const stream = recorded(stub, screen);
-
   const start = `ab${link('cd', docs)}\u001b[3`;
 
   stream.write(start);

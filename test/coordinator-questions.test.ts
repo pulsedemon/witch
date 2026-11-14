@@ -51,7 +51,6 @@ const secondAnswer =
 
 async function codexFixture() {
   const root = await scratch('witch-codex-requests-');
-
   const project = join(root, 'project');
 
   await mkdir(project);
@@ -322,11 +321,8 @@ for (const ending of ['answer', 'resolve', 'exit'])
 
 test('answering retained questions resumes once and preserves the remaining questions', async () => {
   const { coordinator, a } = await unitFixture();
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   let answering: Promise<void[]> | undefined;
 
   try {
@@ -598,7 +594,6 @@ for (const departure of ['conversation', 'handoff'])
       await coordinator.send('Start');
 
       const original = a.sessions[0]!;
-
       const close = original.session.close.bind(original.session);
 
       original.session.close = async () => {
@@ -635,7 +630,6 @@ for (const departure of ['conversation', 'handoff'])
 
 test('an async question survives turn completion and its answer starts one normal turn', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -703,7 +697,6 @@ test('an async question survives turn completion and its answer starts one norma
 for (const refuseSteer of [false, true])
   test(`an async answer ${refuseSteer ? 'queues when steering is refused' : 'steers the active turn'}`, async () => {
     const { coordinator, a } = await unitFixture();
-
     const gate = new TurnGate();
 
     try {
@@ -762,7 +755,6 @@ for (const refuseSteer of [false, true])
 
 test('declining an async question leaves other questions open and cancelling interrupts without an answer', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -839,7 +831,6 @@ test('a new conversation discards the previous session questions and ignores the
 
 test('async questions arriving during cancellation are ignored until the next turn', async () => {
   const { coordinator, a } = await unitFixture();
-
   let gate = new TurnGate();
 
   try {
@@ -850,7 +841,6 @@ test('async questions arriving during cancellation are ignored until the next tu
     await within(gate.entered, 2000, 'the active turn');
 
     const { onEvent } = a.sessions.at(-1)!.options;
-
     const interrupting = coordinator.interrupt();
 
     onEvent({ type: 'request', request: question('late') });

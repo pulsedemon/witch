@@ -59,7 +59,6 @@ test('familiar reports bypass a blocked task mailbox and preserve active-session
   pauseDiscovery(vi.spyOn);
 
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
 
   const f = await coordinationFixture(cleanup, async (references) => {
@@ -97,7 +96,6 @@ test('familiar reports bypass a blocked task mailbox and preserve active-session
   };
 
   const binding = client.coordination.familiarBinding();
-
   const claiming = client.claim('https://github.com/acme/widget/issues/42');
 
   try {
@@ -145,13 +143,9 @@ test('an explicit control deadline reaches the host and prevents late report acc
   };
 
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   const deadline = Date.now() + 10_000;
-
   let accepted = false;
-
   let received = 0;
 
   const host = await ControlHost.open(
@@ -186,7 +180,6 @@ test('an explicit control deadline reaches the host and prevents late report acc
   );
 
   const rejected = assert.rejects(calling, /result unknown/);
-
   let now: ReturnType<typeof vi.spyOn> | undefined;
 
   try {
@@ -218,9 +211,7 @@ test('only a supporting session receives familiar instructions and the exact use
   pauseDiscovery(vi.spyOn);
 
   const f = await coordinationFixture(cleanup);
-
   const client = await f.start();
-
   const prompt = 'Review this\n  exact user input.';
 
   await client.coordinator.send(prompt);
@@ -327,9 +318,7 @@ test('only a supporting session receives familiar instructions and the exact use
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
 
   const before = client.coordination.commandPrefixes().familiar;
-
   const native = client.a.sessions[0]!.session;
-
   const { familiar } = native;
 
   await native.close();
@@ -386,7 +375,6 @@ test('pending native requests leave the mailbox available and retain complete re
   };
 
   const run = randomUUID();
-
   const events: AgentEvent[] = [];
 
   const owner = new ClaudeCommands(

@@ -51,7 +51,6 @@ test('native shell wrappers and source-launch prefixes preserve quoted subjects'
   };
 
   const command = `${source.control} --claim ${quote("task:reviewer's notes")} --summary inspect`;
-
   const doubleQuoted = `"${command.replace(/[\\"$`]/g, '\\$&')}"`;
 
   for (const wrapped of [
@@ -70,7 +69,6 @@ test('native shell wrappers and source-launch prefixes preserve quoted subjects'
 
 test('familiar calls retain their name and stdin without reading action words from native arguments or heredocs', () => {
   const claude = `TMPDIR='/task/tmp' CLAUDE_CODE_TMPDIR='/task/tmp' ${prefixes.familiar} --familiar-claude ${quote("reviewer's pass")} --report-file '/task/report' -- --model opus <<'PROMPT'\nReview --claim example.\nPROMPT`;
-
   const codex = `${prefixes.familiar} --familiar-codex check --report-file '/task/report' -- -c model='gpt-6-astra' < '/task/prompt'`;
 
   for (const [command, title] of [

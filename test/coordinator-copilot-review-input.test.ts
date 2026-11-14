@@ -12,9 +12,7 @@ for (const exit of [
 ] as const)
   test(`${exit} before native input leaves feedback pending for a later attempt`, async (t) => {
     const x = await setup(t);
-
     const session = x.a.a.sessions.at(-1)!.session;
-
     const connect = x.a.a.connect.bind(x.a.a);
 
     vi.spyOn(x.a.a, 'connect').mockImplementation(async (options) => {

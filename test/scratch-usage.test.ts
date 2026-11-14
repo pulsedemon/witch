@@ -14,15 +14,10 @@ import type {
 import { scratch } from './fixtures/scratch.js';
 
 const directory = '/fixture/scratch/root space';
-
 const early = 'Sat Oct 24 05:00:00 2026';
-
 const started = 'Sat Oct 24 06:00:00 2026';
-
 const late = 'Sat Oct 24 07:00:00 2026';
-
 const owner = { pid: 900001, started };
-
 const current = process.pid;
 
 function row(
@@ -293,7 +288,6 @@ for (const { name, expected, change } of cases) {
 
 test('scratch inspection finds a real open file without modifying candidate contents', async () => {
   const root = await scratch('witch-usage-');
-
   const directory = join(root, 'root with spaces');
 
   await mkdir(directory);
@@ -303,7 +297,6 @@ test('scratch inspection finds a real open file without modifying candidate cont
   await writeFile(marker, 'still needed');
 
   const lock = await open(directory, 'r');
-
   const file = await open(marker, 'r');
 
   try {

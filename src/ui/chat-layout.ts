@@ -2,9 +2,7 @@ import { piped } from './theme.js';
 import { wrapLines } from './wrap.js';
 
 export const minimumColumns = 30;
-
 export const minimumRows = 24;
-
 export const commandWindowRows = 4;
 
 export function toolHintLines(width: number, hint?: string): string[] {

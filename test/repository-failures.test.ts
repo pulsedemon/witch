@@ -23,9 +23,7 @@ const rejection = (message: string, code?: number | string) =>
 
 test('a pull request answer the watch cannot parse says why on the snapshot, keeps polling quietly and clears once a read works', async () => {
   let answer = '{}';
-
   const { watch, reads } = watching(() => answer);
-
   // read through a call, since an assertion on the property would narrow it for the rest of the test
   const pullRequest = () => watch.snapshot?.pullRequest;
 
@@ -153,7 +151,6 @@ test('a checks or base tip read that fails unexpectedly keeps its fallback and s
   };
 
   let checks = refused;
-
   let tip = refused;
 
   const conflicting = view({

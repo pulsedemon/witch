@@ -38,28 +38,17 @@ export function Request({
   active = true,
 }: Props) {
   const [selection, selectionRef, setSelection] = useLiveState(0);
-
   const [questionIndex, questionIndexRef, setQuestionIndex] = useLiveState(0);
-
   // never rendered, so a ref alone carries answers between keys
   const answers = useRef<Record<string, string[]>>({});
-
   const [scroll, setScroll] = useState(0);
-
   const [error, setError] = useState('');
-
   const [full, setFull] = useState(false);
-
   const ready = useKeysReady(active);
-
   const question = request.questions?.[questionIndex];
-
   const options = question?.options ?? approvals.map(({ label }) => label);
-
   const expandable = !!request.diff && canExpandDiff(request.diff);
-
   const bodyHeight = Math.max(2, height - 7 - Number(expandable));
-
   const fields = `${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
 
   const detail = question
@@ -121,7 +110,6 @@ export function Request({
 
   const submit = (text: string): boolean => {
     const index = questionIndexRef.current;
-
     const question = request.questions?.[index];
 
     if (question) {
@@ -161,9 +149,7 @@ export function Request({
     }
 
     const form = !request.url || !!request.schema;
-
     const json = text.trim() || '{}';
-
     let content: UserResponse['content'];
 
     if (form)

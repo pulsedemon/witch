@@ -25,7 +25,6 @@ async function discovery(
     [];
 
   const args: string[][] = [];
-
   const envs: NodeJS.ProcessEnv[] = [];
 
   const start = (signal?: AbortSignal) => {
@@ -97,7 +96,6 @@ async function discovery(
 
 test('standalone Codex catalogs include every page without opening a thread', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const probe = await discovery(cleanup, 'codex');
 
   assert.deepEqual(await probe.read(), [
@@ -115,7 +113,6 @@ test('standalone Codex catalogs include every page without opening a thread', as
 
 test('standalone Claude catalogs preserve settings without prompts or history', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const probe = await discovery(cleanup, 'claude');
 
   assert.deepEqual(await probe.read(), [
@@ -147,7 +144,6 @@ test('standalone Claude catalogs preserve settings without prompts or history', 
 
 test('standalone Codex limits read the account without opening a thread', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const probe = await discovery(cleanup, 'codex');
 
   assert.deepEqual(
@@ -170,11 +166,8 @@ test('standalone Codex limits read the account without opening a thread', async 
 
 test('a Codex limits read keeps each previous window its report leaves out, past its reset too', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const probe = await discovery(cleanup, 'codex', 'sparse-limits');
-
   const weekly = { window: '7D', percent: 99, resetsAt: 1, observedAt: 5 };
-
   const before = Date.now();
 
   const { limits } = await probe.adapter.accountUsage(probe.options, {
@@ -192,7 +185,6 @@ test('a Codex limits read keeps each previous window its report leaves out, past
 
 test('standalone Claude limits read the account without a turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const probe = await discovery(cleanup, 'claude');
 
   assert.deepEqual(
@@ -221,9 +213,7 @@ test('standalone Claude limits read the account without a turn', async (t) => {
 
 test('Claude limits a runtime reports unavailable read as none', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const probe = await discovery(cleanup, 'claude', 'no-limits');
-
   const previous = [{ window: '5H', percent: 1, observedAt: 1 }];
 
   assert.deepEqual(
@@ -243,7 +233,6 @@ test('the latest Claude models ignore native model pins', async (t) => {
   });
 
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const probe = await discovery(cleanup, 'claude', 'aliases');
 
   assert.ok(probe.adapter instanceof ClaudeAdapter);
@@ -272,7 +261,6 @@ test('the latest Claude models ignore native model pins', async (t) => {
 for (const agent of ['claude', 'codex']) {
   test(`${agent} discovery joins initialization failure cleanup and can retry`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const probe = await discovery(cleanup, agent, 'exit-on-init');
 
     await assert.rejects(
@@ -290,9 +278,7 @@ for (const agent of ['claude', 'codex']) {
   for (const alreadyAborted of [false, true]) {
     test(`${agent} discovery joins ${alreadyAborted ? 'pre-aborted' : 'pending'} cancellation`, async (t) => {
       const cleanup = orderedCleanup(t.onTestFinished);
-
       const probe = await discovery(cleanup, agent, 'hang-on-init');
-
       const abort = new AbortController();
 
       if (alreadyAborted) abort.abort();

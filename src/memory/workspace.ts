@@ -25,7 +25,6 @@ export interface MemoryConflict {
 /** an index with each non-blank line of `added` it lacks appended once, in its own line endings. */
 function mergeLines(index: string, added: string): string {
   const eol = index.includes('\r\n') ? '\r\n' : '\n';
-
   const present = new Set(index.split(/\r?\n/));
 
   const missing = [...new Set(added.split(/\r?\n/))].filter(
@@ -48,12 +47,9 @@ function mergeLines(index: string, added: string): string {
 }
 
 const nameCharacter = /[\p{L}\p{N}_\-./~]/u;
-
 const delimiter = /[\s`'"()[\]<>,;:#?]/;
-
 /** whitespace then a word holding a slash, which continues a path whose name has a space. */
 const spacedPath = /[^\S\n]+\S*\//y;
-
 /** what may follow a whole path: a separator, a delimiter, or a sentence's full stop. */
 const pathEnd = /[/#?\s`'")\]>,;:]|\.(?=\s|$)/y;
 
@@ -83,20 +79,13 @@ export function repointText(
   );
 
   let result = '';
-
   let cursor = 0;
-
   // the line's backtick and angle bracket state up to `scanned`, carried from match to match so each line is read once
   let scanned = 0;
-
   let ticks = false;
-
   let opened = -1;
-
   let closed = -1;
-
   let lineEnd = -1;
-
   // the next of each boundary character at or after the last search, Infinity once there's none
   const next = { '`': -1, '>': -1, '#': -1, '?': -1 };
 
@@ -115,7 +104,6 @@ export function repointText(
 
   for (const match of text.matchAll(pattern)) {
     const start = match.index;
-
     const form = match[0];
 
     for (; scanned < start; scanned++) {
@@ -139,11 +127,8 @@ export function repointText(
     }
 
     const angle = opened > closed;
-
     const tail = start + form.length;
-
     const close = ticks ? nextOf('`', tail) : angle ? nextOf('>', tail) : -1;
-
     let end = tail;
 
     if ((ticks || angle) && close >= 0 && close <= lineEnd) {
@@ -187,9 +172,7 @@ export function repointText(
     if (Buffer.byteLength(reference) > 1024) continue;
 
     const tilde = form.startsWith('~');
-
     const absolute = tilde ? home + reference.slice(1) : reference;
-
     const moved = map(absolute);
 
     if (moved === undefined || moved === absolute) continue;
@@ -219,9 +202,7 @@ function mergeResult(output: Buffer): {
   relocated: Map<string, string>;
 } {
   const fields = output.toString('utf8').split('\0');
-
   const separator = fields.indexOf('', 1);
-
   const relocated = new Map<string, string>();
 
   for (let cursor = separator + 1; cursor < fields.length - 1;) {
@@ -535,9 +516,7 @@ export class Workspace {
   /** rewrites references to moved directories in every scope as a commit of its own, and says how many notes changed. */
   private async repoint(ledger: Ledger): Promise<number> {
     const { map } = await mapper(ledger);
-
     const home = homedir();
-
     const forms = new Set<string>();
 
     for (const { from } of ledger.moves) {
@@ -560,9 +539,7 @@ export class Workspace {
       .split('\0')
       .filter(Boolean)) {
       const path = await this.checkedPath(file);
-
       const text = await readFile(path, 'utf8');
-
       const next = repointText(text, [...forms], map, home);
 
       if (next === text) continue;
@@ -638,7 +615,6 @@ export class Workspace {
     if (!files.length) return false;
 
     const notes = new Set(files.map((file) => posix.relative(key, file)));
-
     const directories = new Set<string>();
 
     for (const note of notes)
@@ -646,17 +622,13 @@ export class Workspace {
         directories.add(dir);
 
     const label = posix.basename(key).replace(/-[0-9a-f]{16}$/, '');
-
     const index = posix.join(key, indexNote);
-
     const renamed = new Map<string, string>();
 
     // the index merges last, so its lines can link where renamed notes went
     for (const file of files.sort((a, b) => +(a === index) - +(b === index))) {
       const source = await this.checkedPath(file);
-
       const content = await readFile(source);
-
       const note = posix.relative(key, file);
 
       if (file === index) {
@@ -667,13 +639,9 @@ export class Workspace {
             /\]\((?:<([^<>\n]*)>|((?:[^\s()<>]|\([^\s()<>]*\))+))/g,
             (link, angled?: string, bare?: string) => {
               const target = angled ?? bare!;
-
               let split = target.search(/[?#]/);
-
               let directory = '';
-
               let start = 0;
-
               let rewritten: string | undefined;
 
               // only a complete literal note can override the first suffix match
@@ -889,7 +857,6 @@ export class Workspace {
   /** the original branch can undo the commit that stopped replay. */
   private async rebaseConflict(): Promise<MemoryConflict> {
     const blocked = (await this.git(['rev-parse', 'REBASE_HEAD'])).trim();
-
     const replayed = await this.revision();
 
     const { paths, relocated } = await this.mergeTree(
@@ -965,7 +932,6 @@ export class Workspace {
     );
 
     const env = { GIT_INDEX_FILE: index };
-
     let commit: string;
 
     try {
@@ -1034,9 +1000,7 @@ export class Workspace {
 
   async restore(path: string, revision: string): Promise<void> {
     const file = this.path(path);
-
     const destination = await this.checkedPath(file);
-
     const content = await this.memory.readBytes(revision, file);
 
     await mkdir(dirname(destination), { recursive: true });
@@ -1059,7 +1023,6 @@ export class Workspace {
     kind: 'file' | 'directory' = 'file',
   ): Promise<string> {
     const parts = this.path(path).split(sep).filter(Boolean);
-
     let current = this.root;
 
     for (let index = 0; index <= parts.length; index++) {

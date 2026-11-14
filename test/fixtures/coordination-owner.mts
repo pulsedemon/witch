@@ -8,9 +8,7 @@ import {
 import { StateStore } from '../../src/persistence/store.js';
 
 const [root, conversation] = process.argv.slice(2);
-
 const store = await CoordinationStore.open(await StateStore.open(root!));
-
 const identity = (await identifyProcess(process.pid))!;
 
 setTimeout(() => process.exit(1), 30_000);

@@ -30,9 +30,7 @@ const rows = (output: { lines: { slice(): string[] } }) =>
 
 test('consecutive finished tools render as one group row until opened', () => {
   const items = [tool('a'), tool('b'), tool('c')];
-
   const layout = new TranscriptLayout();
-
   const closed = layout.render(items, 80, new Map());
 
   assert.deepEqual(rows(closed), ['+ ✓ 3 tools', '']);
@@ -113,9 +111,7 @@ test('a group stays open as it grows backward and when it merges with another', 
   );
 
   const running = (item: DisplayItem) => ({ ...item, done: false });
-
   const layout = new TranscriptLayout();
-
   const choices = toggleGroup([b!, c!], new Map());
 
   const groupRows = (items: DisplayItem[]) =>
@@ -128,7 +124,6 @@ test('a group stays open as it grows backward and when it merges with another', 
   assert.deepEqual(groupRows(before), ['− ✓ 2 tools', '+ ✓ 2 tools']);
 
   const grown = [said, a!, b!, c!, running(d!), e!, f!];
-
   const afterGrowth = layout.render(grown, 80, choices);
 
   assert.ok(afterGrowth.items.some((item) => item.id === `tools:${a!.id}`));
@@ -144,17 +139,13 @@ test('a group stays open as it grows backward and when it merges with another', 
 
 test('an anchor on a tool that joins a group resolves to the group row', () => {
   const b = tool('b', { text: 'first\nsecond' });
-
   const layout = new TranscriptLayout();
-
   const alone = layout.render([said, b], 80, new Map([[b.id, true]]));
-
   const anchor = alone.anchorAt(alone.starts.get(b.id)! + 1)!;
 
   assert.equal(anchor.item, b.id);
 
   const grouped = layout.render([said, b, tool('c')], 80, new Map());
-
   const start = grouped.starts.get(`tools:${b.id}`)!;
 
   assert.notEqual(start, 0);
@@ -164,7 +155,6 @@ test('an anchor on a tool that joins a group resolves to the group row', () => {
 
 test('an anchor on a group that grows backward resolves to the grown group', () => {
   const [a, b, c] = ['a', 'b', 'c'].map((name) => tool(name));
-
   const layout = new TranscriptLayout();
 
   const before = layout.render(
@@ -178,7 +168,6 @@ test('an anchor on a group that grows backward resolves to the grown group', () 
   assert.equal(anchor.item, `tools:${b!.id}`);
 
   const after = layout.render([said, a!, b!, c!], 80, new Map());
-
   const start = after.starts.get(`tools:${a!.id}`)!;
 
   assert.notEqual(start, 0);

@@ -11,9 +11,7 @@ import { settled, within } from './fixtures/within.js';
 
 test('unit files remain readable while sibling files and restored files retain their durability barrier', async () => {
   const root = await scratch('witch-ephemeral-files-');
-
   const unit = join(root, 'unit');
-
   const sibling = join(root, 'unit-sibling');
 
   await mkdir(unit);
@@ -21,15 +19,12 @@ test('unit files remain readable while sibling files and restored files retain t
   await mkdir(sibling);
 
   const probe = await open(join(root, 'probe'), 'w');
-
   const prototype = Object.getPrototypeOf(probe) as FileHandle;
 
   await probe.close();
 
   const sync = prototype.sync;
-
   let entered = Promise.withResolvers<void>();
-
   let release = Promise.withResolvers<void>();
 
   const syncing = vi

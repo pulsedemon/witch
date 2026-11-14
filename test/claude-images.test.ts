@@ -16,11 +16,8 @@ const block = (media_type: string, data: string) => ({
 
 test("a prompt whose image can't be read starts no turn and keeps the command records, which then go ahead of the next prompt's text, images and spell", async () => {
   const { session, cwd } = await fixture();
-
   const [shot, photo] = [join(cwd, 'shot.png'), join(cwd, 'photo.jpg')];
-
   const missing = join(cwd, 'missing.png');
-
   const skill = { name: 'review', args: 'main' };
 
   try {
@@ -65,9 +62,7 @@ test("a prompt whose image can't be read starts no turn and keeps the command re
 
 test("a prompt or spell steered with an image goes as blocks, the spell named once after its image, a spell without one goes as typed, and one whose image can't be read is refused", async () => {
   const { session, cwd } = await fixture();
-
   const steered = join(cwd, 'steered.jsonl');
-
   const images = [join(cwd, 'shot.png')];
 
   try {

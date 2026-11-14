@@ -35,7 +35,6 @@ export function skillCall(
   skills: readonly Skill[],
 ): SkillCall | undefined {
   const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
-
   const skill = match && skills.find(({ name }) => name === match[1]);
 
   if (!match || !skill) return;
@@ -134,7 +133,6 @@ export async function nativePrompt({
         );
 
   const deliveredMerges = new Set(reference.deliveredMerges);
-
   const deliveredAnswers = new Set(reference.deliveredAnswers);
 
   const pendingMerges = (requests ? [] : merges).filter(

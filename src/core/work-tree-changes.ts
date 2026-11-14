@@ -38,17 +38,12 @@ interface Entry {
 }
 
 const timeout = 10_000;
-
 /** the name reads list every changed or tracked file, which can be long. */
 const listBuffer = 64 * 1024 * 1024;
-
 const lineBudget = 400;
-
 /** a line counts once more against the budget for each this many characters, which bounds a row whatever its lines hold. */
 const lineWidth = 200;
-
 const fileBudget = 100;
-
 const gitlink = '160000';
 
 /**
@@ -110,10 +105,8 @@ function cause(error: unknown): string {
 }
 
 const fields = (output: string) => output.split('\0').slice(0, -1);
-
 /** Git's complaint about a nested repository with no commit, which `add` can't take and a snapshot does without. */
 const unborn = /^error: '(.*)' does not have a commit checked out$/;
-
 /** the line newer Gits print after their complaint about any path they couldn't add. */
 const unindexed = /^error: unable to index file '(.*)'$/;
 
@@ -158,7 +151,6 @@ export class WorkTreeChanges {
   absorb(cwd: string, paths: readonly string[]): Promise<void> {
     return this.queue(async () => {
       const checkout = await this.checkout(cwd);
-
       const baseline = checkout && this.baselines.get(checkout.top);
 
       if (!baseline) return;
@@ -172,7 +164,6 @@ export class WorkTreeChanges {
       if (!inside.length) return;
 
       const snapshot = await this.snapshot(checkout);
-
       const git = (...args: string[]) => this.git(checkout, args);
 
       await rm(checkout.env.GIT_INDEX_FILE!, { force: true });
@@ -216,13 +207,11 @@ export class WorkTreeChanges {
   read(cwd: string): Promise<Changes> {
     return this.queue(async () => {
       const none: Changes = { files: [], withHead: 0, more: 0 };
-
       const checkout = await this.checkout(cwd);
 
       if (!checkout) return none;
 
       const baseline = this.baselines.get(checkout.top);
-
       const snapshot = await this.snapshot(checkout);
 
       if (!baseline) {
@@ -273,7 +262,6 @@ export class WorkTreeChanges {
       }
 
       const shown = entries.slice(0, fileBudget);
-
       // counting reads each file's content, so only the files a row can list are counted
       const counts = new Map<string, FileDiff['unshown']>();
 
@@ -304,7 +292,6 @@ export class WorkTreeChanges {
         }
 
       const files: FileDiff[] = [];
-
       let budget = lineBudget;
 
       for (const entry of shown) {
@@ -369,7 +356,6 @@ export class WorkTreeChanges {
       entry.status === 'A' ? 'add' : entry.status === 'D' ? 'delete' : 'update';
 
     const file = { path: join(checkout.top, entry.path), kind } as const;
-
     const lines = typeof count === 'object' ? count.added + count.removed : 0;
 
     const unshown = {
@@ -438,7 +424,6 @@ export class WorkTreeChanges {
   /** `cwd`'s checkout and the environment its Git calls run in, or nothing outside a repository. */
   private async checkout(cwd: string): Promise<Checkout | undefined> {
     const plain = { ...process.env, LC_ALL: 'C' };
-
     let top: string;
 
     try {
@@ -513,7 +498,6 @@ export class WorkTreeChanges {
   /** the checkout as a tree: what the repository's index tracks plus untracked files that aren't ignored. */
   private async snapshot(checkout: Checkout): Promise<Baseline> {
     const at = Math.floor(Date.now() / 1000);
-
     let head: string | undefined;
 
     try {

@@ -37,7 +37,6 @@ const banned = [
 ];
 
 const identifier = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*(\(\))?$/;
-
 const citation = /^([^\s:`]+):(\d+)(?:-(\d+))?$/;
 
 type Fail = (line: number, message: string) => void;
@@ -48,7 +47,6 @@ export async function checkTargets(
   files: readonly string[],
 ): Promise<CheckFailure[]> {
   const repository = await repositoryOf(cwd);
-
   const cache = new Map<string, Promise<string | undefined>>();
 
   const local = (path: string) => {
@@ -65,13 +63,11 @@ export async function checkTargets(
     if (extname(file) !== '.md') continue;
 
     const path = resolve(cwd, file);
-
     const text = await local(path);
 
     if (text === undefined) continue;
 
     const lines = text.split('\n');
-
     const prose = proseLines(lines);
 
     for (const [index, line] of lines.entries()) {
@@ -83,7 +79,6 @@ export async function checkTargets(
         failures.push({ file, line: number, message });
 
       const number = index + 1;
-
       const parts = segments(visible);
 
       for (const link of links(parts)) {
@@ -128,7 +123,6 @@ export async function checkTargets(
 
         if (range) {
           const start = Number(range[1]);
-
           const end = Number(range[2] ?? range[1]);
 
           if (!checkRange(shown, content, start, end, fail, number)) continue;
@@ -150,15 +144,12 @@ export async function checkTargets(
         if (!cited) continue;
 
         const target = resolve(cwd, cited[1]!);
-
         const content = await local(target);
 
         if (content === undefined) continue;
 
         const start = Number(cited[2]);
-
         const end = Number(cited[3] ?? cited[2]);
-
         const shown = relative(cwd, target);
 
         if (!checkRange(shown, content, start, end, fail, number)) continue;
@@ -179,11 +170,8 @@ export async function checkTargets(
 /** each line's prose with its HTML comments blanked; undefined where nothing visible is left: fenced code, front matter, comments and blank lines. indented lines stay prose, since nested list items use them. */
 function proseLines(lines: readonly string[]): (string | undefined)[] {
   const prose: (string | undefined)[] = [];
-
   let fence: { mark: string; length: number; depth: number } | undefined;
-
   let front = lines[0] === '---' && lines.indexOf('---', 1) !== -1;
-
   let comment = false;
 
   for (const [index, line] of lines.entries()) {
@@ -212,11 +200,8 @@ function proseLines(lines: readonly string[]): (string | undefined)[] {
     } else {
       // a fence can sit in a blockquote, and ends when its quote does
       const quote = /^(?:\s*>)*/.exec(line)![0];
-
       const depth = quote.split('>').length - 1;
-
       const rest = line.slice(quote.length);
-
       // a backtick fence's info string has no backticks, so ```x``` is a code span
       const opening = /^\s*(`{3,}(?!.*`)|~{3,})/.exec(rest);
 
@@ -275,9 +260,7 @@ interface Segment {
 /** splits a line into code spans and the text between them, by CommonMark's equal-length backtick runs. */
 function segments(line: string): Segment[] {
   const parts: Segment[] = [];
-
   let text = '';
-
   let index = 0;
 
   const flush = () => {
@@ -316,7 +299,6 @@ function segments(line: string): Segment[] {
     while (line[index + run] === '`') run++;
 
     let close = index + run;
-
     let found = -1;
 
     while (close < line.length) {
@@ -394,7 +376,6 @@ function links(parts: readonly Segment[]): Link[] {
     .join('');
 
   const raw = parts.map((part) => part.raw).join('');
-
   const found: Link[] = [];
 
   for (const match of masked.matchAll(
@@ -403,7 +384,6 @@ function links(parts: readonly Segment[]): Link[] {
     if (escaped(masked, match.index)) continue;
 
     const start = match.index + 1;
-
     // masking hides an angle-bracketed destination, which reads as a tag, so it comes from the line
     const [from, to] = match.indices![2]!;
 
@@ -474,7 +454,6 @@ function citedName(
   position: number,
 ): string | undefined {
   const between = parts[position - 1];
-
   const name = parts[position - 2];
 
   if (!between || between.code || !name?.code) return;
@@ -563,18 +542,12 @@ function openBlock(
   end: number,
 ): number | 'never' | undefined {
   let depth = 0;
-
   let line = 1;
-
   let state: 'code' | 'line' | 'block' | 'regex' | "'" | '"' | '`' = 'code';
-
   let klass = false;
-
   // the last significant character and word in code, which decide whether a `/` starts a regex
   let previous = '';
-
   let word = '';
-
   let gap = false;
 
   const settled = () =>
@@ -582,7 +555,6 @@ function openBlock(
 
   for (let index = 0; index < text.length; index++) {
     const char = text[index]!;
-
     const next = text[index + 1];
 
     if (char === '\n') {
@@ -717,17 +689,13 @@ function before(text: string, index: number): number {
 /** GitHub's heading anchors, plus HTML id and name attributes, from a markdown file's prose. */
 function anchors(text: string): Set<string> {
   const prose = proseLines(text.split('\n'));
-
   const headings = new Set<string>();
-
   const ids = new Set<string>();
-
   const counts = new Map<string, number>();
 
   // github-slugger numbers a repeat past every anchor already taken, including a heading that reads like a numbered one
   const add = (heading: string) => {
     const base = slug(heading);
-
     let anchor = base;
 
     while (headings.has(anchor)) {

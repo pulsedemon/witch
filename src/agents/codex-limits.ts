@@ -66,7 +66,6 @@ function accountFunding(
   complete: boolean,
 ): Pick<AccountReading, 'funding' | 'creditAccess'> {
   const observedAt = Date.now();
-
   const { credits, spendControlReached, rateLimitReachedType } = update;
 
   const funding = credits
@@ -138,9 +137,7 @@ export async function probeAccountUsage(
   previous: AccountReading,
 ): Promise<AccountReading> {
   const { rateLimits: update, accountId } = await readRateLimits(rpc);
-
   const { primary, secondary, limitId } = update;
-
   const identity = accountIdentity(accountId, limitId) ?? previous.identity;
 
   if (identity !== previous.identity) previous = { limits: [] };
@@ -176,15 +173,10 @@ export class CodexAccount {
   /** a reply cannot replace observations delivered while its request was pending. */
   async read(rpc: JsonRpc): Promise<AccountReading | undefined> {
     const previous = this.reading;
-
     const before = { ...this.windows };
-
     const { rateLimits, accountId } = await readRateLimits(rpc);
-
     const current = this.reading;
-
     const windows = { ...this.windows };
-
     const reading = this.update(rateLimits, true, accountId);
 
     if (!reading || (current.identity && current.identity !== reading.identity))

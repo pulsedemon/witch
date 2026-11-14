@@ -10,7 +10,6 @@ import { until } from './fixtures/within.js';
 for (const typed of ['/ex', '/quit '])
   test(`${typed.trim()} exits without sending a prompt`, async () => {
     const { app, calls } = fake({});
-
     let exits = 0;
 
     const ui = show(
@@ -41,9 +40,7 @@ for (const typed of ['/ex', '/quit '])
 
 test('/restart restarts without exiting or sending a prompt', async () => {
   const { app, calls } = fake({});
-
   let exits = 0;
-
   let restarts = 0;
 
   const ui = show(
@@ -80,7 +77,6 @@ test('/restart restarts without exiting or sending a prompt', async () => {
 /** renders App, counting exits. */
 function exiting(snapshot: Parameters<typeof fake>[0]) {
   const { app, calls } = fake(snapshot);
-
   const state = { exits: 0 };
 
   const ui = show(
@@ -236,7 +232,6 @@ test('a second Ctrl+C after the window arms again instead of exiting', async () 
 
 test('Ctrl+C while closing quits instead of interrupting again', async () => {
   const { app, coordinator, calls } = fake({});
-
   let exits = 0;
 
   const ui = show(
@@ -269,7 +264,6 @@ test('Ctrl+C while closing quits instead of interrupting again', async () => {
 
 test('Escape interrupts merge cleanup without exiting', async () => {
   const { app, calls } = fake({ phase: 'cleaning' });
-
   let exits = 0;
 
   const ui = show(

@@ -362,7 +362,6 @@ export class Coordinator {
     await this.memory.initialize();
 
     const cwd = await realpath(directory);
-
     const moved = await startupMoves(this.store, this.memory, cwd);
 
     const id =
@@ -372,7 +371,6 @@ export class Coordinator {
         : undefined);
 
     const report = await recoverConversations(this.store, this.memory, id);
-
     let scope: MemoryScope;
 
     try {
@@ -427,7 +425,6 @@ export class Coordinator {
           : await this.store.create(target.create);
 
       const workspace = this.memory.workspace(files.directory, files.record.id);
-
       let items;
 
       try {
@@ -545,7 +542,6 @@ export class Coordinator {
   async newConversation(agent?: string): Promise<void> {
     await this.operate('starting', async () => {
       const source = this.current();
-
       const chosen = agent ?? source.agent;
 
       this.catalog.installed(chosen);
@@ -661,7 +657,6 @@ export class Coordinator {
     if (!this.turnEnded || this.snapshot.phase !== 'running') return true;
 
     const { task, operations } = this;
-
     const draining = this.delivery.drained;
 
     await task?.catch(() => {});
@@ -674,9 +669,7 @@ export class Coordinator {
   /** a session started here starts on the choice, so a stored model that fails to connect can be replaced; if it fails to connect or refuses the choice, it closes and the stored model stays. */
   private async changeModel(selection: ModelSelection): Promise<void> {
     const conversation = this.current();
-
     const kept = conversation.sessions[selection.agent];
-
     const starting = !this.link.live(selection.agent);
 
     try {
@@ -819,7 +812,6 @@ export class Coordinator {
       );
 
     const release = this.holdPromptDelivery();
-
     const abort = new AbortController();
 
     this.nativeUpdateCancellation = abort;
@@ -874,7 +866,6 @@ export class Coordinator {
   async editMemory(path?: string): Promise<void> {
     await this.operate('editing', async () => {
       const scope = await this.memory.scopePaths(this.current().cwd);
-
       const note = path ?? `${scope.project}/${indexNote}`;
 
       this.notice(`Memory edit: ${noticeText(note)}`, this.workspace!.root);
@@ -932,7 +923,6 @@ export class Coordinator {
   /** `/review`'s rounds as one operation; true once they settle or stop at a regression and the operation settles cleanly. */
   async review(argument: string): Promise<boolean> {
     const conversation = this.current();
-
     const abort = new AbortController();
 
     // a call operate refuses leaves the running review's controller in place
@@ -1009,7 +999,6 @@ export class Coordinator {
     this.coordination?.attach(undefined);
 
     const quiescing = this.coordination?.quiesce();
-
     // interrupt() reads the phase before `closing` replaces it
     const interrupting = this.interrupt(stop);
 
@@ -1141,7 +1130,6 @@ export class Coordinator {
 
   warning(text: string): void {
     const cwd = this.record?.cwd ?? process.cwd();
-
     const id = randomUUID();
 
     this.display({ id, kind: 'notice', text, cwd, warning: true });

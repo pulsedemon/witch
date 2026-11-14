@@ -25,7 +25,6 @@ const saved = async (
 /** every record saved from now on, as it was when saved. */
 function captureSaves() {
   const records: ConversationRecord[] = [];
-
   const save = ConversationStore.prototype.save;
 
   const spy = vi
@@ -45,9 +44,7 @@ function captureSaves() {
 /** holds the session's next steer until it is accepted or refused. */
 function holdSteer(session: AgentSession) {
   const entered = Promise.withResolvers<void>();
-
   const held = Promise.withResolvers<boolean>();
-
   const steer = session.steer.bind(session);
 
   session.steer = async (...args) => {
@@ -83,7 +80,6 @@ async function queueBehind(f: Context, gate: TurnGate, prompts: string[]) {
 
 test('prompts queued when Witch stops come back queued, stay held through other operations and run with the next prompt', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -125,7 +121,6 @@ test('prompts queued when Witch stops come back queued, stay held through other 
 
 test('a prompt waiting on a steer is saved until the steer is accepted', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
@@ -136,7 +131,6 @@ test('a prompt waiting on a steer is saved until the steer is accepted', async (
     await within(gate.entered, 2000, 'the gated turn');
 
     const steer = holdSteer(f.a.sessions.at(-1)!.session);
-
     const following = f.coordinator.send('follow');
 
     await within(steer.entered, 2000, 'the held steer');
@@ -169,14 +163,11 @@ test('a prompt waiting on a steer is saved until the steer is accepted', async (
 
 test('a composer submission moves its draft into the queue in one save, and another send keeps the draft', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
-
   const saves = captureSaves();
 
   try {
     const id = f.coordinator.snapshot.conversation!.id;
-
     const { sending } = await queueBehind(f, gate, []);
 
     f.coordinator.draft(id, '/x');
@@ -216,11 +207,8 @@ test('a composer submission moves its draft into the queue in one save, and anot
 
 test('a batch is saved until its row is, through pre-turn compaction, and comes back once when its turn fails first', async () => {
   const f = await unitFixture();
-
   const start = new TurnGate();
-
   const compaction = new TurnGate();
-
   const turn = new TurnGate();
 
   try {
@@ -257,7 +245,6 @@ test('a batch is saved until its row is, through pre-turn compaction, and comes 
     await sending;
 
     const failing = new TurnGate();
-
     const { sending: next } = await queueBehind(f, failing, ['B']);
 
     await f.a.sessions.at(-1)!.session.close();
@@ -285,14 +272,11 @@ test('a batch is saved until its row is, through pre-turn compaction, and comes 
 for (const unread of [['follow'], undefined])
   test(`a turn whose input was never written saves its batch back ${unread ? 'with the prompts it left unread' : 'alone'}`, async () => {
     const f = await unitFixture();
-
     const gate = new TurnGate();
-
     const saves = captureSaves();
 
     try {
       const { session } = f.a.sessions.at(-1)!;
-
       const send = session.send.bind(session);
 
       session.send = async (...args) => {
@@ -348,14 +332,11 @@ for (const unread of [['follow'], undefined])
 
 test('a ! command whose reply was never written stays off the saved queue', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
 
   try {
     const { sending } = await queueBehind(f, gate, ['!echo hi']);
-
     const { session } = f.a.sessions.at(-1)!;
-
     const send = session.send.bind(session);
 
     session.send = async (...args) => {
@@ -389,7 +370,6 @@ for (const outcome of ['accepted', 'refused'] as const)
     });
 
     const first = new TurnGate();
-
     const second = new TurnGate();
 
     try {
@@ -434,14 +414,11 @@ for (const outcome of ['accepted', 'refused'] as const)
 
 test('handing the queue to the composer saves the merged draft in the same save', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
-
   const saves = captureSaves();
 
   try {
     const id = f.coordinator.snapshot.conversation!.id;
-
     const { sending } = await queueBehind(f, gate, ['p1']);
 
     f.coordinator.draft(id, 'x');
@@ -481,7 +458,6 @@ test('handing the queue to the composer saves the merged draft in the same save'
 
 test("a draft is saved as typed, reopens with an unused conversation, and another conversation's or a closed one's write is dropped", async () => {
   const f = await unitFixture();
-
   const id = f.coordinator.snapshot.conversation!.id;
 
   f.coordinator.draft(id, 'x');
@@ -526,13 +502,11 @@ test("a draft is saved as typed, reopens with an unused conversation, and anothe
 
 test('restored image markers lose their numbers outside ! commands', async () => {
   const f = await unitFixture();
-
   const id = f.coordinator.snapshot.conversation!.id;
 
   await f.coordinator.close();
 
   const path = join(f.root, 'state', 'conversations', id, 'state.json');
-
   const record = JSON.parse(await readFile(path, 'utf8')) as ConversationRecord;
 
   await writeFile(

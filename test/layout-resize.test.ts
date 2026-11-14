@@ -99,7 +99,6 @@ test('unchanged resizes reuse text and diff preparation', async () => {
   ];
 
   const layout = new TranscriptLayout();
-
   const inspector = new Session();
 
   inspector.connect();
@@ -326,11 +325,8 @@ test('cached expansion variants use the current width and item', () => {
     [80, 'preview'],
   ] as const) {
     const choices = new Map([['tool', expansion !== 'closed']]);
-
     const full = new Set(expansion === 'full' ? ['tool'] : []);
-
     const frame = layout.render(items, width, choices, full);
-
     const fresh = new TranscriptLayout().render(items, width, choices, full);
 
     assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
@@ -356,7 +352,6 @@ test('cached expansion variants use the current width and item', () => {
 
   for (const full of [new Set(['tool']), new Set<string>()]) {
     const frame = layout.render(items, 80, new Map(), full);
-
     const text = frame.lines.slice().join('\n');
 
     assert.match(stripAnsi(text), /replacement/);
@@ -378,7 +373,6 @@ test('a resize after the retry delay retries a missing image without reparsing i
   vi.useFakeTimers({ toFake: ['Date'] });
 
   const directory = await scratch('witch-resize-image-');
-
   const graphics = new Graphics(() => {});
 
   t.onTestFinished(() => graphics.release());
@@ -394,7 +388,6 @@ test('a resize after the retry delay retries a missing image without reparsing i
   };
 
   const lex = Lexer.prototype.lex;
-
   let parsed = 0;
 
   vi.spyOn(Lexer.prototype, 'lex').mockImplementation(function (

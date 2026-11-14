@@ -22,21 +22,15 @@ import { until, within } from './fixtures/within.js';
 for (const timing of ['queued', 'waiting', 'late', 'exit'] as const)
   test(`native background exhaustion preserves input with ${timing} delivery`, async () => {
     const waiting = timing !== 'queued';
-
     const root = await scratch('witch-background-exhaustion-');
-
     const project = join(root, 'project');
 
     await mkdir(project);
 
     const store = await StateStore.open(join(root, 'state'));
-
     const memory = await seededMemory(join(root, 'memory.git'));
-
     const source = await launcher('background');
-
     const events: AgentEvent[] = [];
-
     const connect = source.adapter.connect.bind(source.adapter);
 
     vi.spyOn(source.adapter, 'connect').mockImplementation((options) =>
@@ -224,9 +218,7 @@ for (const [stage, writesMemory, finishes] of [
     pauseDiscovery(vi.spyOn);
 
     const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
-
     const claude = new FixtureAgent('claude');
-
     const codex = new FixtureAgent('codex');
 
     claude.catalog.splice(0, Infinity, {
@@ -258,11 +250,8 @@ for (const [stage, writesMemory, finishes] of [
     await coordinator.send('Review migration');
 
     const source = claude.sessions.at(-1)!;
-
     const emit = source.options.onEvent;
-
     const binding = coordination.familiarBinding();
-
     let restarted = false;
 
     const report = () =>
@@ -420,9 +409,7 @@ for (const mode of [
     pauseDiscovery(vi.spyOn);
 
     const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
-
     const claude = new FixtureAgent('claude');
-
     const codex = new FixtureAgent('codex');
 
     claude.catalog.splice(0, Infinity, {
@@ -459,7 +446,6 @@ for (const mode of [
     await coordinator.send('Review migration');
 
     const emit = claude.sessions.at(-1)!.options.onEvent;
-
     const batches = new CommandBatches(coordinator);
 
     try {
@@ -470,7 +456,6 @@ for (const mode of [
       await coordinator.send('Queued after compact');
 
       const finished = Promise.withResolvers<boolean>();
-
       let compacting: Promise<boolean>;
 
       if (mode === 'direct-blocked') compacting = coordinator.compact();

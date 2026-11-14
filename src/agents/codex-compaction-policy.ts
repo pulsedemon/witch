@@ -75,7 +75,6 @@ export class CodexCompactionPolicy {
     if (!models.models.length) return;
 
     const config = await readConfig(rpc, options.cwd);
-
     let model = options.model;
 
     if (!model && options.resume) {
@@ -163,7 +162,6 @@ export class CodexCompactionPolicy {
     busy: boolean,
   ): Promise<unknown> {
     const { model, effort } = selection;
-
     const target = this.target(model);
 
     if (target === this.applied) return;

@@ -79,7 +79,6 @@ function textRows(
     },
     slice(start = 0, end = length) {
       const result: string[] = [];
-
       const last = Math.min(length, Math.max(0, relative(end)));
 
       for (let row = Math.max(0, relative(start)); row < last; row++)
@@ -99,7 +98,6 @@ function block(
   missing: boolean,
 ): Block {
   const count = complete.length;
-
   const length = count + suffix.length;
 
   const row = (index: number) =>
@@ -123,12 +121,10 @@ function section(
   first: number,
 ) {
   const rows: Row[] = [];
-
   let sourceLine = first;
 
   for (const line of text) {
     const source = trim ? stripAnsi(normalizeText(line)) : undefined;
-
     let offset = 0;
 
     for (const row of wrapLines(line, width, trim)) {
@@ -170,7 +166,6 @@ function prepare(
   fullMarkdown = false,
 ): Content {
   const tool = item.kind === 'tool';
-
   const expanded = expansion !== 'closed';
 
   const title =
@@ -221,7 +216,6 @@ function prepare(
       : undefined;
 
   const complete = linked?.complete ?? assistant?.complete ?? [];
-
   const hasBody = linked ? linked.complete.length > 0 || !!linked.tail : !!body;
 
   return {
@@ -250,7 +244,6 @@ function ending(
   graphics: Graphics | undefined,
 ): { rows: Row[]; missing: boolean } {
   const rendered = section(content.tail, width, false, first);
-
   const diff = content.diff?.(width) ?? [];
 
   const images = graphics
@@ -285,7 +278,6 @@ function wrap(
   graphics: Graphics | undefined,
 ): Block {
   const { width } = viewport;
-
   const head = section(content.title, width, true, 0);
 
   if (content.singleLine && head.rows.length > 1) {
@@ -304,7 +296,6 @@ function wrap(
   }
 
   const complete = section(content.complete, width, false, head.next);
-
   const end = ending(content, width, complete.next, graphics);
 
   return block(
@@ -323,7 +314,6 @@ function extend(
   graphics: Graphics | undefined,
 ): Block | undefined {
   const before = previous.content.item;
-
   const tail = previous.content.append;
 
   if (
@@ -357,7 +347,6 @@ function extend(
     return wrap(prepare(item, 'closed', undefined, true), viewport, graphics);
 
   const source = previous.content;
-
   const first = source.title.length + source.complete.length;
 
   const hasBody =
@@ -378,7 +367,6 @@ function extend(
   if (previous.viewport !== viewport) return wrap(prepared, viewport, graphics);
 
   const { width } = viewport;
-
   const complete = section(content.complete, width, false, first);
 
   // a large chunk can exceed the argument limit if spread into push().
@@ -437,7 +425,6 @@ export function toggleGroup(
   choices: ReadonlyMap<string, boolean>,
 ): Map<string, boolean> {
   const open = groupOpen(members, choices);
-
   const next = new Map(choices);
 
   for (const { id } of members) {
@@ -468,12 +455,9 @@ export class TranscriptLayout {
     if (this.viewport.width !== width) this.viewport = { width };
 
     const viewport = this.viewport;
-
     // two or more consecutive groupable tools show as one row, followed by them once it is open
     const shown: DisplayItem[] = [];
-
     const groups = new Map<string, readonly DisplayItem[]>();
-
     const owner = new Map<string, string>();
 
     for (let index = 0; index < items.length;) {
@@ -490,9 +474,7 @@ export class TranscriptLayout {
       }
 
       const members = items.slice(index, end);
-
       const first = members[0]!;
-
       const id = `tools:${first.id}`;
 
       groups.set(id, members);
@@ -518,13 +500,9 @@ export class TranscriptLayout {
     }
 
     let length = 0;
-
     const blocks: TextRows[] = [];
-
     const starts = new Map<string, number>();
-
     const rendered = new Map<string, Block>();
-
     const cache = new Map<string, Map<Expansion, Block>>();
 
     for (const item of shown) {
@@ -539,7 +517,6 @@ export class TranscriptLayout {
           : 'preview';
 
       const variants = this.cache.get(item.id) ?? new Map<Expansion, Block>();
-
       const previous = variants.get(expansion);
 
       const current =
@@ -592,7 +569,6 @@ export class TranscriptLayout {
 
     const positionAt = (row: number) => {
       let low = 0;
-
       let high = positions.length;
 
       while (low < high) {
@@ -637,13 +613,11 @@ export class TranscriptLayout {
         if (id !== anchor.item) return starts.get(id) ?? 0;
 
         const start = starts.get(anchor.item) ?? 0;
-
         const current = rendered.get(anchor.item);
 
         if (!current) return start;
 
         let low = 0;
-
         let high = current.lines.length;
 
         while (low < high) {

@@ -89,9 +89,7 @@ export async function sideQuery<T>(
   overrides: Options = {},
 ): Promise<T> {
   const input = new InputQueue<SDKUserMessage>();
-
   const abort = new AbortController();
-
   const cancel = () => abort.abort();
 
   options.signal?.addEventListener('abort', cancel, { once: true });
@@ -99,9 +97,7 @@ export async function sideQuery<T>(
   if (options.signal?.aborted) cancel();
 
   let child: ChildExit | undefined;
-
   let side: Query | undefined;
-
   let reading: Promise<void> | undefined;
 
   try {

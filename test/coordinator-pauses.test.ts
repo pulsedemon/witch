@@ -28,7 +28,6 @@ type Fixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;
 type Client = Awaited<ReturnType<Fixture['start']>>;
 
 const id = (client: Client) => client.coordinator.snapshot.conversation!.id;
-
 /** the refresh a discovery tick runs, awaited. */
 const refreshed = (client: Client) => client.coordination.context();
 
@@ -123,13 +122,9 @@ test('a pause stops and holds the sessions live when issued, and no session open
   await f.checkout('D');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const b = await f.start('B');
-
   const c = await f.start('C');
-
   const sends: Promise<void>[] = [];
 
   for (const [name, client] of [
@@ -258,11 +253,8 @@ test('a pause holds across switching conversations and a restart, until a prompt
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const b = await f.start('B');
-
   const issued = await pause(i);
 
   await confirmed(f, a, issued);
@@ -270,7 +262,6 @@ test('a pause holds across switching conversations and a restart, until a prompt
   await confirmed(f, b, issued);
 
   const conversation = id(a);
-
   const other = id(b);
 
   // the other conversation isn't held: it answers a peer request on its own
@@ -369,9 +360,7 @@ test('a resume whose write failed is stored when the session restarts', async (t
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const issued = await pause(i);
 
   await confirmed(f, a, issued);
@@ -408,17 +397,13 @@ test('a resume whose write failed is stored when the session restarts', async (t
 
 test('a failed resume write retries on the tick while the prompt is delivered once', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const ticks = pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
 
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const issued = await pause(i);
 
   await confirmed(f, a, issued);
@@ -467,9 +452,7 @@ test('a recipient confirms only after its stopped turn settles, and retries a fa
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const settlement = holdSettlement(a.a.sessions[0]!.session);
 
   cleanup(() => settlement.restore());
@@ -524,9 +507,7 @@ test('a recipient that Claude Code runs on its own confirms once that run ends',
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const emit = a.a.sessions.at(-1)!.options.onEvent;
 
   emit({ type: 'running', running: true });
@@ -560,9 +541,7 @@ test('a resume cancels a scheduled stop retry, which never interrupts the next t
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const gate = new TurnGate();
 
   a.a.gate = gate;
@@ -601,13 +580,9 @@ test('--to pauses only the named sessions, in any project', async (t) => {
   pauseDiscovery(vi.spyOn);
 
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start('A');
-
   const b = await f.start('B');
-
   const c = await f.start('C');
-
   const issued = await pause(a, [id(c), id(c)]);
 
   assert.deepEqual(
@@ -634,11 +609,8 @@ test('a session that goes live before a default pause is recorded is a recipient
   await f.checkout('D');
 
   const a = await f.start('A');
-
   const b = await f.start('B');
-
   let d: Awaited<ReturnType<typeof f.start>> | undefined;
-
   // D opens in the same project after admission chose the recipients, before the pause is recorded
   const issue = CoordinationStore.prototype.issuePause;
 
@@ -666,7 +638,6 @@ test('a pause that cannot reach every intended recipient records nothing', async
   pauseDiscovery(vi.spyOn);
 
   const f = await unitCoordinationFixture(cleanup);
-
   const a = await f.start('A');
 
   const nothing = async () =>
@@ -677,7 +648,6 @@ test('a pause that cannot reach every intended recipient records nothing', async
   assert.equal(await refused(a, [id(a)]), 'No other live session to pause.');
 
   const b = await f.start('B');
-
   const unknown = randomUUID();
 
   assert.match(
@@ -762,19 +732,14 @@ test('a session whose Witch cannot be paused refuses the whole pause', async (t)
 
 test('a failed pause read is retried on the next tick without another write', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const ticks = pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
 
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const read = CoordinationStore.prototype.pauses;
-
   let failed = false;
 
   vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (
@@ -821,14 +786,10 @@ test('an issuer resume while a stopped, undelivered turn settles still runs the 
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const session = a.a.sessions[0]!.session;
-
   // the pause lands before the runtime took the input, so the drain requeues it and ends
   const send = session.send.bind(session);
-
   let first = true;
 
   session.send = async (...args) => {
@@ -890,7 +851,6 @@ test("an issuer resume leaves the user's own Escape hold in place", async (t) =>
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
 
   await a.coordinator.interrupt();
@@ -922,7 +882,6 @@ test('a pause arriving during an operation started while held stops it before co
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
 
   await confirmed(f, a, await pause(i));
@@ -956,9 +915,7 @@ test('automatic work waits for a restarted recipient to read its pauses', async 
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const claim = await claimed(a, 'restarting');
 
   await confirmed(f, a, await pause(i));
@@ -968,7 +925,6 @@ test('automatic work waits for a restarted recipient to read its pauses', async 
   await a.coordinator.close({ restart: true });
 
   const read = CoordinationStore.prototype.pauses;
-
   let failing = true;
 
   vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (
@@ -1012,15 +968,12 @@ test("a failed pause read after switching away drops the previous conversation's
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
 
   await confirmed(f, a, await pause(i));
 
   const conversation = id(a);
-
   const read = CoordinationStore.prototype.pauses;
-
   let failing = true;
 
   vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (
@@ -1058,9 +1011,7 @@ test('a prompt that resumes a pause runs before automatic work its release wakes
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const claim = await claimed(a, 'waiting');
 
   await confirmed(f, a, await pause(i));
@@ -1089,9 +1040,7 @@ test('a prompt sent before a failed pause read resumes the pauses issued before 
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const issued = await pause(i);
 
   await confirmed(f, a, issued);
@@ -1101,7 +1050,6 @@ test('a prompt sent before a failed pause read resumes the pauses issued before 
   await a.coordinator.close({ restart: true });
 
   const read = CoordinationStore.prototype.pauses;
-
   let failing = true;
 
   vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (
@@ -1152,15 +1100,10 @@ test('a pause arriving during an in-flight stop gets its own stop before confirm
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const session = a.a.sessions[0]!.session;
-
   const interrupt = session.interrupt.bind(session);
-
   const held = Promise.withResolvers<void>();
-
   let first = true;
 
   session.interrupt = async (...args) => {
@@ -1216,15 +1159,12 @@ test('a prompt sent while /clear reconnects coordination still stores its resume
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const issued = await pause(i);
 
   await confirmed(f, a, issued);
 
   const activate = SessionCoordination.prototype.activate;
-
   let sending: Promise<void> | undefined;
 
   // the prompt lands after /clear deactivated coordination and before it reactivates
@@ -1256,9 +1196,7 @@ test('automatic work after /clear waits for the new activation to read its pause
   await f.checkout('I');
 
   const i = await f.start('I');
-
   const a = await f.start('A');
-
   const claim = await claimed(a, 'clearing');
 
   // A last read no pauses; this one and the request land before it reads again
@@ -1267,7 +1205,6 @@ test('automatic work after /clear waits for the new activation to read its pause
   await control(i, { kind: 'ask', claim: claim.id, message: 'Paused?' });
 
   const conversation = id(a);
-
   const read = CoordinationStore.prototype.pauses;
 
   vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (

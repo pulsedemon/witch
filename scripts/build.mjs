@@ -6,7 +6,6 @@ import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
-
 const output = resolve(process.argv[2] ?? join(repository, 'dist'));
 
 const execute = (module, args) =>

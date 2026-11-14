@@ -109,7 +109,6 @@ export class CodexCommands {
     }
 
     const itemId = z.string().parse(item.id);
-
     const key = `${threadId}/${itemId}`;
 
     if (message.method === 'item/started') {
@@ -179,7 +178,6 @@ export class CodexCommands {
     if (!parsed.success) return;
 
     const { threadId, turnId, itemId, delta } = parsed.data;
-
     const entry = this.entries.get(`${threadId}/${itemId}`);
 
     if (

@@ -65,7 +65,6 @@ export function replayWire(
   release(stream: number): void;
 } {
   const children: ChildProcessWithoutNullStreams[] = [];
-
   const completions: Promise<void>[] = [];
 
   const pauses = new Map<
@@ -148,7 +147,6 @@ export function observeWire(child: ChildProcessWithoutNullStreams): {
   finished(): Promise<void>;
 } {
   const frames: WireFrame[] = [];
-
   let failure: unknown;
 
   const readers = new Map<

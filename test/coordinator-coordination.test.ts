@@ -26,11 +26,8 @@ import { appears, until, within } from './fixtures/within.js';
 
 test('a peer joining and leaving updates ongoing work without adding user input', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const gate = new TurnGate();
 
   a.a.gate = gate;
@@ -94,15 +91,10 @@ test('a peer joining and leaving updates ongoing work without adding user input'
 
 test('a peer arriving during prompt construction reaches the newly started turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, memory } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   const snapshot = memory.snapshot.bind(memory);
 
   vi.spyOn(memory, 'snapshot').mockImplementationOnce(async (...args) => {
@@ -148,15 +140,12 @@ test('a peer arriving during prompt construction reaches the newly started turn'
 
 test('a refused policy steer waits for fresh context on the next user turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
 
   a.a.refuseSteer = true;
 
   const steer = vi.spyOn(a.a.sessions[0]!.session, 'steer');
-
   const gate = new TurnGate();
 
   a.a.gate = gate;
@@ -206,19 +195,12 @@ test('a refused policy steer waits for fresh context on the next user turn', asy
 for (const finishFirst of [false, true]) {
   test(`a policy change during a pending reply ${finishFirst ? 'returns in the next turn after the current turn ends' : 'follows the accepted update'}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const { start } = await unitCoordinationFixture(cleanup);
-
     const a = await start();
-
     const session = a.a.sessions[0]!.session;
-
     const steer = session.steer.bind(session);
-
     const entered = Promise.withResolvers<void>();
-
     const reply = Promise.withResolvers<void>();
-
     let first = true;
 
     session.steer = async (...args) => {
@@ -295,9 +277,7 @@ for (const finishFirst of [false, true]) {
 
 test('unread coordination context never becomes queued user work', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
 
   a.a.unreadOnInterrupt = true;
@@ -342,11 +322,8 @@ test('unread coordination context never becomes queued user work', async (t) => 
 
 test('a compaction inside a turn keeps claim policy current', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
-
   const gate = new TurnGate();
 
   a.a.gate = gate;
@@ -398,13 +375,9 @@ test('a compaction inside a turn keeps claim policy current', async (t) => {
 
 test('clear preserves the same exclusive claim while the native runtime reconnects', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const owner = await f.start('A');
-
   const peer = await f.start('B');
-
   const claimed = await owner.claim('task:clear');
 
   assert.equal(claimed.kind, 'claimed');
@@ -414,7 +387,6 @@ test('clear preserves the same exclusive claim while the native runtime reconnec
   assert.ok(before);
 
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
 
   owner.a.beforeConnect = holdConnect(entered, release);
@@ -440,11 +412,8 @@ test('clear preserves the same exclusive claim while the native runtime reconnec
 
 test('a model refused while disconnected keeps the exclusive claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const owner = await f.start('A');
-
   const peer = await f.start('B');
 
   assert.equal((await owner.claim('task:model')).kind, 'claimed');
@@ -469,15 +438,12 @@ test('a model refused while disconnected keeps the exclusive claim', async (t) =
 
 test('a reconnect that fails before activating keeps the activation and claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await coordinationFixture(cleanup);
-
   const owner = await f.start('A');
 
   assert.equal((await owner.claim('task:reconnect')).kind, 'claimed');
 
   const binding = await owner.binding();
-
   const claim = (await owner.query()).ownClaim;
 
   assert.ok(claim);
@@ -501,15 +467,12 @@ test('a reconnect that fails before activating keeps the activation and claim', 
 for (const stage of ['close', 'reconnect'] as const) {
   test(`a clear whose ${stage} fails keeps the claim under a new activation`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const f = await coordinationFixture(cleanup);
-
     const owner = await f.start('A');
 
     assert.equal((await owner.claim('task:clear')).kind, 'claimed');
 
     const bound = await owner.binding();
-
     const claim = (await owner.query()).ownClaim;
 
     assert.ok(claim);
@@ -548,9 +511,7 @@ for (const stage of ['close', 'reconnect'] as const) {
 
 test('a clear whose close and reactivation both fail reports both', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const owner = await f.start('A');
 
   owner.a.failClose = true;
@@ -567,11 +528,8 @@ test('a clear whose close and reactivation both fail reports both', async (t) =>
 
 test('bound tool titles use the delivered prefixes, refresh on reconnect and survive results and reopening', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
-
   const client = await f.start();
-
   const native = client.a.sessions[0]!;
 
   native.session.familiar = {
@@ -581,9 +539,7 @@ test('bound tool titles use the delivered prefixes, refresh on reconnect and sur
   await client.coordinator.send('Read the current bindings');
 
   const context = client.a.inputs.at(-1)!.context!;
-
   const control = /^Control command: (.+)$/m.exec(context)?.[1];
-
   const familiar = /using this familiar prefix: ([^\n]+)/.exec(context)?.[1];
 
   assert.ok(control);
@@ -595,7 +551,6 @@ test('bound tool titles use the delivered prefixes, refresh on reconnect and sur
   assert.deepEqual(commandPrefixes, { control, familiar });
 
   const command = `${control} --claim task:render-title --summary inspect`;
-
   const title = boundCommandTitle(command, commandPrefixes);
 
   assert.equal(title?.title, 'claim task:render-title');
@@ -666,9 +621,7 @@ for (const name of ['claude', 'codex'] as const) {
       : 'Codex exit after its reply stops its familiar and permits task release',
     async (t) => {
       const cleanup = orderedCleanup(t.onTestFinished);
-
       const { root, start, registry } = await unitCoordinationFixture(cleanup);
-
       const cwd = join(root, 'A');
 
       const executable = fileURLToPath(
@@ -842,11 +795,8 @@ for (const name of ['claude', 'codex'] as const) {
 
 test('native closure preserves finished work and ends running activity once', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start } = await unitCoordinationFixture(cleanup);
-
   const { coordinator, a } = await start();
-
   const native = a.sessions[0]!;
 
   for (const [id, status, tools, report] of [
@@ -912,7 +862,6 @@ test('native closure preserves finished work and ends running activity once', as
 
 test('coordination context stays before the exact user request and raw steered spells', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { root, start } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -996,7 +945,6 @@ for (const name of ['claude', 'codex'] as const) {
             );
 
       const agents = [{ adapter, executable: name }];
-
       const a = coordinated ? await start('A', {}, agents) : undefined;
 
       const coordinator =
@@ -1021,7 +969,6 @@ for (const name of ['claude', 'codex'] as const) {
         await b?.claim('task:peer', summary);
 
         const prompt = `/review request ${index}\n  exact input`;
-
         const sending = coordinator.send(prompt);
 
         if (name === 'codex') {

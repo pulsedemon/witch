@@ -67,7 +67,6 @@ export function rankCommands<C extends Ranked, S extends Ranked>(
   spells: readonly S[],
 ): (C | S)[] {
   const typed = query.toLowerCase();
-
   const spell = new Set<C | S>(spells);
 
   return tiered<C | S>(

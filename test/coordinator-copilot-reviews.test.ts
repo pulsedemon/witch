@@ -21,7 +21,6 @@ test('delayed feedback runs once, verifies the reply and pushed commit, and pres
   await x.c.send('implement the fix');
 
   const before = await record(x.f, x.a);
-
   const completion = x.c.snapshot.completedTurn;
 
   autoReply(x.f, x.a, x.source);
@@ -72,7 +71,6 @@ test('delayed feedback runs once, verifies the reply and pushed commit, and pres
 
 test("a review turn's ownership check reuses the project its turn read", async (t) => {
   const x = await setup(t);
-
   const owns = vi.spyOn(x.a.coordination.reviews, 'owns');
 
   autoReply(x.f, x.a, x.source);
@@ -175,7 +173,6 @@ test('feedback arriving during work waits behind queued user prompts', async (t)
 
 test('a user prompt during a review queues without steering it', async (t) => {
   const x = await setup(t);
-
   const gate = new TurnGate();
 
   x.a.a.gate = gate;
@@ -215,7 +212,6 @@ test('a user prompt during a review queues without steering it', async (t) => {
 
 test('Escape holds unknown outcomes through rereads and the next user prompt resumes after reconciliation', async (t) => {
   const x = await setup(t);
-
   let respond = false;
 
   autoReply(x.f, x.a, x.source, () => respond);
@@ -303,9 +299,7 @@ test('delivery holds and pending questions block review turns without consuming 
 for (const mode of ['edited', 'interrupted']) {
   test(`a malformed ${mode} review result retains its diagnostic`, async (t) => {
     const x = await setup(t);
-
     const session = x.a.a.sessions.at(-1)!.session;
-
     const send = session.send;
 
     vi.spyOn(session, 'send').mockImplementation(async (...args) => {
@@ -373,17 +367,13 @@ test('an uncertain content version stays blocked after a newer version is handle
   x.source.reviews = [];
 
   const original = x.source.threads[0]!.comments[0]!.body;
-
   const session = x.a.a.sessions.at(-1)!.session;
-
   const send = session.send;
-
   let respond = false;
 
   vi.spyOn(session, 'send').mockImplementation(async (...args) => {
     if (args[1]?.purpose === 'pr-review' && respond) {
       const batch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
-
       const url = `${x.source.pullRequest.url}#discussion_r2`;
 
       x.source.threads[0]!.comments.push({
@@ -451,7 +441,6 @@ test('an uncertain content version stays blocked after a newer version is handle
 for (const state of ['CLOSED', 'MERGED'] as const) {
   test(`a ${state} GitHub observation stops an active review despite stale repository metadata`, async (t) => {
     const x = await setup(t);
-
     const gate = new TurnGate();
 
     x.a.a.gate = gate;
@@ -503,7 +492,6 @@ for (const state of ['CLOSED', 'MERGED'] as const) {
 for (const kind of ['branch', 'claim', 'project']) {
   test(`confirmed ${kind} loss interrupts a running review and retains its uncertain receipt`, async (t) => {
     const x = await setup(t);
-
     const gate = new TurnGate();
 
     x.a.a.gate = gate;
@@ -567,7 +555,6 @@ for (const kind of ['branch', 'claim', 'project']) {
 
 test('new feedback observed during execution waits for its own later batch', async (t) => {
   const x = await setup(t);
-
   const gate = new TurnGate();
 
   x.a.a.gate = gate;
@@ -618,7 +605,6 @@ test('new feedback observed during execution waits for its own later batch', asy
 
 test('reopening reconciles a reply saved before interruption without another automatic turn', async (t) => {
   const x = await setup(t);
-
   const gate = new TurnGate();
 
   x.a.a.gate = gate;
@@ -660,11 +646,8 @@ test('reopening reconciles a reply saved before interruption without another aut
 for (const kind of ['thread', 'reply']) {
   test(`missing ${kind} evidence is verified after restart without repeating the native attempt`, async (t) => {
     const x = await setup(t);
-
     let complete: GitHubReviews;
-
     const session = x.a.a.sessions.at(-1)!.session;
-
     const send = session.send;
 
     session.send = async (...args) => {
@@ -746,7 +729,6 @@ for (const kind of ['thread', 'reply']) {
 
 test('the CLI watcher wiring carries a real repository observation through a review turn to persisted receipts', async (t) => {
   const x = await setup(t);
-
   const execute = promisify(execFile);
 
   const repository = new RepositoryWatch(
@@ -811,9 +793,7 @@ test('the CLI watcher wiring carries a real repository observation through a rev
 
 test('a prompt in another conversation cannot resume an uncertain review on return', async (t) => {
   const x = await setup(t);
-
   const original = x.c.snapshot.conversation!.id;
-
   const gate = new TurnGate();
 
   x.a.a.gate = gate;
@@ -875,7 +855,6 @@ test('review turns compact before native input and retain the feedback packet ac
 
 test('waiting peer answers run before a pending Copilot review', async (t) => {
   const x = await setup(t);
-
   const b = await x.f.start('B');
 
   await b.claim('task:asker');
@@ -946,7 +925,6 @@ test('a closed native session reconnects without revoking the retained review cl
 
 test('a final ownership check that proves input unsent leaves feedback pending for a later observation', async (t) => {
   const x = await setup(t);
-
   let withdrawn = false;
 
   vi.spyOn(
@@ -1026,7 +1004,6 @@ test('a review the agent never read leaves feedback pending and the user queue e
 
 test('a peer arriving during the review read retains priority without losing the review batch', async (t) => {
   const x = await setup(t);
-
   const b = await x.f.start('B');
 
   await b.claim('task:asker');
@@ -1061,7 +1038,6 @@ test('a peer arriving during the review read retains priority without losing the
 
 test('an uncertain batch with new feedback does not cause admission reads before a user prompt', async (t) => {
   const x = await setup(t);
-
   const gate = new TurnGate();
 
   x.a.a.gate = gate;
@@ -1107,9 +1083,7 @@ test('an uncertain batch with new feedback does not cause admission reads before
 
 test('an unrelated user prompt does not retry dispositions explicitly blocked for authorization', async (t) => {
   const x = await setup(t);
-
   const session = x.a.a.sessions.at(-1)!.session;
-
   const send = session.send;
 
   vi.spyOn(session, 'send').mockImplementation(async (...args) => {

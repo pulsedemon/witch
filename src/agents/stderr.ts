@@ -39,7 +39,6 @@ export function readLines(
 /** watches a child from its spawn, since a failed spawn emits `close` and no `exit`. */
 export function watchChild(child: ChildProcess): ChildExit {
   let tail = '';
-
   let exited = false;
 
   const closed = new Promise<void>((resolve) =>

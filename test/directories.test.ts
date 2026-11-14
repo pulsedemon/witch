@@ -79,7 +79,6 @@ const counted = <T extends object>(items: T[], reads: { n: number }) =>
 
 test('a real move retains its recorded identity after timestamp restoration', async () => {
   const f = await directories('a');
-
   const before = await stat(f.at('a'), { bigint: true });
 
   await updateLedger(f.root, async (ledger) => {
@@ -111,7 +110,6 @@ test('a real move retains its recorded identity after timestamp restoration', as
 
 test('legacy directory identities still move and gain creation time when adopted', async () => {
   const f = await directories('a');
-
   const { device, inode } = (await identify(f.at('a')))!;
 
   await updateLedger(f.root, async (ledger) => {
@@ -121,7 +119,6 @@ test('legacy directory identities still move and gain creation time when adopted
   await rename(f.at('a'), f.at('b'));
 
   const ledger = await readLedger(f.root);
-
   const moves = await findMoves(ledger.entries, [f.at('b')]);
 
   assert.deepEqual(f.moved(moves), [[f.at('a'), f.at('b')]]);
@@ -141,13 +138,9 @@ test('legacy directory identities still move and gain creation time when adopted
 
 test('different generations of an inode record separate moves between the same paths', async () => {
   const f = await directories('destination');
-
   const move = await f.move('source', 'destination');
-
   const earlier = { ...move, birthtimeNs: '1' };
-
   const later = { ...move, birthtimeNs: '2' };
-
   const ledger: Ledger = { entries: [], moves: [] };
 
   await resolve(ledger, [earlier], 0);
@@ -198,7 +191,6 @@ test('mapper applies the most specific move', async () => {
 
 test('mapper follows a directory moved back and forth', async () => {
   const f = await directories('a');
-
   const there = await f.move('a', 'a');
 
   const ledger: Ledger = {
@@ -223,9 +215,7 @@ test('mapper follows a directory moved back and forth', async () => {
 for (const seeded of [false, true])
   test(`a case-only parent move carries a child and detects its return, seeded=${seeded}`, async (t) => {
     const f = await directories('main/sub');
-
     const parent = await f.entry('main');
-
     const child = await f.entry('main/sub');
 
     await rename(f.at('main'), f.at('Main'));
@@ -282,7 +272,6 @@ test('existing symlink aliases are not recorded as case moves', async () => {
 
 test('a move recorded while the clock reads behind the last one is dated after it', async () => {
   const f = await directories('a');
-
   const ahead = Date.now() + 60_000;
 
   const ledger: Ledger = {
@@ -297,7 +286,6 @@ test('a move recorded while the clock reads behind the last one is dated after i
 
 test('rechecking a mapping looks only at the known directories holding its path', async () => {
   const f = await directories('a');
-
   const reads = { n: 0 };
 
   const ledger: Ledger = {
@@ -325,7 +313,6 @@ test('rechecking a mapping looks only at the known directories holding its path'
 
 test('resolving a move beside many known directories reads each one a bounded number of times', async () => {
   const f = await directories('b');
-
   const reads = { n: 0 };
 
   const ledger: Ledger = {
@@ -350,7 +337,6 @@ test('resolving a move beside many known directories reads each one a bounded nu
 
 test('resolving a move relocates the directories it carries in one pass over the ledger', async () => {
   const f = await directories();
-
   const entries: DirectoryEntry[] = [];
 
   for (let index = 0; index < 200; index++) {
@@ -385,7 +371,6 @@ test('resolving a move relocates the directories it carries in one pass over the
 
 test('resolving many moves at once reads the ledger a fixed number of times', async () => {
   const f = await directories();
-
   const entries: DirectoryEntry[] = [];
 
   for (let index = 0; index < 300; index++) {
@@ -514,7 +499,6 @@ test('mapper suspends a reused chain', async () => {
 
 test('mapper maps prompts written before a move even after its path is reused', async () => {
   const f = await directories('c', 'spare');
-
   const move = { ...(await f.move('a', 'c')), prompts: 100 };
 
   await rename(f.at('spare'), f.at('a'));
@@ -538,7 +522,6 @@ test.skipIf(!darwin)(
   'findMoves finds a directory moved anywhere on its volume',
   async () => {
     const f = await directories('w/main', 'w/main-1', 'x/deep');
-
     const entries = [await f.entry('w/main'), await f.entry('w/main-1')];
 
     await rename(f.at('w/main'), f.at('c'));
@@ -570,7 +553,6 @@ test('findMoves resolves a seed by identity and its siblings', async () => {
 
 test('findMoves infers siblings of a renamed main checkout', async () => {
   const f = await directories('w/main', 'w/main-1', 'c');
-
   const entries = [await f.entry('w/main'), await f.entry('w/main-1')];
 
   await rename(f.at('w/main'), f.at('c/other'));
@@ -585,7 +567,6 @@ test('findMoves infers siblings of a renamed main checkout', async () => {
 
 test('findMoves never matches a different directory at a candidate path', async () => {
   const f = await directories('w/main', 'w/main-1', 'x', 'c', 'spare');
-
   const entries = [await f.entry('w/main'), await f.entry('w/main-1')];
 
   await rename(f.at('w/main'), f.at('c/main'));
@@ -739,9 +720,7 @@ test.skipIf(!darwin)(
   'adoptIdentity keeps a recorded directory that still exists elsewhere and takes in one that is gone',
   async () => {
     const f = await directories('a', 'gone');
-
     const moved = { path: f.at('a'), ...(await identify(f.at('a')))! };
-
     const deleted = { path: f.at('gone'), ...(await identify(f.at('gone')))! };
 
     await rename(f.at('a'), f.at('b'));
@@ -803,7 +782,6 @@ test.skipIf(!darwin)(
   'adoptIdentity keeps a recorded directory it cannot reach',
   async () => {
     const f = await directories('a', 'locked');
-
     const recorded = { path: f.at('a'), ...(await identify(f.at('a')))! };
 
     await rename(f.at('a'), f.at('locked/a'));
@@ -829,7 +807,6 @@ test.skipIf(!darwin)(
 
 test('adoptIdentity drops the repository and slot that described the directory gone from a path', async () => {
   const f = await directories('w-2');
-
   const recorded = await f.entry('w-2', { main: f.at('w'), slot: 2 });
 
   // made before the old one goes, so Linux can't give it the same inode

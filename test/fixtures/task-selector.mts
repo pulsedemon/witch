@@ -4,7 +4,6 @@ import { StateStore } from '../../src/persistence/store.js';
 import { identifyProcess } from '../../src/persistence/process.js';
 
 const [root, conversation] = process.argv.slice(2);
-
 const store = await CoordinationStore.open(await StateStore.open(root!));
 
 const scope = {
@@ -14,9 +13,7 @@ const scope = {
 };
 
 const release = await store.holdActivation(scope.activation);
-
 const identity = (await identifyProcess(process.pid))!;
-
 let ticket: string;
 
 // keep the activation lock reachable until the child exits.
@@ -29,9 +26,7 @@ setTimeout(() => {
 process.on('message', (message: { kind: string; issue?: number }) => {
   void (async () => {
     const deadline = Date.now() + 5000;
-
     const verify = async () => {};
-
     let value: unknown;
 
     if (message.kind === 'begin') {

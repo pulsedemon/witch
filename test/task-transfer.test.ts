@@ -21,9 +21,7 @@ async function transfer(
   createFixture = unitCoordinationFixture,
 ) {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const ticks = pauseDiscovery(vi.spyOn);
-
   const f = await createFixture(cleanup);
 
   const a = await f.start(),
@@ -62,13 +60,11 @@ test('an idle owner hands over its task without a model turn, and its next conte
   assert.equal(a.coordinator.snapshot.phase, 'idle');
 
   const [before] = await registry.claims();
-
   const turns = a.a.inputs.length;
 
   await Promise.all([b.coordination.takeTask('task:shared'), answer()]);
 
   const taker = b.coordinator.snapshot.conversation!.id;
-
   const owned = b.coordination.snapshot.ownClaim!;
 
   assert.deepEqual(
@@ -105,7 +101,6 @@ test('an idle owner hands over its task without a model turn, and its next conte
 
 test('a running turn, a native run, a running brew and memory recovery each refuse with their next action', async (t) => {
   const { a, b, answer, registry } = await transfer(t, coordinationFixture);
-
   const before = await registry.claims();
 
   const refuses = async (reason: RegExp) => {
@@ -171,7 +166,6 @@ test('a running turn, a native run, a running brew and memory recovery each refu
 
 test('an owner that never reads the ledger times out and leaves no request', async (t) => {
   const { b, registry } = await transfer(t);
-
   const before = await registry.claims();
 
   await assert.rejects(
@@ -186,7 +180,6 @@ test('an owner that never reads the ledger times out and leaves no request', asy
 
 test('an owner whose handover fails shows why until one succeeds', async (t) => {
   const { a, b, tick, requested } = await transfer(t);
-
   // each session has its own store; the fixture's `registry` is a third
   const local = a.coordination['registry'];
 
@@ -234,7 +227,6 @@ test('an owner whose handover fails shows why until one succeeds', async (t) => 
 
 test('a failed handover stops showing once its request is gone', async (t) => {
   const { a, b, tick, requested, registry } = await transfer(t);
-
   const before = await registry.claims();
 
   vi.spyOn(a.coordination['registry'], 'handOver').mockRejectedValue(
@@ -268,9 +260,7 @@ test('a failed handover stops showing once its request is gone', async (t) => {
 
 test('a handover cut short by the owner quiescing is not shown as a failure', async (t) => {
   const { a, b, tick, requested } = await transfer(t);
-
   const local = a.coordination['registry'];
-
   let cut = false;
 
   vi.spyOn(local, 'handOver').mockImplementation(async () => {
@@ -301,17 +291,11 @@ test('a handover cut short by the owner quiescing is not shown as a failure', as
 
 test('a successful withdrawal clears a failed ledger poll', async (t) => {
   const { b, registry } = await transfer(t);
-
   const before = await registry.claims();
-
   const local = b.coordination['registry'];
-
   const request = local.requestTransfer.bind(local);
-
   const state = local.state.bind(local);
-
   let pending = false;
-
   let failed = false;
 
   const requesting = vi
@@ -356,11 +340,8 @@ test('a successful withdrawal clears a failed ledger poll', async (t) => {
 
 test('a requester that switches conversations stops waiting and withdraws its request', async (t) => {
   const { b, requested, registry } = await transfer(t);
-
   const before = await registry.claims();
-
   const started = Date.now();
-
   const taking = b.coordination.takeTask('task:shared');
 
   await requested();
@@ -378,7 +359,6 @@ test('a requester that switches conversations stops waiting and withdraws its re
 
 test('an owner that closes while a request is pending reports the release', async (t) => {
   const { a, b, requested } = await transfer(t);
-
   const taking = b.coordination.takeTask('task:shared');
 
   await requested();
@@ -390,7 +370,6 @@ test('an owner that closes while a request is pending reports the release', asyn
 
 test('an agent control request cannot take a task', async (t) => {
   const { b, registry } = await transfer(t);
-
   const before = await registry.claims();
 
   const result = await callControl(await b.binding(), {
@@ -428,13 +407,9 @@ async function automatic(
   createFixture = unitCoordinationFixture,
 ) {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const ticks = pauseDiscovery(vi.spyOn);
-
   const f = await createFixture(cleanup);
-
   const nativeOwner = new FixtureAgent(ids[0]!);
-
   const nativeRequester = new FixtureAgent(ids[1]!);
 
   const owner = await f.start('A', {}, [
@@ -528,7 +503,6 @@ for (const ids of [
     assert.equal(f.owner.coordinator.snapshot.phase, 'idle');
 
     const turns = f.nativeOwner.inputs.length;
-
     const result = await f.attempt();
 
     if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
@@ -559,7 +533,6 @@ for (const ids of [
 
 test('merged credits veto automatic transfer after a sparse reconnect, while manual transfer still moves the claim', async (t) => {
   const f = await automatic(t, ['codex', 'claude']);
-
   const account = f.owner.coordinator.snapshot.accounts.codex!;
 
   f.owner.coordinator.accountUsage.report('codex', {
@@ -626,7 +599,6 @@ test('another runtime credits cannot veto an exhausted owner transfer', async (t
 
 test('expired funding cannot veto automatic transfer while its access observation is current', async (t) => {
   const f = await automatic(t, ['codex', 'claude']);
-
   const now = Date.now();
 
   f.owner.coordinator.accountUsage.report('codex', {
@@ -651,7 +623,6 @@ test('expired funding cannot veto automatic transfer while its access observatio
 
 test('automatic transfer requires an exhausted window whose reported reset is still ahead', async (t) => {
   const f = await automatic(t);
-
   const now = 2_000_000_000_000;
 
   for (const [limits, allowed] of [
@@ -789,7 +760,6 @@ test('automatic transfer keeps running turns, familiars, brews and recovery with
 for (const change of ['report', 'reset'] as const)
   test(`automatic handover checks the ${change} after verification under the lock`, async (t) => {
     const f = await automatic(t);
-
     const resetsAt = Date.now() / 1000 + 1;
 
     f.emit({
@@ -949,13 +919,11 @@ test('an automatic request times out without granting ownership or leaving a req
 
 test('an automatic requester that switches conversations withdraws without admission', async (t) => {
   const f = await automatic(t);
-
   const claiming = f.requester.claim();
 
   await f.requested();
 
   const switching = f.requester.coordinator.newConversation();
-
   const result = await claiming;
 
   await switching;
@@ -967,9 +935,7 @@ test('an automatic requester that switches conversations withdraws without admis
 
 test('a handover during withdrawal returns the actual automatic ownership', async (t) => {
   const f = await automatic(t);
-
   const state = CoordinationStore.prototype.state;
-
   // every read until withdrawal misses the request, so the requester's first poll gives up, whichever read comes first
   let hidden = true;
 

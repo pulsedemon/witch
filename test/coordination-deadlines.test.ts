@@ -26,20 +26,14 @@ import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
 const identity = (await identifyProcess(process.pid))!;
-
 const input = { reference: 'task:chosen', summary: 'Chosen task' };
-
 const requestTimeout = 1500;
 
 function pauseProbe(matches: (child: ChildProcess) => boolean, nth = 1) {
   const started = Promise.withResolvers<ChildProcess>();
-
   const closed = Promise.withResolvers<void>();
-
   let probe: ChildProcess | undefined;
-
   let listening = true;
-
   let ended = false;
 
   const observe = (message: unknown) => {
@@ -136,7 +130,6 @@ test('a stalled probe survives a delayed parent spawn notification', async () =>
   subscribe('child_process', delaySpawn);
 
   const paused = pauseProbe((child) => child.spawnfile === '/bin/ps');
-
   const rejected = assert.rejects(ps('pid=', [process.pid], { timeout: 300 }));
 
   try {
@@ -159,13 +152,9 @@ test('a stalled probe survives a delayed parent spawn notification', async () =>
 for (const probe of ['process', 'conversation', 'activation'] as const)
   test(`a stalled ${probe} reconciliation probe closes before the ledger unlocks`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const root = await scratch('witch-reconcile-deadline-');
-
     const store = await StateStore.open(root);
-
     const registry = await CoordinationStore.open(store);
-
     const held = await store.create(record('legacy', root));
 
     cleanup(() => held.close());
@@ -200,7 +189,6 @@ for (const probe of ['process', 'conversation', 'activation'] as const)
     cleanup(await registry.holdActivation(ticket.activation));
 
     const ledger = { version: 2, claims: existing, selections: [ticket] };
-
     const file = join(root, 'coordination', 'claims.json');
 
     await writeFile(file, JSON.stringify(ledger));
@@ -255,7 +243,6 @@ for (const probe of ['process', 'conversation', 'activation'] as const)
 
 async function session(cleanup: RegisterCleanup) {
   const root = await scratch('witch-verify-deadline-');
-
   const cwd = join(root, 'project');
 
   await git('init', cwd);
@@ -270,13 +257,9 @@ async function session(cleanup: RegisterCleanup) {
   );
 
   const store = await StateStore.open(join(root, 'state'));
-
   const registry = await CoordinationStore.open(store);
-
   const memory = new Memory(join(root, 'memory.git'));
-
   const conversation = record('claimant', cwd);
-
   const held = await store.create(conversation);
 
   const coordination = await SessionCoordination.open(
@@ -294,7 +277,6 @@ async function session(cleanup: RegisterCleanup) {
   });
 
   const { project } = await memory.scopePaths(cwd);
-
   const binding = await coordination.activate(conversation, project);
 
   clearInterval(coordination['timer']);
@@ -320,14 +302,11 @@ for (const probe of [
 ] as const)
   test(`a stalled ${probe} verification probe releases the ledger without claiming`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const f = await session(cleanup);
-
     let releasePeer: (() => Promise<void>) | undefined;
 
     if (['activation', 'process', 'legacy-project'].includes(probe)) {
       const peer = record('peer', f.cwd);
-
       const held = await f.store.create(peer);
 
       if (probe === 'legacy-project') {
@@ -377,7 +356,6 @@ for (const probe of [
     );
 
     const request = f.claim(Date.now() + requestTimeout);
-
     const rejected = assert.rejects(request);
 
     try {
@@ -411,9 +389,7 @@ for (const probe of [
 
 test('a request cancels a stalled earlier project read and keeps the next project', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await session(cleanup);
-
   const paused = pauseProbe((child) => child.spawnfile === 'git');
 
   const background = f.coordination['refreshProject'](
@@ -474,9 +450,7 @@ test('a request cancels a stalled earlier project read and keeps the next projec
 
 test('a discovery error waits for its stalled lock probe before releasing the ledger', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await session(cleanup);
-
   const failure = new Error('Presence read failed');
 
   const reading = vi

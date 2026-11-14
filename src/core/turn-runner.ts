@@ -127,7 +127,6 @@ export class TurnRunner {
   /** a turn that never delivered its input returns its batch unsent, so the batch waits for a later attempt. */
   async reviewCopilot(batch: ReviewBatch): Promise<TurnResult | undefined> {
     let result: TurnResult | undefined;
-
     let delivered = false;
 
     this.host.publish({ reviewing: true });
@@ -259,9 +258,7 @@ export class TurnRunner {
     read?: MemoryScope,
   ): Promise<TurnResult> {
     const conversation = this.host.conversation();
-
     const answer = kind === 'answer';
-
     const automatic = answer || kind === 'review' || kind === 'repair';
 
     if (kind === 'turn') this.host.publish({ completedTurn: undefined });
@@ -290,7 +287,6 @@ export class TurnRunner {
       });
 
       const command = kind === 'turn' ? shellCommand(prompt) : undefined;
-
       const handoff = conversation.handoff;
 
       const pendingHandoff =
@@ -340,7 +336,6 @@ export class TurnRunner {
         });
 
       let input = await context();
-
       const owned = review ?? repair;
 
       if (owned) {
@@ -424,9 +419,7 @@ export class TurnRunner {
       if (command !== undefined) delivered?.();
 
       let result: TurnResult;
-
       let steering: Promise<void> | undefined;
-
       let generation = this.link.generation;
 
       try {
@@ -557,7 +550,6 @@ export class TurnRunner {
 
       if (kind === 'turn') {
         const { items } = this.host.snapshot();
-
         // the turn's own row and the steers accepted after it; an unread row's images were cleared above
         const start = items.findIndex(({ id }) => id === row);
 
@@ -596,7 +588,6 @@ export class TurnRunner {
     context: () => Promise<string | undefined>,
   ): () => void {
     let stopped = false;
-
     let restored = false;
 
     const live = () =>
@@ -681,7 +672,6 @@ export class TurnRunner {
     result: TurnResult,
   ): Promise<void> {
     const conversation = this.host.conversation();
-
     const completed = result.status === 'completed';
 
     await this.host.files().flush();

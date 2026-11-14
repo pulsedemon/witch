@@ -117,7 +117,6 @@ export class SessionLink {
     run: () => Promise<void>,
   ): Promise<void> {
     const reconnect = this.host.record()?.agent === runtime;
-
     const failures: unknown[] = [];
 
     try {
@@ -170,9 +169,7 @@ export class SessionLink {
 
   async clear(scope: MemoryScope, forget: () => void): Promise<void> {
     const conversation = this.host.conversation();
-
     const info = this.live(conversation.agent)?.info;
-
     const failures: unknown[] = [];
 
     await this.disconnect().catch((error: unknown) => failures.push(error));
@@ -211,7 +208,6 @@ export class SessionLink {
     if (this.host.cancelled()) return;
 
     const stored = conversation.sessions[conversation.agent]!;
-
     const session = await this.connect(undefined, scope);
 
     if (this.host.cancelled() || session.closed) return;
@@ -280,15 +276,10 @@ export class SessionLink {
     if (live && (!scope || scope.project === this.sessionProject)) return live;
 
     const conversation = this.host.conversation();
-
     const files = this.host.files();
-
     const tools = new Map<string, string>();
-
     const commands = new Set<string>();
-
     const { adapter, executable } = this.catalog.installed(agent);
-
     const workspace = this.host.workspace();
 
     // prepared before the old session closes, so a failure here leaves the activation in place
@@ -422,7 +413,6 @@ export class SessionLink {
       await this.coordination.quiesce();
 
     const conversationId = this.host.record()?.id;
-
     const session = this.connected;
 
     this.connection = undefined;

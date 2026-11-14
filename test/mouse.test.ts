@@ -27,17 +27,11 @@ class Source extends EventEmitter {
 
 function input() {
   const source = new Source();
-
   const mouse = new MouseInput(source);
-
   const read: string[] = [];
-
   const wheel: number[] = [];
-
   const hovers: Cell[] = [];
-
   let clicks = 0;
-
   const pointer: [Pointer, Cell][] = [];
 
   mouse.on('readable', () => {
@@ -98,7 +92,6 @@ async function showInput() {
 }
 
 const press = '\u001b[<0;4;7M';
-
 const release = '\u001b[<0;4;7m';
 
 const pair = [
@@ -155,7 +148,6 @@ test('only the release of a left press on its own cell clicks, and only once', (
 
 test('the keys and reports in one read arrive in the order they were sent', () => {
   const { source, mouse, read } = input();
-
   const seen: string[] = [];
 
   mouse.on('pointer', (kind: Pointer) =>
@@ -315,9 +307,7 @@ test('non-mouse escape sequences pass through unchanged', () => {
 
 test('long Escape runs before a key keep input responsive', () => {
   const found = input();
-
   const sequence = '\u001b'.repeat(32_768) + 'b';
-
   const started = process.cpuUsage();
 
   found.source.emit('data', sequence);

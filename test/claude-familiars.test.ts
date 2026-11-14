@@ -18,11 +18,8 @@ function commands() {
   };
 
   const run = randomUUID();
-
   const events: AgentEvent[] = [];
-
   const outputs = new Map<string, string>();
-
   const stopped: string[] = [];
 
   const control = {
@@ -115,7 +112,6 @@ function commands() {
 
 test('a Claude background command registers after the parent turn and closes only its native task', async () => {
   const events: AgentEvent[] = [];
-
   const f = await launcher('background');
 
   const binding = {
@@ -484,7 +480,6 @@ test('completed foreground tasks release their state while active tasks can stil
 
 test('one background command registers each familiar whose marker appears in its output', async () => {
   const f = commands();
-
   const second = randomUUID();
 
   f.start();

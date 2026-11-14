@@ -97,7 +97,6 @@ test('Claude converts the native buffer into the target and preserves unrelated 
 
 test('Claude retries a rejected policy application instead of caching it as applied', async () => {
   let refused = true;
-
   const targets: string[] = [];
 
   const policy = new ClaudeContext(() => ({
@@ -182,13 +181,11 @@ test('Claude lets a failing usage publish reach its caller and keeps a failed co
 
 test("a usage publish that throws in Claude's background context read leaves no unhandled rejection and a usable session", async () => {
   const unhandled: unknown[] = [];
-
   const record = (reason: unknown) => unhandled.push(reason);
 
   process.on('unhandledRejection', record);
 
   let thrown = false;
-
   const f = await launcher();
 
   const session = await f.connect({
@@ -227,7 +224,6 @@ test('Claude compact hooks retain the current context reader when an older turn 
   }));
 
   const old = policy.bind(async () => 'old context');
-
   const current = policy.bind(async () => 'current accepted context');
 
   old();
@@ -494,12 +490,10 @@ for (const rejected of [false, true]) {
       .mockImplementation(() => ready.promise);
 
     const f = await launcher();
-
     const session = await f.connect({ automaticCompaction: true });
 
     try {
       const sending = session.send('steerable');
-
       const steering = session.steer('follower');
 
       assert.deepEqual(await jsonLines(join(f.cwd, 'inputs.jsonl')), []);
@@ -596,7 +590,6 @@ test('Codex reloads without the previous override when the selected capacity is 
 
 test('Claude model selection waits for the new compaction policy before completing', async () => {
   const ready = Promise.withResolvers<void>();
-
   const entered = Promise.withResolvers<void>();
 
   const configure = vi
@@ -608,12 +601,10 @@ test('Claude model selection waits for the new compaction policy before completi
     });
 
   const f = await launcher();
-
   const session = await f.connect({ automaticCompaction: true });
 
   try {
     const selecting = session.selectModel('claude-b');
-
     const done = settled(selecting);
 
     await entered.promise;
@@ -827,7 +818,6 @@ test('Claude ignores a foreign completion while preparing the initial input', as
     .mockImplementation(() => ready.promise);
 
   const f = await launcher('background');
-
   const events: AgentEvent[] = [];
 
   const session = await f.connect({
@@ -907,7 +897,6 @@ test('failed live Claude preparation returns unread shell context without closin
     .mockRejectedValue(new Error('policy application refused'));
 
   const f = await launcher();
-
   const session = await f.connect({ automaticCompaction: true });
 
   try {
@@ -981,14 +970,11 @@ for (const stop of ['interrupt', 'close'] as const) {
       .mockImplementation(() => ready.promise);
 
     const f = await launcher('background');
-
     const session = await f.connect({ automaticCompaction: true });
 
     try {
       const sending = session.send('initial input');
-
       const steering = session.steer('following input');
-
       const stopping = session[stop]();
 
       ready.resolve();
@@ -1022,7 +1008,6 @@ for (const action of ['send', 'compact', 'shell'] as const) {
       entered = Promise.withResolvers<void>();
 
     const request = JsonRpc.prototype.request;
-
     let interception: { mockRestore(): void } | undefined;
 
     try {

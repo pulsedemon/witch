@@ -31,7 +31,6 @@ export type CommandPrefixes = Readonly<{ control: string; familiar: string }>;
 /** leaves shell syntax uninterpreted so a script cannot look like one bound call. */
 export function shellWords(source: string) {
   const words: string[] = [];
-
   let at = 0;
 
   while (at < source.length) {
@@ -40,7 +39,6 @@ export function shellWords(source: string) {
     if (at === source.length || /[\n;&|()<>#]/.test(source[at]!)) break;
 
     let word = '';
-
     let quote = '';
 
     while (at < source.length) {
@@ -249,9 +247,7 @@ export function toolTitle(
     typeof value === 'string' && value.trim() ? firstLine(value) : undefined;
 
   const key = subjects.find((key) => text(fields[key]));
-
   const subject = key && shortPath(text(fields[key])!, cwd);
-
   const command = text(fields.command);
 
   return {

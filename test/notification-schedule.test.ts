@@ -17,9 +17,7 @@ async function fixture() {
   );
 
   const schedule = await NotificationSchedule.open(directory);
-
   const file = join(directory, 'schedule.json');
-
   const output: string[] = [];
 
   const write = (data: string) => {
@@ -31,7 +29,6 @@ async function fixture() {
 
 test('notification intervals follow the last actual write across schedule instances', async () => {
   const { directory, schedule, file, output, write } = await fixture();
-
   let now = 10_000_000_000n;
 
   vi.spyOn(process.hrtime, 'bigint').mockImplementation(() => now);
@@ -161,7 +158,6 @@ test('a previous boot cannot delay a notification on the current boot', async ()
 
 test('cancellation during an asynchronous attempt leaves the schedule unchanged', async () => {
   const { schedule, file, output, write } = await fixture();
-
   let eligible = true;
 
   const attempt = schedule.attempt(

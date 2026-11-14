@@ -25,9 +25,7 @@ export async function selectionTurn(register: RegisterCleanup, client: Client) {
   await within(gate.entered, 5000, 'selection turn');
 
   const input = client.a.inputs.at(-1)!;
-
   const context = input.context!;
-
   const turn = /^Selection turn: (.+)$/m.exec(context)?.[1];
 
   const delivered = client.a.inputs.findLast(

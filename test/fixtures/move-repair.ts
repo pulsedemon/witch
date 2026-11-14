@@ -13,7 +13,6 @@ import { seededMemory } from './seeded-memory.js';
 /** a main checkout `w/main` with a worktree `w/main-1`, a state directory, and one repair already run there. */
 export async function setup({ origin = true }: { origin?: boolean } = {}) {
   const root = await scratch('witch-move-');
-
   const at = (path: string) => join(root, path);
 
   await mkdir(at('w/main'), { recursive: true });
@@ -34,9 +33,7 @@ export async function setup({ origin = true }: { origin?: boolean } = {}) {
   await git(at('w/main'), 'worktree', 'add', '-q', '--detach', at('w/main-1'));
 
   const store = await StateStore.open(at('state'));
-
   const memory = await seededMemory(at('state/memory.git'));
-
   const runs: string[][] = [];
 
   const recording: Run = (command, args, options) => {

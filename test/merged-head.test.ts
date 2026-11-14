@@ -24,9 +24,7 @@ process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 
 const execute = promisify(execFile);
-
 const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
-
 const url = 'https://github.test/o/r/pull/7';
 
 const lookup = [
@@ -94,7 +92,6 @@ test("a head branch GitHub deletes after the first fetch goes, even past the del
   await merge(other, 'feat/x', true);
 
   const pack = join(root, 'upload-pack');
-
   const fetched = join(root, 'fetched');
 
   await write(
@@ -322,9 +319,7 @@ async function older(
 for (const keepHead of [true, false])
   test(`older retained branches go with a ${keepHead ? 'retained' : 'deleted'} head while ineligible branches and remote refs stay`, async () => {
     const { root, origin, checkout, other, tip } = await merged();
-
     const old = await older(checkout, other, 'feat/old');
-
     const changed = await older(checkout, other, 'feat/changed');
 
     await git(origin, 'update-ref', 'refs/heads/feat/changed', tip);
@@ -393,7 +388,6 @@ test('retained pruning preserves free default and base branches plus a branch he
   await older(checkout, other, 'feat/old');
 
   const held = await older(checkout, other, 'feat/held');
-
   const holder = join(root, 'holder');
 
   await git(checkout, 'worktree', 'add', holder, 'feat/held');
@@ -438,11 +432,8 @@ test('retained pruning preserves free default and base branches plus a branch he
 
 test('retained pruning refreshes the head remote even when the base uses another, and leaves branches of that other remote', async () => {
   const { root, origin, checkout, other, tip } = await merged();
-
   const old = await older(checkout, other, 'feat/old');
-
   const foreign = await older(checkout, other, 'feat/foreign');
-
   const changed = await older(checkout, other, 'feat/changed');
 
   await merge(other, 'feat/x');
@@ -493,9 +484,7 @@ async function withGit<T>(
   body: () => Promise<T>,
 ): Promise<T> {
   const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-
   const previousPath = process.env.PATH;
-
   const bin = join(root, 'bin');
 
   await write(
@@ -523,7 +512,6 @@ process.exit(run(args).status ?? 1);
 
 test('a retained tip changed immediately before deletion is preserved with its config', async () => {
   const { root, checkout, other, tip } = await merged();
-
   const old = await older(checkout, other, 'feat/old');
 
   await git(checkout, 'switch', '-c', 'unmerged', 'main');
@@ -568,13 +556,11 @@ if (args[0] === 'update-ref' && args[1] === '-d' && args[2] === 'refs/heads/feat
 
 test('a worktree that starts holding a retained candidate after enumeration keeps its branch', async () => {
   const { root, checkout, other, tip } = await merged();
-
   const old = await older(checkout, other, 'feat/old');
 
   await merge(other, 'feat/x');
 
   const holder = join(root, 'holder');
-
   const scans = join(root, 'scans');
 
   await withGit(
@@ -607,7 +593,6 @@ if (args[0] === 'for-each-ref' && args.includes('--merged') && args.at(-1) === '
 for (const failure of ['policy', 'fetch', 'disabled'])
   test(`${failure} in retained pruning leaves retained refs and still deletes gone refs`, async () => {
     const { root, checkout, other, tip } = await merged();
-
     const old = await older(checkout, other, 'feat/old');
 
     await older(checkout, other, 'feat/gone', false);
@@ -694,15 +679,12 @@ if (args.at(-2) === 'fetch' && args.at(-1) === 'origin') {
 for (const repoint of [false, true])
   test(`resumed retained pruning ${repoint ? 'rejects a repointed remote' : 'refreshes changed tips and deletes eligible refs once'}`, async () => {
     const { root, origin, checkout, other, tip } = await merged();
-
     const old = await older(checkout, other, 'feat/old');
-
     const changed = await older(checkout, other, 'feat/changed');
 
     await merge(other, 'feat/x');
 
     const entered = join(root, 'entered');
-
     const hooks = join(root, 'hooks');
 
     await git(checkout, 'config', 'core.hooksPath', hooks);
@@ -715,7 +697,6 @@ for (const repoint of [false, true])
     await chmod(join(hooks, 'post-merge'), 0o755);
 
     const controller = new AbortController();
-
     const progress: MergeCleanup = {};
 
     const first = cleanUpMerge(checkout, { ...pullRequest(tip), url }, idle, {
@@ -819,7 +800,6 @@ if (args[0] === 'config' && args[1] === '--get-regexp' && args[2].includes('feat
 
 test('retained pruning rejects a remote repointed during the initial head policy lookup', async () => {
   const { root, origin, checkout, other, tip } = await merged();
-
   const old = await older(checkout, other, 'feat/old');
 
   await merge(other, 'feat/x', true);
@@ -856,11 +836,8 @@ for (const during of ['gone deletion', 'retained config removal'])
     await merge(other, 'feat/x');
 
     const entered = join(root, 'entered');
-
     const queried = join(root, 'queried');
-
     const progress: MergeCleanup = {};
-
     const controller = new AbortController();
 
     const result = await withGit(
@@ -925,7 +902,6 @@ if (target && !existsSync(${JSON.stringify(entered)})) {
 
 test('a worktree acquired during the upstream-tip read keeps its branch and config', async () => {
   const { root, checkout, other, tip } = await merged();
-
   const old = await older(checkout, other, 'feat/old');
 
   await merge(other, 'feat/x');

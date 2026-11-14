@@ -57,7 +57,6 @@ export async function steerInOrder(
   back: (prompts: string[]) => void,
 ): Promise<void> {
   const refused: string[] = [];
-
   let next = 0;
 
   try {

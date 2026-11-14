@@ -10,7 +10,6 @@ import type {
 
 /** older account observations cannot establish current capacity. */
 export const USAGE_CURRENT_MS = 10 * 60_000;
-
 /** a probe that hasn't answered by then is stopped, so a hung CLI doesn't hold its runtime's read. */
 export const USAGE_PROBE_MS = 30_000;
 
@@ -109,13 +108,9 @@ function money(
     return `${currency ? `${currency} ` : ''}${amount} minor units`;
 
   const [coefficient, exponent = '0'] = Math.abs(amount).toString().split('e');
-
   const [whole = '', fraction = ''] = coefficient!.split('.');
-
   const point = whole.length + Number(exponent) - decimals;
-
   const digits = whole + fraction;
-
   const integer = point > 0 ? digits.slice(0, point).padEnd(point, '0') : '0';
 
   const remainder =
@@ -296,7 +291,6 @@ export class AccountUsage {
     if (running) return running;
 
     const now = Date.now();
-
     const account = this.accounts[agent];
 
     const observed = [

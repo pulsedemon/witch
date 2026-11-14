@@ -9,11 +9,8 @@ import { until } from './fixtures/within.js';
 
 test('process inspection distinguishes old Witch, participating Witch and an installer helper', async () => {
   const directory = await scratch('runtime-users-');
-
   const state = join(directory, 'admission');
-
   const root = join(directory, 'native');
-
   const entry = join(directory, 'src', 'cli.tsx');
 
   await mkdir(dirname(entry), { recursive: true });

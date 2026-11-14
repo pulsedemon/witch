@@ -11,9 +11,7 @@ import { until } from './fixtures/within.js';
 import { pullRequest, repositoryRead } from './fixtures/repository.js';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-
 const pr = pullRequest;
-
 const status = repositoryRead;
 
 const merge = (
@@ -35,13 +33,9 @@ function fixture(
   repository: Parameters<typeof watchConflicts>[0],
 ) {
   const listeners = new Set<() => void>();
-
   const coordinationListeners = new Set<() => void>();
-
   const notices: { text: string; save: boolean | undefined }[] = [];
-
   const observed: (Repository | undefined)[] = [];
-
   let events: MergeEvent[] = [];
 
   const coordinator = {
@@ -106,7 +100,6 @@ function fixture(
 
 function stubRepository() {
   const listeners = new Set<() => void>();
-
   let refreshes = 0;
 
   const repository = {
@@ -141,7 +134,6 @@ test('a conflict reaches the coordinator with one unsaved notice per conversatio
   );
 
   const conflict = { pullRequest: pr({ mergeable: 'CONFLICTING' }) };
-
   const conflicted = status({ pullRequest: conflict.pullRequest, conflict });
 
   await stub.publish(conflicted);
@@ -188,14 +180,12 @@ test('a conflict reaches the coordinator with one unsaved notice per conversatio
 
 test('a pull request read that failed gets one unsaved notice per failure, again after a read that works and in a new transcript', async (t) => {
   const stub = stubRepository();
-
   const { notices, publish } = fixture(t.onTestFinished, stub.repository);
 
   const failed = (failure = 'number: missing') =>
     status({ pullRequestFailure: failure });
 
   const text = "Can't read this branch's pull request: number: missing";
-
   const conversation = { id: 'c', cwd: '/w' } as never;
 
   publish({ conversation: undefined });
@@ -248,7 +238,6 @@ test('a pull request read that failed gets one unsaved notice per failure, again
 
 test('a failure beside a pull request that was read gets one notice until a read has none', async (t) => {
   const stub = stubRepository();
-
   const { notices } = fixture(t.onTestFinished, stub.repository);
 
   const partial = (fields: Partial<Repository> = {}) =>
@@ -286,7 +275,6 @@ test('a merge into the pull request base reads it again, and a pull request that
   });
 
   let mergeable = 'MERGEABLE';
-
   let reads = 0;
 
   const watch = new RepositoryWatch('/work', async (command, args) => {
@@ -374,7 +362,6 @@ for (const [name, observed, expected] of [
 ] as const)
   test(name, async (t) => {
     const stub = stubRepository();
-
     const { merged } = fixture(t.onTestFinished, stub.repository);
 
     stub.repository.pullRequestReadAt = 1000;
@@ -389,7 +376,6 @@ for (const [name, observed, expected] of [
 
 test('a merge delivered before the open read publishes refreshes it once it does', async (t) => {
   const stub = stubRepository();
-
   const { merged } = fixture(t.onTestFinished, stub.repository);
 
   stub.repository.pullRequestReadAt = 1000;

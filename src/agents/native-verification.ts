@@ -25,7 +25,6 @@ import { unlessGone, writeJson } from '../persistence/json.js';
 import { errorMessage } from '../errors.js';
 
 export const verificationProfile = 'native-update-1';
-
 const execute = promisify(execFile);
 
 function nativeScenarios(runtime: NativeRuntime): NativeScenario[] {
@@ -148,7 +147,6 @@ export async function prepareNativeUpdate(
     throw new Error('Native qualification requires account-usage consent.');
 
   const directory = join(options.directory, 'resume');
-
   const cwd = await project(directory);
 
   const adapter = await verificationAdapter(previous.runtime, directory, {
@@ -171,7 +169,6 @@ export async function prepareNativeUpdate(
     throw new Error('Choose an available model for native qualification.');
 
   const marker = `WITCH_RESUME_${randomBytes(16).toString('hex')}`;
-
   const events: AgentEvent[] = [];
 
   const session = await adapter.connect(
@@ -277,7 +274,6 @@ async function checkNativeApprovals(
   options: NativeVerificationOptions,
 ): Promise<void> {
   const directory = join(options.directory, 'approvals');
-
   const cwd = await project(directory);
 
   const adapter = await verificationAdapter(candidate.runtime, directory, {
@@ -285,19 +281,12 @@ async function checkNativeApprovals(
   });
 
   let expected = '';
-
   let accept = false;
-
   let requests = 0;
-
   let approvalTool: string | undefined;
-
   const pending: Promise<void>[] = [];
-
   const events: AgentEvent[] = [];
-
   let requestFailure: unknown;
-
   const failure = new AbortController();
 
   const respond = async (request: UserRequest) => {
@@ -511,7 +500,6 @@ export async function verifyNativeUpdate(
 
     for (const scenario of nativeScenarios(candidate.runtime)) {
       const directory = join(options.directory, scenario);
-
       const cwd = await project(directory, scenario === 'spell');
 
       const adapter = await verificationAdapter(candidate.runtime, directory, {

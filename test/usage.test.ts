@@ -122,7 +122,6 @@ test('a reading is due when it has no window or any window is not current', () =
 
 function readings() {
   const b = new FixtureAgent('b');
-
   const published: Record<string, AccountReading>[] = [];
 
   const usage = new AccountUsage([{ adapter: b, executable: 'b' }], (limits) =>
@@ -144,15 +143,12 @@ function pending() {
 
 test('a reading is read once while due, and a read in flight is joined', async () => {
   const { b, usage, published } = readings();
-
   const read = pending();
 
   b.accountRead = () => read.promise;
 
   const first = usage.refresh('b', '/w');
-
   let joined = false;
-
   const second = usage.refresh('b', '/w').then(() => (joined = true));
 
   await new Promise((resolve) => setImmediate(resolve));
@@ -221,7 +217,6 @@ test('force rereads a due reading inside the attempt throttle, joins a read in f
   b.accountRead = () => read.promise;
 
   const forced = usage.refresh('b', '/w', { force: true });
-
   const joined = usage.refresh('b', '/w', { force: true });
 
   assert.equal(b.accountReads.length, 2);
@@ -242,7 +237,6 @@ test('force rereads a due reading inside the attempt throttle, joins a read in f
 
 test('after rereads a current reading observed before it, and leaves one observed later', async () => {
   const { b, usage, published } = readings();
-
   const at = Date.now();
 
   b.accountRead = async () => ({
@@ -276,13 +270,11 @@ test('after rereads a current reading observed before it, and leaves one observe
 
 test('a report that arrives during a probe keeps its value when the probe finishes', async () => {
   const { b, usage, published } = readings();
-
   const read = pending();
 
   b.accountRead = () => read.promise;
 
   const probing = usage.refresh('b', '/w');
-
   const reported = [window('7D', 95, { observedAt: Date.now() })];
 
   usage.report('b', { limits: reported });
@@ -348,7 +340,6 @@ test('fresh rolling credits without access retry a failed read after the attempt
 
 test('a window a report leaves out keeps its earlier reading, and the same report again publishes nothing', () => {
   const { usage, published } = readings();
-
   const weekly = window('7D', 95);
 
   usage.report('b', { limits: [window('5H', 30), weekly] });
@@ -401,9 +392,7 @@ const live = (agent: string, readAccountUsage?: () => Promise<void>) =>
 
 test('the live runtime reads through its session once its connect read ages, and a session that cannot read starts nothing', async () => {
   const { b, usage } = readings();
-
   const { usage: other, b: silent } = readings();
-
   let reads = 0;
 
   usage.connected(
@@ -446,7 +435,6 @@ test('a connect reads the other runtimes', async () => {
 
 test('a probe that never answers is stopped at its bound, so a later read starts again', async () => {
   const { b, usage } = readings();
-
   let signal: AbortSignal | undefined;
 
   b.accountRead = (options: ModelDiscoveryOptions) => {
@@ -492,7 +480,6 @@ test('a probe that never answers is stopped at its bound, so a later read starts
 
 test('close stops a probe in flight with the stop options, and later reads start nothing', async () => {
   const { b, usage, published } = readings();
-
   let signal: AbortSignal | undefined;
 
   b.accountRead = (options: ModelDiscoveryOptions) => {
@@ -506,7 +493,6 @@ test('close stops a probe in flight with the stop options, and later reads start
   };
 
   const probing = usage.refresh('b', '/w');
-
   const stop = { deadline: Date.now() + 1000 };
 
   await usage.close(stop);
@@ -560,7 +546,6 @@ test('stale funding admits one read beside current windows, and the attempt thro
 
   try {
     const { b, usage, published } = readings();
-
     const windows = [window('7D', 100)];
 
     const funding = {
@@ -578,9 +563,7 @@ test('stale funding admits one read beside current windows, and the attempt thro
     b.accountRead = () => pending.promise;
 
     const first = usage.refresh('b', '/w');
-
     const joined = usage.refresh('b', '/w');
-
     const updated = { ...funding, balance: '27.123400', observedAt: now };
 
     pending.resolve({ limits: windows, funding: updated });
@@ -619,7 +602,6 @@ test('a newer window does not discard a probe credit update, but newer credits d
   b.accountRead = () => pending.promise;
 
   const probe = usage.refresh('b', '/w');
-
   const newerWindow = window('7D', 99);
 
   usage.report('b', { limits: [newerWindow] });
@@ -693,9 +675,7 @@ test('a new native account identity cannot inherit another account credits', () 
 test('an empty probe clears unchanged windows while retaining concurrent credit and window observations', async () => {
   for (const changed of [false, true]) {
     const { b, usage, published } = readings();
-
     const before = window('7D', 100);
-
     const five = window('5H', 90);
 
     usage.report('b', { limits: [before, five] });
@@ -705,7 +685,6 @@ test('an empty probe clears unchanged windows while retaining concurrent credit 
     b.accountRead = () => pending.promise;
 
     const reading = usage.refresh('b', '/w');
-
     const newer = window('5H', 50, { observedAt: Date.now() });
 
     const funding = {

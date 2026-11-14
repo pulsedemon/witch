@@ -6,7 +6,6 @@ import { hyperlink } from '../src/ui/links.js';
 import { highlight, selectedText } from '../src/ui/selection.js';
 
 const red = (text: string) => `\u001b[31m${text}\u001b[39m`;
-
 const inverse = (text: string) => `\u001b[7m${text}\u001b[27m`;
 
 test('a highlight inverts the selected cells as plain text, keeps the styles around it and counts wide characters as two', () => {
@@ -56,7 +55,6 @@ test('a highlight keeps the links of the cells it covers', () => {
 
 test('a highlighted link keeps its underline, as the terminal draws a selected link', () => {
   const line = `see ${hyperlink('docs', 'https://example.com/docs', '/')} here`;
-
   const cells = styledCharsFromTokens(tokenize(highlight(line, 2, 7)));
 
   for (const index of [4, 5, 6]) {
@@ -145,7 +143,6 @@ test('selection keeps complete emoji clusters containing variation selectors and
 
 test('a selection starting on image rows joins only after its first copied row', () => {
   const calls: number[] = [];
-
   const lines = [placeholder, placeholder, 'alpha', 'beta'];
 
   assert.equal(

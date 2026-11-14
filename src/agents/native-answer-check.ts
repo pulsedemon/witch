@@ -36,11 +36,8 @@ export async function checkNativeAnswer(
   await mkdir(cwd, { recursive: true, mode: 0o700 });
 
   const server = join(directory, 'fake-mcp.mjs');
-
   const marker = join(directory, 'mcp-writes');
-
   const forbidden = join(cwd, 'forbidden-write');
-
   const requestFile = join(directory, 'request.json');
 
   await writeFile(server, serverSource);
@@ -56,9 +53,7 @@ export async function checkNativeAnswer(
   );
 
   const inventories: string[][] = [];
-
   const observationErrors: string[] = [];
-
   const launches: { command: string; args: string[] }[] = [];
 
   const adapter = await verificationAdapter(candidate.runtime, directory, {
@@ -109,11 +104,8 @@ export async function checkNativeAnswer(
   });
 
   let session: AgentSession | undefined;
-
   let answering = false;
-
   let unexpectedRequest: string | undefined;
-
   const answerEvents: AgentEvent[] = [];
 
   try {

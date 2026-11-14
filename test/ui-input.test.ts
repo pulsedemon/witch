@@ -93,7 +93,6 @@ test('the terminal composer keeps a bracketed paste unsent until Enter', async (
 
 test('pasted controls are removed without hiding or dropping following text', async () => {
   const changes: [string, number][] = [];
-
   const sent: string[] = [];
 
   const ui = await mount(
@@ -129,7 +128,6 @@ test('pasted controls are removed without hiding or dropping following text', as
 
 test('filtered pastes preserve Unicode and line breaks at the current cursor', async () => {
   const changes: [string, number][] = [];
-
   const sent: string[] = [];
 
   const ui = await mount(
@@ -149,7 +147,6 @@ test('filtered pastes preserve Unicode and line breaks at the current cursor', a
 
   try {
     const pasted = 'a\u0000b\u009bc\u0007d\t中\r\nr\rs\n👩‍💻';
-
     const expected = 'Labcd\t中\nr\ns\n👩‍💻R';
 
     await press(ui.stdin, '\u001b[D');
@@ -182,7 +179,6 @@ test('filtered pastes preserve Unicode and line breaks at the current cursor', a
 
 test('a paste goes to onPaste with the text before the cursor, and its replacement, or the paste when it gives none, goes in at the cursor', async () => {
   const changes: [string, number][] = [];
-
   const pastes: [string, string][] = [];
 
   const ui = await mount(
@@ -223,7 +219,6 @@ test('a paste goes to onPaste with the text before the cursor, and its replaceme
 
 test('typed text never goes to onPaste', async () => {
   const changes: [string, number][] = [];
-
   const pastes: string[] = [];
 
   const ui = await mount(
@@ -254,9 +249,7 @@ test('typed text never goes to onPaste', async () => {
 
 test('a paste after a shell ! goes in as written without onPaste, even when a recalled command leaves the cursor before the !', async () => {
   const changes: [string, number][] = [];
-
   const pastes: string[] = [];
-
   const input = createRef<InputHandle>();
 
   const ui = await mount(
@@ -325,9 +318,7 @@ test('the visible terminal cursor reaches the current insertion point without an
   }
 
   const stdin = new InputStream();
-
   const stdout = new OutputStream();
-
   let ui!: ReturnType<typeof renderTerminal>;
 
   await act(async () => {
@@ -740,21 +731,13 @@ test('browser elicitation confirms without JSON form content', async () => {
 
 // Ghostty 1.3.1 sends a modifier's own report before the key, and turns Cmd+←, Cmd+→, Cmd+Delete, Option+← and Option+→ into legacy bytes
 const CMD = '\u001b[57444;9u';
-
 const OPT = '\u001b[57443;3u';
-
 const CMD_LEFT = [CMD, '\u0001'];
-
 const CMD_RIGHT = [CMD, '\u0005'];
-
 const CMD_DELETE = [CMD, '\u0015'];
-
 const OPT_LEFT = [OPT, '\u001bb'];
-
 const OPT_RIGHT = [OPT, '\u001bf'];
-
 const OPT_DELETE = [OPT, '\u001b[127;3u'];
-
 const OPT_FORWARD_DELETE = [OPT, '\u001b[3;3~'];
 
 test('Cmd and Option keys edit by line and word as Ghostty sends them, and a secret answer ignores Option', async () => {
@@ -913,7 +896,6 @@ test('Cmd+Delete with the cursor inside a restored C1 sequence deletes to the ro
 
 test('Cmd+← and Cmd+Delete inside a restored C1 sequence never pass the cursor', async () => {
   const changes: [string, number][] = [];
-
   const value = 'abcd\u009b31mxyz';
 
   const ui = await mount(

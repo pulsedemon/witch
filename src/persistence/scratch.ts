@@ -25,12 +25,9 @@ import {
 import type { ScratchCandidate } from './scratch-usage.js';
 
 const execute = promisify(execFile);
-
 const metadata = '.witch-scratch.json';
-
 // twelve digits is a short name, never a legacy pid.
 const legacyName = /^\d{1,11}$/;
-
 // short so a unix socket under TMPDIR fits macOS's 104-byte path limit.
 const shortName = /^[0-9a-f]{12}$/;
 
@@ -143,7 +140,6 @@ async function sweep(
 
     for (const [directory, previous] of observed) {
       const name = basename(directory);
-
       const numeric = legacyName.test(name);
 
       // a restarting owner must never compete with a sweep for its directory lock.
@@ -216,7 +212,6 @@ async function sweep(
 
       try {
         const original = await lock.stat();
-
         const current = await lstat(directory);
 
         if (
@@ -282,7 +277,6 @@ export class ScratchSpace {
       throw new Error('Scratch must be a direct child of its state directory.');
 
     const boot = z.uuid().parse(await (options.boot ?? bootSession)());
-
     const owner = await identifyProcess(process.pid);
 
     if (!owner) throw new Error('Cannot identify the scratch owner.');
@@ -299,7 +293,6 @@ export class ScratchSpace {
     try {
       if (resumed) {
         const record = await readRecord(directory);
-
         const legacy = !record && basename(directory) === String(process.pid);
 
         if (

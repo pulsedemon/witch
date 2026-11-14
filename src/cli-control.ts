@@ -116,9 +116,7 @@ export function parseCommand(args = process.argv.slice(2)) {
 
   if (reporting) {
     const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
-
     const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
-
     const label = runtime === 'codex' ? 'Codex' : 'Claude';
 
     const allowed = new Set([
@@ -465,9 +463,7 @@ export async function runControl(
   call: NonNullable<ReturnType<typeof parseCommand>['control']>,
 ): Promise<number> {
   const stopped = new AbortController();
-
   const stop = () => stopped.abort();
-
   const waiting = call.action.kind === 'select-next';
 
   if (waiting) {
@@ -478,9 +474,7 @@ export async function runControl(
 
   try {
     let outcome: ControlOutcome = await callControl(call.binding, call.action);
-
     let position: number | undefined;
-
     let selection: string | undefined;
 
     while (waiting && outcome.kind === 'selection') {

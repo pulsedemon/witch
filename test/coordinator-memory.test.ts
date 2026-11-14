@@ -16,7 +16,6 @@ import {
 
 test('a fresh conversation receives committed memory without a handoff', async () => {
   const { coordinator, a, b, root, memory, note } = await fixture();
-
   const gate = new TurnGate();
 
   try {
@@ -27,7 +26,6 @@ test('a fresh conversation receives committed memory without a handoff', async (
     await within(gate.entered, 3000, 'the memory-writing turn');
 
     const id = coordinator.snapshot.conversation!.id;
-
     const origin = (await readRecord(root, id)).activity!;
 
     gate.open();
@@ -94,7 +92,6 @@ test('unfinished memory holds a prompt until recovery, which preserves the origi
     assert.equal(coordinator.snapshot.phase, 'recovery');
 
     const id = coordinator.snapshot.conversation!.id;
-
     const origin = (await readRecord(root, id)).activity!;
 
     await coordinator.send('unrelated task');
@@ -134,7 +131,6 @@ test('unfinished memory holds a prompt until recovery, which preserves the origi
 
 test('memory recovery without recorded activity uses manual attribution', async () => {
   const f = await fixture();
-
   let resumed: Coordinator | undefined;
 
   try {
@@ -180,7 +176,6 @@ test('memory recovery without recorded activity uses manual attribution', async 
 
 test('discarding interrupted-turn memory resumes queued prompts', async () => {
   const f = await fixture();
-
   const { coordinator, a } = f;
 
   try {
@@ -232,7 +227,6 @@ test('discarding interrupted-turn memory resumes queued prompts', async () => {
 
 test('pending discard after a failed turn corrects memory on persisted resume', async () => {
   const f = await fixture();
-
   const gate = new TurnGate();
 
   try {
@@ -247,7 +241,6 @@ test('pending discard after a failed turn corrects memory on persisted resume', 
     await f.coordinator.send('Initial task');
 
     const native = f.a.inputs.at(-1)!.session;
-
     const accepted = await f.memory.resolve(main);
 
     f.a.failNext = true;
@@ -321,7 +314,6 @@ test('pending discard after a failed turn corrects memory on persisted resume', 
 for (const decision of ['accept', 'discard'] as const) {
   test(`failed-turn ${decision} recovery holds queued prompts until resubmission`, async () => {
     const { coordinator, a } = await fixture();
-
     const gate = new TurnGate();
 
     try {
@@ -409,7 +401,6 @@ test('memory another conversation publishes refreshes an existing session before
 for (const sharedScope of ['global', 'project'] as const) {
   test(`temporary hold guidance precedes ${sharedScope} memory and is omitted on an unchanged turn`, async () => {
     const f = await fixture();
-
     const legacy = "Pause this conversation's work until further direction.";
 
     const policy =
@@ -456,18 +447,13 @@ for (const sharedScope of ['global', 'project'] as const) {
 
 test('a shared pause correction preserves its owning session without copying its instruction', async () => {
   const f = await fixture();
-
   const directPause = 'Pause task cedar until I explicitly resume it.';
-
   const legacy = "Pause this conversation's work until further direction.";
-
   const scopeRule = 'Pauses apply only to their intended conversations.';
-
   const namedTaskDeferral = 'Defer task birch until the user resumes it.';
 
   try {
     const owner = f.coordinator.snapshot.conversation!.id;
-
     const note = await f.note();
 
     await f.coordinator.send(directPause);
@@ -754,7 +740,6 @@ test('overflow and concise writing guidance reach the active native prompt', asy
 
   try {
     const note = await f.note();
-
     const body = 'é'.repeat(3001);
 
     await publishOutside(f, {
@@ -876,7 +861,6 @@ test('a reopened conversation skips the snapshot it was sent, unless its marker 
   assert.equal(await resend('Same'), undefined);
 
   const file = join(root, 'state', 'conversations', id, 'state.json');
-
   const saved = await readRecord(root, id);
 
   delete saved.sessions.a!.deliveredProject;
@@ -910,13 +894,11 @@ test("opening Witch moves the notes keyed by its checkout's path to the origin's
 
 test('opening Witch on memory that conflicts with main leaves the move to recovery', async () => {
   const context = await fixture();
-
   const { coordinator, a, notes, reopen, git, memory, workspace } = context;
 
   await git('init', '--quiet');
 
   const originalNote = await notes();
-
   const gate = new TurnGate();
 
   try {
@@ -944,9 +926,7 @@ test('opening Witch on memory that conflicts with main leaves the move to recove
   await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
 
   const migratedNote = await notes();
-
   const inputs = a.inputs.length;
-
   const reopened = await reopen();
 
   try {
@@ -999,9 +979,7 @@ describe('an interrupted moved-project reconnect leaves the prompt queued withou
       abort ? 'adapter rejects' : 'adapter connects after interrupt',
       async () => {
         const { coordinator, a, git } = await fixture();
-
         const connecting = Promise.withResolvers<void>();
-
         const release = Promise.withResolvers<void>();
 
         try {
@@ -1052,9 +1030,7 @@ describe('an unrelated reconnect failure after interrupt remains visible', () =>
       interrupt ? 'ordinary failure after interrupt' : 'unsolicited abort',
       async () => {
         const { coordinator, a, git } = await fixture();
-
         const entered = Promise.withResolvers<void>();
-
         const release = Promise.withResolvers<void>();
 
         const failure = interrupt
@@ -1155,9 +1131,7 @@ test('editing a previously committed symlink never opens its external target', a
     await memory.ensureWorktree();
 
     const scope = await memory.scope(project);
-
     const target = join(root, 'external.md');
-
     const note = join(memory.root, scope.project, 'linked.md');
 
     await writeFile(target, 'External content.');
@@ -1335,7 +1309,6 @@ for (const interrupted of [true, false]) {
     { timeout: 5000 },
     async (t) => {
       const opened = Promise.withResolvers<void>();
-
       const finish = Promise.withResolvers<void>();
 
       const failure = interrupted

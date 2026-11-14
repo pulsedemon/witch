@@ -9,7 +9,6 @@ export function wholeFile(
   if (!content) return { path, kind, hunks: [] };
 
   const marker = kind === 'add' ? '+' : '-';
-
   const lines = content.replace(/\n$/, '').split('\n');
 
   return {
@@ -28,9 +27,7 @@ export function wholeFile(
 /** lines a unified diff adds and removes; only lines inside a hunk count, so file headers stay out. */
 export function diffLines(diff: string): { added: number; removed: number } {
   let added = 0;
-
   let removed = 0;
-
   let hunk = false;
 
   for (const line of diff.split('\n')) {

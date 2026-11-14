@@ -33,7 +33,6 @@ const kept =
 
 async function mergedOrigin(root: string, project: string, worktree = false) {
   const origin = join(root, 'origin.git');
-
   const install = worktree ? join(root, 'launcher') : project;
 
   await git(root, 'init', '--bare', origin);
@@ -71,9 +70,7 @@ test('a merge cleanup holds the phase and spins the pentacle, a prompt sent duri
     await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
 
     let queued = false;
-
     const spinning: boolean[] = [];
-
     let sent: Promise<void> | undefined;
 
     coordinator.subscribe(() => {
@@ -165,7 +162,6 @@ test('a turn that ends with a prompt queued runs that prompt before the merge cl
 
 test("a merge cleanup waits for another Witch's turn in its directory, but not for one whose agent has exited or isn't recorded, or one elsewhere", async () => {
   const { coordinator, store, memory, project } = await fixture();
-
   const agent = new FixtureAgent('a');
 
   const other = new Coordinator(store, memory, [
@@ -173,7 +169,6 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
   ]);
 
   const gate = new TurnGate();
-
   const left: ConversationStore[] = [];
 
   try {
@@ -235,7 +230,6 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
 
 test('a blocked merge cleanup retries after a peer turn ends without a repository update', async () => {
   const { coordinator, root, project, store, memory } = await fixture();
-
   const agent = new FixtureAgent('a');
 
   const peer = new Coordinator(store, memory, [
@@ -243,9 +237,7 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
   ]);
 
   const gate = new TurnGate();
-
   let stop = () => {};
-
   let sending: Promise<void> | undefined;
 
   try {
@@ -266,7 +258,6 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
     await git(project, 'push', '-u', 'origin', 'feat/x');
 
     const tip = await git(project, 'rev-parse', 'HEAD');
-
     const merger = join(root, 'merger');
 
     await git(root, 'clone', origin, merger);
@@ -298,9 +289,7 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
       Promise.withResolvers<Awaited<ReturnType<Coordinator['cleanUpMerge']>>>();
 
     const completed = Promise.withResolvers<void>();
-
     const statuses: string[] = [];
-
     const cleanup = coordinator.cleanUpMerge.bind(coordinator);
 
     coordinator.cleanUpMerge = async (...args) => {
@@ -481,14 +470,11 @@ test('a merge cleanup leaves a checkout that changed alone, and says nothing', a
 
 test('a partial cleanup failure reaches the coordinator without a success notice', async () => {
   const { coordinator, root, project } = await fixture();
-
   const previousPath = process.env.PATH;
 
   try {
     const { origin, tip } = await mergedOrigin(root, project);
-
     const expectedRevision = await git(origin, 'rev-parse', 'main');
-
     const bin = join(root, 'bin');
 
     const realGit = (
@@ -561,9 +547,7 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
 test('merge cleanup preserves its notice when the install is absent, belongs to another project, is on another branch, has diverged or is locked', async () => {
   for (const variant of ['b', 'a', 'diverged', 'none', 'busy'] as const) {
     const { coordinator, root, project } = await fixture();
-
     const previousPath = process.env.PATH;
-
     let lock: FileHandle | undefined;
 
     try {
@@ -592,7 +576,6 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
       await git(project, 'push', '-q', '-u', 'origin', 'feat/x');
 
       const tip = await git(project, 'rev-parse', 'HEAD');
-
       const merger = join(root, 'merger');
 
       await git(root, 'clone', '-q', a, merger);
@@ -691,7 +674,6 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
 
 test("a merge cleanup stops before switching when another Witch's turn starts in its checkout during the fetch", async () => {
   const { coordinator, store, memory, root, project } = await fixture();
-
   const agent = new FixtureAgent('a');
 
   const other = new Coordinator(store, memory, [
@@ -699,9 +681,7 @@ test("a merge cleanup stops before switching when another Witch's turn starts in
   ]);
 
   const gate = new TurnGate();
-
   const previousPath = process.env.PATH;
-
   let sending: Promise<void> | undefined;
 
   try {
@@ -799,7 +779,6 @@ async function interruptedCleanup(
   await git(project, 'config', 'branch.feat/y.merge', 'refs/heads/feat/y');
 
   const later = join(root, 'later');
-
   let expectedHead = tip;
 
   if (stage === 'advanced') {
@@ -817,9 +796,7 @@ async function interruptedCleanup(
   ).stdout.trim();
 
   const bin = join(root, 'bin');
-
   const ready = join(root, 'ready.json');
-
   const log = join(root, 'commands.jsonl');
 
   await mkdir(bin);
@@ -961,7 +938,6 @@ for (const [stage, worktree] of [
     };
 
     const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
-
     const cleanup = coordinator.cleanUpMerge.bind(coordinator);
 
     coordinator.cleanUpMerge = async (...args) => {
@@ -1078,7 +1054,6 @@ for (const stage of ['delete', 'install'])
       await interruptedCleanup(stage, t.onTestFinished, false, true);
 
     const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
-
     const cleanup = coordinator.cleanUpMerge.bind(coordinator);
 
     coordinator.cleanUpMerge = async (...args) => {
@@ -1158,9 +1133,7 @@ for (const changed of ['edit', 'branch', 'commit', 'recreated branch'])
       await interruptedCleanup('install', t.onTestFinished);
 
     const progress: MergeCleanup = {};
-
     const request = pullRequest(tip);
-
     const first = coordinator.cleanUpMerge(request, project, progress);
 
     await entered();
@@ -1233,9 +1206,7 @@ for (const stage of ['delete', 'prune'])
       await interruptedCleanup(stage, t.onTestFinished);
 
     const progress: MergeCleanup = {};
-
     const request = pullRequest(tip);
-
     const first = coordinator.cleanUpMerge(request, project, progress);
 
     await entered();
@@ -1247,7 +1218,6 @@ for (const stage of ['delete', 'prune'])
     await stopped();
 
     const name = stage === 'delete' ? 'feat/x' : 'feat/y';
-
     const head = stage === 'delete' ? tip : base;
 
     await git(project, 'branch', name, head);

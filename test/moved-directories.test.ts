@@ -40,13 +40,9 @@ async function quietly<T>(work: () => Promise<T>): Promise<string> {
 for (const caseOnly of [false, true])
   test(`a main checkout ${caseOnly ? 'renamed only in case' : 'moved'} keeps conversations, prompts, worktree, memory links and spawn slots`, async (t) => {
     const main = caseOnly ? 'w/Main' : 'c/main';
-
     const worktree = caseOnly ? 'w/main-1' : 'c/main-1';
-
     const root = await scratch('witch-moved-');
-
     const at = (path: string) => join(root, path);
-
     const origin = at('origin.git');
 
     await git(root, 'init', '--bare', '-q', '-b', 'main', origin);
@@ -60,9 +56,7 @@ for (const caseOnly of [false, true])
     await git(at('w/main'), 'push', '-q', '-u', 'origin', 'main');
 
     const state = at('state');
-
     const store = await StateStore.open(state);
-
     const memory = await seededMemory(join(state, 'memory.git'));
 
     await quietly(() => runSpawn(at('w/main'), 1, state, run));
@@ -97,7 +91,6 @@ for (const caseOnly of [false, true])
     await store.addPrompt(at('w/main'), 'first prompt');
 
     const scope = await memory.scopePaths(at('w/main'));
-
     const helper = memory.workspace(at('helper'), 'helper');
 
     await helper.ensureWorktree();
@@ -206,7 +199,6 @@ for (const caseOnly of [false, true])
     }
 
     const refs = await git(join(state, 'memory.git'), 'for-each-ref');
-
     const output = await quietly(() => runSpawn(at(main), 1, state, run));
 
     assert.ok(output.includes(`${at(worktree)}: exists`), output);

@@ -173,13 +173,11 @@ const examples = [
 for (const example of examples)
   test(`Claude previews preserve ${example.name} without writing`, async () => {
     const cwd = await scratch('witch-claude-preview-');
-
     const path = join(cwd, 'file.txt');
 
     if (example.original !== null) await fs.writeFile(path, example.original);
 
     const input = { file_path: 'file.txt', ...example.input };
-
     const before = structuredClone(input);
 
     const diff = await proposedDiff(
@@ -223,7 +221,6 @@ for (const example of examples)
 
 test('previews preserve quote styles without stalling on long replacements', async () => {
   const cwd = await scratch('witch-claude-preview-');
-
   const path = join(cwd, 'quotes.txt');
 
   for (const [opening, straight, other, replacement] of [
@@ -260,7 +257,6 @@ test('previews preserve quote styles without stalling on long replacements', asy
 
 test('replace_all previews both distant changes', async () => {
   const cwd = await scratch('witch-claude-preview-');
-
   const path = join(cwd, 'distant.txt');
 
   await fs.writeFile(
@@ -303,7 +299,6 @@ test('replace_all previews both distant changes', async () => {
 
 test('a diff deadline yields no partial preview', async () => {
   const cwd = await scratch('witch-claude-preview-');
-
   const path = join(cwd, 'deadline.txt');
 
   await fs.writeFile(path, 'before\n');
@@ -343,9 +338,7 @@ test('unpreviewable requests retain approval behavior and original inputs', asyn
   });
 
   const path = join(cwd, 'file.txt');
-
   const denied = join(cwd, 'denied.txt');
-
   const read = fs.readFile;
 
   vi.spyOn(fs, 'readFile').mockImplementation(
@@ -430,9 +423,7 @@ test('unpreviewable requests retain approval behavior and original inputs', asyn
 for (const action of ['withdraw', 'close'] as const)
   test(`preview ${action} publishes no request or resolution after cancellation`, async () => {
     const events: AgentEvent[] = [];
-
     const { session, cwd } = await fixture((event) => events.push(event));
-
     const path = join(cwd, 'pending.txt');
 
     await fs.writeFile(path, 'before\n');
@@ -446,9 +437,7 @@ for (const action of ['withdraw', 'close'] as const)
     );
 
     const entered = Promise.withResolvers<void>();
-
     const release = Promise.withResolvers<void>();
-
     const stat = fs.stat;
 
     vi.spyOn(fs, 'stat').mockImplementation(
@@ -502,9 +491,7 @@ for (const action of ['withdraw', 'close'] as const)
 
 test('a previewed approval passes the original decision and input', async () => {
   const events: AgentEvent[] = [];
-
   const { session, cwd } = await fixture((event) => events.push(event));
-
   const path = join(cwd, 'original.txt');
 
   const input = {

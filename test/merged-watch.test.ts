@@ -48,7 +48,6 @@ function fixture(register: RegisterCleanup) {
   type Result = Awaited<ReturnType<Coordinator['cleanUpMerge']>>;
 
   let pending: PromiseWithResolvers<Result> | undefined;
-
   const progress: MergeCleanup[] = [];
 
   const coordinator = {

@@ -19,7 +19,6 @@ import { untimed } from './fixtures/limits.js';
 
 test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {
   const { args, connect } = await launcher();
-
   const session = await connect({ effort: 'high' });
 
   try {
@@ -57,7 +56,6 @@ test('refresh consumes a fresh native catalog without replacing the default syst
 
 test('skills list a built-in once with its own row and aliases in place of a row it shadows, and leave out the built-ins Witch sends as text, before and after a native change', async () => {
   const events: AgentEvent[] = [];
-
   const { session } = await fixture((event) => events.push(event));
 
   const nativeCommands = [
@@ -236,7 +234,6 @@ test('a new session has history and the native permission mode once its first pr
 
 test('a stored session resumes by its id instead of starting a new one', async () => {
   const { args, connect } = await launcher();
-
   const session = await connect({ resume: 'stored-session' });
 
   try {
@@ -390,7 +387,6 @@ test('a Claude elicitation returns the accepted content', async () => {
 
 test('a permission prompt the CLI withdraws leaves the queue', async () => {
   const events: AgentEvent[] = [];
-
   const { session } = await fixture((event) => events.push(event));
 
   try {
@@ -409,7 +405,6 @@ test('a permission prompt the CLI withdraws leaves the queue', async () => {
 
 test('a mid-turn interrupt ends the turn with the native result', async () => {
   const { seen, onEvent } = working();
-
   const { session } = await fixture(onEvent);
 
   try {
@@ -430,11 +425,8 @@ test('a mid-turn interrupt ends the turn with the native result', async () => {
 
 test('a connection cancellation keeps its native abort diagnostic', async () => {
   const { connect } = await launcher();
-
   const { seen, onEvent } = working();
-
   const controller = new AbortController();
-
   const session = await connect({ signal: controller.signal, onEvent });
 
   try {
@@ -459,12 +451,10 @@ test('a connection cancellation keeps its native abort diagnostic', async () => 
 
 test('an interrupt that leaves the prompt queued closes the session', async () => {
   const { seen, onEvent } = working();
-
   const { session, child } = await fixture(onEvent);
 
   try {
     const exited = once(child, 'exit');
-
     const turn = session.send('still queued');
 
     await within(seen, 2000, 'first output');
@@ -487,7 +477,6 @@ test('an interrupt that leaves the prompt queued closes the session', async () =
 
 test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result with no familiar running', async () => {
   const { seen, onEvent } = working();
-
   // the fixture sends this text after the result, while the turn waits for native idle
   const awaitingIdle = Promise.withResolvers<void>();
 
@@ -535,11 +524,8 @@ test('a prompt steered into a turn reaches Claude Code, and none is taken with n
 
 test('without message lifecycle a command steer is refused until the turn has replied', async () => {
   const { seen, onEvent } = working();
-
   const { session, cwd } = await fixture(onEvent);
-
   const steered = join(cwd, 'steered.jsonl');
-
   const skill = { name: 'review', args: 'now' };
 
   try {
@@ -579,7 +565,6 @@ test('without message lifecycle a command steer is refused until the turn has re
 
 test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
   const texts: string[] = [];
-
   const skills: string[] = [];
 
   const { session, cwd } = await fixture((event) => {
@@ -628,9 +613,7 @@ test("a prompt sent after the turn's result while a familiar runs in the backgro
 
 test("a background workflow holds the turn open for a prompt as a familiar does, until it reports, and isn't a familiar", async () => {
   const texts: string[] = [];
-
   const skills: string[] = [];
-
   const subagents: string[] = [];
 
   const { session, cwd } = await fixture((event) => {
@@ -672,9 +655,7 @@ test("a background workflow holds the turn open for a prompt as a familiar does,
 
 test('a background familiar, workflow or brew that leaves the live set with no notification ends stopped, and the turn no longer holds open for the familiar or workflow, while a foreground familiar the live set never listed keeps running', async () => {
   const subagents: [string, string][] = [];
-
   const commands: [string, string][] = [];
-
   const skills: string[] = [];
 
   const { session, cwd } = await fixture((event) => {
@@ -723,7 +704,6 @@ test('a background familiar, workflow or brew that leaves the live set with no n
 
 test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
   const { seen, onEvent } = working();
-
   const { session } = await fixture(onEvent);
 
   try {
@@ -740,7 +720,6 @@ test('no prompt is steered into a turn once it is interrupted or its session clo
     assert.equal((await turn).status, 'interrupted');
 
     const next = session.send('wait');
-
     const closing = session.close();
 
     assert.equal(await session.steer('after the close'), false);
@@ -755,7 +734,6 @@ test('no prompt is steered into a turn once it is interrupted or its session clo
 
 test('an interrupt that leaves steered prompts queued closes the session and reports only those unread, one with an image as its text', async () => {
   const { seen, onEvent } = working();
-
   const { session, child, cwd } = await fixture(onEvent);
 
   try {
@@ -838,9 +816,7 @@ test('prompts steered behind input a dead CLI never wrote come back unread', asy
 
 test('a CLI that exits mid-turn ends the turn only once its stderr is complete, and posts no notice', async () => {
   const { seen, onEvent } = working();
-
   const notices: AgentEvent[] = [];
-
   let closures = 0;
 
   const { session, child } = await fixture((event) => {
@@ -853,7 +829,6 @@ test('a CLI that exits mid-turn ends the turn only once its stderr is complete, 
 
   try {
     const exited = once(child, 'exit');
-
     let finished = false;
 
     const turn = session.send('crash').then((result) => {
@@ -900,12 +875,10 @@ test('a CLI that exits mid-turn ends the turn only once its stderr is complete, 
 
 test('an interrupt after the CLI died resolves and the turn ends', async () => {
   const { seen, onEvent } = working();
-
   const { session, child } = await fixture(onEvent);
 
   try {
     const exited = once(child, 'exit');
-
     const turn = session.send('die');
 
     await within(seen, 2000, 'first output');
@@ -967,7 +940,6 @@ test('a CLI that exits cleanly before idle fails the turn with its stderr', asyn
 
 test('a CLI that dies while idle posts its stderr as a notice', async () => {
   const notice = Promise.withResolvers<string>();
-
   let closures = 0;
 
   const { session } = await fixture((event) => {
@@ -1042,7 +1014,6 @@ test('a failed Claude result keeps accumulated text in message order', async () 
 
 test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, with a path field's path named for its link, a spell or familiar call titled by Witch's name with the native one kept for its expanded row, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
-
   const { session, cwd } = await fixture((event) => events.push(event));
 
   try {
@@ -1150,7 +1121,6 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
 
 test('a Claude edit or write arrives as the diff its result reports, at its path under the session, in place of the result text, while a failed edit, an empty patch or a staged write keeps its text', async () => {
   const events: AgentEvent[] = [];
-
   const { session, cwd } = await fixture((event) => events.push(event));
 
   try {
@@ -1202,7 +1172,6 @@ test('a Claude edit or write arrives as the diff its result reports, at its path
 
 test('Claude edit and write diffs resolve home paths outside the session directory', async () => {
   const events: AgentEvent[] = [];
-
   const { session } = await fixture((event) => events.push(event));
 
   try {
@@ -1238,7 +1207,6 @@ test('Claude edit and write diffs resolve home paths outside the session directo
 
 test('Claude Edit creations keep their reported patch and staged creations keep their text', async () => {
   const events: AgentEvent[] = [];
-
   const { session, cwd } = await fixture((event) => events.push(event));
 
   try {
@@ -1291,7 +1259,6 @@ test('Claude Edit creations keep their reported patch and staged creations keep 
 
 test('a CLI that exits during initialize fails the connect without a notice', async () => {
   const events: AgentEvent[] = [];
-
   const { connect } = await launcher('exit-on-init');
 
   await assert.rejects(
@@ -1308,9 +1275,7 @@ test('a CLI that exits during initialize fails the connect without a notice', as
 
 test('an aborted connect rejects', async () => {
   const { children, connect } = await launcher('hang-on-init');
-
   const controller = new AbortController();
-
   const connecting = connect({ signal: controller.signal });
 
   controller.abort();
@@ -1350,7 +1315,6 @@ test('a failed initialize reports the CLI stderr even while the CLI lives', asyn
 
 test('a process report that rejects fails the connect without an unhandled rejection', async () => {
   const unhandled: unknown[] = [];
-
   const record = (reason: unknown) => unhandled.push(reason);
 
   process.on('unhandledRejection', record);

@@ -44,7 +44,6 @@ test('catalog refresh preserves the active session, process, transcript, usage a
     await coordinator.send('Keep this conversation');
 
     const before = structuredClone(coordinator.snapshot);
-
     const saved = await readRecord(root, before.conversation!.id);
 
     assert.equal(await coordinator.refreshModels(), true);
@@ -149,11 +148,8 @@ test('standalone catalogs recover from a failed active startup without reconnect
 
 test('closing during catalog discovery cancels and joins its cleanup', async () => {
   const { coordinator, a, b } = await fixture();
-
   const entered = Promise.withResolvers<AbortSignal>();
-
   const aborted = Promise.withResolvers<void>();
-
   const cleaned = Promise.withResolvers<void>();
 
   b.models = async (options) => {
@@ -173,14 +169,11 @@ test('closing during catalog discovery cancels and joins its cleanup', async () 
   };
 
   const refreshing = coordinator.refreshModels();
-
   const rejected = assert.rejects(refreshing, { name: 'AbortError' });
-
   let closing: Promise<void> | undefined;
 
   try {
     const signal = await within(entered.promise, 2000, 'inactive discovery');
-
     let closed = false;
 
     closing = coordinator.close().then(() => {
@@ -377,7 +370,6 @@ for (const stop of ['interrupt', 'close'] as const)
 
     try {
       const { session } = a.sessions.at(-1)!;
-
       const entered = Promise.withResolvers<void>();
 
       // as Codex's does, the change ends only when its session closes
@@ -409,23 +401,14 @@ for (const stop of ['interrupt', 'close'] as const)
   for (const ended of [false, true])
     test(`${stop}() cancels a replied model change ${ended ? 'after native idle' : 'during the native turn'}`, async () => {
       const { coordinator, a, store } = await fixture();
-
       const { session } = a.sessions.at(-1)!;
-
       const gate = new TurnGate();
-
       const entered = Promise.withResolvers<void>();
-
       const closed = Promise.withResolvers<void>();
-
       const release = Promise.withResolvers<void>();
-
       const order: string[] = [];
-
       let selecting: Promise<void> | undefined;
-
       let sending: Promise<void> | undefined;
-
       let stopping: Promise<void> | undefined;
 
       try {
@@ -556,11 +539,8 @@ for (const stop of ['interrupt', 'close'] as const)
 
 test('interrupting a pending replied model change preserves unread Claude prompts', async () => {
   const { cwd, children, connect, adapter } = await launcher('pending-model');
-
   const store = await StateStore.open(join(cwd, 'state'));
-
   const memory = await seededMemory(join(cwd, 'state', 'memory.git'));
-
   let session: AgentSession | undefined;
 
   const coordinator = new Coordinator(store, memory, [
@@ -577,7 +557,6 @@ test('interrupting a pending replied model change preserves unread Claude prompt
   ]);
 
   let sending: Promise<void> | undefined;
-
   let selecting: Promise<void> | undefined;
 
   try {

@@ -48,7 +48,6 @@ const animating = (ui: View) => titles(ui).some((line) => !final(line));
 
 const render = (items: DisplayItem[], columns = 100, rows = 40) => {
   const { app, coordinator } = fake({ items });
-
   const copied: string[] = [];
 
   return {
@@ -147,7 +146,6 @@ test('a new cast animates its title, then settles on the final title and stays',
 
 test('a cast from history shows final and unanimated, at mount and when published after a live cast settles', async () => {
   const old = Date.now() - 60_000;
-
   const mounted = render([cast('review', old)]);
 
   try {
@@ -163,7 +161,6 @@ test('a cast from history shows final and unanimated, at mount and when publishe
   }
 
   const live = cast('tdd', Date.now());
-
   const published = render([live]);
 
   try {
@@ -190,9 +187,7 @@ test('selecting a live heading shows and copies its canonical text through settl
     await until('the animated title', () => animating(ui));
 
     const rows = ui.text().split('\n');
-
     const heading = rows.findIndex((line) => line.includes('✦ Spell'));
-
     const body = rows.findIndex((line) => line.includes('Cast review'));
 
     drag(ui, [1, heading], [58, body]);
@@ -283,7 +278,6 @@ test('staggered casts settle by their own timestamps', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
 
   const now = Date.now();
-
   const { ui } = render([cast('first', now - 1000), cast('second', now)]);
 
   try {
@@ -343,7 +337,6 @@ test('the cast interval stops after expiry and on unmount', async () => {
 
 test('a cast published again after its window, while hidden, shows final from its first frame', async () => {
   const live = cast('review', Date.now());
-
   const { ui, coordinator } = render([live]);
 
   try {
@@ -377,9 +370,7 @@ test('a cast published again after its window, while hidden, shows final from it
 
 test('typing and scrolling take effect while a cast animates', async () => {
   const at = Date.now();
-
   const { ui } = render([long, cast('review', at)]);
-
   const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
 
   try {

@@ -55,11 +55,8 @@ async function holds(
 
 test('answer process registration preserves the owner identity and ignores reports after close', async (t) => {
   const { f, b } = await owners(t.onTestFinished);
-
   const helper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
-
   const id = b.coordinator.snapshot.conversation!.id;
-
   const report = b.a.sessions[0]!.options.onAnswerProcess!;
 
   try {
@@ -106,7 +103,6 @@ test('answer process registration preserves the owner identity and ignores repor
 
 test('idle owner answers in one attributed turn', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   let supplied: PeerRequest[] = [];
 
   b.a.peerReply = (requests) => {
@@ -179,7 +175,6 @@ test('idle owner answers in one attributed turn', async (t) => {
   assert.equal(b.coordinator.snapshot.conversation!.title, untitled);
 
   const asker = a.coordinator.snapshot.conversation!.id;
-
   const owner = b.coordinator.snapshot.conversation!.id;
 
   assert.notEqual(asker, owner);
@@ -239,9 +234,7 @@ test('idle owner answers in one attributed turn', async (t) => {
 
 test('a delivery hold taken during admission still runs the admitted answer turn', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   const begin = b.coordination.beginAnswer.bind(b.coordination);
-
   let release: (() => void) | undefined;
 
   b.coordination.beginAnswer = () => {
@@ -283,7 +276,6 @@ test('pending requests to one owner coalesce into one answer turn', async (t) =>
   await gate.entered;
 
   const first = await ask(a, claim, 'First?');
-
   const second = await ask(a, claim, 'Second?');
 
   await refreshed(b);
@@ -321,7 +313,6 @@ test('pending requests to one owner coalesce into one answer turn', async (t) =>
 
 test('busy owner answers after queued prompts', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
-
   const gate = new TurnGate();
 
   b.a.gate = gate;
@@ -415,15 +406,10 @@ test('recovery, pending questions and failed turns hold answer turns until resol
 
 test('released claim is never admitted, and a prompt sent meanwhile still runs', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   const request = await ask(a, claim, 'Still yours?');
-
   const attempt = CoordinationStore.prototype.attemptPeerRequests;
-
   const admission = Promise.withResolvers<void>();
-
   let admitting = false;
-
   const results: ReturnType<typeof attempt>[] = [];
 
   vi.spyOn(
@@ -471,7 +457,6 @@ test('released claim is never admitted, and a prompt sent meanwhile still runs',
 
 test('interrupted answer turn is not retried, and Escape holds answer turns', async (t) => {
   const { f, a, b, claim, seen } = await owners(t.onTestFinished);
-
   const gate = new TurnGate();
 
   b.a.gate = gate;
@@ -551,7 +536,6 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
 
 test('a restart clears the hold but not the attempt', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   const gate = new TurnGate();
 
   b.a.gate = gate;
@@ -567,7 +551,6 @@ test('a restart clears the hold but not the attempt', async (t) => {
   await until('owner settled', () => settled(b));
 
   const second = await ask(a, claim, 'Second?');
-
   const conversation = b.coordinator.snapshot.conversation!.id;
 
   await b.coordinator.close({ restart: true });
@@ -590,7 +573,6 @@ test('a restart clears the hold but not the attempt', async (t) => {
 
 test('a restored queue holds answer turns until the composer takes it, which wakes them', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   const gate = new TurnGate();
 
   b.a.gate = gate;
@@ -634,13 +616,9 @@ test('a restored queue holds answer turns until the composer takes it, which wak
 
 test('a closing Witch stamps nothing', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-
   const request = await ask(a, claim, 'Before you go?');
-
   const attempt = CoordinationStore.prototype.attemptPeerRequests;
-
   let closing: Promise<void> | undefined;
-
   let admitted: Promise<string> | undefined;
 
   vi.spyOn(
@@ -660,7 +638,6 @@ test('a closing Witch stamps nothing', async (t) => {
   });
 
   const begin = b.coordination.beginAnswer;
-
   const admissions: Promise<PeerRequest[]>[] = [];
 
   vi.spyOn(b.coordination, 'beginAnswer').mockImplementation(function (
@@ -701,11 +678,8 @@ test('a closing Witch stamps nothing', async (t) => {
 
 test('an origin change during admission stamps nothing', async (t) => {
   const { f, a, b, claim, refreshes } = await owners(t.onTestFinished);
-
   const attempt = CoordinationStore.prototype.attemptPeerRequests;
-
   const admission = Promise.withResolvers<void>();
-
   let admitting = false;
 
   vi.spyOn(
@@ -755,7 +729,6 @@ test('an origin change during admission stamps nothing', async (t) => {
 
 test('a prompt sent during an answer turn runs as its own turn after it', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
-
   const completed = new Set<string>();
 
   b.coordinator.subscribe(() => {
@@ -765,9 +738,7 @@ test('a prompt sent during an answer turn runs as its own turn after it', async 
   });
 
   const attempt = CoordinationStore.prototype.attemptPeerRequests;
-
   const admission = Promise.withResolvers<void>();
-
   let admitting = false;
 
   const spy = vi
@@ -844,9 +815,7 @@ test('a prompt sent during an answer turn runs as its own turn after it', async 
   await refreshed(b);
 
   const session = b.a.sessions.at(-1)!.session;
-
   const steer = session.steer;
-
   const steering = Promise.withResolvers<void>();
 
   session.steer = async () => {

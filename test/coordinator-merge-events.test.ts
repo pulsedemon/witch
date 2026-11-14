@@ -66,13 +66,9 @@ const events = (context: string): MergeEvent[] => {
 
 test('busy and dirty observers publish once to open project peers without starting turns', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const a = await f.start('A');
-
   const b = await f.start('B');
-
   const unrelated = await f.start('C');
-
   const gate = new TurnGate();
 
   a.a.gate = gate;
@@ -123,9 +119,7 @@ test('busy and dirty observers publish once to open project peers without starti
 
 test('native receipts and stable notices survive restart and a runtime switch', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const a = await f.start('A');
-
   const b = await f.start('B');
 
   await observe(a);
@@ -191,9 +185,7 @@ test('native receipts and stable notices survive restart and a runtime switch', 
 
 test('a merge arriving during a turn remains pending after that turn completes', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const a = await f.start('A');
-
   const b = await f.start('B');
 
   await observe(a);
@@ -240,7 +232,6 @@ test('a merge arriving during a turn remains pending after that turn completes',
 
 test('interruption and confirmed compaction retain events for the next native turn', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const a = await f.start('A');
 
   await observe(a);
@@ -272,9 +263,7 @@ test('interruption and confirmed compaction retain events for the next native tu
 
 test('conversation and project changes do not inherit another recipient scope', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const a = await f.start('A');
-
   const b = await f.start('B');
 
   await observe(a);
@@ -311,15 +300,10 @@ test('conversation and project changes do not inherit another recipient scope', 
 
 test('an open recipient retains merges while its native activation is reconnecting', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const source = await f.start('A');
-
   const recipient = await f.start('B');
-
   const id = recipient.coordinator.snapshot.conversation!.id;
-
   const deactivated = Promise.withResolvers<void>();
-
   const resume = Promise.withResolvers<void>();
 
   const deactivate = recipient.coordination.deactivate.bind(
@@ -388,11 +372,8 @@ test('an open recipient retains merges while its native activation is reconnecti
 
 test('idle origin changes use the current project for recipients and notices', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const source = await f.start('A');
-
   const recipient = await f.start('B');
-
   const other = await f.start('C');
 
   await git(
@@ -443,7 +424,6 @@ test('idle origin changes use the current project for recipients and notices', a
 
 test('merge notices leave memory recovery and queued user input intact', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const a = await f.start('A');
 
   a.a.interruptNext = true;
@@ -485,9 +465,7 @@ test('merge notices leave memory recovery and queued user input intact', async (
 for (const name of ['codex', 'claude'] as const) {
   test(`${name} receives the merge context through its native protocol`, async (t) => {
     const f = await coordinationFixture(t.onTestFinished);
-
     const source = await f.start('A');
-
     const cwd = join(f.root, 'B');
 
     const executable = fileURLToPath(
@@ -519,7 +497,6 @@ for (const name of ['codex', 'claude'] as const) {
           });
 
     const recipient = await f.start('B', {}, [{ adapter, executable }]);
-
     const answered = new Set<string>();
 
     const stop = recipient.coordinator.subscribe(() => {
@@ -588,13 +565,9 @@ for (const name of ['codex', 'claude'] as const) {
 
 test('failed publication retries the captured observation after the source leaves its branch', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
-
   const source = await f.start('A');
-
   const recipient = await f.start('B');
-
   const original = CoordinationStore.prototype.recordMerge;
-
   let attempts = 0;
 
   vi.spyOn(CoordinationStore.prototype, 'recordMerge').mockImplementation(

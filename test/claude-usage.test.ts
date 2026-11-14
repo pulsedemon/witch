@@ -81,9 +81,7 @@ interface Control {
 
 function endpoint(child: ChildProcessWithoutNullStreams, cwd: string) {
   const barriers = new Set<string>();
-
   const replies = new Set<string>();
-
   const lines = createInterface({ input: child.stdout });
 
   lines.on('line', (line) => {
@@ -169,7 +167,6 @@ async function controlled(
   holdMain = false,
 ) {
   const f = await launcher(mode, usageMode);
-
   let session: AgentSession | undefined = undefined;
 
   register(async () => {
@@ -194,9 +191,7 @@ async function controlled(
   });
 
   const helpers: Endpoint[] = [];
-
   const events: AgentEvent[] = [];
-
   const identities: (number | undefined)[] = [];
 
   if (holdMain) await writeFile(join(f.cwd, 'hold-usage'), '');
@@ -345,7 +340,6 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
       await until('first periodic helper', () => !!f.helpers[0]);
 
       const helper = f.helpers[0]!;
-
       const first = await helper.reply();
 
       assert.deepEqual(untimed(f.session.usage.account?.limits), firstLimits);
@@ -506,7 +500,6 @@ for (const source of ['main', 'helper'] as const) {
         );
 
         const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000);
-
         const mainId = await f.main.reply();
 
         assert.deepEqual(untimed(f.session.usage.account?.limits), firstLimits);
@@ -593,9 +586,7 @@ test(
     await until('main line totals', () => f.session.usage.lines?.added === 4);
 
     const info = { ...f.session.info };
-
     const helper = await poll(f);
-
     const before = f.events.length;
 
     await helper.emit(
@@ -754,7 +745,6 @@ test(
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
     const registered = Promise.withResolvers<void>();
-
     let starts = 0;
 
     const f = await controlled(
@@ -842,9 +832,7 @@ for (const failure of ['startup', 'registration'] as const) {
       await initial(f);
 
       const before = structuredClone(f.session.usage);
-
       const mainPid = f.children[0]!.pid;
-
       const sessionId = f.session.info.id;
 
       vi.advanceTimersByTime(60_000);
@@ -908,7 +896,6 @@ test(
     await helper.reply();
 
     const firstPid = helper.child.pid;
-
     const sessionId = f.session.info.id;
 
     helper.child.kill('SIGTERM');
@@ -967,7 +954,6 @@ for (const reason of [
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
       const timers: ReturnType<typeof vi.fn<() => void>>[] = [];
-
       const schedule = setTimeout;
 
       vi.spyOn(globalThis, 'setTimeout').mockImplementation(
@@ -1116,7 +1102,6 @@ test(
     await f.session.close();
 
     const events = f.events.length;
-
     const usage = structuredClone(f.session.usage);
 
     delayed.resolve(report(true));
@@ -1144,11 +1129,8 @@ test(
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
     const f = await launcher('background');
-
     const helpers: Endpoint[] = [];
-
     let session: AgentSession | undefined;
-
     const connect = f.adapter.connect.bind(f.adapter);
 
     f.adapter.connect = async (options) =>
@@ -1170,7 +1152,6 @@ test(
       }));
 
     const store = await StateStore.open(join(f.cwd, 'state'));
-
     const memory = await seededMemory(join(f.cwd, 'state', 'memory.git'));
 
     const coordinator = new Coordinator(store, memory, [
@@ -1187,7 +1168,6 @@ test(
       ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
       const main = endpoint(f.children[0]!, f.cwd);
-
       let finished = false;
 
       const turn = coordinator.send('hold for refresh').then(() => {
@@ -1213,7 +1193,6 @@ test(
       await until('usage helper', () => !!helpers[0]);
 
       const helper = helpers[0]!;
-
       let id = await helper.reply();
 
       await until('first rendered limits', () => {

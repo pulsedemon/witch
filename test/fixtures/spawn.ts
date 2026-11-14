@@ -12,9 +12,7 @@ import { git } from './git.js';
  */
 export async function checkout(name = 'repo', lockfile = true) {
   const root = await scratch('witch-spawn-');
-
   const origin = join(root, 'origin.git');
-
   const main = join(root, name);
 
   await git(root, 'init', '--bare', '-b', 'main', origin);

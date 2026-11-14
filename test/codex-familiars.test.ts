@@ -26,7 +26,6 @@ async function reportedFixture() {
 
   const emit = async (...messages: unknown[]) => {
     const index = ++sequence;
-
     const text = `reported fixture barrier ${index}`;
 
     await writeJson(join(cwd, `events-${index}.json`), [
@@ -43,9 +42,7 @@ async function reportedFixture() {
   };
 
   const run = randomUUID();
-
   const marker = `WITCH_FAMILIAR ${JSON.stringify({ version: 1, conversation: binding.conversation, activation: binding.activation, run })}\r\n`;
-
   const params = { threadId: 'native-thread', turnId: 'reported-turn' };
 
   const item = {
@@ -606,7 +603,6 @@ test('a late wrapper exit retains the originating turn interruption', async () =
 
 test('closing a native connection reports stopped even when command completion arrives before cleanup acknowledgment', async () => {
   const f = await reportedFixture();
-
   let closing: Promise<void> | undefined;
 
   try {
@@ -730,7 +726,6 @@ test('a familiar command that ended without a clean exit keeps the cleanup notic
 
 test('a familiar command that exits 0 while close is cleaning it up keeps the cleanup notice', async () => {
   const f = await reportedFixture();
-
   let closing: Promise<void> | undefined;
 
   try {
@@ -852,7 +847,6 @@ test('registration transfers an existing brew and leaves an unrelated background
 
 test('one native command registers each familiar whose marker appears in its output', async () => {
   const f = await reportedFixture();
-
   const second = randomUUID();
 
   try {
@@ -919,7 +913,6 @@ test('one native command registers each familiar whose marker appears in its out
 
 test('known child-thread command deltas can register a nested reviewer without projecting its output into the main transcript', async () => {
   const f = await reportedFixture();
-
   const threadId = 'child-thread';
 
   try {

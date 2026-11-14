@@ -20,9 +20,7 @@ const script = fileURLToPath(
 );
 
 const start = Date.parse('2026-11-01T00:00:00Z');
-
 const at = (seconds: number) => new Date(start + seconds * 1000).toISOString();
-
 const compacted = 'Conversation compacted';
 
 async function jsonl(file: string, rows: readonly unknown[]): Promise<void> {
@@ -433,7 +431,6 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   await writeFile(join(home, '.witch', 'conversations', '.DS_Store'), '');
 
   const { cases, packets, find, sections } = await extract(home);
-
   const witch = find('claude', 100);
 
   assert.deepEqual(
@@ -626,7 +623,6 @@ test('matches compactions just inside either one-minute boundary but not at it',
 
 test('stops on a malformed row before the last one', async () => {
   const home = await scratch('witch-compaction-cases-');
-
   const dir = join(home, '.witch', 'conversations', 'broken');
 
   await mkdir(dir, { recursive: true });

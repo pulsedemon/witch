@@ -76,7 +76,6 @@ function fixture() {
   };
 
   const tails = new Map<string, unknown>();
-
   let final = { ...metadata };
 
   let checks = [
@@ -124,7 +123,6 @@ function fixture() {
         };
       } else if (args.some((arg) => arg.startsWith('cursor='))) {
         const id = args.find((arg) => arg.startsWith('id='))!.slice(3);
-
         const cursor = args.find((arg) => arg.startsWith('cursor='))!.slice(7);
 
         assert.ok(query.includes('after:$cursor'));

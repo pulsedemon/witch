@@ -78,9 +78,7 @@ export class CommandBatches {
     try {
       while (this.batches.length) {
         const batch = this.batches[0]!;
-
         const active = () => this.batches[0] === batch;
-
         let success = false;
 
         try {

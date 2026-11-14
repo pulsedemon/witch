@@ -50,7 +50,6 @@ function peer(index: number): CoordinationSnapshot['peers'][number] {
 
 function peersApp(initial: CoordinationSnapshot) {
   const { app, coordinator, calls } = fake({});
-
   const listeners = new Set<() => void>();
 
   const coordination = {
@@ -305,7 +304,6 @@ test('the narrow peers page stays live and read-only during work and describes r
 
 test('a real peer updates its summary and keeps its reservation across an origin change until closing', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { root, start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -377,7 +375,6 @@ test('a real peer updates its summary and keeps its reservation across an origin
 
 test('task release refuses running or background work in chat without changing phase or stopping queued prompts, and then releases only this conversation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -477,9 +474,7 @@ test('task release refuses running or background work in chat without changing p
 
 test('a refused /task take stays in chat and leaves queued prompts runnable', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const { start } = await unitCoordinationFixture(cleanup);
-
   const a = await start();
 
   const ui = show(
@@ -614,7 +609,6 @@ test('queue and suggestion rows preserve task links and detailed activity status
 
 test('task selection advances live and suggested ownership stays visible at narrow width', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await unitCoordinationFixture(cleanup);
 
   await f.checkout('D');
@@ -685,9 +679,7 @@ test('task selection advances live and suggested ownership stays visible at narr
 
 test("/task take shows the idle owner's claim in this conversation's task view", async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const ticks = pauseDiscovery(vi.spyOn);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),

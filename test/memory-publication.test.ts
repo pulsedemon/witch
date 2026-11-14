@@ -15,9 +15,7 @@ const lines = (changes: Record<number, string> = {}) =>
 
 test('two workspaces publish different notes, each with its own attribution', async () => {
   const { memory, open } = await fixture();
-
   const { workspace: first } = await open('first');
-
   const { workspace: second } = await open('second');
 
   await save(
@@ -49,7 +47,6 @@ test('two workspaces publish different notes, each with its own attribution', as
 
 test('publication reports the conflicting commit even when a later commit reverted it', async () => {
   const { memory, open } = await fixture();
-
   const { workspace: theirs } = await open('theirs');
 
   await save(theirs, { 'global/n.md': 'one\n' });
@@ -67,11 +64,8 @@ test('publication reports the conflicting commit even when a later commit revert
   await theirs.publish();
 
   const head = await mine.revision();
-
   const accepted = await memory.resolve(main);
-
   const index = await git(mine.root, 'write-tree');
-
   const result = await mine.publish();
 
   assert.ok(result !== 'published');
@@ -97,7 +91,6 @@ test('publication reports the conflicting commit even when a later commit revert
 
 test('publication previews a later conflict against the already replayed commits', async () => {
   const { open } = await fixture();
-
   const { workspace: theirs } = await open('theirs');
 
   await save(theirs, { 'global/a.md': 'zero\n', 'global/n.md': 'one\n' });
@@ -131,7 +124,6 @@ test('publication previews a later conflict against the already replayed commits
 
 test('publication retains its conflict preview when main advances during abort', async () => {
   const { memory, open, hook } = await fixture();
-
   const { workspace: theirs } = await open('theirs');
 
   await save(theirs, { 'global/n.md': 'one\n' });
@@ -173,7 +165,6 @@ test('publication retains its conflict preview when main advances during abort',
 
 test('a failed conflict preview aborts the rebase without changing either branch', async () => {
   const { memory, open, hook } = await fixture();
-
   const { workspace: theirs } = await open('theirs');
 
   await save(theirs, { 'global/n.md': 'one\n' });
@@ -189,9 +180,7 @@ test('a failed conflict preview aborts the rebase without changing either branch
   await theirs.publish();
 
   const head = await mine.revision();
-
   const accepted = await memory.resolve(main);
-
   const index = await git(mine.root, 'write-tree');
 
   hook.current = (command, run) => {
@@ -221,9 +210,7 @@ test('a failed conflict preview aborts the rebase without changing either branch
 test('keep mine wins conflicting lines and merges every other change, and discard mine takes main', async () => {
   for (const decision of ['keep', 'discard'] as const) {
     const { memory, open, project, begin } = await fixture();
-
     const { workspace: theirs } = await open('theirs');
-
     const { workspace: mine } = await open('mine');
 
     const base = {
@@ -328,9 +315,7 @@ for (const [name, conflictingPath, myFiles, theirFiles, keptFiles] of [
 ] as const) {
   test(name, async () => {
     const { memory, open } = await fixture();
-
     const { workspace: theirs } = await open('theirs');
-
     const { workspace: mine } = await open('mine');
 
     await save(mine, { ...myFiles, 'global/mine.md': 'mine-only\n' });
@@ -374,9 +359,7 @@ for (const [name, conflictingPath, myFiles, theirFiles, keptFiles] of [
 test('keep mine carries no markers through a rename on either side', async () => {
   for (const renamer of ['theirs', 'mine'] as const) {
     const { memory, open, project, begin } = await fixture();
-
     const { workspace: theirs } = await open('theirs');
-
     const { workspace: mine } = await open('mine');
 
     await save(theirs, { 'global/one.md': lines() });
@@ -428,9 +411,7 @@ test('keep mine carries no markers through a rename on either side', async () =>
 
 test('a publish that loses the race to update main retries onto the new main', async () => {
   const { memory, open, hook } = await fixture();
-
   const { workspace: first } = await open('first');
-
   const { workspace: second } = await open('second');
 
   await save(first, { 'global/first.md': 'First.' });
@@ -464,11 +445,8 @@ test('a publish that loses the race to update main retries onto the new main', a
 
 test('keep mine merges against the main it read even when main moves', async () => {
   const { memory, open, hook } = await fixture();
-
   const { workspace: theirs } = await open('theirs');
-
   const { workspace: mine } = await open('mine');
-
   const { workspace: other } = await open('other');
 
   await save(theirs, { 'global/one.md': 'Theirs.\n' });
@@ -505,9 +483,7 @@ test('keep mine merges against the main it read even when main moves', async () 
 test('a crash inside keep mine before its reset leaves the worktree clean and the conflict standing', async () => {
   for (const theirPath of ['global/one.md', 'global/one.md/child.md']) {
     const { memory, open, hook } = await fixture();
-
     const { workspace: theirs } = await open('theirs');
-
     const { workspace: mine } = await open('mine');
 
     // their extra note puts the merged tree ahead of my HEAD, which a real index would stage
@@ -523,7 +499,6 @@ test('a crash inside keep mine before its reset leaves the worktree clean and th
     assert.notEqual(await mine.publish(), 'published');
 
     const head = await mine.revision();
-
     const accepted = await memory.resolve(main);
 
     const index = (
@@ -563,7 +538,6 @@ test('a crash inside keep mine before its reset leaves the worktree clean and th
 
 test('a deleted worktree directory comes back on its branch with its unpublished commit', async () => {
   const { memory, open } = await fixture();
-
   const { workspace } = await open('a');
 
   await save(workspace, { 'global/kept.md': 'Kept.' });
@@ -588,9 +562,7 @@ test('a deleted worktree directory comes back on its branch with its unpublished
 
 test('a stopped rebase is found under a state directory with a line break', async () => {
   const root = join(await scratch('witch-memory-'), 'state\nbreak');
-
   const memory = await seededMemory(join(root, 'memory.git'));
-
   const workspace = memory.workspace(join(root, 'conversations', 'a'), 'a');
 
   await workspace.ensureWorktree();
@@ -606,7 +578,6 @@ test('a stopped rebase is found under a state directory with a line break', asyn
 
 test('initialization fails on a root it cannot look at and builds nothing beside it', async (t) => {
   const parent = await scratch('witch-memory-');
-
   const root = join(parent, 'memory.git');
 
   unreadable(t, root);
@@ -618,9 +589,7 @@ test('initialization fails on a root it cannot look at and builds nothing beside
 
 test('a worktree whose .git cannot be looked at is not read as missing', async (t) => {
   const root = await scratch('witch-memory-');
-
   const memory = await seededMemory(join(root, 'memory.git'));
-
   const workspace = memory.workspace(join(root, 'conversations', 'a'), 'a');
 
   await workspace.ensureWorktree();
@@ -632,9 +601,7 @@ test('a worktree whose .git cannot be looked at is not read as missing', async (
 
 test('a rebase directory that cannot be looked at is not read as no rebase', async (t) => {
   const root = await scratch('witch-memory-');
-
   const memory = await seededMemory(join(root, 'memory.git'));
-
   const workspace = memory.workspace(join(root, 'conversations', 'a'), 'a');
 
   await workspace.ensureWorktree();
@@ -654,9 +621,7 @@ for (const [name, mineChange, theirChange, expected] of [
 ] as const) {
   test(`keep mine when ${name}`, async () => {
     const { memory, open, project, begin } = await fixture();
-
     const { workspace: theirs } = await open('theirs');
-
     const { workspace: mine } = await open('mine');
 
     await save(theirs, { 'global/one.md': lines(), 'global/keep.md': 'Keep.' });
@@ -687,9 +652,7 @@ for (const [name, mineChange, theirChange, expected] of [
 
 test('keep mine keeps their renamed copy of a note I deleted', async () => {
   const { memory, open, project, begin } = await fixture();
-
   const { workspace: theirs } = await open('theirs');
-
   const { workspace: mine } = await open('mine');
 
   await save(theirs, { 'global/one.md': lines(), 'global/keep.md': 'Keep.' });

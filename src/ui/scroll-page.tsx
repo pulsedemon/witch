@@ -20,7 +20,6 @@ export function ScrollPage({
   active = true,
 }: Props) {
   const last = Math.max(0, lines.length - height);
-
   const top = Math.min(scroll, last);
 
   /** steps from the shown top, so movement still works after the page shrinks. */

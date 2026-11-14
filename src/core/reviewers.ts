@@ -106,9 +106,7 @@ export class Reviewers {
     for (const { name } of reviewers) this.expected.set(name, {});
 
     const groups: number[] = [];
-
     const diagnostics = reviewers.map(() => '');
-
     // kept apart from stderr, which can still arrive after the exit
     const killed: (NodeJS.Signals | null)[] = reviewers.map(() => null);
 
@@ -144,7 +142,6 @@ export class Reviewers {
     );
 
     let stopping: Promise<void> | undefined;
-
     // a stop that misses its deadline ends the run even while a command still hasn't exited
     const missed = Promise.withResolvers<never>();
 
@@ -188,7 +185,6 @@ export class Reviewers {
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
           const run = finish(name);
-
           let unread: string | undefined;
 
           const report = await readFile(reportFile, 'utf8').catch(

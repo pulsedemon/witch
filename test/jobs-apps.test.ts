@@ -25,33 +25,19 @@ function orphanRow(pid: number): Row {
 
 test('marked app roots exclude their trees, while commands and tools stay jobs', async () => {
   const app = orphanRow(100701);
-
   const helper = { ...orphanRow(100702), ppid: app.pid, pgid: app.pid };
-
   const terminal = { ...orphanRow(100703), ppid: helper.pid };
-
   const direct = { ...orphanRow(100705), pgid: 100704 };
-
   const plain = orphanRow(100706);
-
   const crashHandler = { ...orphanRow(100708), pgid: 100707 };
-
   const xcodePython = orphanRow(100709);
-
   const frameworkPython = orphanRow(100711);
-
   const jdk = orphanRow(100712);
-
   const codeHelper = { ...orphanRow(100714), pgid: 100713 };
-
   const job = orphanRow(100715);
-
   const browser = { ...orphanRow(100716), ppid: job.pid, pgid: job.pid };
-
   const renderer = { ...orphanRow(100717), ppid: browser.pid, pgid: job.pid };
-
   const unmarkedApp = orphanRow(100718);
-
   const markedChild = { ...orphanRow(100719), ppid: unmarkedApp.pid };
 
   const later = [
@@ -104,7 +90,6 @@ test('marked app roots exclude their trees, while commands and tools stay jobs',
   ]);
 
   const tables = [[], later];
-
   const lookedUp: number[] = [];
 
   const jobs = new JobWatch({
@@ -164,7 +149,6 @@ test('marked app roots exclude their trees, while commands and tools stay jobs',
 for (const joins of ['later', 'in the read that opens the app']) {
   test(`a marked process that joins the group of an opened app or its terminal ${joins} brings back neither the app nor its terminals`, async () => {
     const app = orphanRow(100801);
-
     const terminal = { ...orphanRow(100802), ppid: app.pid };
 
     const strays = [
@@ -180,7 +164,6 @@ for (const joins of ['later', 'in the read that opens the app']) {
     ];
 
     const lookedUp: number[] = [];
-
     const directory = await scratch('witch-jobs-');
 
     const environment = vi
@@ -241,11 +224,8 @@ for (const joins of ['later', 'in the read that opens the app']) {
 
 test('an excluded app keeps an inactive watch reading', async () => {
   const app = orphanRow(100901);
-
   const terminal = { ...orphanRow(100902), ppid: app.pid };
-
   let rows: Row[] = [];
-
   let reads = 0;
 
   const jobs = new JobWatch({
@@ -298,9 +278,7 @@ test.skipIf(process.platform !== 'darwin')(
   'an app executable is excluded by its path, while a plain executable naming the same bundle stays a job',
   async () => {
     const directory = await scratch('witch-jobs-');
-
     const cwd = await scratch('witch-jobs-');
-
     const bundle = join(cwd, 'Visual Studio Code.app/Contents/MacOS');
 
     await mkdir(bundle, { recursive: true });

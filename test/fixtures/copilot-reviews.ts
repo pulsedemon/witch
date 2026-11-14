@@ -36,7 +36,6 @@ export async function record(f: Fixture, client: Client) {
 
 export async function setup(t: TestContext) {
   const register = orderedCleanup(t.onTestFinished);
-
   const source = reviewSource();
 
   vi.spyOn(github, 'readGitHubReviews').mockImplementation(async (pr) => {
@@ -63,9 +62,7 @@ export async function setup(t: TestContext) {
   });
 
   const a = await f.start('A');
-
   const c = a.coordinator;
-
   const cwd = c.snapshot.conversation!.cwd;
 
   await git('-C', cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/reviews');
@@ -83,7 +80,6 @@ export async function setup(t: TestContext) {
   await a.claim(source.closingIssues[0]!);
 
   const observe = () => c.copilot.observe(structuredClone(source));
-
   const reviews = () => a.a.inputs.filter(({ author }) => author === 'witch');
 
   const handled = () =>
@@ -143,7 +139,6 @@ export async function reply(f: Fixture, client: Client, source: GitHubReviews) {
     }
 
     const thread = source.threads.find(({ id }) => id === item.id)!;
-
     const url = `${source.pullRequest.url}#discussion_response_${item.id}`;
 
     if (!thread.comments.some((comment) => comment.url === url))
@@ -182,7 +177,6 @@ export function autoReply(
       : client.a;
 
   const session = agent.sessions.at(-1)!.session;
-
   const send = session.send;
 
   vi.spyOn(session, 'send').mockImplementation(async (prompt, options) => {

@@ -606,7 +606,6 @@ test('funding retained during an account read expires before its later access ob
     await appears(join(f.cwd, 'account-1.json'));
 
     const now = 2_000_000_000_000;
-
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const rateLimits = {

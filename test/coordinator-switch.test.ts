@@ -72,11 +72,8 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
   for (const restart of [false, true])
     test(`handoff after a ${status} ordinary turn${restart ? ' survives restart' : ''}`, async () => {
       const f = await unitFixture();
-
       let coordinator = f.coordinator;
-
       const gate = new TurnGate();
-
       let switching: Promise<void> | undefined;
 
       try {
@@ -87,7 +84,6 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
         await coordinator.send('Source task');
 
         const id = coordinator.snapshot.conversation!.id;
-
         const source = (await readRecord(f.root, id)).lastTurn;
 
         assert.equal(source?.status, status);
@@ -154,7 +150,6 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
 
 test('a legacy conversation with history defers its handoff until the next prompt', async () => {
   const f = await unitFixture();
-
   let coordinator = f.coordinator;
 
   try {
@@ -271,7 +266,6 @@ for (const resumed of [false, true])
   for (const effort of ['high', undefined])
     test(`${resumed ? 'resumed' : 'first'} handoff dispatch uses the selected model and ${effort ?? 'destination'} effort`, async () => {
       const { coordinator, a, b, root } = await unitFixture();
-
       const dispatched: SessionInfo[] = [];
 
       try {
@@ -299,14 +293,11 @@ for (const resumed of [false, true])
         await coordinator.send('Start');
 
         const source = coordinator.snapshot.native!.id;
-
         const id = coordinator.snapshot.conversation!.id;
-
         const connect = b.connect.bind(b);
 
         b.connect = async (options) => {
           const session = await connect(options);
-
           const send = session.send;
 
           session.send = async (...args) => {
@@ -362,11 +353,8 @@ for (const prior of [false, true])
   for (const cancel of [false, true])
     test(`${cancel ? 'interrupted' : 'rejected'} destination selection restores ${prior ? 'the prior preference' : 'an absent destination'} before activation`, async () => {
       const { coordinator, a, b, root } = await unitFixture();
-
       const entered = Promise.withResolvers<void>();
-
       const release = Promise.withResolvers<void>();
-
       let switching: Promise<void> | undefined;
 
       try {
@@ -383,7 +371,6 @@ for (const prior of [false, true])
         await coordinator.send('Start');
 
         const source = coordinator.snapshot.native!.id;
-
         const previous = coordinator.snapshot.conversation!.sessions.b;
 
         const persisted = (
@@ -496,11 +483,8 @@ test('handoff preference and activation are durable together before continuation
     await coordinator.send('Start');
 
     const id = coordinator.snapshot.conversation!.id;
-
     const source = coordinator.snapshot.native!.id;
-
     const file = join(root, 'state', 'conversations', id, 'state.json');
-
     const save = ConversationStore.prototype.save;
 
     vi.spyOn(ConversationStore.prototype, 'save').mockImplementation(
@@ -581,7 +565,6 @@ test('handoff preference and activation are durable together before continuation
       await writeFile(file, snapshot);
 
       const sent: number = a.inputs.length + b.inputs.length;
-
       const restarted = await reopen();
 
       try {
@@ -622,7 +605,6 @@ test('failed destination shutdown preserves the handoff error and persists pre-a
     await coordinator.send('Start');
 
     const source = coordinator.snapshot.native!.id;
-
     const connect = b.connect.bind(b);
 
     b.connect = async (options) => {
@@ -692,9 +674,7 @@ for (const stage of [
     await original.close();
 
     const activated = ['activated', 'continuing', 'completed'].includes(stage);
-
     const files = await store.claim(id);
-
     const conversation = files.record;
 
     conversation.agent = activated ? 'b' : 'a';
@@ -762,7 +742,6 @@ for (const stage of [
       await restarted.send('Resume manually');
 
       const active = activated ? b : a;
-
       const prior = conversation.sessions[active.id]!;
 
       if (prior.hasHistory) assert.equal(active.inputs[0]!.session, prior.id);
@@ -797,7 +776,6 @@ test('undelivered handoff context survives visiting another conversation and cle
   await original.close();
 
   const files = await store.claim(id);
-
   const conversation = files.record;
 
   conversation.agent = 'b';
@@ -865,7 +843,6 @@ test('undelivered handoff context survives visiting another conversation and cle
 for (const reason of ['held', 'bad history'] as const) {
   test(`a switch to a conversation with ${reason} keeps the current conversation, session and lock`, async () => {
     const { coordinator, store, a, root, project } = await unitFixture();
-
     const target = await store.create(record(randomUUID(), project));
 
     try {
@@ -941,13 +918,11 @@ test('selecting the current conversation keeps its session and claim', async () 
 
 async function failedCloseSwitch() {
   const context = await unitFixture();
-
   const { coordinator, store, a, project } = context;
 
   await coordinator.send('Start');
 
   const previous = coordinator.snapshot.conversation!.id;
-
   const released = a.sessions.at(-1)!.options;
 
   const target = await store.create({
@@ -990,7 +965,6 @@ test('a late event from a released session reaches neither conversation', async 
 
   try {
     const reported = coordinator.snapshot.error;
-
     const errors: (string | undefined)[] = [];
 
     coordinator.subscribe(() => errors.push(coordinator.snapshot.error));
@@ -1006,9 +980,7 @@ test('a late event from a released session reaches neither conversation', async 
       );
 
     const before = await files(previous);
-
     const adopted = await files(target);
-
     const items = coordinator.snapshot.items;
 
     released.onEvent({ type: 'text', id: 'late', text: 'Late text' });
@@ -1080,7 +1052,6 @@ async function handoffFixture(createFixture = unitFixture) {
 
   const assertSourceActive = async () => {
     const { coordinator, a, root } = context;
-
     const conversation = coordinator.snapshot.conversation!;
 
     assert.equal(conversation.agent, 'a');
@@ -1106,9 +1077,7 @@ async function handoffFixture(createFixture = unitFixture) {
 
 test('a handoff cancelled during the summary keeps the source', async () => {
   const context = await handoffFixture();
-
   const { coordinator, a } = context;
-
   const gate = new TurnGate();
 
   a.gate = gate;
@@ -1132,17 +1101,13 @@ test('a handoff cancelled during the summary keeps the source', async () => {
 
 test('a handoff cancelled while the summary is saved never connects the destination', async () => {
   const context = await handoffFixture();
-
   const { coordinator, a, b } = context;
-
   const gate = new TurnGate();
 
   a.gate = gate;
 
   const save = ConversationStore.prototype.save;
-
   const held = Promise.withResolvers<void>();
-
   const holding = Promise.withResolvers<void>();
 
   try {
@@ -1189,9 +1154,7 @@ test('a handoff cancelled while the summary is saved never connects the destinat
 
 test('a handoff cancelled during the destination connect keeps the source', async () => {
   const context = await handoffFixture();
-
   const { coordinator, b } = context;
-
   const connecting = Promise.withResolvers<void>();
 
   b.beforeConnect = holdConnect(connecting, undefined, {
@@ -1220,9 +1183,7 @@ test('a handoff cancelled while saving its connection starts no catalog discover
     release = Promise.withResolvers<void>();
 
   const save = ConversationStore.prototype.save;
-
   let held = false;
-
   let switching: Promise<void> | undefined;
 
   try {
@@ -1283,9 +1244,7 @@ test('a handoff cancelled while saving its connection starts no catalog discover
 
 test('a handoff cancelled during the continuation stays with the destination', async () => {
   const context = await handoffFixture();
-
   const { coordinator, a, b } = context;
-
   const gate = new TurnGate();
 
   b.gate = gate;
@@ -1325,7 +1284,6 @@ test('a handoff cancelled during the continuation stays with the destination', a
 
 test('a prompt sent during a handoff waits and goes to the destination', async () => {
   const { coordinator, a, b } = await handoffFixture();
-
   const gate = new TurnGate();
 
   a.gate = gate;
@@ -1369,7 +1327,6 @@ test('a prompt sent during a handoff waits and goes to the destination', async (
 
 test('a /model switch whose summary fails activates with transcript context and delivers a prompt sent during it', async () => {
   const { coordinator, a, b } = await handoffFixture();
-
   const gate = new TurnGate();
 
   a.gate = gate;
@@ -1414,7 +1371,6 @@ test('a /model switch whose failed summary leaves memory pending keeps the sourc
 
   try {
     const { session, options } = a.sessions.at(-1)!;
-
     const send = session.send.bind(session);
 
     vi.spyOn(session, 'send').mockImplementation(async (prompt, ...rest) => {

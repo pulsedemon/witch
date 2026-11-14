@@ -36,7 +36,6 @@ const failure = [failed, idle];
 /** the last scripted turn's `exhausted` on a sonnet session, once that turn failed or was interrupted. */
 async function exhausted(...turns: Step[][]) {
   const events: AgentEvent[] = [];
-
   const f = await fixture((event) => events.push(event), 'background');
 
   const reported = (name: string) =>
@@ -51,7 +50,6 @@ async function exhausted(...turns: Step[][]) {
 
     for (const [index, steps] of turns.entries()) {
       const turn = f.session.send('limited');
-
       let uuid = '';
 
       await until('turn input', async () => {
@@ -366,7 +364,6 @@ test('background work from an automatic review does not switch the parent runtim
 
 test('a fresh connection cannot switch from an unsolicited background rejection', async () => {
   const events: AgentEvent[] = [];
-
   const f = await fixture((event) => events.push(event), 'background');
 
   const emit = frameWriter(
@@ -405,7 +402,6 @@ test('background recovery preserves an earlier correlated failure', async () => 
     await until('waiting input', async () => (await f.inputs()).length === 2);
 
     const initial = (await f.inputs())[1]!.uuid!;
-
     const follow = await f.steer('later follow-up');
 
     await writeFile(join(f.cwd, 'receipt.json'), '[]');

@@ -100,7 +100,6 @@ test('a missing stored thread fails the connect with no exit notice', async () =
 
 test('a request Codex resolves itself leaves the queue before the turn ends', async () => {
   const events: AgentEvent[] = [];
-
   const { session, cwd } = await fixture((event) => events.push(event));
 
   try {
@@ -361,7 +360,6 @@ test('interrupt waits for the native turn to complete', async () => {
     await appears(join(cwd, 'prompt.json'));
 
     const interrupting = session.interrupt();
-
     const done = settled(interrupting);
 
     await appears(join(cwd, 'replied'));
@@ -439,7 +437,6 @@ test('model selection waits for the settings notification', async () => {
 
   try {
     const selecting = session.selectModel('held');
-
     const done = settled(selecting);
 
     await appears(join(cwd, 'replied'));
@@ -916,7 +913,6 @@ test('a model choice that changes no native setting returns and shows the choice
 
 test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative and a familiar it spawns under Witch's name, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
   const events: AgentEvent[] = [];
-
   const { session, cwd } = await fixture((event) => events.push(event));
 
   try {
@@ -975,7 +971,6 @@ test("a spawned thread's tool items, not its prompt or thinking, give its famili
 
 test("a spawned thread's task names its subagent under its parent with the turn as its run, its text, settings and completion stay out of the parent's turn, and a restart keeps its parent, task name and kind", async () => {
   const events: AgentEvent[] = [];
-
   const named = Promise.withResolvers<void>();
 
   const { session, cwd } = await fixture((event) => {

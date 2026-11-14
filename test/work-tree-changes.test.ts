@@ -21,13 +21,11 @@ import type { Changes } from '../src/core/work-tree-changes.js';
 import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);
-
 const past = '2020-01-01T00:00:00Z';
 
 /** a repository with one commit of `files`, and the watcher that keeps its storage beside it. */
 async function repository(files: Record<string, string> = { 'a.txt': 'a\n' }) {
   const root = await scratch('witch-changes-');
-
   const work = join(root, 'work');
 
   await mkdir(work);
@@ -239,7 +237,6 @@ test("the repository's Git directory keeps its contents through a watch, a read 
 
 test('a read from a subdirectory of a linked worktree covers the whole worktree', async () => {
   const { root, work, git, changes } = await repository();
-
   const linked = join(root, 'linked');
 
   await git('worktree', 'add', '-q', linked, '-b', 'side');
@@ -266,7 +263,6 @@ test('a read from a subdirectory of a linked worktree covers the whole worktree'
 for (const name of ['ends in a space ', 'a:b"c\\d', 'line\nbreak'])
   test(`a checkout in a directory named ${JSON.stringify(name)} is read as itself`, async () => {
     const root = await scratch('witch-changes-');
-
     const work = join(root, name);
 
     await mkdir(work);
@@ -326,9 +322,7 @@ test('a read with no baseline takes one and shows nothing, and an absorb with no
 
 test('a checkout keeps its baseline through a second watch and a watch of another checkout', async () => {
   const first = await repository();
-
   const second = await repository();
-
   const changes = first.changes;
 
   await changes.watch(first.work);
@@ -354,7 +348,6 @@ test('a checkout keeps its baseline through a second watch and a watch of anothe
 
 test('storage inside the checkout stays out of its own snapshots', async () => {
   const { work } = await repository();
-
   const changes = new WorkTreeChanges(join(work, 'state', 'changes'));
 
   await changes.watch(work);
@@ -470,7 +463,6 @@ test('an edit committed since the baseline shows, as does the first commit of an
   );
 
   const root = await scratch('witch-changes-');
-
   const unborn = join(root, 'work');
 
   await mkdir(unborn);
@@ -743,7 +735,6 @@ test('a long line takes more of the line budget, as a changed line or as context
 
 test('files past the hundredth are counted, and only the listed files have their lines counted', async () => {
   const { root, work } = await repository();
-
   const counted: string[][] = [];
 
   const run: Run = (command, args, options) => {
@@ -861,9 +852,7 @@ test("a file replaced by a directory, and a nested repository's new commit, leav
 
 test('a nested repository the index tracks never runs its own filter, and shows once the index takes its commit', async () => {
   const { root, work, git, changes } = await repository();
-
   const nested = join(work, 'nested');
-
   const marker = join(root, 'ran');
 
   await mkdir(nested);
@@ -918,9 +907,7 @@ test('a nested repository the index tracks never runs its own filter, and shows 
 
 test('settled waits for the operations already asked for', async () => {
   const { root, work } = await repository();
-
   const held = Promise.withResolvers<void>();
-
   const order: string[] = [];
 
   const run: Run = async (command, args, options) => {
@@ -934,9 +921,7 @@ test('settled waits for the operations already asked for', async () => {
   };
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
-
   const watching = changes.watch(work);
-
   const settled = changes.settled().then(() => order.push('settled'));
 
   held.resolve();
@@ -950,9 +935,7 @@ test('settled waits for the operations already asked for', async () => {
 
 test('close stops the Git call in flight and fails what is queued behind it without starting it', async () => {
   const { root, work } = await repository();
-
   const calls: string[][] = [];
-
   const inFlight = Promise.withResolvers<void>();
 
   const run: Run = (command, args, options) => {
@@ -967,9 +950,7 @@ test('close stops the Git call in flight and fails what is queued behind it with
   };
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
-
   const watching = changes.watch(work);
-
   const queued = changes.read(work);
 
   await inFlight.promise;
@@ -989,7 +970,6 @@ test('close stops the Git call in flight and fails what is queued behind it with
 
 test('a directory outside a repository reads nothing, and another failure of the lookup rejects', async () => {
   const root = await scratch('witch-changes-');
-
   const calls: string[][] = [];
 
   const outside: Run = (_command, args) => {
@@ -1117,7 +1097,6 @@ test("a failure names Git's error past its warnings, and a command stopped at it
 
 test('a failed read keeps its baseline, so the next read still shows the change', async () => {
   const { root, work } = await repository({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
-
   let fail = true;
 
   const run: Run = (command, args, options) => {

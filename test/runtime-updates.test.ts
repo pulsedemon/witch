@@ -109,21 +109,17 @@ test('Codex checks parse the native release source and preserve unsupported-inst
 
 test('inventory follows the selected launcher and changes artifact identity after an external update', async () => {
   const root = await scratch('witch-runtime-inventory-');
-
   const previous = process.env.CODEX_HOME;
 
   process.env.CODEX_HOME = root;
 
   try {
     const releases = join(root, 'packages', 'standalone', 'releases');
-
     const launcher = join(root, 'codex');
-
     const executables: string[] = [];
 
     for (const version of ['1.2.3', '1.2.4']) {
       const release = join(releases, `${version}-aarch64-apple-darwin`);
-
       const executable = join(release, 'bin', 'codex');
 
       await mkdir(dirname(executable), { recursive: true });
@@ -146,7 +142,6 @@ test('inventory follows the selected launcher and changes artifact identity afte
     await symlink(executables[0]!, launcher);
 
     const registration = { adapter: new CodexAdapter(), executable: launcher };
-
     const before = await inspectRuntime(registration);
 
     await unlink(launcher);
@@ -195,7 +190,6 @@ test('inventory follows the selected launcher and changes artifact identity afte
 
 test('an unsupported PATH executable is diagnosed without running it or selecting an installation to replace', async () => {
   const root = await scratch('witch-runtime-custom-');
-
   const executable = join(root, 'codex');
 
   await writeFile(
@@ -223,7 +217,6 @@ test('an unsupported PATH executable is diagnosed without running it or selectin
 
 test('the earlier artifact is the newest older sibling in either native layout', async () => {
   const root = await scratch('witch-runtime-earlier-');
-
   const releases = join(root, 'standalone', 'releases');
 
   for (const name of [

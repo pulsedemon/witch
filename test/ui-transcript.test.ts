@@ -54,7 +54,6 @@ const completedEdit = {
 
 test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
   const { app, calls } = fake({ items: tools('first') });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -193,7 +192,6 @@ test('a manual collapse survives a project diff and batched toggles use the prev
 
 test('a conversation switch resets the tool selection within the next read', async () => {
   const { app, coordinator } = fake({ items: tools('first') });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -387,7 +385,6 @@ test('the viewport keeps the blank after an image across resizes', async () => {
       [42, 'c=40,r=5'],
     ] as const) {
       const before = ui.frame();
-
       const count = placements.length;
 
       ui.resize(columns);
@@ -469,7 +466,6 @@ test('the wheel scrolls a page and a request by rows', async () => {
 
 test('a click and a wheel step between keys leave the draft as typed', async () => {
   const { app } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -523,7 +519,6 @@ test('Down with tools focused and no tools keeps the reading position, and End r
   });
 
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-
   const top = () => ui.text().split('\n')[1]?.trim();
 
   try {
@@ -550,7 +545,6 @@ test('Down with tools focused and no tools keeps the reading position, and End r
 
 test('Escape while tools are focused during a turn leaves focus without interrupting', async () => {
   const { app, calls } = fake({ phase: 'running', items: tools('first') });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -594,7 +588,6 @@ test('Ctrl+O expands only the selected tool without editing the draft', async ()
   }));
 
   const { app, coordinator, calls } = fake({ items });
-
   const copied: string[] = [];
 
   const ui = show(
@@ -712,12 +705,10 @@ test('batched tool appends preserve selection and a reading position through row
   );
 
   const { app, coordinator } = fake({ items });
-
   const { ui, copied } = mounted(app, 80, 30);
 
   const selectReply = async () => {
     const lines = ui.text().split('\n');
-
     const row = lines.findIndex((line) => line.includes('selected words'));
 
     assert.ok(row >= 0);
@@ -834,7 +825,6 @@ test('batched assistant Markdown preserves typing, selection and reading positio
   });
 
   const { app, coordinator, calls } = fake({ items, phase: 'running' });
-
   const { ui, copied } = mounted(app, 80, 30);
 
   const append = (text: string) => {
@@ -855,9 +845,7 @@ test('batched assistant Markdown preserves typing, selection and reading positio
     );
 
     const lines = ui.text().split('\n');
-
     const row = lines.findIndex((line) => line.includes('selected words'));
-
     const column = lines[row]!.indexOf('selected words');
 
     drag(ui, [column, row], [column + 7, row]);

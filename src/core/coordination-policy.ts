@@ -85,11 +85,8 @@ export function watchClaimPolicy(
   if (!coordination || !initial) return;
 
   const source = coordination;
-
   let attempted = requiresClaim(initial);
-
   let stopped = false;
-
   let running = false;
 
   const refresh = async () => {
@@ -100,7 +97,6 @@ export function watchClaimPolicy(
     try {
       while (!stopped) {
         const snapshot = source.snapshot;
-
         const required = requiresClaim(snapshot);
 
         if (required === attempted) break;

@@ -62,7 +62,6 @@ test("a conflicting read records its base's tip, and only a mergeable or closed 
   });
 
   let answer: object | Error = { mergeable: 'CONFLICTING' };
-
   let tip: string | Error = 'f00';
 
   const { watch, reads } = conflictWatch({
@@ -158,7 +157,6 @@ test('an uncomputed mergeability is read again after 10 seconds, while a status 
   });
 
   let answer: object = { mergeable: 'CONFLICTING' };
-
   const { watch, reads } = conflictWatch({ answer: () => answer });
 
   try {
@@ -199,11 +197,8 @@ test('another local branch leaves a conflict out of the snapshot, and a read for
   });
 
   let branch = 'main';
-
   let answer: object | Error = { mergeable: 'CONFLICTING' };
-
   let project = 'a';
-
   let asked = 0;
 
   const { watch } = conflictWatch({
@@ -400,7 +395,6 @@ test('a cached pull request keeps its observed project until a fresh scoped read
 
 test('a project change during a pull request read invalidates the observation', async () => {
   let project = 'project-a';
-
   let scopeReads = 0;
 
   const watch = new RepositoryWatch(
@@ -514,7 +508,6 @@ test('head and upstream status changes refresh the pull request, while file edit
 
 test('an awaited admission refresh reads after an older request and publishes before it resolves', async (t) => {
   const pending = Promise.withResolvers<{ stdout: string }>();
-
   let reads = 0;
 
   const watch = new RepositoryWatch('/work', async (command) => {
@@ -555,7 +548,6 @@ test('an awaited admission refresh reads after an older request and publishes be
 
 test('an awaited refresh retains a confirmed conflict on failure or UNKNOWN without retaining repair eligibility', async (t) => {
   let answer: object | Error = { mergeable: 'CONFLICTING' };
-
   const { watch, reads } = conflictWatch({ answer: () => answer });
 
   t.onTestFinished(() => watch.close());
@@ -563,7 +555,6 @@ test('an awaited refresh retains a confirmed conflict on failure or UNKNOWN with
   await until('conflict', () => !!watch.snapshot?.conflict);
 
   const conflict = watch.snapshot!.conflict;
-
   const current = () => watch.snapshot?.pullRequest;
 
   answer = new Error('network unavailable');
@@ -598,9 +589,7 @@ test('a head change during the base-tip lookup cannot publish the old conflictin
   });
 
   let commit = 'a1b2c3';
-
   const tip = Promise.withResolvers<{ stdout: string }>();
-
   let lookingUp = false;
 
   const watch = new RepositoryWatch('/work', async (command, args) => {
@@ -654,9 +643,7 @@ test('a head change during the base-tip lookup cannot publish the old conflictin
 for (const kind of ['status', 'pull request'] as const) {
   test(`closing during a ${kind} read prevents later publication or refresh`, async (t) => {
     const entered = Promise.withResolvers<void>();
-
     const response = Promise.withResolvers<{ stdout: string }>();
-
     const reads = { status: 0, pullRequest: 0 };
 
     const watch = new RepositoryWatch('/work', async (command, args) => {
@@ -690,9 +677,7 @@ for (const kind of ['status', 'pull request'] as const) {
     await entered.promise;
 
     const snapshot = watch.snapshot;
-
     const before = publications;
-
     const reading = watch.readPullRequest();
 
     watch.close();

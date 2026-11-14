@@ -130,9 +130,7 @@ test('file approvals use their exact thread, turn and item proposal', async () =
     );
 
     const child = f.request(901);
-
     const second = f.request(902);
-
     const first = f.request(903);
 
     assert.deepEqual(child.diff, [
@@ -232,7 +230,6 @@ test('completed proposals cannot leak into a later approval', async () => {
     );
 
     const retained = f.request(910).diff;
-
     const before = structuredClone(retained);
 
     await f.emit(

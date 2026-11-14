@@ -10,17 +10,11 @@ const frames = readFileSync(process.argv[2], 'utf8')
   .map((line) => JSON.parse(line));
 
 const fragment = Number(process.argv[3]);
-
 const gates = new Set(JSON.parse(process.argv[4]));
-
 const bindings = new Map();
-
 const reverse = new Map();
-
 const inputs = [];
-
 let position = 0;
-
 let held = false;
 
 const identity = new Set([

@@ -65,7 +65,6 @@ async function filtering<T>(run: () => Promise<T>): Promise<T> {
 /** a state directory whose prompt history and ledger each test writes whole. */
 async function state() {
   const root = await scratch('witch-prompts-');
-
   const at = (path: string) => join(root, path);
 
   return { at, store: await StateStore.open(at('state')) };
@@ -116,7 +115,6 @@ test('prompt history from every stop of a long move chain maps each stop once', 
   );
 
   let content = '';
-
   const moves = [];
 
   for (const [index, path] of paths.entries()) {
@@ -233,9 +231,7 @@ test("prompt history under a parent moved back and forth finds each hop's move w
 
 test('prompt history past many unrelated moves never refilters the move boundaries per line', async () => {
   const f = await state();
-
   const line = `${JSON.stringify({ cwd: f.at('here'), text: 'p' })}\n`;
-
   const content = line.repeat(20_000);
 
   await writeFile(f.at('state/prompts.jsonl'), content);

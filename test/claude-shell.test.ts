@@ -135,9 +135,7 @@ for (const condition of [
 ]) {
   test(`dispatch failure recovers only unwritten command context (${condition})`, async () => {
     const { session, cwd, child } = await fixture(undefined, 'hold-initial');
-
     const command = "printf 'boundary-output\\n'";
-
     const record = `<bash-input>${command}</bash-input>\n<bash-stdout>boundary-output\n</bash-stdout><bash-stderr></bash-stderr>`;
 
     try {
@@ -217,7 +215,6 @@ for (const condition of [
 
 test('dispatch failure recovers only the later unsent command in a turn', async () => {
   const { connect, children, cwd } = await launcher();
-
   let commands = 0;
 
   const session = await connect({
@@ -364,9 +361,7 @@ test('close waits for the interrupted command record when a detached child holds
   });
 
   const command = `'${process.execPath.replaceAll("'", "'\\''")}' pipe-holder.cjs`;
-
   let shell: ReturnType<typeof session.shell> | undefined;
-
   let pipePid: number | undefined;
 
   try {
@@ -425,11 +420,8 @@ setInterval(() => {}, 1000);
 for (const fails of [false, true]) {
   test(`close waits for the final shell report to ${fails ? 'reject' : 'finish'} before clearing the native process`, async () => {
     const reporting = Promise.withResolvers<void>();
-
     const release = Promise.withResolvers<void>();
-
     const reports: string[] = [];
-
     const { connect, children } = await launcher();
 
     const session = await connect({
@@ -450,7 +442,6 @@ for (const fails of [false, true]) {
     });
 
     const nativeClosed = once(children[0]!, 'close');
-
     const shell = session.shell('printf reported');
 
     const result = fails
@@ -485,11 +476,8 @@ for (const fails of [false, true]) {
 
 test("a shell command reports its shell's pid as it starts and undefined once it ends, after the start's report settles", async () => {
   const done = Promise.withResolvers<void>();
-
   const texts: string[] = [];
-
   const reports: string[] = [];
-
   const { connect } = await launcher();
 
   const session = await connect({
@@ -528,7 +516,6 @@ test("a shell command reports its shell's pid as it starts and undefined once it
 
 test('a shell report that rejects fails the command once it ends, without an unhandled rejection', async () => {
   const texts: string[] = [];
-
   const { connect } = await launcher();
 
   const session = await connect({
@@ -555,11 +542,8 @@ test('a shell report that rejects fails the command once it ends, without an unh
 /** what a session reports, for the commands steered after a reply. */
 function observe() {
   const texts: string[] = [];
-
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
-
   const skills: string[] = [];
-
   const notices: string[] = [];
 
   const onEvent = (event: AgentEvent) => {
@@ -596,7 +580,6 @@ const gated = 'until [ -e go ]; do sleep 0.05; done; echo held';
 
 test('a command steered after the result runs, refuses other prompts while it runs, then steers its record and reply', async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -617,7 +600,6 @@ test('a command steered after the result runs, refuses other prompts while it ru
     await allow(cwd, 'go');
 
     const steered = join(cwd, 'steered.jsonl');
-
     const expected = [replyBlocks(gated, 'held\n')];
 
     await until('the reply', async () =>
@@ -636,7 +618,6 @@ test('a command steered after the result runs, refuses other prompts while it ru
 
 test("a turn whose familiar reports while a steered command runs stays open through Claude Code's idle until the command's reply is answered", async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -670,7 +651,6 @@ test("a turn whose familiar reports while a steered command runs stays open thro
 
 test("a command that ends while Claude Code answers the familiar's report sends its reply only once Claude Code is idle", async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -705,7 +685,6 @@ test("a command that ends while Claude Code answers the familiar's report sends 
 
 test('a command that ends while Claude Code runs again after idle sends its reply only once Claude Code is idle again', async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -744,7 +723,6 @@ test('a command that ends while Claude Code runs again after idle sends its repl
 
 test("a reply waiting for Claude Code's idle goes once Claude Code starts another familiar", async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -778,7 +756,6 @@ test("a reply waiting for Claude Code's idle goes once Claude Code starts anothe
 
 test('an interrupt during a steered command after Claude Code is idle kills it and ends the turn interrupted, sending the idle CLI no interrupt and no reply', async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -815,7 +792,6 @@ test('an interrupt during a steered command after Claude Code is idle kills it a
 
 test('an interrupt after the reply while a familiar holds the turn open ends the turn interrupted, though Claude Code sends no fresh result', async () => {
   const seen = observe();
-
   const { session } = await fixture(seen.onEvent);
 
   try {
@@ -836,7 +812,6 @@ test('an interrupt after the reply while a familiar holds the turn open ends the
 
 test('a model change waits for the turn, unless it has replied and a familiar holds it open', async () => {
   const busy = working();
-
   const seen = observe();
 
   const { session, cwd } = await fixture((event) => {
@@ -953,16 +928,13 @@ for (const mode of [undefined, 'first-reply-read']) {
 
 test('an interrupt recovers a completed idle command from its initial reply', async () => {
   const { session, cwd } = await fixture(undefined, 'hold-initial');
-
   const command = "printf 'once\\n' >> executions; printf 'initial-output\\n'";
-
   const record = `<bash-input>${command}</bash-input>\n<bash-stdout>initial-output\n</bash-stdout><bash-stderr></bash-stderr>`;
 
   try {
     assert.equal((await session.shell(command)).status, 'completed');
 
     const prompt = `!${command}\n\nReply without running it again.`;
-
     const turn = session.send(prompt);
 
     await until(
@@ -1034,9 +1006,7 @@ for (const steers of [[], ['a steer']])
 
 test("a turn stays open while a steered command's end report is still settling", async () => {
   const seen = observe();
-
   const settled = Promise.withResolvers<void>();
-
   const { cwd, connect } = await launcher();
 
   const session = await connect({
@@ -1087,7 +1057,6 @@ test("a turn stays open while a steered command's end report is still settling",
 
 test('a steered command that fails posts its error and sends no reply', async () => {
   const seen = observe();
-
   const { cwd, connect } = await launcher();
 
   const session = await connect({
@@ -1128,7 +1097,6 @@ test('a steered command that fails posts its error and sends no reply', async ()
 
 test('a held turn fails when the CLI dies after idle, and its steered command stops', async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -1166,7 +1134,6 @@ test('a held turn fails when the CLI dies after idle, and its steered command st
 
 test('a shell command run with no turn open keeps running when the CLI dies', async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -1198,7 +1165,6 @@ test('a shell command run with no turn open keeps running when the CLI dies', as
 
 test('an interrupt while a command that ended waits for idle sends no reply', async () => {
   const seen = observe();
-
   const { session, cwd } = await fixture(seen.onEvent);
 
   try {
@@ -1247,7 +1213,6 @@ async function insideAnotherWitch(body: () => Promise<void>) {
 test("Claude Code gets the mark's script as CLAUDE_ENV_FILE, and the CLI doesn't get the mark", async () => {
   await insideAnotherWitch(async () => {
     const { envs, connect } = await launcher();
-
     const session = await connect({ mark });
 
     try {
@@ -1262,7 +1227,6 @@ test("Claude Code gets the mark's script as CLAUDE_ENV_FILE, and the CLI doesn't
 
 test("a ! command's shell gets the mark's environment over Witch's", async (t) => {
   const temporary = await scratch('witch-shell-environment-');
-
   const previous = process.env.TMPDIR;
 
   t.onTestFinished(() => {
@@ -1274,7 +1238,6 @@ test("a ! command's shell gets the mark's environment over Witch's", async (t) =
 
   await insideAnotherWitch(async () => {
     const texts: string[] = [];
-
     const { connect } = await launcher();
 
     const session = await connect({

@@ -79,7 +79,6 @@ test('startup reports missing conversation directories without blocking the init
 for (const unreadable of [false, true]) {
   test(`startup ${unreadable ? 'inspection errors' : 'missing-directory notices'} do not become saved conversation history`, async () => {
     const f = await unitFixture();
-
     const previous = f.coordinator.snapshot.conversation!.id;
 
     try {
@@ -96,9 +95,7 @@ for (const unreadable of [false, true]) {
     );
 
     const original = await readFile(history);
-
     const modified = (await stat(history)).mtimeMs;
-
     const parent = join(f.root, 'old parent');
 
     await mkdir(parent);
@@ -374,7 +371,6 @@ test('queued prompts left at idle or in an error come back ahead of the draft, a
     ['error', false],
   ] as const) {
     const { app, coordinator, calls } = fake({ phase: 'running' });
-
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
     try {
@@ -413,7 +409,6 @@ test('queued prompts left at idle or in an error come back ahead of the draft, a
 
 test('a reopened conversation puts its saved queue ahead of its saved draft, also while a view covers the composer', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {

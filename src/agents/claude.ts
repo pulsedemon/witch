@@ -540,7 +540,6 @@ class ClaudeSession implements AgentSession {
 
   private async run(command: string): Promise<TurnResult> {
     const abort = new AbortController();
-
     const finished = Promise.withResolvers<void>();
 
     this.command = { controller: abort, finished: finished.promise };
@@ -569,7 +568,6 @@ class ClaudeSession implements AgentSession {
       });
 
       let started: Promise<void> | undefined;
-
       let failed = true;
 
       try {
@@ -617,7 +615,6 @@ class ClaudeSession implements AgentSession {
     options: Parameters<AgentSession['steer']>[1] = {},
   ): Promise<boolean> {
     const { command, skill, contextOnly, images = [] } = options;
-
     const blocks = readImages(images);
 
     if (!Array.isArray(blocks)) return false;
@@ -728,7 +725,6 @@ class ClaudeSession implements AgentSession {
       turn.idle = false;
 
       const records = this.takeUnreadContext();
-
       const uuid = this.push(content(records, answer, []));
 
       turn.inputs.set(uuid, { pending: true });
@@ -1055,7 +1051,6 @@ class ClaudeSession implements AgentSession {
         lifecycle.data.session_id === this.info.id
       ) {
         const input = turn.inputs.get(lifecycle.data.command_uuid);
-
         const state = lifecycle.data.state;
 
         if (input && state !== 'queued') {
@@ -1158,7 +1153,6 @@ class ClaudeSession implements AgentSession {
       );
 
       const success = result.status === 'completed';
-
       const uuids = message.user_message_uuids ?? [message.user_message_uuid];
 
       const correlated = uuids.some(

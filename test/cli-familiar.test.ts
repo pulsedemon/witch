@@ -51,7 +51,6 @@ async function fixture(
   };
 
   const requests: ControlRequest[] = [];
-
   const errors: unknown[] = [];
 
   const host = await ControlHost.open(
@@ -104,7 +103,6 @@ async function fixture(
   );
 
   let stdout = '';
-
   let stderr = '';
 
   child.stdout.on('data', (chunk: Buffer) => {
@@ -323,9 +321,7 @@ for (const kind of ['permission', 'malformed'] as const)
     await mkdir(join(directory, 'replies'));
 
     const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
-
     const originalRead = files.readFile;
-
     let advance: ReturnType<typeof setTimeout> | undefined;
 
     t.onTestFinished(() => clearTimeout(advance));
@@ -430,7 +426,6 @@ test('an error exit overrides a native success result', async () => {
 
 test('an exhausted progress timeout leaves the child running and delivers its final report after recovery', async () => {
   const gate = Promise.withResolvers<void>();
-
   const entered = Promise.withResolvers<void>();
 
   const f = await fixture('gated', async (request) => {
@@ -448,7 +443,6 @@ test('an exhausted progress timeout leaves the child running and delivers its fi
     await f.ready();
 
     const launch = await f.launch();
-
     const native = await identifyProcess(launch.pid);
 
     assert.ok(native);
@@ -541,7 +535,6 @@ test('an exhausted final report timeout retains the result and exits failed', as
 
 test('a descendant retaining stdout cannot hold the wrapper open after the review child exits', async () => {
   const f = await fixture('held-pipe');
-
   let descendant: Awaited<ReturnType<typeof identifyProcess>>;
 
   try {

@@ -45,11 +45,8 @@ async function cancellable(
   });
 
   const output = { stdout: '', stderr: '' };
-
   let failure: Error | undefined;
-
   let stopped = false;
-
   let timedOut = false;
 
   const interrupt = () => {

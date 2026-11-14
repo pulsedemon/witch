@@ -47,7 +47,6 @@ test("a command runs in its directory through the user's shell without a login o
   );
 
   const shell = await within(result, 3000, 'the command');
-
   const lines = shell.output.split('\n');
 
   assert.ok(lines.includes(await realpath(cwd)));
@@ -104,9 +103,7 @@ test("an abort kills the command's whole process group and reports it interrupte
 
 test('a command whose background child holds its output ends when the shell exits and forwards nothing after', async () => {
   const cwd = await scratch('witch-shell-');
-
   const { chunks, result } = run('echo parent; (sleep 0.3; echo late) &', cwd);
-
   const shell = await within(result, 2000, 'the command');
 
   assert.match(shell.output, /parent\n$/);
@@ -120,7 +117,6 @@ test('a command whose background child holds its output ends when the shell exit
 
 test("a background child holding a command's output doesn't keep the process alive", async () => {
   const cwd = await scratch('witch-shell-');
-
   const script = join(cwd, 'quit.mts');
 
   await writeFile(
@@ -165,12 +161,9 @@ console.log('settled');
 
 test('output past 1 MiB is cut once with a note, and the command still runs to its end', async () => {
   const cwd = await scratch('witch-shell-');
-
   // a runner that stopped reading would leave `tr` blocked on a full pipe
   const { chunks, result } = run("head -c 2000000 /dev/zero | tr '\\0' a", cwd);
-
   const shell = await within(result, 5000, 'the command');
-
   const note = '\n[output past 1 MiB cut]\n';
 
   assert.equal(shell.output.length, (1 << 20) + note.length);

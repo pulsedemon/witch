@@ -4,12 +4,9 @@ import { useStdin } from 'ink';
 
 /** button reports and all motion, with SGR coordinates. Shift+drag still selects text natively. */
 export const captureMouse = '\u001b[?1003h\u001b[?1006h';
-
 export const releaseMouse = '\u001b[?1006l\u001b[?1003l';
-
 // eslint-disable-next-line no-control-regex
 const report = /\u001b\[<(\d+);(\d+);(\d+)([Mm])/g;
-
 // reject each Escape run once to keep non-mouse input linear
 // eslint-disable-next-line no-control-regex
 const partial = /(?<!\u001b)\u001b+\[?$|\u001b\[<[\d;]*$/;
@@ -125,10 +122,8 @@ export class MouseInput extends EventEmitter {
       if (this.text) this.emit('readable');
 
       const [, code, x, y, kind] = match;
-
       // without the Shift, Alt and Ctrl bits; Ghostty reports Cmd+click as a plain click
       const button = Number(code) & ~0b11100;
-
       const cell = { column: Number(x) - 1, row: Number(y) - 1 };
 
       if (button === 64 || button === 65) {

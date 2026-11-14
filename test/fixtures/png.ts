@@ -5,7 +5,6 @@ import { crc32, deflateSync } from 'node:zlib';
 export function png(width: number, height: number): Buffer {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type), data]);
-
     const length = Buffer.alloc(4);
 
     length.writeUInt32BE(data.length);

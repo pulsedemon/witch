@@ -67,7 +67,6 @@ async function answer(session: AgentSession, cwd: string) {
 for (const runtime of ['codex', 'claude']) {
   test(`${runtime} reviews use the ordinary session without peer-answer restrictions`, async (t) => {
     const processes: (number | undefined)[] = [];
-
     const requests: string[] = [];
 
     const onAnswerProcess = async (pid: number | undefined) => {
@@ -139,7 +138,6 @@ for (const runtime of ['codex', 'claude']) {
 for (const history of [false, true]) {
   test(`Codex answers in a separate restricted ${history ? 'fork' : 'fresh thread'} and preserves its owner`, async (t) => {
     const events: AgentEvent[] = [];
-
     const processes: (number | undefined)[] = [];
 
     const { session, cwd, child } = await codex(
@@ -243,9 +241,7 @@ for (const history of [false, true]) {
 
   test(`Claude answers in a separate restricted ${history ? 'fork' : 'fresh session'} and preserves its owner`, async (t) => {
     const f = await claude();
-
     const events: AgentEvent[] = [];
-
     const processes: (number | undefined)[] = [];
 
     const session = await f.connect({
@@ -508,11 +504,8 @@ for (const reason of ['missing profile', 'exposed tool', 'registration']) {
 for (const runtime of ['codex', 'claude'] as const) {
   test(`${runtime} declines interactive answer requests without prompting the owner`, async (t) => {
     const events: AgentEvent[] = [];
-
     const onEvent = (event: AgentEvent) => events.push(event);
-
     const f = runtime === 'codex' ? await codex(onEvent) : await claude();
-
     const session = 'session' in f ? f.session : await f.connect({ onEvent });
 
     t.onTestFinished(() => session.close());
@@ -538,9 +531,7 @@ for (const runtime of ['codex', 'claude'] as const) {
 
 test('Claude allows its exact request file when the native read needs approval', async (t) => {
   const f = await claude();
-
   const events: AgentEvent[] = [];
-
   const session = await f.connect({ onEvent: (event) => events.push(event) });
 
   t.onTestFinished(() => session.close());
@@ -703,7 +694,6 @@ test('Codex owner shutdown collects its familiar after answer cleanup rejects', 
 
 test('Claude owner shutdown still closes its native process after answer cleanup rejects', async () => {
   const f = await claude();
-
   const session = await f.connect();
 
   const interrupt = vi
@@ -739,7 +729,6 @@ for (const runtime of ['codex', 'claude'] as const) {
         'session' in f ? f.session : await f.connect({ onAnswerProcess });
 
       const batch = await input(f.cwd);
-
       const closing = session.close();
 
       if (phase === 'closed') await closing;
@@ -766,9 +755,7 @@ for (const runtime of ['codex', 'claude'] as const) {
 
   test(`${runtime} normalizes cancelled startup only after its answer process exits`, async (t) => {
     const entered = Promise.withResolvers<void>();
-
     const registered = Promise.withResolvers<void>();
-
     let answerPid: number | undefined;
 
     const onAnswerProcess = async (pid: number | undefined) => {

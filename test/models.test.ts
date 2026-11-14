@@ -100,11 +100,8 @@ test('catalogs preserve runtime order and identity, and reuse inactive lists unt
 
 test('catalog cancellation waits for every discovery to finish cleanup before rejecting', async () => {
   const agents = ['a', 'b'].map((id) => new FixtureAgent(id));
-
   const entered = agents.map(() => Promise.withResolvers<AbortSignal>());
-
   const closed = agents.map(() => Promise.withResolvers<void>());
-
   const cancelled = agents.map(() => Promise.withResolvers<void>());
 
   agents.forEach((agent, index) => {
@@ -137,7 +134,6 @@ test('catalog cancellation waits for every discovery to finish cleanup before re
   );
 
   const pending = catalog.read('/fixture');
-
   const isSettled = settled(pending);
 
   const rejected = assert.rejects(
@@ -178,11 +174,8 @@ test('catalog cancellation waits for every discovery to finish cleanup before re
 
 test('latest models are read once per process, again on a refresh or after a failure, and cancel with discovery', async () => {
   const [a, b] = [new FixtureAgent('a'), new FixtureAgent('b')];
-
   const reads: (AbortSignal | undefined)[] = [];
-
   let failing = true;
-
   const gate: { hold?: Promise<void> } = {};
 
   a.latest = async ({ signal }) => {
@@ -248,7 +241,6 @@ test('latest models are read once per process, again on a refresh or after a fai
 
 test('a latest read that has not answered in time is stopped and reported, and the catalog read finishes', async () => {
   const a = new FixtureAgent('a');
-
   let signal: AbortSignal | undefined;
 
   a.latest = (options) =>

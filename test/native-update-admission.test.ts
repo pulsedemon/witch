@@ -74,9 +74,7 @@ test('a native lease in another process excludes the updater until that process 
 
 test('native launch executes the checked artifact even if the launcher changes immediately before spawn', async () => {
   const f = await runtimeUpdateFixture();
-
   const unregister = registerNativeParticipant(f.store.directory);
-
   let output = '';
 
   const child = nativeLaunch(
@@ -123,7 +121,6 @@ test('native launch executes the checked artifact even if the launcher changes i
 
 test('a pending update prevents a native launch before a subprocess is created', async () => {
   const f = await runtimeUpdateFixture();
-
   const unregister = registerNativeParticipant(f.store.directory);
 
   f.native.prepare = async () => {
@@ -165,7 +162,6 @@ test('a pending update prevents a native launch before a subprocess is created',
 
 test('an error from a still-running native child retains its lease until exit', async () => {
   const f = await runtimeUpdateFixture();
-
   const unregister = registerNativeParticipant(f.store.directory);
 
   writeFileSync(

@@ -76,11 +76,8 @@ export function changes(
   after: Texts,
 ): { diff: string; changed: Map<string, Set<number>>; ratio: number } {
   const patches = [];
-
   const changed = new Map<string, Set<number>>();
-
   let touched = 0;
-
   let total = 0;
 
   for (const file of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -246,7 +243,6 @@ export function correctionPrompt(
     `- ${located(finding)}: ${finding.summary}\n  Correction: ${finding.correction}`;
 
   const blockers = input.findings.filter(({ blocking }) => blocking);
-
   const others = input.findings.filter(({ blocking }) => !blocking);
 
   return [

@@ -526,7 +526,6 @@ test('work shifts to the runtime with room once the chosen one is over the level
 
 test('a review the policy sent away from its producer stays off the producer when the reviewer is over the level, and other work does not', () => {
   const of = { runtime: 'codex', model: 'gpt-6.1-sol' };
-
   const limits = { claude: [window('7D', 92)], codex: [window('7D', 49)] };
 
   assert.deepEqual(
@@ -700,7 +699,6 @@ test('a runtime over the level stays when no other runtime is installed, and the
 
 test('with no rule, review goes to every runtime, and a reviewer over the level folds into the route of the runtime it shifts onto', () => {
   const of = { runtime: 'claude', model: 'claude-opus-5-5' };
-
   const reason = 'review of claude work goes to every runtime';
 
   assert.deepEqual(ask({ work: 'review', of }), [
@@ -792,7 +790,6 @@ test("a review whose first runtime is over the level folds its shift into the ne
 
 test('a rule that names a model or family shifts to the comparable model on a runtime with room, and stays when there is none', () => {
   const claudeHot = { claude: [window('7D', 99)], codex: [window('7D', 1)] };
-
   const codexHot = { claude: [window('7D', 1)], codex: [window('7D', 99)] };
 
   for (const [rule, limits, model, from] of [

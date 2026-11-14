@@ -25,9 +25,7 @@ function server(ignoreTerm = false) {
 
 test('RPC close escalates an unresponsive child and rejects pending requests once', async () => {
   const child = server(true);
-
   const rpc = new JsonRpc(child);
-
   let exits = 0;
 
   rpc.onExit = () => {
@@ -38,11 +36,8 @@ test('RPC close escalates an unresponsive child and rejects pending requests onc
     await write(child, rpc, Buffer.from('{"method":"ready"}\n'));
 
     const rejected = assert.rejects(rpc.request('hold', {}), /exited/);
-
     const started = performance.now();
-
     const first = rpc.close({ deadline: started + 1200 });
-
     const second = rpc.close({ deadline: started + 4000 });
 
     assert.deepEqual(await Promise.all([first, second]), [true, true]);
@@ -64,9 +59,7 @@ test('RPC close escalates an unresponsive child and rejects pending requests onc
 
 test('RPC restart closure retains the existing SIGTERM policy', async () => {
   const child = server(true);
-
   const rpc = new JsonRpc(child);
-
   let stopped = false;
 
   try {
@@ -115,9 +108,7 @@ async function write(
 
 test('preserves Unicode separators across fragmented UTF-8 messages', async () => {
   const child = server();
-
   const rpc = new JsonRpc(child);
-
   const messages: RpcMessage[] = [];
 
   rpc.onMessage = (message) => messages.push(message);
@@ -131,9 +122,7 @@ test('preserves Unicode separators across fragmented UTF-8 messages', async () =
   );
 
   const first = frames.indexOf(Buffer.from(String.fromCodePoint(0x2028))) + 1;
-
   const second = frames.indexOf(Buffer.from(String.fromCodePoint(0x1f600))) + 2;
-
   const reply = rpc.request('hold', {});
 
   void reply.catch(() => {});
@@ -172,11 +161,8 @@ test('preserves Unicode separators across fragmented UTF-8 messages', async () =
 
 test('reads a final reply without a newline when stdout ends', async () => {
   const child = server();
-
   const rpc = new JsonRpc(child);
-
   const reply = rpc.request('hold', {});
-
   const isSettled = settled(reply);
 
   try {
@@ -194,9 +180,7 @@ test('reads a final reply without a newline when stdout ends', async () => {
 
 test('rejects a truncated reply when stdout ends', async () => {
   const child = server();
-
   const rpc = new JsonRpc(child);
-
   const rejected = assert.rejects(rpc.request('hold', {}), SyntaxError);
 
   try {
@@ -219,7 +203,6 @@ test('pairs out-of-order replies with the original request', async () => {
 
   try {
     const first = rpc.request('reverse', { value: 'first' });
-
     const second = rpc.request('reverse', { value: 'second' });
 
     assert.deepEqual(await Promise.all([first, second]), [
@@ -255,7 +238,6 @@ test('returns the approval response to the native request id', async () => {
 
 test('rejects pending requests with the native diagnostic when its process exits', async () => {
   const rpc = new JsonRpc(server());
-
   const pending = rpc.request('hold', {});
 
   rpc.notify('exit', {});
@@ -267,7 +249,6 @@ test('rejects pending requests with the native diagnostic when its process exits
 
 test('a garbage line from the agent kills it', async () => {
   const child = server();
-
   const rpc = new JsonRpc(child);
 
   try {
@@ -284,7 +265,6 @@ test('a garbage line from the agent kills it', async () => {
 for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
   test(`${adapter.label} refuses a missing executable before starting or reporting a process`, async () => {
     const cwd = await scratch('witch-missing-');
-
     const reports: (number | undefined)[] = [];
 
     await within(

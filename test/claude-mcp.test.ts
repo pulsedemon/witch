@@ -16,7 +16,6 @@ async function fixture(
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
   const timers: ReturnType<typeof vi.fn<() => void>>[] = [];
-
   const schedule = setTimeout;
 
   vi.spyOn(globalThis, 'setTimeout').mockImplementation(
@@ -45,7 +44,6 @@ async function fixture(
   if (gate) await writeFile(join(f.cwd, gate), '');
 
   const notices: Extract<AgentEvent, { type: 'notice' }>[] = [];
-
   const barriers = new Set<string>();
 
   const session = await f.connect({

@@ -57,9 +57,7 @@ import type {
 } from './types.js';
 
 const stringValue = z.string();
-
 const nullishString = stringValue.nullish();
-
 const turnDiff = z.object({ turnId: stringValue, diff: stringValue });
 
 const skillList = z.object({
@@ -183,7 +181,6 @@ export class CodexAdapter implements AgentAdapter {
 
   async connect(options: SessionOptions): Promise<AgentSession> {
     const child = this.start(options.executable, options.cwd, options.signal);
-
     const rpc = new JsonRpc(child);
 
     const session = new CodexSession(
@@ -516,7 +513,6 @@ class CodexSession implements AgentSession {
       skill && this.spellIndex.find(({ name }) => name === skill.name)?.path;
 
     const turn = this.beginTurn();
-
     let submitted = false;
 
     try {
@@ -762,7 +758,6 @@ class CodexSession implements AgentSession {
     if (!request || request.id === undefined) return;
 
     const params = object.parse(request.params);
-
     let result: unknown;
 
     switch (request.method) {
@@ -958,14 +953,11 @@ class CodexSession implements AgentSession {
     if (item?.type !== 'fileChange') return;
 
     const changes = fileChanges.safeParse(item.changes);
-
     const diff = changes.success ? fileDiffs(changes.data) : undefined;
-
     const identity = fileChangeIdentity.safeParse({ ...data, itemId: item.id });
 
     if (identity.success) {
       const { threadId, turnId, itemId } = identity.data;
-
       const key = fileChangeKey(threadId, turnId, itemId);
 
       if (message.method === 'item/started' && diff)
@@ -1049,7 +1041,6 @@ class CodexSession implements AgentSession {
 
       case 'item/agentMessage/delta': {
         const id = stringValue.parse(data.itemId);
-
         const text = stringValue.parse(data.delta);
 
         this.turn?.messages.append(id, text);
@@ -1063,14 +1054,11 @@ class CodexSession implements AgentSession {
 
       case 'item/completed': {
         const item = message.item!;
-
         const id = stringValue.parse(item.id);
-
         const type = stringValue.parse(item.type);
 
         if (type === 'contextCompaction') {
           const turn = this.turn;
-
           const compact = turn?.compaction;
 
           if (message.method === 'item/started') {
@@ -1158,9 +1146,7 @@ class CodexSession implements AgentSession {
 
       case 'turn/diff/updated': {
         const turn = turnDiff.parse(data);
-
         const previous = this.turnLines.get(turn.turnId);
-
         const lines = diffLines(turn.diff);
 
         this.turnLines.set(turn.turnId, lines);
@@ -1195,9 +1181,7 @@ class CodexSession implements AgentSession {
         if (this.turn?.compaction && turn.id !== this.turn.id) break;
 
         const status = stringValue.parse(turn.status);
-
         const error = turn.error == null ? undefined : object.parse(turn.error);
-
         const completed = turnId.safeParse(data).data?.turn.id;
 
         if (['completed', 'interrupted', 'failed'].includes(status))
@@ -1304,7 +1288,6 @@ class CodexSession implements AgentSession {
 
   private parseRequest(message: RpcMessage): UserRequest | undefined {
     const id = String(message.id);
-
     const data = object.parse(message.params);
 
     const request = {

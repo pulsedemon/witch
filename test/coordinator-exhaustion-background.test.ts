@@ -133,7 +133,6 @@ test('a pending compact runs on the destination after background continuation', 
 
 test('background exhaustion blocked by a command leaves the queue for the composer', async () => {
   const { coordinator, claude, codex, emit } = await completedForBackground();
-
   const release = coordinator.holdPromptDelivery();
 
   try {
@@ -253,9 +252,7 @@ test('background memory waits for recovery, then continues completed work on the
 for (const stage of ['add', 'commit'] as const)
   test(`background exhaustion during memory ${stage} retains dirty notes without changing the completed outcome`, async () => {
     const { coordinator, claude, codex, hook, store } = await exhaustion();
-
     let armed = false;
-
     const emit = claude.sessions.at(-1)!.options.onEvent;
 
     claude.onSend = async () => {
@@ -385,11 +382,8 @@ test('a peer pause cancels background switching and a later continuation preserv
   pauseDiscovery(vi.spyOn);
 
   const f = await unitCoordinationFixture(cleanup);
-
   const initiator = await f.start('A');
-
   const claude = new FixtureAgent('claude');
-
   const codex = new FixtureAgent('codex');
 
   claude.catalog.splice(0, Infinity, ...models(['claude-fable-5-2']));
@@ -510,7 +504,6 @@ test('background settlement failure releases pending compaction and keeps the so
 for (const blocked of ['capacity', 'command'] as const)
   test(`background recovery attempts a ${blocked}-blocked switch only once`, async () => {
     const { coordinator, claude, codex, emit } = await completedForBackground();
-
     let release = () => {};
 
     try {
@@ -583,15 +576,12 @@ for (const blocked of ['capacity', 'command'] as const)
 for (const preparing of ['context', 'images'] as const)
   test(`background exhaustion stops a queued prompt during ${preparing} preparation`, async () => {
     const { coordinator, claude, codex, emit } = await completedForBackground();
-
     const entered = Promise.withResolvers<void>();
-
     const release = Promise.withResolvers<void>();
 
     try {
       if (preparing === 'context') {
         const session = claude.sessions.at(-1)!.session;
-
         const context = session.contextUsage.bind(session);
 
         vi.spyOn(session, 'contextUsage').mockImplementationOnce(async () => {
@@ -646,11 +636,8 @@ for (const preparing of ['context', 'images'] as const)
 
 test('a steering image prepared across exhaustion stays queued for the destination', async () => {
   const { coordinator, claude, codex, emit } = await completedForBackground();
-
   const gate = new TurnGate();
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
 
   try {
@@ -665,7 +652,6 @@ test('a steering image prepared across exhaustion stays queued for the destinati
     await writeFile(image, png(2, 2));
 
     const marker = coordinator.paste(image, '')!;
-
     const prepare = Attachments.prototype.prepare;
 
     vi.spyOn(Attachments.prototype, 'prepare').mockImplementationOnce(
@@ -716,11 +702,8 @@ test('background rejection during transcript flush keeps dirty memory for recove
     await completedForBackground();
 
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   const flush = ConversationStore.prototype.flush;
-
   let armed = false;
 
   const send = claude.sessions
@@ -846,7 +829,6 @@ for (const stage of [
     };
 
     const save = ConversationStore.prototype.save;
-
     const scope = Workspace.prototype.scope;
 
     if (stage === 'settlement')

@@ -97,7 +97,6 @@ async function filterless(
   );
 
   const entries = stdout.split('\0');
-
   const drivers = new Set<string>();
 
   for (let index = 0; index + 1 < entries.length; index += 2) {
@@ -117,7 +116,6 @@ async function filterless(
   if (!drivers.size) return undefined;
 
   const env: NodeJS.ProcessEnv = { ...process.env };
-
   let count = Number(process.env.GIT_CONFIG_COUNT) || 0;
 
   const set = (key: string, value: string) => {
@@ -241,9 +239,7 @@ const pullRequestView = gitHubPullRequestFields.extend({
 /** reads `gh pr view --json number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable,mergedAt`. */
 export function parsePullRequest(json: string): PullRequest {
   const view = pullRequestView.parse(JSON.parse(json));
-
   const { state, mergeable, mergedAt, statusCheckRollup } = view;
-
   const pullRequest = fromGitHub(view);
 
   if (state !== 'OPEN')
@@ -320,7 +316,6 @@ const reason = (error: unknown) =>
 
 /** how soon a change is read, so one save's several writes take one read. */
 const debounce = 100;
-
 /**
  * how long a watch goes without a read before it reads anyway, since FSEvents can drop an event under load and a fix
  * for a read Git failed with exit 128, such as `git init` in a parent or a global config edit, sends none.
@@ -569,7 +564,6 @@ export class RepositoryWatch {
     this.startedAt = performance.now();
 
     let repository: Repository | undefined;
-
     let failure: unknown;
 
     try {
@@ -644,13 +638,9 @@ export class RepositoryWatch {
     this.requested = false;
 
     const started = Date.now();
-
     const commit = this.snapshot?.commit;
-
     let value: PullRequest | undefined;
-
     let project: string | undefined;
-
     const failures = new Set<string>();
 
     // the checks and base tip reads keep their fallbacks when they fail, and say why when nobody expects the failure

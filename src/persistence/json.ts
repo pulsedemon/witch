@@ -14,7 +14,6 @@ export async function replaceFile(
   times?: { atime: Date; mtime: Date },
 ): Promise<void> {
   const temporary = `${file}.${randomUUID()}.tmp`;
-
   const handle = await open(temporary, 'wx', 0o600);
 
   try {

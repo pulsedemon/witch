@@ -93,9 +93,7 @@ export async function artifactDigest(
 
 function compareVersions(left: string, right: string): number {
   const [a, preA] = versionSchema.parse(left).split('-');
-
   const [b, preB] = versionSchema.parse(right).split('-');
-
   const parts = b!.split('.').map(Number);
 
   for (const [index, value] of a!.split('.').map(Number).entries()) {
@@ -118,11 +116,8 @@ export async function earlierArtifact(
   installation: RuntimeInstallation,
 ): Promise<{ version: string; executable: string } | undefined> {
   const claude = installation.runtime === 'claude';
-
   const folder = join(installation.root, claude ? 'versions' : 'releases');
-
   const release = dirname(dirname(installation.executable));
-
   const selected = basename(release);
 
   // only a native releases directory promises `<version>-<target>` names
@@ -171,7 +166,6 @@ export async function inspectRuntime(
   if (!registration.executable) throw new Error(`${runtime} is not installed.`);
 
   const launcher = registration.executable;
-
   const executable = await realpath(launcher);
 
   const packageFile =
@@ -261,9 +255,7 @@ export async function inspectRuntime(
     launcher === join(homedir(), '.local', 'bin', 'claude');
 
   const { resolveSettings } = await import('@anthropic-ai/claude-agent-sdk');
-
   const { effective } = await resolveSettings({ cwd });
-
   const environment = { ...process.env, ...effective.env };
 
   return {

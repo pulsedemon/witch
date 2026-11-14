@@ -52,7 +52,6 @@ export function transferRefusal(
     return 'It has running familiars or brews. Stop them there, then run /task take again.';
 
   const runtime = state.native?.agent ?? state.conversation?.agent;
-
   const account = runtime ? state.accounts[runtime] : undefined;
 
   if (automatic && creditCapacity(account, now) === 'available')
@@ -97,7 +96,6 @@ export async function awaitTransfer<View extends { ledger: Ledger }>(
 ): Promise<{ claim: TaskClaim; view?: View }> {
   // leave time for withdrawal, the final peer refresh and the control reply.
   const end = request.deadline - 2000;
-
   const requested = await request.request(end);
 
   try {

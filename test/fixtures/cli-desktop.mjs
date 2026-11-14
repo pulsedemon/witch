@@ -47,7 +47,6 @@ childProcess.execFile = (file, ...args) => {
     return execute(file, ...args);
 
   const callback = args.at(-1);
-
   const fail = failure === file;
 
   const child = execute(

@@ -66,7 +66,6 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 /** word runs, whitespace runs and every other character alone, as Claude Code splits a line, never inside a grapheme. */
 function tokens(text: string): string[] {
   const found: string[] = [];
-
   let kind: string | undefined;
 
   for (const { segment } of graphemes.segment(text)) {
@@ -91,11 +90,8 @@ function tokens(text: string): string[] {
  */
 function changedWords(before: string, after: string): [Range[], Range[]] {
   const maxEdits = 400;
-
   const oldTokens = tokens(before);
-
   const newTokens = tokens(after);
-
   let unmatched = oldTokens.length + newTokens.length;
 
   if (unmatched > maxEdits) {
@@ -122,14 +118,11 @@ function changedWords(before: string, after: string): [Range[], Range[]] {
   if (!parts) return [[], []];
 
   const ranges: [Range[], Range[]] = [[], []];
-
   const at = [0, 0];
-
   let changed = 0;
 
   for (const part of parts) {
     const size = part.value.join('').length;
-
     const sides = part.removed ? [0] : part.added ? [1] : [0, 1];
 
     for (const side of sides) {
@@ -178,7 +171,6 @@ function paint(
   background: string | undefined,
 ): string {
   let text = '';
-
   let at = 0;
 
   for (const span of spans) {
@@ -217,17 +209,11 @@ function prepareFile(
 ): (width: number) => string[][] {
   // undefined separates hunks
   const rows: (Row | undefined)[] = [];
-
   const whole = file.kind !== 'update';
-
   let added = 0;
-
   let removed = 0;
-
   let shown = 0;
-
   let hidden = 0;
-
   const top = file.hunks[0];
 
   const language = languageOf(
@@ -241,9 +227,7 @@ function prepareFile(
     if (index) rows.push(undefined);
 
     const drawn: Row[] = [];
-
     let old = hunk.oldStart;
-
     let now = hunk.newStart;
 
     for (const line of hunk.lines) {
@@ -327,7 +311,6 @@ function prepareFile(
     if (!row) return undefined;
 
     const change = changes[row.marker];
-
     const number = String(row.number).padStart(digits);
 
     return {

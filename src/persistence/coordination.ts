@@ -229,7 +229,6 @@ export class CoordinationStore {
 
   async presences(): Promise<SessionPresence[]> {
     const directory = join(this.directory, 'sessions');
-
     const result: SessionPresence[] = [];
 
     for (const name of await readdir(directory)) {
@@ -322,7 +321,6 @@ export class CoordinationStore {
       if (existing) return { result: existing };
 
       const ledger = await this.reconcile(await this.read(), deadline);
-
       const owned = ledger.claims.find(({ id }) => id === claim);
 
       if (!owned)
@@ -375,7 +373,6 @@ export class CoordinationStore {
         };
 
       const attemptedAt = new Date().toISOString();
-
       const attempted: PeerRequest[] = [];
 
       const requests = stored.map((request) => {
@@ -425,7 +422,6 @@ export class CoordinationStore {
 
       for (const { id, message } of answers) {
         const index = requests.findIndex((request) => request.id === id);
-
         const request = updates.get(index) ?? requests[index];
 
         if (request?.to !== conversation)
@@ -674,7 +670,6 @@ export class CoordinationStore {
     activation: string,
   ): Promise<void> {
     const file = join(this.directory, 'sessions', `${conversation}.json`);
-
     const presence = await readJson(file, sessionPresenceSchema);
 
     if (presence?.activation === activation) await rm(file, { force: true });
@@ -847,7 +842,6 @@ export class CoordinationStore {
   ): Promise<TaskClaim | undefined> {
     return this.mutate(deadline, verify, (ledger) => {
       const claim = ledger.claims.find((claim) => claim.id === id);
-
       const transfer = claim?.[field];
 
       if (
@@ -1087,7 +1081,6 @@ export class CoordinationStore {
     await Promise.allSettled(probes);
 
     const [processes, opened, active] = await Promise.all(probes);
-
     const now = Date.now();
 
     return {
@@ -1157,9 +1150,7 @@ export class CoordinationStore {
 
     try {
       const stored = await this.read();
-
       const before = JSON.stringify(stored);
-
       const ledger = await this.reconcile(stored, deadline);
 
       checkDeadline(deadline);

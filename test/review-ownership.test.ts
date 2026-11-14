@@ -48,7 +48,6 @@ test('binding an issue claim adds the PR alias and records assignment without re
   );
 
   const a = await f.start('A');
-
   const source = reviewSource();
 
   await attach(f, a, source);
@@ -102,7 +101,6 @@ test('binding refuses a stale summary and retries with the current claim', async
   );
 
   const a = await f.start('A');
-
   const source = reviewSource();
 
   await attach(f, a, source);
@@ -110,11 +108,8 @@ test('binding refuses a stale summary and retries with the current claim', async
   await a.claim(source.closingIssues[0]!, 'old summary');
 
   const entered = Promise.withResolvers<void>();
-
   const released = Promise.withResolvers<void>();
-
   const run = commands.runCommand;
-
   let held = false;
 
   vi.spyOn(commands, 'runCommand').mockImplementation(
@@ -169,17 +164,13 @@ test('binding refuses a stale summary and retries with the current claim', async
 
 test('another PR owner refuses alias binding without transfer or loss of either claim', async (t) => {
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
-
   const a = await f.start('A');
-
   const b = await f.start('B');
-
   const source = reviewSource();
 
   await attach(f, a, source);
 
   const issue = await a.claim(source.closingIssues[0]!);
-
   const owner = await b.claim(source.pullRequest.url);
 
   assert.equal(issue.kind, 'claimed');
@@ -209,9 +200,7 @@ test('another PR owner refuses alias binding without transfer or loss of either 
 
 test('an unrelated task is never replaced by the branch PR', async (t) => {
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
-
   const a = await f.start('A');
-
   const source = reviewSource();
 
   await attach(f, a, source);
@@ -230,11 +219,8 @@ test('an unrelated task is never replaced by the branch PR', async (t) => {
 
 test('fresh Git state rejects a changed branch even while the displayed status is stale', async (t) => {
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
-
   const a = await f.start('A');
-
   const source = reviewSource();
-
   const cwd = await attach(f, a, source);
 
   await a.claim(source.pullRequest.url);
@@ -269,7 +255,6 @@ test('failed GitHub assignment leaves usable ownership and retries only on an ex
   );
 
   const a = await f.start('A');
-
   const source = reviewSource();
 
   await attach(f, a, source);
@@ -308,9 +293,7 @@ test('failed GitHub assignment leaves usable ownership and retries only on an ex
 
 test('closed PRs do not bind even if the local status still says open', async (t) => {
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
-
   const a = await f.start('A');
-
   const source = reviewSource();
 
   await attach(f, a, source);
@@ -338,13 +321,11 @@ test('a solo PR suggestion binds only after the requested claim promotion', asyn
   }));
 
   const a = await f.start('A');
-
   const source = reviewSource();
 
   await attach(f, a, source);
 
   const selecting = await selectionTurn(cleanup, a);
-
   const { ticket } = await selecting.select();
 
   const suggested = await callControl(await a.binding(), {
@@ -391,13 +372,9 @@ test("an ownership check given the turn's project reads no scope", async (t) => 
   pauseDiscovery(vi.spyOn);
 
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
-
   const a = await f.start('A');
-
   const source = reviewSource();
-
   const cwd = await attach(f, a, source);
-
   const claimed = await a.claim(source.pullRequest.url, 'review fixes');
 
   assert.equal(claimed.kind, 'claimed');
@@ -405,9 +382,7 @@ test("an ownership check given the turn's project reads no scope", async (t) => 
   if (claimed.kind !== 'claimed') assert.fail();
 
   const { project } = await f.memory.scopePaths(cwd);
-
   const reads = vi.spyOn(f.memory, 'scopePaths');
-
   const { reviews } = a.coordination;
 
   assert.equal(

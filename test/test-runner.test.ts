@@ -19,7 +19,6 @@ import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
-
 const suiteFiles = ['test/first.test.ts', 'test/second.test.ts'];
 
 function suite(label: string, failure = '') {
@@ -256,9 +255,7 @@ test('later case retains earlier scratch', async () => {
 
 test('a later Vitest run recovers killed-worker scratch while another live run retains its files', async () => {
   const killed = await fixture();
-
   const live = await fixture(killed.tmp);
-
   const recovery = await fixture(killed.tmp);
 
   const held = `import { appendFileSync, existsSync } from 'node:fs';
@@ -311,7 +308,6 @@ test('holds scratch until released', async () => {
   };
 
   let dying: ReturnType<typeof killed.run> | undefined;
-
   let surviving: ReturnType<typeof live.run> | undefined;
 
   try {
@@ -471,9 +467,7 @@ test('the following case sees restored globals', () => {
 
 test('a child-only fixture edit reruns the selected watch suite', async () => {
   const f = await fixture();
-
   const child = join(f.root, 'test/fixtures/child.mjs');
-
   const ready = "process.stdout.write('ready');\n";
 
   await writeFile(child, ready);

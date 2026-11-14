@@ -93,7 +93,6 @@ async function seed(
   path: string,
 ): Promise<void> {
   const source = join(main, path).replace(/\/$/, '');
-
   const target = join(worktree, path).replace(/\/$/, '');
 
   const plans = [...planDirectories.plans, planDirectories.ledgers].map(
@@ -243,9 +242,7 @@ export async function spawnWorktrees(
     (await run('git', args, { cwd: directory, timeout: 60_000 })).stdout;
 
   const registered = await listWorktrees(run, cwd);
-
   const main = registered[0]!;
-
   const branch = await git(main, 'rev-parse', '--symbolic-full-name', 'HEAD');
 
   if (branch.trim() === 'HEAD')
@@ -284,12 +281,9 @@ export async function spawnWorktrees(
   );
 
   const local = listing.stdout.split('\0').filter(Boolean);
-
   // git exits 0 when it can't read a directory, and says so only on stderr
   const unread = oneLine(listing.stderr ?? '').trim();
-
   const results: Spawned[] = [];
-
   const held = new Set(slots.values());
 
   for (let index = 1; index <= count; index++) {
@@ -455,9 +449,7 @@ export function sessionsIn(
 ): (path: string) => Promise<boolean> {
   return async (path) => {
     const store = await StateStore.open(stateRoot);
-
     const ids = [...(await store.openConversations()).keys()];
-
     const { records, unreadable } = await store.records(ids);
 
     // a new conversation locks before its first save
@@ -467,7 +459,6 @@ export function sessionsIn(
       );
 
     const real = await realpath(path);
-
     // a session left in a directory that has since moved still holds it
     const { map } = await mapper(await readLedger(stateRoot));
 
@@ -503,25 +494,20 @@ export async function runSpawn(
   try {
     await listWorktrees(run, cwd).catch(async (error: unknown) => {
       const identity = await identify(cwd);
-
       const { entries } = await readLedger(stateRoot);
 
       if (!entries.some((entry) => sameIdentity(entry, identity))) throw error;
     });
 
     const store = await StateStore.open(stateRoot);
-
     const memory = new Memory(memoryRepository(stateRoot));
-
     // spawning without a repair would open worktrees whose registrations nothing checked
     const repaired = await repairMoves(store, memory, cwd, { run });
-
     const notice = describeMoves(repaired, stateRoot);
 
     if (notice) process.stdout.write(`${notice}\n`);
 
     const list = await listWorktrees(run, cwd);
-
     const main = list[0]!;
 
     if (repaired.blocked.some(({ repository }) => repository === main))

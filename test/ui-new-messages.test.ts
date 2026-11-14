@@ -19,13 +19,9 @@ import {
 import { until } from './fixtures/within.js';
 
 const label = '↓ New messages';
-
 const wheelUp = '\u001b[<64;10;10M';
-
 const wheelDown = '\u001b[<65;10;10M';
-
 const pageUp = '\u001b[5~';
-
 const pageDown = '\u001b[6~';
 
 const long = {
@@ -59,7 +55,6 @@ function click(ui: UI, cell = button(ui)) {
 
 function mount(snapshot: Partial<Snapshot> = {}, columns = 80, rows = 25) {
   const { app, coordinator, calls } = fake({ items: [long], ...snapshot });
-
   const copied: string[] = [];
 
   const ui = show(
@@ -108,7 +103,6 @@ for (const phase of ['idle', 'running'] as const) {
       assert.ok(!ui.text().includes(label));
 
       const reading = first(ui);
-
       const prompt = rowOf(ui, 'retained draft');
 
       update({ id: 'new', kind: 'notice', cwd: '/work', text: 'new arrival' });
@@ -163,7 +157,6 @@ test('pending compaction and new messages preserve the reading line and composer
     await until('draft', () => ui.text().includes('retained draft'));
 
     const reading = first(ui);
-
     const prompt = rowOf(ui, 'retained draft');
 
     coordinator.publish({ pendingCompaction: true });
@@ -249,7 +242,6 @@ test('updates to existing items notify without adding rows', async () => {
       await readEarlier(ui);
 
       const reading = first(ui);
-
       const count = coordinator.snapshot.items.length;
 
       update(change);
@@ -370,7 +362,6 @@ test('only a click on the shown button jumps and transcript selection still copi
     await until('button', () => ui.text().includes(label));
 
     const reading = first(ui);
-
     const [column, row] = button(ui);
 
     click(ui, [column - 2, row]);
@@ -599,7 +590,6 @@ test('a completion list keeps the prompt and reading line fixed when new message
     await until('completions', () => ui.text().includes('/sessions'));
 
     const reading = first(ui);
-
     const prompt = rowOf(ui, '┃ /');
 
     update({ ...long, text: ' newest suffix' });
@@ -679,7 +669,6 @@ for (const [columns, rows] of [
       await until('draft', () => ui.text().includes('draft'));
 
       const reading = first(ui);
-
       const prompt = rowOf(ui, '┃ draft');
 
       assert.match(ui.text(), /Earlier messages/);

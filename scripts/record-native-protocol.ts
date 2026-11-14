@@ -68,7 +68,6 @@ if (values.scenario === 'spell') {
 process.env.CLAUDE_CODE_TMPDIR = root;
 
 const captures: ReturnType<typeof observeWire>[] = [];
-
 const launches: { command: string; args: string[] }[] = [];
 
 const start = (
@@ -95,11 +94,8 @@ const start = (
 };
 
 const executable = values.executable ?? values.runtime;
-
 const adapter = await verificationAdapter(values.runtime, root, { start });
-
 let passed = false;
-
 const abort = new AbortController();
 
 const timeout = setTimeout(

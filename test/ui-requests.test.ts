@@ -157,7 +157,6 @@ test('file approval expansion resets for the next request', async () => {
 
 test('modified approval letters do not answer', async () => {
   const { app, calls } = fake({ phase: 'running', requests: [approval] });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -187,7 +186,6 @@ for (const [name, keys, decision] of [
 ] as const)
   test(`${name} an approval`, async () => {
     const { app, calls } = fake({ phase: 'running', requests: [approval] });
-
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
     try {
@@ -458,7 +456,6 @@ test('Ctrl+C cancels an idle question without exiting Witch', async () => {
 
 test('a request preserves the page it covers and keeps arrows for selection', async () => {
   const wheelDown = '\u001b[<65;10;10M';
-
   const { app, coordinator, calls } = fake({});
 
   const ui = show(
@@ -475,7 +472,6 @@ test('a request preserves the page it covers and keeps arrows for selection', as
 
   const helpBody = () => {
     const all = rows();
-
     const title = all.indexOf('Keyboard help');
 
     return all.slice(title + 1, title + 11);

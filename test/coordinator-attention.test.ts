@@ -12,15 +12,10 @@ import { within } from './fixtures/within.js';
 
 test('completion identifies the successful activity only after its final save', async () => {
   const { coordinator, a, root } = await fixture();
-
   const gate = new TurnGate();
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   const save = ConversationStore.prototype.save;
-
   let saving: { mockRestore(): void } | undefined;
 
   try {
@@ -49,7 +44,6 @@ test('completion identifies the successful activity only after its final save', 
     saving = spy;
 
     const id = coordinator.snapshot.conversation!.id;
-
     const activity = (await readRecord(root, id)).activity!;
 
     assert.equal(coordinator.snapshot.completedTurn, undefined);
@@ -88,11 +82,8 @@ test('completion identifies the successful activity only after its final save', 
 
 test('a rejected final save publishes no completion', async () => {
   const { coordinator, a } = await unitFixture();
-
   const gate = new TurnGate();
-
   const save = ConversationStore.prototype.save;
-
   let saving: { mockRestore(): void } | undefined;
 
   try {
@@ -136,7 +127,6 @@ test('a rejected final save publishes no completion', async () => {
 for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
   test(`${outcome} turns clear the preceding successful completion`, async () => {
     const { coordinator, a, hook, root } = await fixture();
-
     const gate = new TurnGate();
 
     try {
@@ -145,9 +135,7 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
       assert.ok(coordinator.snapshot.completedTurn);
 
       const id = coordinator.snapshot.conversation!.id;
-
       const previous = (await readRecord(root, id)).lastTurn;
-
       const turns = a.inputs.length;
 
       if (outcome === 'preparation')
@@ -212,7 +200,6 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
 
 test('reconnect and restart retain the ordinary outcome without replaying completion', async () => {
   const f = await unitFixture();
-
   const output: string[] = [];
 
   const stop = watchTerminal(f.coordinator, undefined, (data) =>
@@ -220,7 +207,6 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
   );
 
   let reopened: Coordinator | undefined;
-
   let stopReopened: (() => void) | undefined;
 
   try {
@@ -229,7 +215,6 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
     await next();
 
     const id = f.coordinator.snapshot.conversation!.id;
-
     const previous = (await readRecord(f.root, id)).lastTurn!;
 
     assert.equal(previous.status, 'completed');
@@ -316,11 +301,8 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
 
 test('conversation adoption clears completion and the internal handoff summary stays silent', async () => {
   const { coordinator, a, b } = await unitFixture();
-
   const summary = new TurnGate();
-
   const destination = new TurnGate();
-
   const signals = new Set<string>();
 
   const unsubscribe = coordinator.subscribe(() => {
@@ -398,9 +380,7 @@ test('conversation adoption clears completion and the internal handoff summary s
 for (const failed of [false, true])
   test(`terminal completion follows the final queued ${failed ? 'failure' : 'success'}`, async () => {
     const { coordinator, a } = await unitFixture();
-
     const gate = new TurnGate();
-
     const output: string[] = [];
 
     const stop = watchTerminal(coordinator, undefined, (data) =>
@@ -453,7 +433,6 @@ for (const failed of [false, true])
 
 test('clearing a publication report without another turn does not replay completion', async () => {
   const { coordinator, a, hook } = await fixture();
-
   const output: string[] = [];
 
   const stop = watchTerminal(coordinator, undefined, (data) =>

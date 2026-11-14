@@ -292,7 +292,6 @@ for (const revision of [undefined, '0'.repeat(64)]) {
       await f.coordinator.send('Initial task');
 
       const id = f.coordinator.snapshot.conversation!.id;
-
       const native = f.a.inputs.at(-1)!.session;
 
       await f.coordinator.close();

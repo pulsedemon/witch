@@ -91,7 +91,6 @@ export function nativeLaunch<T extends ChildProcess>(
   if (!launcher) throw new Error(`Native executable not found: ${executable}`);
 
   const resolved = realpathSync(launcher);
-
   const root = nativeInstallationRoot(resolved);
 
   if (!root) return start(launcher);
@@ -105,7 +104,6 @@ export function nativeLaunch<T extends ChildProcess>(
       throw new Error('Native installation changed before launch. Try again.');
 
     const child = start(resolved);
-
     let held = true;
 
     const done = () => {

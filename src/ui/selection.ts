@@ -31,11 +31,8 @@ const undrawn = /^(?:\p{Default_Ignorable_Code_Point}|\p{Cc})+$/u;
 /** `line` cut at columns `start` and `end`, measured as Ink lays characters out. */
 function cut(line: string, start: number, end: number) {
   const before: StyledChar[] = [];
-
   const inside: StyledChar[] = [];
-
   const after: StyledChar[] = [];
-
   let width = 0;
 
   for (const char of styledCharsFromTokens(tokenize(line))) {
@@ -60,10 +57,8 @@ export function highlight(line: string, start: number, end: number): string {
   if (line.includes(placeholder)) return line;
 
   const { before, inside, after, width } = cut(line, start, end);
-
   // past the text, the selection covers empty cells, as the terminal's does
   const gap = ' '.repeat(Math.max(0, start - width));
-
   const blank = ' '.repeat(Math.max(0, end - Math.max(start, width)));
 
   // the selected cells keep their links and underline, so a link still opens and looks like one, as in the

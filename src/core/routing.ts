@@ -266,7 +266,6 @@ export function route({
   }
 
   const base = work === 'review' && of ? of.runtime : caller;
-
   const subject = `${work}${work === 'review' && of ? ` of ${of.runtime} work` : ''}`;
 
   const place = (
@@ -340,7 +339,6 @@ export function route({
 
     // below 100% a runtime still has included usage, so only a spent runtime falls back past headroom and only a spent destination's credits count
     const spent = (id: string) => over(accounts[id]?.limits ?? [], 100, now);
-
     const blocked: string[] = [];
 
     // a review the policy sent away from its producer never shifts back onto it, unless the producer reviews too
@@ -415,7 +413,6 @@ export function route({
     }
 
     const routes = placements.filter(({ from }) => !from);
-
     const folded: Routed[] = [];
 
     // a shift can land on a runtime that has its own route; one familiar per model is enough

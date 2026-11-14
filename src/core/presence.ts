@@ -46,9 +46,7 @@ export class PresencePublisher {
   /** writes a changed presence once, 100 ms after the first change. */
   schedule(active: Activation): void {
     const presence = this.record(active);
-
     const projected = this.projected;
-
     const keys = Object.keys(presence) as (keyof SessionPresence)[];
 
     if (
@@ -86,7 +84,6 @@ export class PresencePublisher {
     if (this.host.closed() || !this.host.failure()) return Promise.resolve();
 
     const active = this.host.active();
-
     const writing = this.writing;
 
     this.retrying ??= writing
@@ -133,11 +130,8 @@ export class PresencePublisher {
 
   private record(active: Activation): SessionPresence {
     const state = this.host.state();
-
     const { familiars, brews } = taskActivity(state);
-
     const { id, title, cwd, agent } = active.conversation;
-
     const branch = this.host.branch();
 
     return {

@@ -16,7 +16,6 @@ const prefixes = {
 };
 
 const claim = `${prefixes.control} --claim task:adapter-check --summary 'original summary'`;
-
 const foreign = claim.replace("'active'", "'another-activation'");
 
 function project(events: AgentEvent[]) {
@@ -35,7 +34,6 @@ function project(events: AgentEvent[]) {
 
 test('Codex command lifecycle events preserve bound titles, original commands and output', async () => {
   const f = await controlledFixture('brews', prefixes);
-
   const familiar = `env TMPDIR='/task/tmp' ${prefixes.familiar} --familiar-claude review --report-file /report -- --model opus <<'PROMPT'\nReview this.\nPROMPT`;
 
   try {
@@ -124,7 +122,6 @@ test('Codex command lifecycle events preserve bound titles, original commands an
 
 test('Claude Bash results retain bound titles and multiline commands after replacing input', async () => {
   const events: AgentEvent[] = [];
-
   const f = await launcher('background');
 
   const session = await f.connect({
@@ -142,7 +139,6 @@ test('Claude Bash results retain bound titles and multiline commands after repla
   );
 
   const familiar = `${prefixes.familiar} --familiar-codex review --report-file /report -- -c model='gpt-6-astra' <<'PROMPT'\nReview this.\nPROMPT`;
-
   const isolated = `${prefixes.familiar} --familiar-codex review --report-file /report --without-mcp -- -c model='gpt-6-astra'`;
 
   try {

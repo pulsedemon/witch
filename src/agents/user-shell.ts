@@ -4,10 +4,8 @@ import { signalGroup } from './shutdown.js';
 
 /** the output Witch keeps of a command, as Codex keeps 1 MiB of its own. */
 const keptLength = 1 << 20;
-
 /** the output a record keeps, Claude Code's default `bashOutputMaxChars`. */
 const recordLength = 30000;
-
 const cutNote = '\n[output past 1 MiB cut]\n';
 
 interface ShellRun {
@@ -46,15 +44,10 @@ export function runShell(
     if (child.pid) options.onSpawn?.(child.pid);
 
     let output = '';
-
     let cut = false;
-
     let code: number | null = null;
-
     let interrupted = false;
-
     let settled = false;
-
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const receive = (text: string) => {
@@ -142,7 +135,6 @@ export const shellFailed = (run: ShellRun) => run.interrupted || run.code !== 0;
 /** the command and its output, modeled on the record Claude Code's `!` writes; exit codes are Witch's addition. */
 export function bashRecord(command: string, run: ShellRun): string {
   const output = clip(run.output).replace(/[&<>]/g, (char) => entities[char]!);
-
   const failed = shellFailed(run);
 
   const note = run.interrupted

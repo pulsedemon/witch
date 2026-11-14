@@ -44,7 +44,6 @@ export async function listFiles(
 
 async function walk(root: string, limit: number): Promise<string[]> {
   const files: string[] = [];
-
   const directories = [''];
 
   for (const directory of directories) {

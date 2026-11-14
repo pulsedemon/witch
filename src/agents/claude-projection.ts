@@ -114,7 +114,6 @@ export class ClaudeProjection {
         event.delta.type === 'text_delta'
       ) {
         const text = event.delta.text;
-
         const id = this.currentMessage;
 
         this.messages()?.append(id, text);
@@ -163,7 +162,6 @@ export class ClaudeProjection {
       this.cast(skillCasts(message.message.content));
     } else if (message.type === 'assistant' && message.agent_id) {
       const subagent = this.subagents.get(message.agent_id)!;
-
       const observed = message.message.model;
 
       const model =

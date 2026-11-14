@@ -27,7 +27,6 @@ export function mergeCasts(
   casts: readonly Cast[],
 ): Cast[] | undefined {
   const known = new Set(spells?.map(({ id }) => id));
-
   const added = casts.filter(({ id }) => !known.has(id));
 
   return added.length ? [...(spells ?? []), ...added] : undefined;

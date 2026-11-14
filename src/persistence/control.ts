@@ -47,13 +47,10 @@ for my $handle (@directories) {
 `;
 
 const idSchema = z.string().uuid();
-
 /** how often a waiting client touches its request, since macOS can drop a directory watch's events, as when another watch in the host's process opens or closes. */
 const renotify = 100;
-
 /** how soon a failed read retries, and how often an inbox without a watch is read. */
 const interval = 250;
-
 // macOS O_NOFOLLOW_ANY, which Node doesn't export
 const noFollowAny = 0x20000000;
 
@@ -140,7 +137,6 @@ async function openControlFile(
     return files.open(file, flags | noFollowAny, mode);
 
   const parts = file.split('/').filter(Boolean);
-
   const name = parts.pop()!;
 
   const directories = [
@@ -225,7 +221,6 @@ export async function callControl(
   });
 
   const inbox = join(binding.directory, 'inbox', `${request.id}.json`);
-
   const reply = join(binding.directory, 'replies', `${request.id}.json`);
 
   await writeJson(inbox, request).catch((error: unknown) => {
@@ -457,7 +452,6 @@ export class ControlHost {
       if (!parsed.success) continue;
 
       const id = parsed.data;
-
       const reply = join(this.directory, 'replies', name);
 
       const answered = await files.access(reply).then(
@@ -474,7 +468,6 @@ export class ControlHost {
       if (text === undefined) continue;
 
       let request: ControlRequest | undefined;
-
       let outcome: ControlOutcome | undefined;
 
       try {

@@ -189,9 +189,7 @@ export async function updateLedger<T>(
 
   try {
     const ledger = await readLedger(root);
-
     const result = await change(ledger);
-
     // checked as it's read, so a change the reader would refuse never lands
     const checked = ledgerSchema.parse({ version: 1, ...ledger });
 
@@ -247,7 +245,6 @@ export interface Owner {
  */
 export async function mapper(ledger: Ledger): Promise<Mapping> {
   const sources: Source[] = await Promise.all(ledger.moves.map(sourceOf));
-
   // each move's index under its source, in the order recorded
   const bySource = new Map<string, number[]>();
 
@@ -267,9 +264,7 @@ export async function mapper(ledger: Ledger): Promise<Mapping> {
     consulted?: number[],
   ): string | undefined => {
     const through = owner?.throughReused ? 1 : 0;
-
     const visited: string[] = [];
-
     let result: string | undefined;
 
     // an older move from where this one landed was another directory's
@@ -314,7 +309,6 @@ export async function mapper(ledger: Ledger): Promise<Mapping> {
       if (chosen >= 0) consulted?.push(chosen);
 
       const move = ledger.moves[chosen];
-
       const source = sources[chosen];
 
       if (!move || source === 'back') {
@@ -340,7 +334,6 @@ export async function mapper(ledger: Ledger): Promise<Mapping> {
   };
 
   const byPath = new Map(ledger.entries.map((entry) => [entry.path, entry]));
-
   // a known directory carried by a parent's move that isn't where the move would put it hasn't moved with it
   const stranded: string[] = [];
 
@@ -399,7 +392,6 @@ export async function formerPaths(
   path: string,
 ): Promise<string[]> {
   const paths = new Set<string>();
-
   let current = path;
 
   for (const { from, to } of ledger.moves.toReversed())
@@ -436,7 +428,6 @@ function firstPassing(
   passes: (index: number) => boolean,
 ): number | undefined {
   let low = 0;
-
   let high = bucket.length;
 
   while (low < high) {
@@ -464,7 +455,6 @@ export async function findMoves(
 ): Promise<Array<Move & Identity>> {
   // an entry that can't be looked at stays put, and so do its records, which report why
   const missing: DirectoryEntry[] = [];
-
   const cases = new Map<DirectoryEntry, string>();
 
   for (const entry of entries) {
@@ -484,7 +474,6 @@ export async function findMoves(
   }
 
   const look = (path: string) => identify(path).catch(() => undefined);
-
   const moves: Array<Move & Identity> = [];
 
   const carried = async (entry: DirectoryEntry) => {
@@ -519,7 +508,6 @@ export async function findMoves(
     moves.push(move);
 
     const parent = dirname(move.from);
-
     const there = beside.get(parent);
 
     if (there) there.push(move);
@@ -529,12 +517,10 @@ export async function findMoves(
   // the real path, as locate gives, so a symlink or a name differing only in case at the candidate isn't recorded
   const sibling = async (entry: DirectoryEntry) => {
     const name = basename(entry.path);
-
     const tried = new Set<string>();
 
     for (const move of beside.get(dirname(entry.path)) ?? []) {
       const moved = basename(move.from);
-
       const candidates = [join(dirname(move.to), name)];
 
       if (name.startsWith(moved))
@@ -633,7 +619,6 @@ function inOrder(
   moves: ReadonlyArray<Move & Identity>,
 ): Array<Move & Identity> {
   const rest = [...moves];
-
   const ordered: Array<Move & Identity> = [];
 
   const after = (move: Move, other: Move) =>
@@ -725,7 +710,6 @@ function entryIndex(ledger: Ledger, sources: readonly string[] = []) {
       if (!relocations.length) return;
 
       const { at, naming } = lookup();
-
       const renamed = new Map<string, string>();
 
       for (const [entry, path] of relocations) {

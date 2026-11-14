@@ -72,17 +72,13 @@ function invoke(
 
 test('a later selection uses the retained prefix and rejects the previous turn id', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await coordinationFixture(cleanup);
-
   const client = await f.start();
 
   await client.coordinator.send('Seed native history');
 
   const first = client.a.inputs.at(-1)!.context!;
-
   const prefix = /^Control command: (.+)$/m.exec(first)?.[1];
-
   const previousTurn = /^Selection turn: (.+)$/m.exec(first)?.[1];
 
   assert.ok(prefix);
@@ -129,7 +125,6 @@ test('a later selection uses the retained prefix and rejects the previous turn i
 
 test('waiting helpers leave the host responsive beyond a request deadline and start work in FIFO order', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await coordinationFixture(cleanup);
 
   await f.checkout('D');
@@ -249,7 +244,6 @@ test('waiting helpers leave the host responsive beyond a request deadline and st
 
 test('a waiting helper can cancel without ending its native turn and rejoin at the tail', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await coordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -307,7 +301,6 @@ test('a waiting helper can cancel without ending its native turn and rejoin at t
 
 test('SIGTERM cancels the waiting helper ticket with one final result', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   const f = await coordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -351,7 +344,6 @@ for (const [failure, signal] of [
 ] as const)
   test(`${signal} cancels a known ticket after the ${failure} status reply`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     const f = await coordinationFixture(cleanup);
 
     const a = await f.start(),
@@ -361,17 +353,13 @@ for (const [failure, signal] of [
       second = await selectionTurn(cleanup, b);
 
     const head = await first.select();
-
     const entered = Promise.withResolvers<void>();
-
     const release = Promise.withResolvers<void>();
 
     cleanup(() => release.resolve());
 
     const binding = { ...second.binding, directory: join(f.root, 'proxy') };
-
     const actions: string[] = [];
-
     const failures: unknown[] = [];
 
     const host = await ControlHost.open(

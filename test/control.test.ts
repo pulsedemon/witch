@@ -47,9 +47,7 @@ async function published(bound: ControlBinding): Promise<string> {
 
 test('control requests preserve their binding and action through a real ledger mutation and acknowledgement', async () => {
   const bound = await binding();
-
   const directory = join(bound.directory, 'actual');
-
   const alias = join(bound.directory, 'alias');
 
   await files.mkdir(directory);
@@ -170,7 +168,6 @@ test('the client waits through an incomplete reply before accepting and acknowle
   await exchange(bound);
 
   const partialRead = Promise.withResolvers<void>();
-
   const originalRead = files.readFile;
 
   vi.spyOn(files, 'readFile').mockImplementation(
@@ -188,11 +185,8 @@ test('the client waits through an incomplete reply before accepting and acknowle
   );
 
   const calling = callControl(bound, { kind: 'peers' });
-
   const isSettled = settled(calling);
-
   const id = await published(bound);
-
   const reply = join(bound.directory, 'replies', `${id}.json`);
 
   try {
@@ -221,11 +215,8 @@ test('the client waits through an incomplete reply before accepting and acknowle
 for (const redirect of ['file', 'inbox'] as const) {
   test(`the host refuses a request redirected through a symlinked ${redirect}`, async () => {
     const bound = await binding();
-
     const target = await scratch('witch-control-request-target-');
-
     const request = envelope(bound);
-
     const { host, failures, calls } = await countingHost(bound);
 
     try {
@@ -234,7 +225,6 @@ for (const redirect of ['file', 'inbox'] as const) {
       await watching(bound.directory);
 
       const inbox = join(bound.directory, 'inbox');
-
       const name = `${request.id}.json`;
 
       await writeJson(join(target, name), request);
@@ -278,9 +268,7 @@ for (const redirect of ['file', 'inbox'] as const) {
 
 test('the host cannot create a reply through a redirected parent', async () => {
   const bound = await binding();
-
   const target = await scratch('witch-control-reply-target-');
-
   const { host, failures, calls } = await countingHost(bound);
 
   try {
@@ -315,23 +303,18 @@ test('the host cannot create a reply through a redirected parent', async () => {
 
 test('replacing a parent after open cannot redirect the request being read', async (t) => {
   const bound = await binding();
-
   const target = await scratch('witch-control-open-target-');
-
   const request = envelope(bound);
 
   request.action = { kind: 'release', claim: randomUUID() };
 
   const name = `${request.id}.json`;
-
   const inbox = join(bound.directory, 'inbox');
-
   const outside = { ...request, action: { kind: 'peers' } };
 
   await writeJson(join(target, name), outside);
 
   const failures: unknown[] = [];
-
   const actions: unknown[] = [];
 
   const host = await ControlHost.open(
@@ -351,7 +334,6 @@ test('replacing a parent after open cannot redirect the request being read', asy
   await watching(bound.directory);
 
   let redirected = false;
-
   const originalOpen = files.open;
 
   vi.spyOn(files, 'open').mockImplementation(
@@ -454,7 +436,6 @@ for (const { code, expired } of [
     await exchange(bound);
 
     const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
-
     const failure = Object.assign(new Error('Cannot touch request'), { code });
 
     vi.spyOn(files, 'lutimes').mockImplementation(async () => {
@@ -486,21 +467,13 @@ for (const { code, expired } of [
 
 test('acknowledgement between reply lookup and request read cannot dispatch the request twice', async () => {
   const bound = await binding();
-
   const replyRead = Promise.withResolvers<void>();
-
   const lookup = Promise.withResolvers<void>();
-
   const acknowledge = Promise.withResolvers<void>();
-
   const resumeLookup = Promise.withResolvers<void>();
-
   let clientWaiting = false;
-
   let lookupWaiting = false;
-
   const originalRead = files.readFile;
-
   const originalAccess = files.access;
 
   vi.spyOn(files, 'readFile').mockImplementation(
@@ -541,7 +514,6 @@ test('acknowledgement between reply lookup and request read cannot dispatch the 
   );
 
   const work = join(bound.directory, 'handled');
-
   const failures: unknown[] = [];
 
   const host = await ControlHost.open(
@@ -596,13 +568,9 @@ test('acknowledgement between reply lookup and request read cannot dispatch the 
 
 test('a listed request removed before its read is acknowledged without dispatch or an error reply', async () => {
   const bound = await binding();
-
   const request = envelope(bound);
-
   const inbox = join(bound.directory, 'inbox', `${request.id}.json`);
-
   const reached = Promise.withResolvers<void>();
-
   const originalOpen = files.open;
 
   vi.spyOn(files, 'open').mockImplementation(

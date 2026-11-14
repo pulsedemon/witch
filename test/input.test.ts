@@ -80,7 +80,6 @@ test('cursor moves and deletions land on grapheme boundaries across lines', () =
 
 test('an insert into a 200KB draft segments nothing', () => {
   const value = 'word '.repeat(40000);
-
   const times: number[] = [];
 
   for (let run = 0; run < 5; run++) {
@@ -189,7 +188,6 @@ test('word and line deletions remove only what the matching move passes over', (
 test('a word move in a 200KB draft segments only the lines it crosses', () => {
   // each move starts on a line with no word
   const value = ' \n' + 'word\n'.repeat(40000) + ' ';
-
   const times: number[] = [];
 
   for (let run = 0; run < 5; run++) {

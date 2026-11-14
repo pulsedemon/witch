@@ -28,13 +28,11 @@ import { until } from './fixtures/within.js';
 /** a stored conversation whose memory worktree is ready for notes, before it opens. */
 async function conversation() {
   const root = await scratch('witch-ui-memory-');
-
   const cwd = join(root, 'project');
 
   await mkdir(cwd);
 
   const store = await StateStore.open(join(root, 'state'));
-
   const memory = await seededMemory(join(root, 'state', 'memory.git'));
 
   const coordinator = new Coordinator(store, memory, [
@@ -65,7 +63,6 @@ async function conversation() {
 
 test('a deleted note remains discoverable and can be restored through its history picker', async () => {
   const { coordinator, id, files, workspace, scope } = await conversation();
-
   const reference = join(workspace.root, scope.project, 'decisions.md');
 
   await writeFile(reference, 'Accepted project decision.');
@@ -269,7 +266,6 @@ test('the pending view ignores k and letters typed with Ctrl, Option or Cmd', as
 
 test('a recovery that appears while typing ignores keys for its first 500 ms', async () => {
   const { app, coordinator, calls } = fake({ phase: 'running' });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   const discardOnce = async (count: number) => {
@@ -472,13 +468,11 @@ async function memoryApp(
   ) => Promise<void> = async () => {},
 ) {
   const root = await scratch('witch-ui-memory-');
-
   const cwd = join(root, 'project');
 
   await mkdir(cwd);
 
   const hook = { current: passThrough };
-
   const store = await StateStore.open(join(root, 'state'));
 
   const memory = await seededMemory(
@@ -565,7 +559,6 @@ test('/memory shows a long note whose name holds a line break on one row, linked
   await seed.publish();
 
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
-
   // the 20 cells before the x's leave room for 77 in the picker's 98
   const row = `global/first second${'x'.repeat(77)}…`;
 
@@ -632,7 +625,6 @@ test('a note page shows a name that holds a line break on its title row', async 
 
 test('memory without a worktree shows no links, builds no worktree, and keeps history', async () => {
   const { root, coordinator } = await memoryApp();
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
   const row = (text: string) =>

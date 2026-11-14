@@ -15,7 +15,6 @@ import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 
 const placeholder = '\u{10EEEE}';
-
 // the first Kitty row/column diacritics: rows 0, 1 and 2, and column 0
 const [row0, row1, row2] = ['̅', '̍', '̎'];
 
@@ -35,7 +34,6 @@ const payload = (writes: string[]) =>
 /** records each sips call with its input, read before the load removes it; on Linux, which has no sips, `linux` stands in. */
 function sips(t: TestContext, linux: (output: string) => Error | null) {
   const calls: { file: string; args: readonly string[]; input: Buffer }[] = [];
-
   const execute = childProcess.execFile;
 
   t.onTestFinished(() => {
@@ -63,19 +61,14 @@ function sips(t: TestContext, linux: (output: string) => Error | null) {
 
 test('an image loads in the background, then is sent once as its PNG data, shown by rows that link to its file, whose color names it and whose first cell names its row, and placed again without resending when the width changes', async (t) => {
   const directory = await scratch('witch-images-');
-
   const image = png(160, 80);
-
   const path = join(directory, 'shot.png');
 
   await writeFile(path, image);
 
   const writes: string[] = [];
-
   const graphics = new Graphics((data) => writes.push(data));
-
   const encoded: string[] = [];
-
   const other = new Graphics((data) => encoded.push(data));
 
   t.onTestFinished(() => {
@@ -85,7 +78,6 @@ test('an image loads in the background, then is sent once as its PNG data, shown
   });
 
   const stats = vi.spyOn(fs, 'statSync');
-
   const reads = vi.spyOn(fs, 'readFileSync');
 
   syncBuiltinESMExports();
@@ -143,7 +135,6 @@ test('an image loads in the background, then is sent once as its PNG data, shown
 
 test('a GIF is sent converted to PNG, an unreadable path shows and sends nothing, and release frees each image sent', async (t) => {
   const writes: string[] = [];
-
   const graphics = new Graphics((data) => writes.push(data));
 
   const calls = sips(t, (output) => {
@@ -206,11 +197,8 @@ test('a GIF is sent converted to PNG, an unreadable path shows and sends nothing
 
 test('a failed image conversion sends nothing and removes its temporary files', async (t) => {
   const calls = sips(t, () => new Error('fixture conversion failure'));
-
   const writes: string[] = [];
-
   const graphics = new Graphics((data) => writes.push(data));
-
   const source = 'data:image/gif;base64,bm90IGFuIGltYWdl';
 
   assert.deepEqual(graphics.rows(source, '/', 80), []);
@@ -231,13 +219,11 @@ test('a failed image conversion sends nothing and removes its temporary files', 
 
 test('data that starts like a PNG but breaks its signature after `\\x89PNG` is converted, not sent as PNG', async (t) => {
   const calls = sips(t, () => new Error('fixture conversion failure'));
-
   const image = png(1, 1);
 
   image[4] = 0;
 
   const source = `data:image/png;base64,${image.toString('base64')}`;
-
   const graphics = new Graphics(() => {});
 
   graphics.rows(source, '/', 80);
@@ -252,7 +238,6 @@ test('data that starts like a PNG but breaks its signature after `\\x89PNG` is c
 
 test('a FIFO or a file over 64 MiB named like an image shows and reads nothing', async () => {
   const directory = await scratch('witch-images-');
-
   const source = join(directory, 'source.png');
 
   await writeFile(source, png(16, 16));
@@ -263,7 +248,6 @@ test('a FIFO or a file over 64 MiB named like an image shows and reads nothing',
 
   // a writer that would hand a reader a real image, so reading the FIFO would draw it
   const writer = spawn('/bin/cp', [source, fifo]);
-
   const large = join(directory, 'large.png');
 
   await writeFile(large, png(16, 16));
@@ -271,7 +255,6 @@ test('a FIFO or a file over 64 MiB named like an image shows and reads nothing',
   await truncate(large, 64 * 1024 * 1024 + 1);
 
   const writes: string[] = [];
-
   const graphics = new Graphics((data) => writes.push(data));
 
   try {
@@ -293,7 +276,6 @@ test('a FIFO or a file over 64 MiB named like an image shows and reads nothing',
 
 test('a failed path is retried only after 2 seconds, so an image written after its first failed load still shows', async (t) => {
   const directory = await scratch('witch-images-');
-
   const graphics = new Graphics(() => {});
 
   t.onTestFinished(() => {
@@ -351,15 +333,12 @@ test('a failed path is retried only after 2 seconds, so an image written after i
 
 test('release aborts a running conversion, drops queued loads, and writes nothing after', async (t) => {
   const directory = await scratch('witch-images-');
-
   const queued = join(directory, 'shot.png');
 
   await writeFile(queued, png(16, 16));
 
   const writes: string[] = [];
-
   const graphics = new Graphics((data) => writes.push(data));
-
   const conversions: Parameters<typeof childProcess.execFile>[] = [];
 
   t.onTestFinished(() => {

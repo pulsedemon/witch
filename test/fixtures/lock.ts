@@ -1,12 +1,10 @@
 import { StateStore } from '../../src/persistence/store.js';
 
 const store = await StateStore.open(process.argv[2]!);
-
 const id = process.argv[3]!;
 
 if (process.argv[4] === 'observe') {
   const limit = Number(process.argv[5]);
-
   let stopped = false;
 
   process.stdin.once('end', () => {
@@ -18,7 +16,6 @@ if (process.argv[4] === 'observe') {
   process.stdin.once('data', () => {
     void (async () => {
       let attempts = 0;
-
       let held = 0;
 
       while (!stopped && (!limit || attempts < limit)) {

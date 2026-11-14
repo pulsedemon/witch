@@ -9,9 +9,7 @@ export function CommandWindow({ items }: { items: readonly DisplayItem[] }) {
   );
 
   const recent = calls.slice(-(commandWindowRows - 1));
-
   const running = calls.filter((item) => !item.done).length;
-
   const older = running - recent.filter((item) => !item.done).length;
 
   return (

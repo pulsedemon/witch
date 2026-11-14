@@ -15,7 +15,6 @@ export async function launchRecord(
   cwd: string,
 ): Promise<Conversation> {
   const [source] = await store.conversations();
-
   const installed = agents.filter(({ executable }) => executable);
 
   const agent =
@@ -32,7 +31,6 @@ export async function recoverConversations(
   skip: string | undefined,
 ): Promise<string | undefined> {
   const { records, unreadable } = await store.records();
-
   const ahead = new Set(await memory.unpublished());
 
   const lines = unreadable.map(
@@ -65,7 +63,6 @@ export async function recoverConversations(
       files = await store.claim(record.id);
 
       const workspace = memory.workspace(files.directory, record.id);
-
       let pending = false;
 
       if (await workspace.branchExists()) {

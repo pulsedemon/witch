@@ -81,9 +81,7 @@ export async function recoverInput(
     await input.flush();
 
     const receipt = await query.interrupt();
-
     const unread = receipt?.still_queued;
-
     const inputUnread = unread?.includes(turn.initialInput!) ?? false;
 
     if (!inputUnread && !turn.result) throw new Error(unknownInput);

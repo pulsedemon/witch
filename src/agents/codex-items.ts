@@ -43,7 +43,6 @@ const imageContent = z.object({
 });
 
 const mcpResult = z.object({ content: z.array(z.unknown()) });
-
 export const turnId = z.object({ turn: z.object({ id: z.string() }) });
 
 export const completedTurn = z.object({
@@ -147,9 +146,7 @@ export function itemTool(
   command?: string,
 ): Extract<AgentEvent, { type: 'tool' }> {
   const id = z.string().parse(item.id);
-
   const type = z.string().parse(item.type);
-
   const images = itemImages(type, item);
 
   return {

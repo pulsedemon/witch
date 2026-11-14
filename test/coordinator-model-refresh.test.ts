@@ -15,11 +15,8 @@ test('interrupting inactive model discovery keeps the connected session', async 
   });
 
   const entered = Promise.withResolvers<AbortSignal>();
-
   const aborted = Promise.withResolvers<void>();
-
   const cleaned = Promise.withResolvers<void>();
-
   let refreshing: Promise<boolean> | undefined;
 
   try {
@@ -44,7 +41,6 @@ test('interrupting inactive model discovery keeps the connected session', async 
     });
 
     const before = structuredClone(coordinator.snapshot);
-
     const saved = await readRecord(root, before.conversation!.id);
 
     b.models = async (options) => {
@@ -66,7 +62,6 @@ test('interrupting inactive model discovery keeps the connected session', async 
     refreshing = coordinator.refreshModels();
 
     const isSettled = settled(refreshing);
-
     const signal = await within(entered.promise, 2000, 'inactive discovery');
 
     await assert.rejects(
@@ -162,16 +157,12 @@ test('interrupting inactive model discovery keeps the connected session', async 
 
 test('interrupting an active model read discards its result', async () => {
   const { coordinator, a } = await unitFixture();
-
   const entered = Promise.withResolvers<void>();
-
   const models = Promise.withResolvers<Model[]>();
-
   let refreshing: Promise<boolean> | undefined;
 
   try {
     const { session } = a.sessions[0]!;
-
     const before = structuredClone(coordinator.snapshot);
 
     session.models = async () => {
@@ -221,13 +212,9 @@ test('interrupting an active model read discards its result', async () => {
 
 test('a queued turn cannot turn a canceled refresh into a successful result', async () => {
   const { coordinator, a } = await unitFixture();
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   const gate = new TurnGate();
-
   let refreshing: Promise<boolean> | undefined;
 
   try {
@@ -291,17 +278,11 @@ test('a queued turn cannot turn a canceled refresh into a successful result', as
 
 test('interrupting model refresh settlement keeps the session and cancels the picker', async () => {
   const { coordinator, a } = await unitFixture();
-
   const entered = Promise.withResolvers<void>();
-
   const release = Promise.withResolvers<void>();
-
   const flush = ConversationStore.prototype.flush;
-
   const id = coordinator.snapshot.conversation!.id;
-
   let held = false;
-
   let refreshing: Promise<boolean> | undefined;
 
   try {

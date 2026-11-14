@@ -112,7 +112,6 @@ export async function runWitch(
   registerNativeParticipant();
 
   const prompt = positionals.join(' ');
-
   let stopTerminal: (() => void) | undefined;
 
   const restore = () => {
@@ -219,7 +218,6 @@ export async function runWitch(
     coordinator.notice(errorMessage(error), undefined, false);
 
   const stopWake = keepAwake(coordinator, jobs, warn);
-
   const policy = await DelegationStore.open(join(store.root, 'delegation'));
 
   coordination.router = router(coordinator, policy);
@@ -290,13 +288,9 @@ export async function runWitch(
   );
 
   const stopMerges = watchMerges(repository, coordinator, install);
-
   const stopConflicts = watchConflicts(repository, coordinator);
-
   const screen = new Screen(process.stdout);
-
   const stdin = new MouseInput(process.stdin);
-
   // output can scroll another link under the pointer before the release, so a click opens the one it pressed
   let pressed: string | undefined;
 

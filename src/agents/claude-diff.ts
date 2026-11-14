@@ -31,7 +31,6 @@ export function reportedDiff(
   if (!parsed.success || parsed.data.staged) return undefined;
 
   const { filePath, type, content, oldString, structuredPatch } = parsed.data;
-
   const path = resolveFile(filePath, cwd);
 
   if (type === 'create') return [wholeFile(path, 'add', content ?? '')];
@@ -48,7 +47,6 @@ export function reportedDiff(
 }
 
 const unicodeEscape = /\\u[0-9a-fA-F]{4}/;
-
 const nonAscii = /[\u0080-\uffff]/;
 
 const plainQuotes = (text: string) =>
@@ -76,9 +74,7 @@ function escapedMatch(old: string, content: string): string | undefined {
     return;
 
   const escapes = old.startsWith('\\') ? [0] : [];
-
   let length = 0;
-
   let pattern = '';
 
   for (let index = 0; index < old.length; index++) {
@@ -143,7 +139,6 @@ function replacementText(
   if (old === matched) return replacement;
 
   const doubleQuotes = /[“”]/.test(matched);
-
   const singleQuotes = /[‘’]/.test(matched);
 
   replacement = replacement.replace(/["']/g, (quote, index: number) => {
@@ -157,11 +152,8 @@ function replacementText(
 
   if (nonAscii.test(old) && escapedMatch(old, matched) === matched) {
     const spellings = new Map<number, string>();
-
     let offset = 0;
-
     let upper = 0;
-
     let lower = 0;
 
     for (let index = 0; index < old.length; index++) {
@@ -182,7 +174,6 @@ function replacementText(
 
     return replacement.replace(/[\u0080-\uffff]/g, (letter) => {
       const code = letter.charCodeAt(0);
-
       const hex = code.toString(16).padStart(4, '0');
 
       return (
@@ -229,7 +220,6 @@ export async function proposedDiff(
 
   try {
     let content = '';
-
     let exists = true;
 
     try {
@@ -251,13 +241,11 @@ export async function proposedDiff(
     if (signal.aborted) return;
 
     let next: string;
-
     let kind: 'add' | 'update' = exists ? 'update' : 'add';
 
     if (tool === 'Write') next = preserveBom(content, input.content as string);
     else {
       const old = input.old_string as string;
-
       const replacement = input.new_string as string;
 
       if (old === '') {

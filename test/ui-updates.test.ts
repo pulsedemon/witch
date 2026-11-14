@@ -28,7 +28,6 @@ const agents = [{ id: 'codex', label: 'Fixture Codex', installed: true }];
 /** an open conversation on `a` whose agent list also holds the update fixture's runtime, as the app's must to label it. */
 async function session() {
   const root = await scratch('witch-update-ui-');
-
   const project = join(root, 'project');
 
   await mkdir(project);
@@ -127,7 +126,6 @@ test('native updates require explicit confirmation and show the selected verifie
 
 test('the narrow confirmation retains both its version and paid-check disclosure', async () => {
   const coordinator = await session();
-
   const update = await runtimeUpdateFixture();
 
   const ui = show(
@@ -161,7 +159,6 @@ test('the narrow confirmation retains both its version and paid-check disclosure
 
 test('busy work refuses installation without interrupting the active turn', async () => {
   const f = await unitFixture();
-
   const gate = new TurnGate();
 
   f.a.gate = gate;
@@ -199,7 +196,6 @@ test('busy work refuses installation without interrupting the active turn', asyn
 
 test('queued prompts refuse installation and remain queued', async () => {
   const f = await unitFixture();
-
   const release = f.coordinator.holdPromptDelivery();
 
   await f.coordinator.send('queued work');
@@ -229,13 +225,11 @@ test('queued prompts refuse installation and remain queued', async () => {
 
 test('maintenance reconnects an active native conversation using its saved session', async () => {
   const root = await scratch('witch-update-reconnect-');
-
   const project = join(root, 'project');
 
   await mkdir(project);
 
   const store = await StateStore.open(join(root, 'state'));
-
   const agent = new FixtureAgent('codex');
 
   const c = new Coordinator(store, new EmptyMemory(join(root, 'memory.git')), [
@@ -270,9 +264,7 @@ test('maintenance reconnects an active native conversation using its saved sessi
 
 test('recovery works without a loaded conversation and retries the original initialization', async () => {
   const root = await scratch('witch-update-startup-');
-
   const project = join(root, 'project');
-
   const store = await StateStore.open(join(root, 'state'));
 
   const registration = {
@@ -385,7 +377,6 @@ test('recovery works without a loaded conversation and retries the original init
 
 test('failed reconnect keeps qualified candidate recovery available and restores the previous session', async () => {
   const root = await scratch('witch-update-reconnect-failed-');
-
   const project = join(root, 'project');
 
   await mkdir(project);
@@ -466,7 +457,6 @@ test('unknown check state and recovered failures are not labeled verified', asyn
 
 test('an unrelated startup failure leaves a qualified update usable', async () => {
   const root = await scratch('witch-update-startup-unrelated-');
-
   const project = join(root, 'missing-project');
 
   const c = new Coordinator(
@@ -583,9 +573,7 @@ test('a current unverified installation is offered qualification even when updat
 
 test('the picker label and the status text offer qualification by one rule', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   const snapshot = f.updates.snapshot;
-
   const entry = snapshot.entries[0]!;
 
   const offered = (state: RuntimeUpdateSnapshot) => ({
@@ -662,7 +650,6 @@ test('the picker label and the status text offer qualification by one rule', asy
 
 test('a refused qualification leaves the offer in place', async () => {
   const f = await runtimeUpdateFixture(undefined, '2.0.0');
-
   const transaction = await f.store.transaction(f.root);
 
   try {
@@ -737,7 +724,6 @@ async function recheckUnlistable(
 
 test('an unreadable release directory is reported without hiding the available update', async () => {
   const f = await runtimeUpdateFixture();
-
   const entry = await recheckUnlistable(f);
 
   assert.equal(entry.error, undefined);

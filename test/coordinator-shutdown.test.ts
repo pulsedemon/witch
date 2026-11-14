@@ -32,7 +32,6 @@ for (const restart of [false, true])
         await within(a.gate.entered, 2000, 'active turn');
 
         const before = performance.now();
-
         const closing = coordinator.close({ restart });
 
         if (failInterrupt) await assert.rejects(closing, /Interrupt failed/);
@@ -67,15 +66,12 @@ for (const restart of [false, true])
 for (const discovery of [false, true])
   test(`restart preserves the SIGTERM policy during Codex ${discovery ? 'model discovery' : 'connection'}`, async () => {
     const root = await scratch('witch-restart-startup-');
-
     const project = join(root, 'project');
 
     await mkdir(project);
 
     const store = await StateStore.open(join(root, 'state'));
-
     const memory = await seededMemory(join(root, 'state', 'memory.git'));
-
     let child: ChildProcessWithoutNullStreams | undefined;
 
     const codex = new CodexAdapter(
@@ -99,9 +95,7 @@ for (const discovery of [false, true])
     ];
 
     const coordinator = new Coordinator(store, memory, registrations);
-
     const initializing = coordinator.initialize(project).catch(() => {});
-
     let closing: Promise<void> | undefined;
 
     try {

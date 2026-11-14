@@ -135,7 +135,6 @@ export function updatesText(
 }
 
 const unwatched = () => () => {};
-
 const noUpdates: RuntimeUpdateSnapshot = { entries: [], checking: false };
 
 export function useRuntimeUpdates(
@@ -186,7 +185,6 @@ export async function showUpdates(
       return details();
 
     const target = journal?.previous.version ?? entry.check!.target;
-
     const installation = journal?.previous ?? entry.check!.installation;
 
     const launcher = installation.launcher.startsWith(`${homedir()}/`)

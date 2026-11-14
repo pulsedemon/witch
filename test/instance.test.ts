@@ -13,7 +13,6 @@ const instance = fileURLToPath(
 
 test("an instance directory goes when its process exits, read-only contents included, and so do those of processes that are gone or of an earlier process with its pid, while live and unprobeable processes' directories stay", async () => {
   const parent = await scratch('witch-instance-');
-
   const exited = spawn('/usr/bin/true');
 
   await once(exited, 'exit');

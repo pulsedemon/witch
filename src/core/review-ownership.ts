@@ -120,7 +120,6 @@ export class ReviewOwnership {
     if (snapshot.error) throw new Error(snapshot.error);
 
     const scope = this.port.current();
-
     const claim = snapshot.ownClaim;
 
     if (
@@ -165,7 +164,6 @@ export class ReviewOwnership {
     if (!found) return;
 
     const { scope, claim } = found;
-
     const reference = taskReference(pr.url, scope.owner.project);
 
     if (claim.references.includes(reference)) return { claim };

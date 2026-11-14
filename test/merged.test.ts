@@ -434,7 +434,6 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
 
 test('a plan whose ignore check fails stays, and is named', async () => {
   const { root, checkout, other, tip } = await merged();
-
   // git won't check a path beyond a symbolic link
   const outside = join(root, 'outside');
 
@@ -480,7 +479,6 @@ test('a ledger the repository tracks stays when its plan goes', async () => {
 
 test('a plan in docs/plans goes with its branch and its ledger', async () => {
   const { checkout, other, tip } = await merged({}, ['docs/plans/']);
-
   const docsPlans = join(checkout, 'docs/plans');
 
   await write(join(docsPlans, 'x.md'), '`git switch -c feat/x`\n');
@@ -504,7 +502,6 @@ test('a plan in docs/plans goes with its branch and its ledger', async () => {
 
 test("a plan directory that can't be listed leaves the other's plans to go with their branch, and is reported apart from them", async () => {
   const { checkout, other, tip } = await merged({}, ['docs/plans/']);
-
   const docsPlans = join(checkout, 'docs/plans');
 
   await write(join(docsPlans, 'x.md'), '`git switch -c feat/x`\n');
@@ -687,7 +684,6 @@ test('a checkout with a staged or conflicted change is left alone, and one with 
 test('an ignored file the base or the merge would start tracking stops the cleanup before overwriting it', async () => {
   {
     const { checkout, other } = await merged({ 'config.local': 'base\n' });
-
     const first = await git(checkout, 'rev-parse', 'HEAD');
 
     await git(checkout, 'rm', '--cached', '-q', 'config.local');
@@ -791,9 +787,7 @@ test('a cleanup that fails before deleting the branch says which merge it was fo
   await merge(other, 'feat/x');
 
   const bin = join(root, 'bin');
-
   const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-
   const previousPath = process.env.PATH;
 
   await write(
@@ -873,18 +867,15 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
 
 test('a cleanup failure after branch deletion reports the completed work', async () => {
   const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-
   const previousPath = process.env.PATH;
 
   for (const mode of ['plans', 'siblings']) {
     const { root, checkout, other, tip } = await merged();
-
     const before = await git(checkout, 'rev-parse', 'main');
 
     await merge(other, 'feat/x');
 
     const after = await git(other, 'rev-parse', 'main');
-
     const unreadable = join(plans(checkout), 'unreadable.md');
 
     if (mode === 'plans')
@@ -1185,9 +1176,7 @@ test('a merged branch that cannot be deleted stays named with its error while ot
 
 test('a base that tracks another remote is brought up to date from it', async () => {
   const { root, origin, checkout, tip } = await merged();
-
   const upstream = join(root, 'upstream.git');
-
   const fork = join(root, 'fork');
 
   await git(root, 'clone', '--bare', origin, upstream);
@@ -1229,7 +1218,6 @@ test("the cleanup fetches through the user's own ssh command, from git's config 
 
     // stands in for ssh: logs its arguments and runs the remote command here
     const log = join(root, 'ssh.log');
-
     const ssh = join(root, 'bin', own ? 'own-ssh' : 'ssh');
 
     await write(
@@ -1275,9 +1263,7 @@ test('an ssh command lookup that fails for a reason other than being unset stops
   await merge(other, 'feat/x');
 
   const bin = join(root, 'bin');
-
   const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-
   const previousPath = process.env.PATH;
 
   // git exits 1 for an unset key, which reads as no ssh command; any other failure is not absence
@@ -1357,7 +1343,6 @@ test('a branch switched to during the base fetch is left as it was, and the clea
 
 test('an edit made during the base fetch stops the cleanup before the fast-forward', async () => {
   const { root, checkout, other, tip } = await merged({ 'a.txt': 'a\n' });
-
   const before = await git(checkout, 'rev-parse', 'main');
 
   await merge(other, 'feat/x');

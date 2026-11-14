@@ -14,7 +14,6 @@ interface Frame {
 
 function sameAsFull(frames: Frame[]) {
   const layout = new TranscriptLayout();
-
   let items: DisplayItem[] = [];
 
   for (const frame of frames) {
@@ -22,9 +21,7 @@ function sameAsFull(frames: Frame[]) {
       items = applyDisplayUpdate(items, update);
 
     const expanded = new Map(frame.expanded.map((id) => [id, true]));
-
     const incremental = layout.render(items, frame.width, expanded);
-
     const full = new TranscriptLayout().render(items, frame.width, expanded);
 
     assert.deepEqual(incremental.lines.slice(), full.lines.slice());
@@ -54,13 +51,9 @@ test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail
       'earlier line\n'.repeat(stable ? 2000 : 1);
 
     let items = applyDisplayUpdate([], tool(prefix));
-
     const layout = new TranscriptLayout();
-
     const expanded = new Map([['tool', true]]);
-
     const before = layout.render(items, 100, expanded);
-
     const saved = before.lines.slice();
 
     items = applyDisplayUpdate(items, tool(';https://x.test/\u0007one\ntwo'));
@@ -117,9 +110,7 @@ for (const [name, prefix, suffix, body, target] of [
 ] as const)
   test(`an append completes a ${name} without changing earlier output`, () => {
     let items = applyDisplayUpdate([], tool(prefix));
-
     const layout = new TranscriptLayout();
-
     const expanded = new Map([['tool', true]]);
 
     layout.render(items, 2200, expanded);
@@ -378,15 +369,12 @@ test('a warm append to a 20k-line tool costs under a tenth of a full render', ()
     text += `PASS test/case-${index}.test.ts (12 ms) see src/a.ts:${index}\n`;
 
   const expanded = new Map([['tool', true]]);
-
   let start = performance.now();
 
   new TranscriptLayout().render([tool(text)], 118, expanded);
 
   const full = performance.now() - start;
-
   const layout = new TranscriptLayout();
-
   let items = applyDisplayUpdate([], tool(text));
 
   layout.render(items, 118, expanded);
@@ -421,9 +409,7 @@ test('layout receives every skipped append and rebuilds after replacements or un
       : seed.reduce(applyDisplayUpdate, [] as DisplayItem[]);
 
     const base = items;
-
     const layout = new TranscriptLayout();
-
     const expanded = new Map([['tool', true]]);
 
     const body = () =>
@@ -497,17 +483,11 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
   items = applyDisplayUpdate(items, following);
 
   const layout = new TranscriptLayout();
-
   const expanded = new Map([['tool', true]]);
-
   const before = layout.render(items, 80, expanded);
-
   const lines = before.lines.slice();
-
   const anchors = lines.map((_, row) => before.anchorAt(row)!);
-
   const positions = anchors.map((anchor) => before.rowOf(anchor));
-
   const starts = [...before.starts];
 
   assert.equal(before.starts.get('after'), 4);
@@ -560,7 +540,6 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
 
 test('warm tool appends and a fixed page do not scale with completed prefix rows', () => {
   const expanded = new Map([['tool', true]]);
-
   const results: number[] = [];
 
   for (const count of [2000, 100000]) {
@@ -653,12 +632,10 @@ test('assistant layout follows batched ancestry and rebuilds for replacements or
       : seed.reduce(applyDisplayUpdate, [] as DisplayItem[]);
 
     const base = items;
-
     const layout = new TranscriptLayout();
 
     const check = (expected: string, width = 80) => {
       const frame = layout.render(items, width, new Map());
-
       const fresh = new TranscriptLayout().render(items, width, new Map());
 
       assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
@@ -754,13 +731,9 @@ test('earlier assistant frames survive appends and a reference that changes comp
   });
 
   const before = layout.render(items, 40, new Map());
-
   const lines = before.lines.slice();
-
   const anchors = lines.map((_, row) => before.anchorAt(row)!);
-
   const rows = anchors.map((anchor) => before.rowOf(anchor));
-
   const starts = [...before.starts];
 
   for (const [text, width] of [
@@ -771,7 +744,6 @@ test('earlier assistant frames survive appends and a reference that changes comp
     items = applyDisplayUpdate(items, assistant(text));
 
     const frame = layout.render(items, width, new Map());
-
     const fresh = new TranscriptLayout().render(items, width, new Map());
 
     assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
@@ -802,13 +774,9 @@ test('earlier assistant frames survive appends and a reference that changes comp
 
 test('completed assistant blocks have bounded parsing and wrapping work', () => {
   const lex = Lexer.prototype.lex;
-
   const normalize = String.prototype.normalize;
-
   let parsed = 0;
-
   let wrapped = 0;
-
   let measure = false;
 
   vi.spyOn(Lexer.prototype, 'lex').mockImplementation(function (
@@ -840,7 +808,6 @@ test('completed assistant blocks have bounded parsing and wrapping work', () => 
       .slice(0, size);
 
     const layout = new TranscriptLayout();
-
     let items: DisplayItem[] = [];
 
     parsed = 0;
@@ -900,13 +867,9 @@ test('a late setext underline reinterprets every preceding thematic line', () =>
     ['a\n___\nb\n___\nc\n', ['a', '___', 'b', '___', 'c']],
   ] as const) {
     const prefix = 'Settled.\n\nEarlier.\n\n';
-
     const layout = new TranscriptLayout();
-
     let items = applyDisplayUpdate([], assistant(prefix + source));
-
     const before = layout.render(items, 80, new Map());
-
     const saved = before.lines.slice();
 
     items = applyDisplayUpdate(items, assistant('-'));

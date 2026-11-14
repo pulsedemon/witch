@@ -47,7 +47,6 @@ test('the selected tool stays selected when a tool is added above it', async () 
   ];
 
   const { app, coordinator } = fake({ items });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -73,7 +72,6 @@ test('the selected tool stays selected when a tool is added above it', async () 
 
 test('Tab and Enter toggle a tool group, and its members are selectable once open', async () => {
   const { app } = fake({ items: [agentTool('alpha'), agentTool('beta')] });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -151,11 +149,8 @@ test('reading earlier output keeps its position when a running tool joins a grou
   };
 
   const items = [said('start'), agentTool('alpha'), agentTool('beta', false)];
-
   const { app, coordinator } = fake({ items: [...items, later] });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-
   const top = () => ui.text().split('\n')[1]!.trim();
 
   try {
@@ -195,7 +190,6 @@ test('a selected tool that joins a group leaves the group selected', async () =>
   ];
 
   const { app, coordinator } = fake({ items: items(false) });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -225,7 +219,6 @@ test('a selected tool that joins a group leaves the group selected', async () =>
 
 test("clicking a tool's marker toggles it and a click on its title text does not", async () => {
   const { app } = fake({ items: [said('start'), tool('alpha')] });
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   const click = (column: number) => {

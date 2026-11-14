@@ -7,9 +7,7 @@ const escape =
 
 // eslint-disable-next-line no-control-regex
 const unfinished = /\u001b(?:\[[0-?]*[ -/]*|\][^\u0007\u001b]*(?:\u001b)?)?$/;
-
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
 // keycaps keep their ASCII base and marks together so they occupy two cells.
 const keycap = /[0-9#*]\uFE0F?\u20E3/;
 
@@ -45,7 +43,6 @@ export class Screen {
   write(data: string): string {
     // a tty that reports no size is drawn at 80x24, Ink's last fallback; Ink redraws the whole screen after a resize
     const columns = this.size.columns || 80;
-
     const rows = this.size.rows || 24;
 
     if (columns !== this.columns || rows !== this.rows) {
@@ -197,7 +194,6 @@ export class Screen {
     if (/^[<=>?]/.test(parameters)) return;
 
     const [first = 0, second = 0] = parameters.split(';').map(Number);
-
     const count = first || 1;
 
     const column = (value: number) =>

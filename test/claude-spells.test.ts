@@ -53,16 +53,13 @@ const assistant = (
 /** a `background` session whose first turn has replied and stays open, with lifecycle acknowledgements on. */
 async function background(initial = 'initial', initialSkill?: SkillCall) {
   const events: AgentEvent[] = [];
-
   const f = await launcher('background');
-
   const session = await f.connect({ onEvent: (event) => events.push(event) });
 
   const received = (name: string) =>
     events.some((e) => e.type === 'skills' && e.skills[0]?.name === name);
 
   const emit = frameWriter(f.cwd, received, f.children[0]!);
-
   const turn = session.send(initial, { skill: initialSkill });
 
   await until('initial reply', () => received('result-1'));
@@ -210,7 +207,6 @@ test('a steered spell an interrupt reports still queued comes back unread unanno
   }
 
   const rerun: AgentEvent[] = [];
-
   const session = await f.connect({ onEvent: (event) => rerun.push(event) });
 
   try {
@@ -232,7 +228,6 @@ test('a steered spell an interrupt reports still queued comes back unread unanno
 
 test("the agent's Skill call is announced with its tool id", async () => {
   const events: AgentEvent[] = [];
-
   const { session } = await fixture((event) => events.push(event));
 
   try {

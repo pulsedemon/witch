@@ -32,16 +32,12 @@ export async function runtimeUpdateFixture(
   installed: '1.0.0' | '2.0.0' = '1.0.0',
 ) {
   const directory = await scratch('witch-native-update-');
-
   const root = join(directory, 'packages', 'standalone');
-
   const launcher = join(directory, 'codex');
-
   const artifacts = new Map<string, RuntimeInstallation>();
 
   for (const version of ['1.0.0', '2.0.0']) {
     const release = join(root, 'releases', `${version}-aarch64-apple-darwin`);
-
     const executable = join(release, 'bin', 'codex');
 
     await mkdir(dirname(executable), { recursive: true });
@@ -78,15 +74,10 @@ export async function runtimeUpdateFixture(
   };
 
   const store = new RuntimeUpdateStore(join(directory, 'updates'));
-
   const notices: string[] = [];
-
   const installs: string[] = [];
-
   const policy: Partial<RuntimeInstallation> = {};
-
   const build = { current: 'fixture-build' };
-
   let checks = 0;
 
   const inspect = async (selection?: { executable?: string }) => {

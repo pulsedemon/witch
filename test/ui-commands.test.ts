@@ -229,7 +229,6 @@ test('model and nested effort selection include native application before the fo
 for (const key of ['\u001b', '\u0010'])
   test(`${key === '\u001b' ? 'Escape dismissal' : 'Ctrl+P replacement'} settles a picker before its command suffix`, async () => {
     const { app, coordinator, calls } = fake({});
-
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
     try {
@@ -291,7 +290,6 @@ for (const [draft, between] of [
     );
 
     let cleared = 0;
-
     const clear = c.clear.bind(c);
 
     c.clear = async () => {
@@ -436,7 +434,6 @@ for (const failure of ['native', 'refusal'] as const)
     };
 
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-
     const first = failure === 'native' ? '/compact' : '/new b';
 
     try {
@@ -562,7 +559,6 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
 
 test('/review hands its files to the coordinator, and a failed review cancels the commands after it', async () => {
   const { app, coordinator, calls } = fake({});
-
   const results = [false, true];
 
   Object.assign(coordinator, {
@@ -608,7 +604,6 @@ test('/review hands its files to the coordinator, and a failed review cancels th
 
 test('/help draws its section headings in bold violet', async () => {
   const { app } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {
@@ -626,7 +621,6 @@ test('/help draws its section headings in bold violet', async () => {
 
 test('a page an earlier command in a batch opened stays open while a later one runs, and a later picker replaces it', async () => {
   const { app, coordinator, calls } = fake({});
-
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
   try {

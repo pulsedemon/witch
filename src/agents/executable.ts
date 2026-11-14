@@ -35,7 +35,6 @@ export function findExecutable(
 /** versioned artifact paths map to the same installation across native upgrades. */
 export function nativeInstallationRoot(executable: string): string | undefined {
   const file = realpathSync(executable);
-
   const directory = dirname(file);
 
   if (
