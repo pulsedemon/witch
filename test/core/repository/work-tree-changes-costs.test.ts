@@ -663,40 +663,43 @@ test('reclaiming one checkout preserves private baselines in other repositories 
   );
 });
 
-test('a tracked file replaced by a nested repository reports its entry and later commits', async () => {
-  const { work, changes } = await repository({ a: 'old file\n' });
+for (const ignored of [false, true])
+  test(`a tracked${ignored ? ' ignored' : ''} file replaced by a nested repository reports its entry and later commits`, async () => {
+    const { work, changes } = await repository({ a: 'old file\n' });
 
-  await changes.watch(work);
+    if (ignored) await writeFile(join(work, '.gitignore'), 'a\n');
 
-  await rm(join(work, 'a'));
+    await changes.watch(work);
 
-  await mkdir(join(work, 'a'));
+    await rm(join(work, 'a'));
 
-  const inner = (...args: string[]) =>
-    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
-      cwd: join(work, 'a'),
-      timeout: 10_000,
-    });
+    await mkdir(join(work, 'a'));
 
-  await inner('init', '-q');
+    const inner = (...args: string[]) =>
+      execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        cwd: join(work, 'a'),
+        timeout: 10_000,
+      });
 
-  await inner('commit', '--allow-empty', '-qm', 'first');
+    await inner('init', '-q');
 
-  const expected = [
-    {
-      path: join(work, 'a'),
-      kind: 'update',
-      hunks: [],
-      unshown: { added: 1, removed: 1 },
-    },
-  ];
+    await inner('commit', '--allow-empty', '-qm', 'first');
 
-  assert.deepEqual((await changes.read(work)).files, expected);
+    const expected = [
+      {
+        path: join(work, 'a'),
+        kind: 'update',
+        hunks: [],
+        unshown: { added: 1, removed: 1 },
+      },
+    ];
 
-  await inner('commit', '--allow-empty', '-qm', 'second');
+    assert.deepEqual((await changes.read(work)).files, expected);
 
-  assert.deepEqual((await changes.read(work)).files, expected);
-});
+    await inner('commit', '--allow-empty', '-qm', 'second');
+
+    assert.deepEqual((await changes.read(work)).files, expected);
+  });
 
 test('text auto conversion follows the real index after a snapshot changed from CRLF to LF', async () => {
   const { work, git, changes } = await repository({ 'a.txt': 'one\r\n' });
@@ -1192,3 +1195,110 @@ for (const ignored of [false, true])
       more: 0,
     });
   });
+
+test('a failed snapshot cannot reintroduce a newly ignored untracked file on reset', async () => {
+  let fail = false;
+
+  const run: GitRun = (command, args, options) => {
+    if (fail && args.includes('write-tree')) {
+      fail = false;
+
+      return Promise.reject(
+        Object.assign(new Error('injected'), {
+          code: 128,
+          stderr: 'fatal: injected write-tree failure',
+        }),
+      );
+    }
+
+    return execute(command, args, options);
+  };
+
+  const { work, changes } = await repository(
+    { '.gitignore': '', 'a.txt': 'base\n' },
+    run,
+  );
+
+  await writeFile(join(work, 'x.txt'), 'visible\n');
+
+  await changes.watch(work);
+
+  await writeFile(join(work, '.gitignore'), 'x.txt\n');
+
+  await writeFile(join(work, 'a.txt'), 'changed\n');
+
+  fail = true;
+
+  await assert.rejects(changes.read(work), /injected/);
+
+  await writeFile(join(work, 'x.txt'), 'excluded secret\n');
+
+  assert.deepEqual(
+    (await changes.read(work)).files.map((file) => ({
+      path: file.path,
+      kind: file.kind,
+      lines: file.hunks.flatMap((hunk) => hunk.lines),
+    })),
+    [
+      { path: join(work, '.gitignore'), kind: 'update', lines: ['+x.txt'] },
+      {
+        path: join(work, 'a.txt'),
+        kind: 'update',
+        lines: ['-base', '+changed'],
+      },
+      { path: join(work, 'x.txt'), kind: 'delete', lines: ['-visible'] },
+    ],
+  );
+
+  assert.deepEqual(await changes.read(work), {
+    files: [],
+    withHead: 0,
+    more: 0,
+  });
+});
+
+test('an invalid nested Git directory in a tracked file replacement keeps ignored contents out', async () => {
+  const { work, changes } = await repository({
+    '.gitignore': '.env\n',
+    a: 'old\n',
+  });
+
+  await changes.watch(work);
+
+  await rm(join(work, 'a'));
+
+  await mkdir(join(work, 'a'));
+
+  await execute('git', ['init', '-q'], {
+    cwd: join(work, 'a'),
+    timeout: 10_000,
+  });
+
+  await rm(join(work, 'a', '.git', 'HEAD'));
+
+  await writeFile(join(work, 'a', '.env'), 'excluded\n');
+
+  await writeFile(join(work, 'a', 'visible.txt'), 'visible\n');
+
+  assert.deepEqual(
+    (await changes.read(work)).files.map((file) => ({
+      path: file.path,
+      kind: file.kind,
+      lines: file.hunks.flatMap((hunk) => hunk.lines),
+    })),
+    [
+      { path: join(work, 'a'), kind: 'delete', lines: ['-old'] },
+      {
+        path: join(work, 'a', 'visible.txt'),
+        kind: 'add',
+        lines: ['+visible'],
+      },
+    ],
+  );
+
+  assert.deepEqual(await changes.read(work), {
+    files: [],
+    withHead: 0,
+    more: 0,
+  });
+});

@@ -643,14 +643,10 @@ export class WorkTreeChanges {
       ).map((path) => path.replace(/\/$/, '')),
     );
 
-    const ignored = new Set(
-      fields(
-        await this.git(
-          checkout,
-          ['ls-files', '--cached', '--ignored', '--exclude-standard', '-z'],
-          listBuffer,
-        ),
-      ).filter((path) => !state.tracked.has(path)),
+    const excluded = new Set(
+      [...state.entries.keys()].filter(
+        (path) => !state.tracked.has(path) && !discovered.has(path),
+      ),
     );
 
     const paths = new Set([
@@ -753,7 +749,7 @@ export class WorkTreeChanges {
       if (
         state.tracked.get(path)?.mode === gitlink ||
         state.tracked.get(path)?.skipped ||
-        ignored.has(path)
+        excluded.has(path)
       )
         continue;
 
@@ -767,7 +763,7 @@ export class WorkTreeChanges {
         selected.add(path);
     }
 
-    const remove = new Set(ignored);
+    const remove = new Set(excluded);
     const files: string[] = [];
     const directories: string[] = [];
     const input: string[] = [];
@@ -917,7 +913,6 @@ export class WorkTreeChanges {
           'add',
           '-A',
           '--ignore-errors',
-          '-f',
           '--pathspec-from-file=-',
           '--pathspec-file-nul',
         ],
