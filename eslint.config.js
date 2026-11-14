@@ -9,6 +9,11 @@ const singleLineVariable = {
   lineMode: 'singleline',
 };
 
+const singleLineValidationGuard = {
+  selector: 'IfStatement[alternate=null][consequent.type="ThrowStatement"]',
+  lineMode: 'singleline',
+};
+
 export default defineConfig(
   { ignores: ['dist/**', '.superpowers/**', 'docs/superpowers/**'] },
   js.configs.recommended,
@@ -25,6 +30,11 @@ export default defineConfig(
           blankLine: 'any',
           prev: singleLineVariable,
           next: singleLineVariable,
+        },
+        {
+          blankLine: 'any',
+          prev: singleLineValidationGuard,
+          next: singleLineValidationGuard,
         },
       ],
     },

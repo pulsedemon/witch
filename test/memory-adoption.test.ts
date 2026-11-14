@@ -503,7 +503,6 @@ describe('a failed memory move preserves its error and reports a failed rollback
 
         hook.current = async (command, run) => {
           if (command[0] === 'add') throw adoption;
-
           if (rollbackFails && command[0] === 'reset') throw rollback;
 
           return run();

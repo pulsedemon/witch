@@ -506,9 +506,7 @@ class ClaudeSession implements AgentSession {
 
   private beginTurn(): Turn {
     if (this.answers.busy) throw new Error('This agent is already running');
-
     if (this.closed) throw new Error('The Claude session is closed');
-
     if (this.turn) throw new Error('This agent is already running');
 
     if (!this.nativeRunning) this.backgroundRun = undefined;
