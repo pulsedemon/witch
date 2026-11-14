@@ -113,7 +113,10 @@ for (const phase of ['idle', 'running'] as const) {
 
       assert.equal(rowOf(ui, 'retained draft'), prompt);
 
-      assert.equal(rowOf(ui, label), prompt - 2);
+      assert.equal(rowOf(ui, label), prompt - (phase === 'running' ? 3 : 2));
+
+      if (phase === 'running')
+        assert.equal(rowOf(ui, 'ESC TO INTERRUPT'), prompt - 2);
 
       click(ui);
 

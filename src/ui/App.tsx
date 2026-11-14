@@ -1110,14 +1110,6 @@ export function App({
           </Box>
         )}
         <CommandWindow items={state.items} height={fitted.commands} />
-        <Box height={fitted.activity} overflow="hidden" flexShrink={0}>
-          {working && (
-            <Activity
-              key={state.activityStartedAt}
-              startedAt={state.activityStartedAt}
-            />
-          )}
-        </Box>
         <Box
           height={fitted.gap}
           overflow="hidden"
@@ -1130,6 +1122,14 @@ export function App({
                 {' ↓ New messages '}
               </Text>
             </Box>
+          )}
+        </Box>
+        <Box height={fitted.activity} overflow="hidden" flexShrink={0}>
+          {working && (
+            <Activity
+              key={state.activityStartedAt}
+              startedAt={state.activityStartedAt}
+            />
           )}
         </Box>
         <Box

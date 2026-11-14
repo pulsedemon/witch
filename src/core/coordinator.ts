@@ -71,7 +71,9 @@ interface Launch {
 }
 
 /** another operation holds the phase, so nothing ran and nothing failed. */
-class Refusal extends Error {}
+class Refusal extends Error {
+  reported = false;
+}
 
 export class Coordinator {
   readonly pentacle = new PentacleActivity();
@@ -976,8 +978,13 @@ export class Coordinator {
   report(error: unknown): void {
     if (this.snapshot.phase === 'error') return;
 
-    if (error instanceof Refusal && this.record)
+    if (error instanceof Refusal && this.record) {
+      if (error.reported) return;
+
+      error.reported = true;
+
       return this.notice(error.message, undefined, false);
+    }
 
     this.publish({ error: errorMessage(error) });
   }
