@@ -30,7 +30,7 @@ import { coordinationText } from './peers.js';
 import { ScrollPage } from '../ScrollPage.js';
 import { piped } from '../theme.js';
 import { showUpdates, updatesText } from './updates.js';
-import { wrapLines } from '../wrap.js';
+import { wrapSourceLines } from '../wrap.js';
 
 export function useCommandViews({
   coordinator,
@@ -568,7 +568,7 @@ export function CommandView({
               ? updatesText(updates, agents)
               : '';
 
-    return wrapLines(pageText, bodyWidth);
+    return wrapSourceLines(pageText, bodyWidth);
   }, [view, cwd, pageCoordination, updates, agents, bodyWidth]);
 
   const pageHeading = Number(bodyHeight >= 3);
@@ -580,6 +580,7 @@ export function CommandView({
   const page = (
     <ScrollPage
       lines={pageLines}
+      width={bodyWidth}
       height={pageRows}
       scroll={pageScroll}
       setScroll={setPageScroll}

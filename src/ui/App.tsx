@@ -60,7 +60,7 @@ import { PhaseRow } from './status/PhaseRow.js';
 import { useToolFocus } from './transcript/tool-focus.js';
 import { useExitConfirm } from './exit-confirm.js';
 import { accent, colors, potion } from './theme.js';
-import { wrapLines } from './wrap.js';
+import { wrapSourceLines } from './wrap.js';
 import type { RuntimeUpdates } from '../core/runtime/runtime-updates.js';
 import { useRuntimeUpdates } from './commands/updates.js';
 
@@ -814,7 +814,7 @@ export function App({
       recovery?.root ?? cwd,
     );
 
-    return wrapLines(text, bodyWidth);
+    return wrapSourceLines(text, bodyWidth);
   }, [recovery, conflict, cwd, bodyWidth]);
 
   usePointer((pointer, { column, row }) => {

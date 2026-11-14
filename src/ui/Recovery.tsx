@@ -13,7 +13,7 @@ export function Recovery({
   setScroll,
 }: {
   conflict: boolean;
-  lines: readonly string[];
+  lines: readonly (readonly string[])[];
   height: number;
   width: number;
   scroll: number;
@@ -65,6 +65,7 @@ export function Recovery({
       </Box>
       <ScrollPage
         lines={lines}
+        width={width}
         height={pageRows}
         scroll={scroll}
         setScroll={setScroll}

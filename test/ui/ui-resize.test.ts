@@ -3,9 +3,17 @@ import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import stringWidth from 'string-width';
+import type { UserRequest } from '../../src/agents/types.js';
 import { applyDisplayUpdate } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
-import { ENTER, LEFT, fake, show } from '../fixtures/ui.js';
+import {
+  ENTER,
+  LEFT,
+  approval,
+  fake,
+  openCommand,
+  show,
+} from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
 
 for (const [columns, rows, visibleDraft] of [
@@ -105,48 +113,170 @@ for (const [columns, draft] of [
   });
 }
 
-test('funding and errors cannot push a short terminal composer offscreen', async () => {
-  const { app, calls } = fake({
-    phase: 'running',
-    error: 'long error '.repeat(100),
-    accounts: {
-      a: {
-        limits: [],
-        funding: {
-          kind: 'extra-usage',
-          enabled: false,
-          used: 651,
-          limit: 10000,
-          currency: 'USD',
-          decimalPlaces: null,
-          observedAt: Date.now(),
+for (const [columns, rows, visibleDraft] of [
+  [20, 8, 'visibleZ'],
+  [1, 40, 'Z'],
+] as const) {
+  test(`funding and errors cannot hide the composer at ${columns} by ${rows}`, async () => {
+    const { app, calls } = fake({
+      phase: 'running',
+      error: 'long error '.repeat(100),
+      accounts: {
+        a: {
+          limits: [],
+          funding: {
+            kind: 'extra-usage',
+            enabled: false,
+            used: 651,
+            limit: 10000,
+            currency: 'USD',
+            decimalPlaces: null,
+            observedAt: Date.now(),
+          },
         },
       },
-    },
-  });
+    });
 
-  const ui = show(createElement(App, { coordinator: app, onExit() {} }), 20, 8);
+    const ui = show(
+      createElement(App, { coordinator: app, onExit() {} }),
+      columns,
+      rows,
+    );
+
+    try {
+      ui.stdin.write('visibleZ' + LEFT);
+
+      await until(
+        'visible draft row',
+        () =>
+          ui.text().split('\n')[rows - 2]?.replaceAll('┃', '').trim() ===
+          visibleDraft,
+      );
+
+      assert.equal(ui.text().split('\n').length, rows);
+
+      ui.stdin.write(ENTER);
+
+      await until('submitted text', () => calls.length > 0);
+
+      assert.deepEqual(calls, [['send', 'visibleZ', { composer: true }]]);
+
+      ui.resize(100, 40);
+
+      await until('full balance restored', () =>
+        ui.text().includes('USD 10000 minor units cap'),
+      );
+
+      assert.match(ui.text(), /USD 651 minor units spent/);
+    } finally {
+      ui.unmount();
+    }
+  });
+}
+
+for (const [mode, expected] of [
+  ['approval', 'reading 28'],
+  ['recovery', 'reading 33'],
+  ['diff', 'reading 27'],
+] as const) {
+  test(`${mode} preserves its source line across width changes`, async () => {
+    const detail = Array.from(
+      { length: 90 },
+      (_, i) => `reading ${i + 1}: description that wraps in a narrow window`,
+    ).join('\n');
+
+    const request: UserRequest = { ...approval, detail };
+
+    if (mode === 'diff') {
+      request.detail = '';
+
+      request.diff = [
+        {
+          kind: 'update',
+          path: '/work/a.ts',
+          hunks: [
+            {
+              oldStart: 1,
+              newStart: 1,
+              lines: detail.split('\n').map((line) => `+${line}`),
+            },
+          ],
+        },
+      ];
+    }
+
+    const { app, calls } = fake(
+      mode === 'recovery'
+        ? {
+            phase: 'recovery',
+            recovery: { kind: 'pending', paths: [], root: '/m', diff: detail },
+          }
+        : { requests: [request] },
+    );
+
+    const ui = show(createElement(App, { coordinator: app, onExit() {} }));
+    const first = () => ui.text().match(/reading \d+/)?.[0];
+
+    try {
+      await until('first source line', () => first() === 'reading 1');
+
+      ui.stdin.write('\u001b[6~');
+
+      await until('next page', () => first() === expected);
+
+      for (const width of [20, 100]) {
+        ui.resize(width, 40);
+
+        await until(
+          'rewrapped content',
+          () =>
+            ui.text().includes('description that wraps in a narrow window') ===
+            (width === 100),
+        );
+
+        assert.equal(first(), expected);
+      }
+
+      assert.deepEqual(calls, []);
+    } finally {
+      ui.unmount();
+    }
+  });
+}
+
+test('a command page retains its paragraph offset through width changes', async () => {
+  const { app } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit() {} }));
+  const first = () => ui.text().split('\n')[2]!.trim();
 
   try {
-    ui.stdin.write('visible');
+    await openCommand(ui, '/help', 'Keyboard help');
 
-    await until('visible draft', () => ui.text().includes('visible'));
+    ui.stdin.write('\u001b[6~');
 
-    assert.equal(ui.text().split('\n').length, 8);
+    await until('shell command explanation', () =>
+      first().startsWith('sandbox, and the agent'),
+    );
 
-    ui.stdin.write(ENTER);
+    const before = first();
 
-    await until('submitted text', () => calls.length > 0);
+    ui.resize(20, 40);
 
-    assert.deepEqual(calls, [['send', 'visible', { composer: true }]]);
+    await until('narrow paragraph', () => first() === 'without a sandbox,');
+
+    assert.ok(
+      ui
+        .text()
+        .split('\n')
+        .slice(2, 5)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .includes(before.slice(0, 20)),
+    );
 
     ui.resize(100, 40);
 
-    await until('full balance restored', () =>
-      ui.text().includes('USD 10000 minor units cap'),
-    );
-
-    assert.match(ui.text(), /USD 651 minor units spent/);
+    await until('restored paragraph offset', () => first() === before);
   } finally {
     ui.unmount();
   }

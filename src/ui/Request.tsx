@@ -15,7 +15,7 @@ import {
   diffExpansionHint,
   diffRows,
 } from './transcript/diff.js';
-import { wrapLines } from './wrap.js';
+import { wrapLines, wrapSourceLines } from './wrap.js';
 import { ScrollPage } from './ScrollPage.js';
 
 interface Props {
@@ -117,52 +117,17 @@ export function Request({
     : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
 
   const lines = useMemo(() => {
-    const wrap = (text: string) => wrapLines(linkify(text, cwd), width);
+    const wrap = (text: string) => wrapSourceLines(linkify(text, cwd), width);
 
     if (question || !request.diff?.length) return wrap(detail);
 
     return [
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
-      ...diffRows(request.diff, width, cwd, full).flat(),
-      '',
+      ...diffRows(request.diff, width, cwd, full),
+      [''],
       ...wrap(fields),
     ];
   }, [request, detail, fields, question, width, cwd, full]);
-
-  const previousLayout = useRef({ width, lines, bodyHeight, questionIndex });
-
-  useEffect(() => {
-    const previous = previousLayout.current;
-    previousLayout.current = { width, lines, bodyHeight, questionIndex };
-
-    if (
-      !question ||
-      previous.width === width ||
-      previous.questionIndex !== questionIndex
-    )
-      return;
-
-    setScroll((current) => {
-      const top = Math.min(
-        current,
-        Math.max(0, previous.lines.length - previous.bodyHeight),
-      );
-
-      let offset = previous.lines
-        .slice(0, top)
-        .reduce((sum, line) => sum + plain(line).length, 0);
-
-      for (const [row, line] of lines.entries()) {
-        const length = plain(line).length;
-
-        if (offset < length) return row;
-
-        offset -= length;
-      }
-
-      return Math.max(0, lines.length - 1);
-    });
-  }, [width, lines, bodyHeight, questionIndex, question]);
 
   const selectedRow =
     question && options[selection] !== undefined
@@ -336,6 +301,7 @@ export function Request({
       </Box>
       <ScrollPage
         lines={lines}
+        width={width}
         active={active}
         height={bodyHeight}
         scroll={scroll}
