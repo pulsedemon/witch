@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import type { SDKControlGetContextUsageResponse } from '@anthropic-ai/claude-agent-sdk';
 import { test, vi } from 'vitest';
 import { ClaudeContext } from '../src/agents/claude-context.js';
@@ -167,7 +168,8 @@ test("a usage publish that throws in Claude's background context read leaves no 
   });
   try {
     await until('the failed publish', () => thrown);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Node reports a rejection nothing handles as the tick it happened in ends, so one more turn has seen it
+    await setImmediate();
     assert.deepEqual(unhandled, []);
     assert.equal((await session.send('hello')).status, 'completed');
   } finally {
