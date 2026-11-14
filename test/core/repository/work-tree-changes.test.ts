@@ -290,9 +290,6 @@ for (const name of ['ends in a space ', 'a:b"c\\d', 'line\nbreak'])
 
     await writeFile(join(work, 'kept.txt'), 'kept\n');
 
-    // older than the index, so a snapshot takes this file's content from the repository's objects
-    await utimes(join(work, 'kept.txt'), new Date(past), new Date(past));
-
     await git('add', '-A', '-f');
 
     await git('commit', '-qm', 'first');
