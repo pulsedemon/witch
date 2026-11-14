@@ -47,6 +47,7 @@ interface LinkHost {
   workspace(): Workspace;
   snapshot(): Snapshot;
   cancelled(): boolean;
+  exhausted(session: AgentSession): void;
   publish(update: Partial<Snapshot>): void;
   display(update: DisplayUpdate): void;
   notice(text: string, cwd?: string, save?: boolean): void;
@@ -63,6 +64,7 @@ interface LinkHost {
 /** the open conversation's native session: connecting it, closing it and taking in its events. */
 export class SessionLink {
   private connected?: AgentSession;
+  private connection?: object;
   private aborter?: AbortController;
   private compactions = 0;
   private readonly compactedListeners = new Set<() => void>();
@@ -206,11 +208,23 @@ export class SessionLink {
   }
 
   /** reuses the live session unless `scope` names project memory it was never granted. */
+  connect(
+    agent?: string,
+    scope?: MemoryScope,
+    selection?: ModelSelection,
+  ): Promise<AgentSession>;
+  connect(
+    agent: string | undefined,
+    scope: MemoryScope | undefined,
+    selection: ModelSelection | undefined,
+    ready: () => boolean,
+  ): Promise<AgentSession | undefined>;
   async connect(
     agent = this.host.conversation().agent,
     scope?: MemoryScope,
     selection?: ModelSelection,
-  ): Promise<AgentSession> {
+    ready?: () => boolean,
+  ): Promise<AgentSession | undefined> {
     const live = this.live(agent);
     if (live && (!scope || scope.project === this.sessionProject)) return live;
     const conversation = this.host.conversation();
@@ -223,8 +237,18 @@ export class SessionLink {
     await workspace.ensureWorktree();
     if (scope) await workspace.prepare(scope);
     else scope = await workspace.scope(conversation.cwd);
+    if (ready && !ready()) return;
+    const restoreAdmission =
+      ready && this.coordination
+        ? await this.coordination.quiesce()
+        : undefined;
+    if (ready && !ready()) {
+      restoreAdmission?.();
+      return;
+    }
     // an initial connect keeps the activation published when its conversation opened; a runtime switch drops questions once it activates
-    await this.disconnect(!this.connected, true);
+    await this.disconnect(!this.connected, true, undefined, !!restoreAdmission);
+    const connection = (this.connection = {});
     await this.coordination?.activate(conversation, scope.project);
     this.aborter = new AbortController();
     try {
@@ -256,6 +280,17 @@ export class SessionLink {
         automaticCompaction: true,
         signal: this.aborter.signal,
         onEvent: (event) => {
+          if (event.type === 'exhausted') {
+            if (
+              this.connection === connection &&
+              this.connected &&
+              !files.closed &&
+              this.host.record() === conversation &&
+              !this.host.cancelled()
+            )
+              this.host.exhausted(this.connected);
+            return;
+          }
           if (!files.closed)
             this.receive(conversation, agent, event, tools, commands, files);
         },
@@ -295,10 +330,13 @@ export class SessionLink {
     keepActivation = false,
     keepQuestions = false,
     stop?: AgentStopOptions,
+    quiesced = false,
   ): Promise<void> {
-    if (!keepActivation && this.coordination) await this.coordination.quiesce();
+    if (!keepActivation && !quiesced && this.coordination)
+      await this.coordination.quiesce();
     const conversationId = this.host.record()?.id;
     const session = this.connected;
+    this.connection = undefined;
     this.connected = undefined;
     const owned = this.reviewers.owns;
     for (const event of stoppedActivity(this.host.snapshot(), owned))
@@ -332,7 +370,7 @@ export class SessionLink {
   private receive(
     conversation: ConversationRecord,
     agent: string,
-    event: AgentEvent,
+    event: Exclude<AgentEvent, { type: 'exhausted' }>,
     tools: Map<string, string>,
     commands: Set<string>,
     files: ConversationStore,

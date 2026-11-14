@@ -383,11 +383,18 @@ export class SessionCoordination {
     }
   }
 
-  async quiesce(): Promise<void> {
-    if (this.active) this.active.accepting = false;
+  /** returns a way to restore this activation's prior admission if the transition defers after draining. */
+  async quiesce(): Promise<() => void> {
+    const active = this.active;
+    const accepting = active?.accepting ?? false;
+    if (active) active.accepting = false;
     await this.operations;
     await this.host.drain();
     await this.familiarHost.drain();
+    return () => {
+      if (active && this.active === active && !this.ending && !this.closed)
+        active.accepting = accepting;
+    };
   }
 
   async deactivate(): Promise<void> {

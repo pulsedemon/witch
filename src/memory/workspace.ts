@@ -661,13 +661,18 @@ export class Workspace {
     throw new Error('Memory publishing kept losing to other conversations');
   }
 
-  async commit(message: string): Promise<void> {
+  async commit(message: string, accept = () => true): Promise<void> {
     if (!(await this.isDirty())) return;
     const files = await this.git(['ls-files', '--cached', '--others', '-z']);
     for (const file of new Set(files.split('\0').filter(Boolean)))
       await this.checkedPath(file);
+    if (!accept()) return;
+    const previous = await this.revision();
     await this.git(['add', '--all', '--force', '--', '.']);
+    if (!accept()) return;
     await this.git(['commit', '--quiet', '-m', message]);
+    // a rejection during git's commit leaves the notes pending for recovery.
+    if (!accept()) await this.git(['reset', '--soft', previous]);
   }
 
   /** the pending changes, with new files shown whole. */

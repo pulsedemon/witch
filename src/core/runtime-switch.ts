@@ -1,6 +1,7 @@
 import type { AgentSession, TurnResult } from '../agents/types.js';
 import type { Memory } from '../memory/memory.js';
 import type { SessionCoordination } from './coordination.js';
+import { taskActivity } from './coordination-state.js';
 import { handoff } from './handoff.js';
 import { modelEffort, type ModelSelection } from './models.js';
 import { comparable, resolve } from './routing.js';
@@ -28,7 +29,10 @@ export interface SwitchHost {
     kind: 'turn' | 'handoff',
     images?: readonly string[],
   ): Promise<TurnResult>;
-  connect(selection: ModelSelection): Promise<AgentSession>;
+  connect(
+    selection: ModelSelection,
+    ready?: () => boolean,
+  ): Promise<AgentSession | undefined>;
   disconnect(): Promise<void>;
   save(): Promise<void>;
   publish(update: Partial<Snapshot>): void;
@@ -37,6 +41,20 @@ export interface SwitchHost {
   operate(operation: () => Promise<void>): Promise<void>;
   /** sets whether a failed turn holds the queue for the composer. */
   failed(failed: boolean): void;
+  prepareBackground(): Promise<void>;
+  changed(): void;
+  compactionOnly(): boolean;
+}
+
+interface PendingSwitch {
+  conversation: ConversationRecord;
+  source: AgentSession | undefined;
+  background: boolean;
+  recovering: boolean;
+  moving: boolean;
+  waiting: boolean;
+  revision: number;
+  finished: PromiseWithResolvers<void>;
 }
 
 type Destination =
@@ -48,12 +66,12 @@ export class RuntimeSwitch {
   selecting = false;
   /** a switch activated in this drain step, so another exhaustion stops instead of switching back. */
   private hopped = false;
-  /** the failed turn left memory pending, so resolving it runs the switch. */
-  private pending = false;
+  private pending?: PendingSwitch;
   /** when each runtime last ran out in this process; only evidence observed later shows it has recovered. */
   private readonly exhaustedAt = new Map<string, number>();
   private continuation?: TurnResult;
   private stopping?: PromiseWithResolvers<void>;
+  private activityRevision = 0;
 
   constructor(private readonly host: SwitchHost) {}
 
@@ -65,6 +83,118 @@ export class RuntimeSwitch {
   /** ends the forced usage refresh at once; the probe finishes under its own timeout. */
   stop(): void {
     this.stopping?.resolve();
+    this.clearPending();
+  }
+
+  backgroundExhausted(source: AgentSession): void {
+    if (this.host.session() !== source || this.host.cancelled()) return;
+    if (!this.backgroundPending) this.request(true);
+  }
+
+  get backgroundPending(): boolean {
+    const request = this.pending;
+    if (
+      request &&
+      !request.moving &&
+      (request.conversation !== this.host.conversation() ||
+        request.source !== this.host.session())
+    )
+      this.clearPending();
+    return this.pending?.background === true;
+  }
+
+  get backgroundSettled(): Promise<void> | undefined {
+    return this.backgroundPending ? this.pending!.finished.promise : undefined;
+  }
+
+  get awaitingRecovery(): boolean {
+    return this.pending?.recovering === true;
+  }
+
+  get backgroundBusy(): boolean {
+    const snapshot = this.host.snapshot();
+    return snapshot.nativeRunning || taskActivity(snapshot).running;
+  }
+
+  observe(update: Partial<Snapshot>): void {
+    if (
+      this.pending?.background &&
+      (update.nativeRunning === true ||
+        update.items ||
+        update.subagents ||
+        update.backgroundCommands)
+    )
+      this.activityRevision++;
+  }
+
+  private deferBackground(request: PendingSwitch): boolean {
+    if (
+      !request.background ||
+      (!this.backgroundBusy && request.revision === this.activityRevision)
+    )
+      return false;
+    request.waiting = true;
+    return true;
+  }
+
+  acceptMemory(agent: string): boolean {
+    return (
+      !this.pending?.background || this.pending.source?.info.agent !== agent
+    );
+  }
+
+  async continueBackground(): Promise<boolean> {
+    if (!this.backgroundPending) return false;
+    const request = this.pending!;
+    request.waiting = false;
+    request.revision = this.activityRevision;
+    try {
+      await this.host.prepareBackground();
+    } catch (error) {
+      if (this.pending === request) this.clearPending();
+      throw error;
+    }
+    if (this.pending !== request || this.host.cancelled()) return false;
+    if (this.host.snapshot().phase === 'idle' && this.deferBackground(request))
+      return false;
+    return this.run(request);
+  }
+
+  private request(background: boolean): PendingSwitch {
+    this.clearPending();
+    const request = {
+      conversation: this.host.conversation(),
+      source: this.host.session(),
+      background,
+      recovering: false,
+      moving: false,
+      waiting: false,
+      revision: this.activityRevision,
+      finished: Promise.withResolvers<void>(),
+    };
+    this.pending = request;
+    this.exhaustedAt.set(request.conversation.agent, Date.now());
+    return request;
+  }
+
+  private clearPending(): void {
+    const request = this.pending;
+    this.pending = undefined;
+    request?.finished.resolve();
+  }
+
+  private async run(request: PendingSwitch): Promise<boolean> {
+    try {
+      return await this.attempt(request);
+    } finally {
+      if (request.waiting && this.host.snapshot().phase === 'recovery')
+        request.recovering = true;
+      if (this.pending === request && !request.recovering && !request.waiting) {
+        if (this.host.conversation().agent === request.source?.info.agent)
+          this.host.failed(true);
+        this.clearPending();
+      }
+    }
   }
 
   async applyModel(session: AgentSession, selection: ModelSelection) {
@@ -88,7 +218,12 @@ export class RuntimeSwitch {
   }
 
   /** an automatic switch passes the notice it posts once activated, and never asks the exhausted source to summarize. */
-  handoff(selection: ModelSelection, notice?: string): Promise<void> {
+  handoff(
+    selection: ModelSelection,
+    notice?: string,
+    continueTask?: true,
+  ): Promise<void> {
+    if (notice === undefined) this.clearPending();
     const host = this.host;
     this.continuation = undefined;
     return handoff(
@@ -118,14 +253,21 @@ export class RuntimeSwitch {
         },
       },
       selection,
-      { summarize: notice === undefined },
+      {
+        summarize: notice === undefined,
+        continueTask,
+        ready: continueTask
+          ? () => !!this.pending && !this.deferBackground(this.pending)
+          : undefined,
+      },
     );
   }
 
   /** after an ordinary turn, or the compaction before it, fails exhausted; true when the conversation continues on another runtime. */
   continueAfterExhaustion(): Promise<boolean> {
-    this.exhaustedAt.set(this.host.conversation().agent, Date.now());
-    return this.attempt();
+    return this.run(
+      this.backgroundPending ? this.pending! : this.request(false),
+    );
   }
 
   /** runs a switch the memory decision held once `recovering` succeeds and leaves the conversation idle. */
@@ -135,17 +277,20 @@ export class RuntimeSwitch {
       await recovering;
       succeeded = true;
     } finally {
-      const pending = this.pending && this.host.snapshot().phase === 'idle';
-      if (pending) this.pending = false;
+      const request = this.pending;
+      const pending =
+        request?.recovering && this.host.snapshot().phase === 'idle';
       // the switch's own operation clears the stop, so one pressed while recovery applied is read here
       if (pending && succeeded && !this.host.cancelled()) {
         this.hopped = false;
-        await this.attempt();
+        request.recovering = false;
+        if (request.background) this.host.changed();
+        else await this.run(request);
       }
     }
   }
 
-  private async attempt(): Promise<boolean> {
+  private async attempt(request: PendingSwitch): Promise<boolean> {
     const host = this.host;
     const { phase, error, commandsPending } = host.snapshot();
     const { agent } = host.conversation();
@@ -157,23 +302,26 @@ export class RuntimeSwitch {
       );
       return false;
     }
-    if (phase === 'recovery') this.pending = true;
+    if (phase === 'recovery') request.recovering = true;
     if (phase !== 'idle') return false;
-    if (commandsPending) {
+    if (commandsPending && !(request.background && host.compactionOnly())) {
       host.notice(
         `${from} is out of usage. Witch won't switch while commands are pending.`,
       );
       return false;
     }
     // entered before any await, so the queue is never shown idle and handed back to the composer
+    request.moving = true;
     await host
       .operate(async () => {
         const stopping = (this.stopping = Promise.withResolvers<void>());
         try {
-          await this.move(stopping.promise);
+          await this.move(stopping.promise, request);
         } finally {
           this.stopping = undefined;
-          if (host.conversation().agent === agent) host.failed(true);
+          request.moving = false;
+          if (!request.waiting && host.conversation().agent === agent)
+            host.failed(true);
         }
       })
       .catch(() => {});
@@ -181,7 +329,10 @@ export class RuntimeSwitch {
   }
 
   /** refreshes the other runtimes' usage, then hands off to the best qualifying one or posts why none can continue. */
-  private async move(stopped: Promise<void>): Promise<void> {
+  private async move(
+    stopped: Promise<void>,
+    request: PendingSwitch,
+  ): Promise<void> {
     const host = this.host;
     const { agent, cwd } = host.conversation();
     const others = host
@@ -198,7 +349,13 @@ export class RuntimeSwitch {
       ),
       stopped,
     ]);
-    if (host.cancelled()) return;
+    if (
+      host.cancelled() ||
+      this.pending !== request ||
+      host.session() !== request.source
+    )
+      return;
+    if (this.deferBackground(request)) return;
     const destinations = others.map((id) => this.destination(agent, id));
     const chosen = destinations.find((choice) => 'selection' in choice);
     const from = this.label(agent);
@@ -211,7 +368,11 @@ export class RuntimeSwitch {
       );
       return;
     }
-    await this.handoff(chosen.selection, chosen.notice);
+    await this.handoff(
+      chosen.selection,
+      chosen.notice,
+      request.background ? true : undefined,
+    );
     if (this.continuation?.status === 'failed' && this.continuation.exhausted) {
       const to = this.label(chosen.selection.agent);
       host.notice(

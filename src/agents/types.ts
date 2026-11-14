@@ -243,6 +243,8 @@ export type AgentEvent =
   | { type: 'command'; command: BackgroundCommand }
   /** the native agent reports whether it runs, which Claude Code also does on its own between turns. */
   | { type: 'running'; running: boolean }
+  /** confirmed exhaustion in a native continuation outside the dispatched turn. */
+  | { type: 'exhausted' }
   /** a transient notice is a diagnostic of this connection, shown but not saved. */
   | { type: 'notice'; text: string; transient?: boolean };
 
@@ -349,8 +351,8 @@ export interface AgentSession {
   checkModel?(model: string): Promise<void>;
   respond(id: string, response: UserResponse): void;
   /**
-   * does nothing with no turn or shell command in flight. the session may close
-   * after an interrupt, and the coordinator then reconnects with resume.
+   * stops the active turn or shell command and disables automatic continuation of native background work.
+   * the session may close afterward; the coordinator then reconnects with resume.
    */
   interrupt(options?: AgentStopOptions): Promise<void>;
   /** transfers unsent command records to the conversation on disconnect; valid after close. */
