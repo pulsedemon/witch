@@ -1,16 +1,34 @@
-import { CodexAdapter } from '../../src/agents/codex.js';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { CodexAdapter } from '../../src/agents/codex/adapter.js';
 
-// awaited at module top level, where connect's catch runs before Node's spawn error
-await new CodexAdapter()
-  .connect({
+const rejected = new Error('rejected at once');
+let spawnError: NodeJS.ErrnoException | undefined;
+
+const adapter = new CodexAdapter((executable, cwd, signal) => {
+  const child = spawn(executable, [], { cwd, stdio: 'pipe', signal });
+
+  child.once('error', (error) => {
+    spawnError = error;
+  });
+
+  return child;
+});
+
+// top-level await lets the process report reject before Node emits the spawn error.
+await assert.rejects(
+  adapter.connect({
     cwd: process.cwd(),
     executable: '/nonexistent/witch-codex',
     memoryDirectories: [],
     onEvent: () => {},
     onProcess: async () => {
-      throw new Error('rejected at once');
+      throw rejected;
     },
-  })
-  .catch(() => {});
+  }),
+  (error: unknown) => error === rejected,
+);
+
+assert.equal(spawnError?.code, 'ENOENT');
 
 process.stdout.write('rejected\n');

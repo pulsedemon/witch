@@ -6,12 +6,12 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeJson } from '../../src/persistence/json.js';
-import { ClaudeAdapter } from '../../src/agents/claude.js';
+import { ClaudeAdapter } from '../../src/agents/claude/adapter.js';
 import type { AgentEvent, SessionOptions } from '../../src/agents/types.js';
 import { scratch } from './scratch.js';
 import { until } from './within.js';
 
-const claude = fileURLToPath(new URL('claude.mjs', import.meta.url));
+const claude = fileURLToPath(new URL('./claude.mjs', import.meta.url));
 
 export async function launcher(
   mode?: string,

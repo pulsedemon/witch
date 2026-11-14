@@ -19,13 +19,13 @@ import {
   conversationSummarySchema,
   taskClaimSchema,
   selectionStateSchema,
-} from '../core/coordination-state.js';
-import type { CoordinationAction } from '../core/coordination-state.js';
+} from '../core/coordination/coordination-state.js';
+import type { CoordinationAction } from '../core/coordination/coordination-state.js';
 import {
   peerRequestSchema,
   peerRequestStatusSchema,
-} from '../core/peer-requests.js';
-import { pauseSchema, pauseStatusSchema } from '../core/pauses.js';
+} from '../core/coordination/peer-requests.js';
+import { pauseSchema, pauseStatusSchema } from '../core/coordination/pauses.js';
 import { ClaimConflict, checkDeadline } from './coordination.js';
 import { writeJson } from './json.js';
 

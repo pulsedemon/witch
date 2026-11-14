@@ -9,7 +9,7 @@ import type {
   UserRequest,
 } from '../agents/types.js';
 import type { Conversation, DisplayItem, Phase } from './state.js';
-import type { ModelChoice } from './models.js';
+import type { ModelChoice } from './runtime/models.js';
 
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {

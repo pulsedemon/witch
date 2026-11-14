@@ -7,8 +7,8 @@ import stripAnsi from 'strip-ansi';
 import type { Coordinator } from '../../src/core/coordinator.js';
 import type { Snapshot } from '../../src/core/snapshot.js';
 import { PentacleActivity } from '../../src/core/pentacle-activity.js';
-import { MouseInput } from '../../src/ui/mouse.js';
-import { Sidebar } from '../../src/ui/sidebar.js';
+import { MouseInput } from '../../src/ui/terminal/mouse.js';
+import { Sidebar } from '../../src/ui/status/Sidebar.js';
 import { until } from './within.js';
 
 /** not a TTY, so every write is a whole frame. */

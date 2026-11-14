@@ -16,12 +16,12 @@ Run each check once, capturing its exit code and complete log, and never rerun i
 
 ## Architecture
 
-`src/cli.tsx` parses the arguments and runs control commands, familiar wrappers and `--spawn`, which `src/spawn.ts` carries out. For the app, it imports `src/witch.tsx`, which opens the `StateStore`, builds one `Coordinator` from `Memory` and the adapters found on `PATH`, and renders `App`.
+`src/cli.ts` parses the arguments and runs control commands, familiar wrappers and `--spawn`, which `src/cli/spawn.ts` carries out. For the app, it imports `src/Witch.tsx`, which opens the `StateStore`, builds one `Coordinator` from `Memory` and the adapters found on `PATH`, and renders `App`.
 
 - [Coordinator](src/core/coordinator.ts) owns application state for the open conversation and publishes the [Snapshot](src/core/snapshot.ts) read by `App` through `useSyncExternalStore`, batched to 40 ms. Operation admission, queued delivery and compaction follow [the canonical rules](docs/rules.md#witch-commands-and-compaction). [PromptDelivery](src/core/prompt-delivery.ts) owns prompt admission, steering and queue draining. [Compaction](src/core/compaction.ts) owns pending requests; [memory settlement](src/core/memory-settlement.ts) classifies publication and recovery after an operation.
 - [TurnRunner](src/core/turn-runner.ts) runs each turn; its memory, recovery, handoff and Claude idle-completion rules are in [docs/rules.md](docs/rules.md).
-- Adapters implement `AgentAdapter` from `src/agents/types.ts`. Codex's JSON-RPC transport is `src/agents/json-rpc.ts`. [ModelCatalog](src/core/models.ts) owns the combined picker catalog and explicit runtime/model identity.
-- The state directory's layout is owned by `src/persistence/store.ts`, `src/persistence/directories.ts`, `src/memory/memory.ts`, whose `memoryRepository` places `memory.git`, and `src/witch.tsx`, which places `jobs/`, `changes/` and `scratch/`. [instanceDirectory](src/persistence/instance.ts) owns job-report and snapshot directories; [ScratchSpace](src/persistence/scratch.ts) owns scratch.
+- Adapters implement `AgentAdapter` from `src/agents/types.ts`. Codex's JSON-RPC transport is `src/agents/codex/json-rpc.ts`. [ModelCatalog](src/core/runtime/models.ts) owns the combined picker catalog and explicit runtime/model identity.
+- The state directory's layout is owned by `src/persistence/store.ts`, `src/persistence/directories.ts`, `src/memory/memory.ts`, whose `memoryRepository` places `memory.git`, and `src/Witch.tsx`, which places `jobs/`, `changes/` and `scratch/`. [instanceDirectory](src/persistence/instance.ts) owns job-report and snapshot directories; [ScratchSpace](src/persistence/scratch.ts) owns scratch.
 
 Witch's desktop behavior targets macOS. Linux support is limited to the [development checks and native verification procedure](README.md#development). [Locking](src/persistence/lock.ts), [control-file access](src/persistence/control.ts) and [process inspection](src/persistence/process.ts) own their platform boundaries.
 
@@ -32,6 +32,8 @@ Suite tests use Vitest with `node:assert/strict` and real temp directories and G
 Temp directories come from `scratch()` in `test/fixtures/scratch.ts`, which removes them, never from `mkdtemp`. Tests that need a memory repository take it from `seededMemory()` in `test/fixtures/seeded-memory.ts`, except tests of `Memory.initialize`. Adapter tests inject a launch function that spawns `test/fixtures/claude.mjs` or `test/fixtures/codex.mjs`, scripted stand-ins for the native protocols. Coordinator tests use the in-process `FixtureAgent` in `test/fixtures/agent.ts`. UI tests render through `ink-testing-library`, or through `show()` in `test/fixtures/ui.ts` when they depend on the terminal's height. Spawned fixtures run with a temp cwd and an absolute fixture path, since they write files into their cwd.
 
 ## Conventions
+
+Name runtime helpers for their responsibility without repeating the runtime folder name. Group files by responsibility within their existing layer; keep JSX files in PascalCase and JSX-free helpers in `.ts`. [ESLint](eslint.config.js) enforces filenames; [the rules](docs/rules.md#ownership) define ownership.
 
 - ESM with `NodeNext`: relative imports end in `.js`, including imports of `.ts` and `.tsx` sources.
 - `verbatimModuleSyntax` and `consistent-type-imports` require `import type` for type-only imports. `no-floating-promises` is an error, so detached promises are marked with `void`.

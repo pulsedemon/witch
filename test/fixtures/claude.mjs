@@ -35,7 +35,7 @@ const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const session_id = randomUUID();
 
 const nativeVersion = JSON.parse(
-  readFileSync(new URL('native/manifest.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('./native/manifest.json', import.meta.url), 'utf8'),
 ).claude.version;
 
 const stateCommands = [

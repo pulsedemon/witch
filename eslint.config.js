@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import js from '@eslint/js';
 import stylistic from '@stylistic/eslint-plugin';
 import { defineConfig } from 'eslint/config';
@@ -14,10 +15,31 @@ const singleLineValidationGuard = {
   lineMode: 'singleline',
 };
 
+const pascalCaseTsx = {
+  meta: {
+    type: 'suggestion',
+    schema: [],
+    messages: { filename: 'Use PascalCase for .tsx filenames.' },
+  },
+  create(context) {
+    return {
+      Program(node) {
+        if (!/^[A-Z][A-Za-z0-9]*\.tsx$/.test(basename(context.filename)))
+          context.report({ node, messageId: 'filename' });
+      },
+    };
+  },
+};
+
 export default defineConfig(
   { ignores: ['dist/**', '.superpowers/**', 'docs/superpowers/**'] },
   js.configs.recommended,
   tseslint.configs.recommended,
+  {
+    files: ['**/*.tsx'],
+    plugins: { witch: { rules: { 'pascal-case-tsx': pascalCaseTsx } } },
+    rules: { 'witch/pascal-case-tsx': 'error' },
+  },
   {
     plugins: { '@stylistic': stylistic },
     rules: {

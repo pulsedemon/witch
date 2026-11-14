@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { PullRequest } from '../../src/core/repository.js';
+import type { PullRequest } from '../../src/core/repository/repository.js';
 import { git } from './git.js';
 import { scratch } from './scratch.js';
 

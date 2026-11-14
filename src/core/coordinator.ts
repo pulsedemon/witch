@@ -3,8 +3,8 @@ import { RuntimeSwitch } from './runtime-switch.js';
 import { SessionLink, type LinkJobs } from './session-link.js';
 import { TurnRunner } from './turn-runner.js';
 import { PromptDelivery } from './prompt-delivery.js';
-import { CopilotReviewController } from './copilot-review-controller.js';
-import { PullRequestRepair } from './pr-repair.js';
+import { CopilotReviewController } from './review/copilot-review-controller.js';
+import { PullRequestRepair } from './repository/pr-repair.js';
 import { Compaction } from './compaction.js';
 import { Attachments, imagePaste, unnumbered } from './attachments.js';
 import { initialSnapshot, type Snapshot } from './snapshot.js';
@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
 import { NativeUpdatePending } from '../persistence/runtime-updates.js';
-import type { NativeRuntime } from '../agents/runtime-updates.js';
+import type { NativeRuntime } from '../agents/updates/runtime-updates.js';
 import { aborted, errorMessage, failureOf } from '../errors.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
@@ -29,27 +29,30 @@ import type {
   StateStore,
 } from '../persistence/store.js';
 import { updateBackgroundActivity } from './background-activity.js';
-import { startupMoves } from './move-repair.js';
+import { startupMoves } from './repository/move-repair.js';
 import { launchRecord, recoverConversations } from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
 import { editNote, memoryView, recoverMemory } from './memory-actions.js';
 import type { MemoryView } from './memory-actions.js';
 import { listFiles } from './files.js';
 import { questionReply } from './prompts.js';
-import type { WorkTreeChanges } from './work-tree-changes.js';
-import type { SessionCoordination } from './coordination.js';
-import { sessionWorking, witchWorking } from './coordination-state.js';
-import { runMergeCleanup } from './merged.js';
-import type { CleanupResult, MergeCleanup } from './merged.js';
+import type { WorkTreeChanges } from './repository/work-tree-changes.js';
+import type { SessionCoordination } from './coordination/coordination.js';
+import {
+  sessionWorking,
+  witchWorking,
+} from './coordination/coordination-state.js';
+import { runMergeCleanup } from './repository/merged.js';
+import type { CleanupResult, MergeCleanup } from './repository/merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { adoptMoved, startActivity, type Activity } from './activity.js';
-import { runReviewCommand } from './review-run.js';
-import { Reviewers } from './reviewers.js';
-import { ModelCatalog, type ModelSelection } from './models.js';
-import { AccountUsage } from './usage.js';
-import type { Conflict, PullRequest } from './repository.js';
-import { watchEventNotices } from './conversation-events.js';
-import { ConversationPauses } from './conversation-pauses.js';
+import { runReviewCommand } from './review/review-run.js';
+import { Reviewers } from './review/reviewers.js';
+import { ModelCatalog, type ModelSelection } from './runtime/models.js';
+import { AccountUsage } from './runtime/usage.js';
+import type { Conflict, PullRequest } from './repository/repository.js';
+import { watchEventNotices } from './coordination/conversation-events.js';
+import { ConversationPauses } from './coordination/conversation-pauses.js';
 import {
   applyDisplayUpdate,
   createConversation,

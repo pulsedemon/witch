@@ -1,10 +1,10 @@
 import type { AgentSession, TurnResult } from '../agents/types.js';
 import type { Memory } from '../memory/memory.js';
-import type { SessionCoordination } from './coordination.js';
-import { taskActivity } from './coordination-state.js';
+import type { SessionCoordination } from './coordination/coordination.js';
+import { taskActivity } from './coordination/coordination-state.js';
 import { handoff } from './handoff.js';
-import { modelEffort, type ModelSelection } from './models.js';
-import { comparable, resolve } from './routing.js';
+import { modelEffort, type ModelSelection } from './runtime/models.js';
+import { comparable, resolve } from './runtime/routing.js';
 import type { Snapshot } from './snapshot.js';
 import type { ConversationRecord } from './state.js';
 import {
@@ -13,7 +13,7 @@ import {
   describeReading,
   headroom,
   type AccountUsage,
-} from './usage.js';
+} from './runtime/usage.js';
 
 export interface SwitchHost {
   conversation(): ConversationRecord;
