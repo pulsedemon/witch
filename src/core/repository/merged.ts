@@ -11,6 +11,7 @@ import { tryOpenLocked } from '../../persistence/lock.js';
 import { runs } from '../../persistence/process.js';
 import type { StateStore } from '../../persistence/store.js';
 import { runCommand } from './command.js';
+import { sharedRebuild } from './shared-rebuild.js';
 import type { Conversation } from '../state.js';
 import { gitHubRepository, parseStatus, statusArgs } from './repository.js';
 import type { PullRequest, Repository, Run } from './repository.js';
@@ -126,6 +127,7 @@ export async function runMergeCleanup(
         await refreshInstall(install, pullRequest.base, undefined, {
           signal,
           progress: progress.install,
+          notice,
         }),
       );
 
@@ -191,6 +193,7 @@ function unconfirmedSteps(
 }
 
 interface InstallProgress {
+  result?: string;
   root?: string;
   checkout?: CheckoutProgress;
   installed?: boolean;
@@ -1309,8 +1312,8 @@ async function removePlans(
 
 /**
  * pulls and rebuilds the checkout Witch runs from when it sits clean on `base`, the branch a pull request merged
- * into. holds the checkout lock through the refresh, or skips it with a notice when busy. running instances keep
- * their code until they restart. returns a sentence saying what it did.
+ * into. joins another rebuild already running there; unrelated checkout work skips the refresh. running instances
+ * keep their code until they restart.
  */
 export async function refreshInstall(
   root: string,
@@ -1319,13 +1322,20 @@ export async function refreshInstall(
   {
     signal,
     progress = {},
-  }: { signal?: AbortSignal; progress?: InstallProgress } = {},
+    notice,
+  }: {
+    signal?: AbortSignal;
+    progress?: InstallProgress;
+    notice?(text: string): void;
+  } = {},
 ): Promise<string> {
   signal?.throwIfAborted();
 
+  if (progress.result) return progress.result;
+
   const git = gitIn(root, signal);
 
-  const failed = (error: unknown): never => {
+  const failure = (error: unknown): Error => {
     if (error === signal?.reason) throw error;
 
     // tsc reports its errors on stdout, which the message leaves out
@@ -1336,64 +1346,93 @@ export async function refreshInstall(
         ? stdout.trim().split('\n').slice(-20).join('\n')
         : '';
 
-    throw new Error(
+    return new Error(
       `Witch's checkout at ${root} wasn't rebuilt: ${errorMessage(error).trim()}${tail && `\n${tail}`}`,
       { cause: error },
     );
   };
 
-  const lock = await lockCheckout(git).catch(failed);
+  const directory = await git('rev-parse', '--absolute-git-dir').catch(
+    (error: unknown) => {
+      throw failure(error);
+    },
+  );
 
-  if (!lock)
-    return `Witch's checkout at ${root} is busy, so it wasn't rebuilt.`;
+  const outcome = await sharedRebuild(
+    directory,
+    async () => ({ text: await rebuild(), built: !!progress.built }),
+    {
+      signal,
+      failure,
+      waiting: () =>
+        notice?.(
+          `Another Witch is rebuilding Witch at ${root}; waiting for its result.`,
+        ),
+    },
+  );
 
-  try {
-    progress.root ??= await topLevel(git);
-    progress.checkout ??= {};
-    const status = await read(git);
-    const head = await git('rev-parse', 'HEAD');
-    const checkout = progress.checkout;
+  if (outcome.built) {
+    progress.installed = true;
+    progress.built = true;
+    progress.result = outcome.text;
+  }
 
-    if (
-      status.branch !== base ||
-      changed(status) ||
-      (checkout.head && head !== checkout.head && head !== checkout.target)
-    )
-      return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
+  return outcome.text;
 
-    if (!checkout.done && !(await fastForward(git, base, checkout)))
-      return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
+  async function rebuild(): Promise<string> {
+    const lock = await lockCheckout(git);
 
-    if (!progress.installed) {
-      await run('pnpm', ['install', '--frozen-lockfile'], {
-        cwd: root,
-        timeout: 300_000,
-        ...(signal ? { signal } : {}),
-      });
+    if (!lock)
+      return `Witch's checkout at ${root} is busy, so it wasn't rebuilt.`;
 
-      progress.installed = true;
+    try {
+      progress.root ??= await topLevel(git);
+      progress.checkout ??= {};
+      const status = await read(git);
+      const head = await git('rev-parse', 'HEAD');
+      const checkout = progress.checkout;
+
+      if (
+        status.branch !== base ||
+        changed(status) ||
+        (checkout.head && head !== checkout.head && head !== checkout.target)
+      )
+        return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
+
+      if (!checkout.done && !(await fastForward(git, base, checkout)))
+        return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
+
+      if (!progress.installed) {
+        await run('pnpm', ['install', '--frozen-lockfile'], {
+          cwd: root,
+          timeout: 300_000,
+          ...(signal ? { signal } : {}),
+        });
+
+        progress.installed = true;
+      }
+
+      if (!progress.built) {
+        await run('pnpm', ['build'], {
+          cwd: root,
+          timeout: 300_000,
+          ...(signal ? { signal } : {}),
+        });
+
+        progress.built = true;
+      }
+
+      return `Rebuilt Witch at ${await git('rev-parse', '--short', 'HEAD')}, for its next start.`;
+    } catch (error) {
+      if (error === signal?.reason && progress.checkout?.target)
+        await reconcilePull(
+          gitIn(root, AbortSignal.timeout(1000)),
+          progress.checkout,
+        ).catch(() => (progress.unconfirmed = true));
+
+      throw error;
+    } finally {
+      await lock.close();
     }
-
-    if (!progress.built) {
-      await run('pnpm', ['build'], {
-        cwd: root,
-        timeout: 300_000,
-        ...(signal ? { signal } : {}),
-      });
-
-      progress.built = true;
-    }
-
-    return `Rebuilt Witch at ${await git('rev-parse', '--short', 'HEAD')}, for its next start.`;
-  } catch (error) {
-    if (error === signal?.reason && progress.checkout?.target)
-      await reconcilePull(
-        gitIn(root, AbortSignal.timeout(1000)),
-        progress.checkout,
-      ).catch(() => (progress.unconfirmed = true));
-
-    return failed(error);
-  } finally {
-    await lock.close();
   }
 }

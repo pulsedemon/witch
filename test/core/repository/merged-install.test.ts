@@ -172,7 +172,11 @@ test('an install stays locked through install and build, aliases share it, and a
     },
   };
 
+  const leaderCalls: string[][] = [];
+
   const refreshing = refreshInstall(install, 'main', async (_, args) => {
+    leaderCalls.push(args);
+
     const gate = args[0] === 'install' ? gates.install : gates.build;
 
     gate.entered.resolve();
@@ -185,6 +189,7 @@ test('an install stays locked through install and build, aliases share it, and a
   void refreshing.catch(() => {});
 
   const calls: string[][] = [];
+  const contenders: Promise<string>[] = [];
 
   const run: Run = async (_, args) => {
     calls.push(args);
@@ -199,14 +204,17 @@ test('an install stays locked through install and build, aliases share it, and a
     ] as const) {
       await within(gates[stage].entered.promise, 5000, `the held ${stage}`);
 
-      assert.equal(
-        await within(
-          refreshInstall(target, 'main', run),
-          5000,
-          'the contender',
-        ),
-        `Witch's checkout at ${target} is busy, so it wasn't rebuilt.`,
-      );
+      const waiting = Promise.withResolvers<void>();
+
+      const contender = refreshInstall(target, 'main', run, {
+        notice: () => waiting.resolve(),
+      });
+
+      void contender.catch(() => {});
+
+      contenders.push(contender);
+
+      await within(waiting.promise, 5000, 'the waiting contender');
 
       assert.deepEqual(calls, []);
 
@@ -241,6 +249,13 @@ test('an install stays locked through install and build, aliases share it, and a
 
     assert.equal(await refreshing, rebuilt);
 
+    assert.deepEqual(await Promise.all(contenders), [rebuilt, rebuilt]);
+
+    assert.deepEqual(leaderCalls, [
+      ['install', '--frozen-lockfile'],
+      ['build'],
+    ]);
+
     assert.deepEqual(await cleanUpMerge(install, request, idle), {
       text: '#7 merged, but main is still on its remote, so it stays.',
       cleaned: false,
@@ -255,6 +270,8 @@ test('an install stays locked through install and build, aliases share it, and a
     gates.build.release.resolve();
 
     await refreshing;
+
+    await Promise.allSettled(contenders);
   }
 });
 

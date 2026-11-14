@@ -9,6 +9,7 @@ import { test, vi } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../../../src/core/coordinator.js';
 import { watchMerges } from '../../../src/core/repository/merge-watch.js';
+import { refreshInstall } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import type { Repository } from '../../../src/core/repository/repository.js';
 import { openLocked } from '../../../src/persistence/lock.js';
@@ -662,6 +663,71 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
 
       await coordinator.close();
     }
+  }
+});
+
+test('a merge cleanup reports the shared rebuild waiting notice and its completed result', async () => {
+  const { coordinator, root, project } = await fixture();
+  const release = Promise.withResolvers<void>();
+  let builder: Promise<string> | undefined;
+  let cleanup: Promise<unknown> | undefined;
+
+  try {
+    const { origin, tip } = await mergedOrigin(root, project);
+    const install = join(root, 'install');
+
+    await git(root, 'clone', origin, install);
+
+    const entered = Promise.withResolvers<void>();
+    const calls: string[][] = [];
+
+    builder = refreshInstall(install, 'main', async (_, args) => {
+      calls.push(args);
+
+      if (args[0] === 'build') {
+        entered.resolve();
+
+        await release.promise;
+      }
+
+      return { stdout: '' };
+    });
+
+    void builder.catch(() => {});
+
+    await within(entered.promise, 5000, 'the shared build');
+
+    cleanup = coordinator.cleanUpMerge(pullRequest(tip), install);
+
+    void cleanup.catch(() => {});
+
+    const waiting = `Another Witch is rebuilding Witch at ${install}; waiting for its result.`;
+
+    await until('the waiting notice', () =>
+      notices(coordinator).includes(waiting),
+    );
+
+    assert.equal(coordinator.snapshot.phase, 'cleaning');
+
+    release.resolve();
+
+    const rebuilt = `Rebuilt Witch at ${tip.slice(0, 7)}, for its next start.`;
+
+    assert.equal(await builder, rebuilt);
+
+    assert.equal(await cleanup, true);
+
+    assert.deepEqual(notices(coordinator).slice(-2), [waiting, rebuilt]);
+
+    assert.deepEqual(calls, [['install', '--frozen-lockfile'], ['build']]);
+
+    assert.equal(coordinator.snapshot.phase, 'idle');
+  } finally {
+    release.resolve();
+
+    await Promise.allSettled([builder, cleanup]);
+
+    await coordinator.close();
   }
 });
 
