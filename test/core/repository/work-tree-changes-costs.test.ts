@@ -908,3 +908,40 @@ test('text edits retain an unchanged private pack without rewriting its payload'
     assert.equal(after.mtimeNs, before[index]!.mtimeNs);
   }
 });
+
+test('a file removed during conversion is reported as a deletion', async () => {
+  let target: string | undefined;
+
+  const run: GitRun = async (command, args, options) => {
+    if (target && args.includes('update-index') && args.includes('--stdin')) {
+      await rm(target);
+
+      target = undefined;
+    }
+
+    return execute(command, args, options);
+  };
+
+  const { work, changes } = await repository({ 'a.txt': 'base\n' }, run);
+
+  await changes.watch(work);
+
+  await writeFile(join(work, 'a.txt'), 'edited\n');
+
+  target = join(work, 'a.txt');
+
+  assert.deepEqual(
+    (await changes.read(work)).files.map((file) => ({
+      path: file.path,
+      kind: file.kind,
+      lines: file.hunks.flatMap((hunk) => hunk.lines),
+    })),
+    [{ path: join(work, 'a.txt'), kind: 'delete', lines: ['-base'] }],
+  );
+
+  assert.deepEqual(await changes.read(work), {
+    files: [],
+    withHead: 0,
+    more: 0,
+  });
+});

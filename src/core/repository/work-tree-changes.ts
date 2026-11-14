@@ -791,7 +791,7 @@ export class WorkTreeChanges {
     if (files.length)
       await this.git(
         checkout,
-        ['update-index', '--add', '--replace', '-z', '--stdin'],
+        ['update-index', '--add', '--remove', '--replace', '-z', '--stdin'],
         undefined,
         `${files.join('\0')}\0`,
       );
