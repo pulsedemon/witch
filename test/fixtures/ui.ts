@@ -1,25 +1,28 @@
 import { EventEmitter } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
-import { render } from 'ink';
+import { Box, render } from 'ink';
+import { createElement, useSyncExternalStore } from 'react';
 import type { ReactElement } from 'react';
 import stripAnsi from 'strip-ansi';
 import type { Coordinator } from '../../src/core/coordinator.js';
 import type { Snapshot } from '../../src/core/snapshot.js';
 import { PentacleActivity } from '../../src/core/pentacle-activity.js';
 import { MouseInput } from '../../src/ui/mouse.js';
+import { Sidebar } from '../../src/ui/sidebar.js';
 import { until } from './within.js';
 
-/** a terminal of the given size until `resize` changes its columns; without rows, Ink reads the real terminal. not a TTY, so every write is a whole frame. */
+/** not a TTY, so every write is a whole frame. */
 class Terminal extends EventEmitter {
   readonly frames: string[] = [];
   constructor(
     public columns: number,
-    readonly rows: number,
+    public rows: number,
   ) {
     super();
   }
-  resize(columns: number) {
+  resize(columns: number, rows = this.rows) {
     this.columns = columns;
+    this.rows = rows;
     this.emit('resize');
   }
   write = (frame: string) => {
@@ -65,9 +68,39 @@ export function show(element: ReactElement, columns = 100, rows = 40) {
     stdin,
     frame: () => stdout.frames.at(-1) ?? '',
     text: () => stripAnsi(stdout.frames.at(-1) ?? ''),
-    resize: (columns: number) => stdout.resize(columns),
+    resize: (columns: number, rows?: number) => stdout.resize(columns, rows),
     unmount: () => instance.unmount(),
   };
+}
+
+/** sidebar overflow is independent of App's minimum terminal size. */
+export function SidebarView({
+  coordinator,
+  height,
+}: {
+  coordinator: Coordinator;
+  height: number;
+}) {
+  const state = useSyncExternalStore(
+    coordinator.subscribe,
+    () => coordinator.snapshot,
+  );
+  const coordination = useSyncExternalStore(
+    coordinator.coordination?.subscribe ?? (() => () => {}),
+    () => coordinator.coordination?.snapshot,
+  );
+  return createElement(
+    Box,
+    { width: 115, height },
+    createElement(Box, { width: 80 }),
+    createElement(Sidebar, {
+      height,
+      activity: coordinator.pentacle,
+      brews: state.backgroundCommands,
+      subagents: state.subagents,
+      peers: coordination?.peers,
+    }),
+  );
 }
 
 /** a link sequence whole, which strip-ansi removes, then split by codes whose removal joins it back up */

@@ -50,7 +50,7 @@ test('Enter during a turn sends the draft and empties the composer', async () =>
   }
 });
 
-test('queued prompts show above the activity row with a hint, and ↑ on the first line takes them back ahead of the draft, where ↑ on a later line moves the cursor', async () => {
+test('queued prompts show above the command window with a hint, and ↑ on the first line takes them back ahead of the draft, where ↑ on a later line moves the cursor', async () => {
   const { app, calls } = fake({
     phase: 'running',
     queue: ['one', 'two\nlines'],
@@ -59,11 +59,9 @@ test('queued prompts show above the activity row with a hint, and ↑ on the fir
   try {
     await until('the queue', () => ui.text().includes('❯ two lines'));
     const lines = ui.text().split('\n');
-    const activity = lines.findIndex((line) =>
-      line.includes('ESC TO INTERRUPT'),
-    );
+    const window = lines.findIndex((line) => line.trim() === 'TOOLS');
     assert.deepEqual(
-      lines.slice(activity - 2, activity).map((line) => line.trim()),
+      lines.slice(window - 2, window).map((line) => line.trim()),
       ['❯ one', '❯ two lines'],
     );
     assert.ok(ui.text().includes('┃ Press ↑ to edit queued messages'));
@@ -287,7 +285,7 @@ test('a queue longer than the free rows shows its first prompts and keeps the co
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
     100,
-    20,
+    24,
   );
   try {
     await until('the queue', () => ui.text().includes('❯ prompt 0'));

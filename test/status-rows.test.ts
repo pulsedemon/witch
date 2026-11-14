@@ -7,6 +7,19 @@ import { statusFooter, statusLines } from '../src/ui/status-rows.js';
 import { repositoryRead } from './fixtures/repository.js';
 
 const now = Date.parse('2026-10-13T12:00:00Z');
+
+test('errors without funding leave the required body rows visible', () => {
+  const { lines, errors } = statusFooter({ usage: {}, cwd: '/work' }, now, {
+    width: 28,
+    height: 24,
+    bodyRows: 14,
+    error: 'long error '.repeat(100),
+  });
+  assert.equal(lines.length, 2);
+  assert.equal(errors.length, 7);
+  assert.match(errors.at(-1)!, /more rows$/);
+  assert.equal(1 + lines.length + errors.length + 14, 24);
+});
 const seconds = now / 1000;
 
 test('tiny footer errors leave the full raw-unit funding height and reserved body rows', () => {

@@ -16,6 +16,7 @@ import { ScrollPage } from './scroll-page.js';
 
 interface Props {
   request: UserRequest;
+  active?: boolean;
   width: number;
   height: number;
   cwd: string;
@@ -28,7 +29,14 @@ const approvals = [
   { label: 'Cancel turn', decision: 'cancel' },
 ] as const;
 
-export function Request({ request, width, height, cwd, respond }: Props) {
+export function Request({
+  request,
+  width,
+  height,
+  cwd,
+  respond,
+  active = true,
+}: Props) {
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [questionIndex, questionIndexRef, setQuestionIndex] = useLiveState(0);
   // never rendered, so a ref alone carries answers between keys
@@ -36,8 +44,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
   const [scroll, setScroll] = useState(0);
   const [error, setError] = useState('');
   const [full, setFull] = useState(false);
-  // Request mounts per request, so the guard counts from when this one appeared
-  const ready = useKeysReady(true);
+  const ready = useKeysReady(active);
   const question = request.questions?.[questionIndex];
   const options = question?.options ?? approvals.map(({ label }) => label);
   const expandable = !!request.diff && canExpandDiff(request.diff);
@@ -57,7 +64,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     ];
   }, [request, detail, fields, question, width, cwd, full]);
   useInput((input, key) => {
-    if (key.eventType === 'release') return;
+    if (!active || key.eventType === 'release') return;
     if (key.ctrl && input === 'o' && expandable) {
       setFull((previous) => !previous);
       setScroll(0);
@@ -160,6 +167,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       </Text>
       <ScrollPage
         lines={lines}
+        active={active}
         height={bodyHeight}
         scroll={scroll}
         setScroll={setScroll}
@@ -201,7 +209,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
             key={questionIndex}
             width={width}
             height={3}
-            active={ready}
+            active={active && ready}
             secret={question?.secret}
             multiline={!question}
             placeholder={question ? 'Your answer' : '{}'}

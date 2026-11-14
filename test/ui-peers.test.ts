@@ -5,6 +5,7 @@ import { test, vi } from 'vitest';
 import { createElement } from 'react';
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
 import { callControl } from '../src/persistence/control.js';
+import { SidebarView } from './fixtures/ui.js';
 import { App } from '../src/ui/app.js';
 import { TurnGate } from './fixtures/agent.js';
 import {
@@ -164,7 +165,7 @@ for (const [height, expected] of [
       ],
     });
     const ui = show(
-      createElement(App, { coordinator: fixture.app, onExit() {} }),
+      createElement(SidebarView, { coordinator: fixture.app, height }),
       115,
       height,
     );

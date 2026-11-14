@@ -96,7 +96,7 @@ test('embedded commands finish compaction and model application before queued pr
   const ui = show(
     createElement(App, { coordinator: c, onExit: () => {} }),
     80,
-    12,
+    24,
   );
   try {
     await delay(70);

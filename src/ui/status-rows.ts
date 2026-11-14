@@ -162,7 +162,7 @@ function pullRequest({
   ].join(' ');
 }
 
-/** tiny footers keep the live balance and spending denial ahead of other account details. */
+/** limited footers keep the live balance and spending denial ahead of other account details. */
 export function statusLines(
   status: Status,
   now: number,
@@ -248,10 +248,7 @@ export function statusFooter(
     : 2;
   const errorLimit = Math.max(
     0,
-    Math.min(
-      Math.floor(height / 3),
-      funded ? height - 1 - minimumStatusRows - bodyRows : Infinity,
-    ),
+    Math.min(Math.floor(height / 3), height - 1 - minimumStatusRows - bodyRows),
   );
   const errorLines = error
     ? wrapLines(linkify(plain(error), status.cwd), width)
