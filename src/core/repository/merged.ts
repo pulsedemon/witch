@@ -12,6 +12,7 @@ import { runs } from '../../persistence/process.js';
 import type { StateStore } from '../../persistence/store.js';
 import { runCommand } from './command.js';
 import { sharedRebuild } from './shared-rebuild.js';
+import type { RebuildResult } from './shared-rebuild.js';
 import type { Conversation } from '../state.js';
 import { gitHubRepository, parseStatus, statusArgs } from './repository.js';
 import type { PullRequest, Repository, Run } from './repository.js';
@@ -131,7 +132,7 @@ export async function runMergeCleanup(
         }),
       );
 
-      if (resuming && !progress.install.built) acted = false;
+      if (resuming && !progress.install.result) acted = false;
     }
 
     signal.throwIfAborted();
@@ -1358,18 +1359,14 @@ export async function refreshInstall(
     },
   );
 
-  const outcome = await sharedRebuild(
-    directory,
-    async () => ({ text: await rebuild(), built: !!progress.built }),
-    {
-      signal,
-      failure,
-      waiting: () =>
-        notice?.(
-          `Another Witch is rebuilding Witch at ${root}; waiting for its result.`,
-        ),
-    },
-  );
+  const outcome = await sharedRebuild(directory, rebuild, {
+    signal,
+    failure,
+    waiting: () =>
+      notice?.(
+        `Another Witch is rebuilding Witch at ${root}; waiting for its result.`,
+      ),
+  });
 
   if (outcome.built) {
     progress.installed = true;
@@ -1379,11 +1376,14 @@ export async function refreshInstall(
 
   return outcome.text;
 
-  async function rebuild(): Promise<string> {
+  async function rebuild(): Promise<RebuildResult> {
     const lock = await lockCheckout(git);
 
     if (!lock)
-      return `Witch's checkout at ${root} is busy, so it wasn't rebuilt.`;
+      return {
+        text: `Witch's checkout at ${root} is busy, so it wasn't rebuilt.`,
+        built: false,
+      };
 
     try {
       progress.root ??= await topLevel(git);
@@ -1397,10 +1397,16 @@ export async function refreshInstall(
         changed(status) ||
         (checkout.head && head !== checkout.head && head !== checkout.target)
       )
-        return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
+        return {
+          text: `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`,
+          built: false,
+        };
 
       if (!checkout.done && !(await fastForward(git, base, checkout)))
-        return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
+        return {
+          text: `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`,
+          built: false,
+        };
 
       if (!progress.installed) {
         await run('pnpm', ['install', '--frozen-lockfile'], {
@@ -1422,7 +1428,10 @@ export async function refreshInstall(
         progress.built = true;
       }
 
-      return `Rebuilt Witch at ${await git('rev-parse', '--short', 'HEAD')}, for its next start.`;
+      return {
+        text: `Rebuilt Witch at ${await git('rev-parse', '--short', 'HEAD')}, for its next start.`,
+        built: true,
+      };
     } catch (error) {
       if (error === signal?.reason && progress.checkout?.target)
         await reconcilePull(

@@ -907,6 +907,7 @@ else {
     (stage === 'delete' && args[0] === 'update-ref') ||
     (stage === 'config' && args[0] === 'config' && args[1] === '--remove-section') ||
     (stage === 'pull' && args[0] === 'merge') ||
+    (stage === 'report' && args[0] === 'rev-parse' && args[1] === '--short') ||
     (stage === 'prune' && args[0] === 'branch' && args[1] === '-d');
   if (status === 0 && first && hold) gate();
   else process.exit(status);
@@ -974,6 +975,60 @@ else {
         .map((line) => JSON.parse(line) as string[]),
   };
 }
+
+test('a busy continuation after interrupted revision reporting waits without caching the skip or rebuilding', async (t) => {
+  const { coordinator, install, tip, expectedHead, entered, commands } =
+    await interruptedCleanup('report', t.onTestFinished);
+
+  const progress: MergeCleanup = {};
+  const cleanup = coordinator.cleanUpMerge(pullRequest(tip), install, progress);
+
+  void cleanup.catch(() => {});
+
+  await entered();
+
+  await coordinator.interrupt();
+
+  assert.equal(await cleanup, 'interrupted');
+
+  assert.equal(progress.install?.built, true);
+
+  assert.equal(progress.install?.result, undefined);
+
+  const lock = await openLocked(
+    join(install, '.git'),
+    constants.O_RDONLY | constants.O_NONBLOCK,
+  );
+
+  try {
+    assert.equal(
+      await coordinator.cleanUpMerge(pullRequest(tip), install, progress),
+      false,
+    );
+
+    assert.equal(progress.install?.result, undefined);
+  } finally {
+    await lock.close();
+  }
+
+  assert.equal(
+    await coordinator.cleanUpMerge(pullRequest(tip), install, progress),
+    true,
+  );
+
+  assert.equal(
+    notices(coordinator).at(-1),
+    `Rebuilt Witch at ${expectedHead.slice(0, 7)}, for its next start.`,
+  );
+
+  assert.deepEqual(
+    (await commands()).filter(([tool]) => tool === 'pnpm'),
+    [
+      ['pnpm', 'install', '--frozen-lockfile'],
+      ['pnpm', 'build'],
+    ],
+  );
+});
 
 for (const [stage, worktree] of [
   ...[

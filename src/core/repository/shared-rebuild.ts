@@ -23,7 +23,7 @@ const receiptSchema = z.union([
   z.object({ error: z.string() }),
 ]);
 
-type RebuildResult = z.infer<typeof resultSchema>;
+export type RebuildResult = z.infer<typeof resultSchema>;
 
 type Attempt = z.infer<typeof attemptSchema>;
 
