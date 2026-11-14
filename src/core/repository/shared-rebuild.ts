@@ -168,10 +168,12 @@ export async function sharedRebuild(
       };
     }
 
-    const completion = await admission(directory);
+    let completion: FileHandle | undefined;
 
     try {
       try {
+        completion = await admission(directory);
+
         // the final newline publishes a complete receipt; already-open readers survive its unlink.
         await receipt.writeFile(`${JSON.stringify(outcome)}\n`);
       } finally {
@@ -180,7 +182,7 @@ export async function sharedRebuild(
         await rm(pathFor(attempt.id));
       }
     } finally {
-      await completion.close();
+      await completion?.close();
     }
 
     if ('error' in outcome) throw error;

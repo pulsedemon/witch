@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
-import { open } from 'node:fs/promises';
+import { chmod, open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { onTestFinished, test, vi } from 'vitest';
@@ -264,87 +264,102 @@ test('a completed joined rebuild resumes without fetching or reporting an interv
   assert.deepEqual(calls, []);
 });
 
-test('a failed receipt write releases its waiter and allows a later rebuild', async () => {
-  const root = await scratch('witch-rebuild-receipt-');
-  const sample = await open(join(root, 'sample'), 'w');
-  const prototype = Object.getPrototypeOf(sample) as FileHandle;
-  const write = prototype.writeFile;
+for (const failure of ['completion admission', 'receipt write'])
+  test(`a failed ${failure} releases its waiter and allows a later rebuild`, async () => {
+    const root = await scratch('witch-rebuild-receipt-');
+    const sample = await open(join(root, 'sample'), 'w');
+    const prototype = Object.getPrototypeOf(sample) as FileHandle;
+    const write = prototype.writeFile;
 
-  await sample.close();
+    await sample.close();
 
-  const publish = vi
-    .spyOn(prototype, 'writeFile')
-    .mockImplementation(async function (this: FileHandle, data, options) {
-      if (typeof data === 'string' && data.startsWith('{"result":'))
-        throw new Error('ENOSPC: receipt publication failed');
+    const publish = vi
+      .spyOn(prototype, 'writeFile')
+      .mockImplementation(async function (this: FileHandle, data, options) {
+        if (
+          failure === 'receipt write' &&
+          typeof data === 'string' &&
+          data.startsWith('{"result":')
+        )
+          throw new Error('ENOSPC: receipt publication failed');
 
-      return write.call(this, data, options);
-    });
+        return write.call(this, data, options);
+      });
 
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  const waiting = Promise.withResolvers<void>();
-  const abort = new AbortController();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const waiting = Promise.withResolvers<void>();
+    const abort = new AbortController();
 
-  const options = {
-    signal: abort.signal,
-    waiting: () => waiting.resolve(),
-    failure: (error: unknown) => error as Error,
-  };
+    const options = {
+      signal: abort.signal,
+      waiting: () => waiting.resolve(),
+      failure: (error: unknown) => error as Error,
+    };
 
-  const builder = sharedRebuild(
-    root,
-    async () => {
-      entered.resolve();
+    const builder = sharedRebuild(
+      root,
+      async () => {
+        entered.resolve();
 
-      await release.promise;
+        await release.promise;
 
-      return { text: 'rebuilt', built: true };
-    },
-    options,
-  );
-
-  void builder.catch(() => {});
-
-  await entered.promise;
-
-  const waiter = sharedRebuild(
-    root,
-    async () => assert.fail('the waiter must not rebuild'),
-    options,
-  );
-
-  void waiter.catch(() => {});
-
-  try {
-    await waiting.promise;
-
-    release.resolve();
-
-    await assert.rejects(builder, /ENOSPC/);
-
-    await assert.rejects(
-      within(waiter, 5000, 'the failed publication'),
-      /without reporting a result.*unconfirmed/,
+        return { text: 'rebuilt', built: true };
+      },
+      options,
     );
 
-    publish.mockRestore();
+    void builder.catch(() => {});
 
-    assert.deepEqual(
-      await sharedRebuild(
-        root,
-        async () => ({ text: 'later rebuild', built: true }),
-        options,
-      ),
-      { text: 'later rebuild', built: true },
+    await entered.promise;
+
+    const waiter = sharedRebuild(
+      root,
+      async () => assert.fail('the waiter must not rebuild'),
+      options,
     );
-  } finally {
-    publish.mockRestore();
 
-    release.resolve();
+    void waiter.catch(() => {});
 
-    abort.abort();
+    try {
+      await waiting.promise;
 
-    await Promise.allSettled([builder, waiter]);
-  }
-});
+      if (failure === 'completion admission')
+        await chmod(join(root, 'witch-rebuild.lock'), 0);
+
+      release.resolve();
+
+      await assert.rejects(
+        builder,
+        failure === 'completion admission' ? /EACCES/ : /ENOSPC/,
+      );
+
+      await assert.rejects(
+        within(waiter, 5000, 'the failed publication'),
+        /without reporting a result.*unconfirmed/,
+      );
+
+      publish.mockRestore();
+
+      await chmod(join(root, 'witch-rebuild.lock'), 0o600);
+
+      assert.deepEqual(
+        await sharedRebuild(
+          root,
+          async () => ({ text: 'later rebuild', built: true }),
+          options,
+        ),
+        { text: 'later rebuild', built: true },
+      );
+    } finally {
+      await chmod(join(root, 'witch-rebuild.lock'), 0o600);
+
+      publish.mockRestore();
+
+      release.resolve();
+
+      abort.abort();
+
+      await Promise.allSettled([builder, waiter]);
+    }
+  });
