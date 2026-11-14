@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import { StateStore } from '../src/persistence/store.js';
+import { Workspace } from '../src/memory/workspace.js';
+import { ConversationStore, StateStore } from '../src/persistence/store.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import {
+  coordinationFixture,
+  pauseDiscovery,
+} from './fixtures/coordination.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { launcher, frameWriter, jsonLines } from './fixtures/claude-adapter.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
@@ -159,4 +165,145 @@ for (const timing of ['queued', 'waiting', 'late', 'exit'] as const)
     } finally {
       await coordinator.close();
     }
+  });
+
+for (const [stage, writesMemory, finishes] of [
+  ['refresh', true, true],
+  ['save', false, true],
+  ['connection', true, true],
+  ['quiescence', true, true],
+  ['quiescence', false, false],
+] as const)
+  test(`${finishes ? 'completed' : 'running'} background work during ${stage} retains its context and continuation`, async (t) => {
+    pauseDiscovery(vi.spyOn);
+    const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+    const claude = new FixtureAgent('claude');
+    const codex = new FixtureAgent('codex');
+    claude.catalog.splice(0, Infinity, {
+      id: 'claude-fable-5-2',
+      label: 'Fable',
+      efforts: [],
+    });
+    codex.catalog.splice(0, Infinity, {
+      id: 'gpt-6-astra',
+      label: 'Astra',
+      efforts: [],
+    });
+    const reading = async () => ({
+      limits: [{ window: '7D', percent: 10, observedAt: Date.now() }],
+    });
+    for (const adapter of [claude, codex]) adapter.accountRead = reading;
+    const { coordinator, coordination } = await f.start(
+      'A',
+      {},
+      [claude, codex].map((adapter) => ({ adapter, executable: adapter.id })),
+    );
+    await coordinator.selectModel({ agent: 'claude', id: 'claude-fable-5-2' });
+    await coordinator.send('Review migration');
+    const source = claude.sessions.at(-1)!;
+    const emit = source.options.onEvent;
+    const binding = coordination.familiarBinding();
+    let restarted = false;
+    const report = () =>
+      emit({
+        type: 'subagent',
+        subagent: {
+          id: 'late',
+          name: 'late review',
+          kind: 'review',
+          status: 'completed',
+          report: 'Retain the migration lock.',
+        },
+      });
+    const restart = async () => {
+      if (restarted) return;
+      restarted = true;
+      emit({ type: 'running', running: true });
+      emit({
+        type: 'subagent',
+        subagent: {
+          id: 'late',
+          name: 'late review',
+          kind: 'review',
+          status: 'running',
+        },
+      });
+      if (writesMemory)
+        await writeFile(
+          join(source.options.memoryDirectories[1]!, 'background.md'),
+          'Pending background notes.',
+        );
+      if (finishes) {
+        report();
+        emit({ type: 'running', running: false });
+      }
+    };
+    if (stage === 'refresh')
+      codex.accountRead = async () => {
+        await restart();
+        return reading();
+      };
+    if (stage === 'save') {
+      const save = ConversationStore.prototype.save;
+      vi.spyOn(ConversationStore.prototype, 'save').mockImplementation(
+        async function (this: ConversationStore, record) {
+          await save.call(this, record);
+          if (record.handoff?.to === 'codex' && !record.handoff.activated)
+            await restart();
+        },
+      );
+    }
+    if (stage === 'connection') {
+      const scope = Workspace.prototype.scope;
+      vi.spyOn(Workspace.prototype, 'scope').mockImplementation(async function (
+        this: Workspace,
+        cwd,
+      ) {
+        const result = await scope.call(this, cwd);
+        if (coordinator.snapshot.conversation?.handoff?.to === 'codex')
+          await restart();
+        return result;
+      });
+    }
+    if (stage === 'quiescence') {
+      const quiesce = coordination.quiesce.bind(coordination);
+      vi.spyOn(coordination, 'quiesce').mockImplementation(async (ready) => {
+        if (ready) await restart();
+        return quiesce(ready);
+      });
+    }
+    emit({ type: 'running', running: true });
+    emit({ type: 'exhausted' });
+    await coordinator.send('Queued after report');
+    emit({ type: 'running', running: false });
+    if (writesMemory || !finishes) {
+      await until(
+        'source retained after intervening activity',
+        () =>
+          restarted &&
+          coordinator.snapshot.phase === (writesMemory ? 'recovery' : 'idle'),
+      );
+      assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
+      assert.equal(source.session.closed, false);
+      assert.equal(codex.inputs.length, 0);
+      assert.deepEqual(coordination.familiarBinding(), binding);
+      if (writesMemory) {
+        assert.match(
+          coordinator.snapshot.recovery!.diff,
+          /Pending background notes/,
+        );
+        await coordinator.recoverMemory('discard');
+      } else {
+        emit({ type: 'running', running: false });
+        report();
+      }
+    }
+    await until(
+      'continuation with late report',
+      () => codex.inputs.length === 2 && coordinator.snapshot.phase === 'idle',
+    );
+    assert.match(codex.inputs[0]!.prompt, /^Continue the task/);
+    assert.match(codex.inputs[0]!.context!, /Retain the migration lock/);
+    assert.equal(codex.inputs[1]!.prompt, 'Queued after report');
+    assert.equal(claude.inputs.length, 1);
   });

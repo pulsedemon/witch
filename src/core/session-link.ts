@@ -238,8 +238,10 @@ export class SessionLink {
     if (scope) await workspace.prepare(scope);
     else scope = await workspace.scope(conversation.cwd);
     if (ready && !ready()) return;
+    const quiesced = !!ready && !!this.coordination;
+    if (quiesced && !(await this.coordination!.quiesce(ready))) return;
     // an initial connect keeps the activation published when its conversation opened; a runtime switch drops questions once it activates
-    await this.disconnect(!this.connected, true);
+    await this.disconnect(!this.connected, true, undefined, quiesced);
     const connection = (this.connection = {});
     await this.coordination?.activate(conversation, scope.project);
     this.aborter = new AbortController();
@@ -322,8 +324,10 @@ export class SessionLink {
     keepActivation = false,
     keepQuestions = false,
     stop?: AgentStopOptions,
+    quiesced = false,
   ): Promise<void> {
-    if (!keepActivation && this.coordination) await this.coordination.quiesce();
+    if (!keepActivation && !quiesced && this.coordination)
+      await this.coordination.quiesce();
     const conversationId = this.host.record()?.id;
     const session = this.connected;
     this.connection = undefined;

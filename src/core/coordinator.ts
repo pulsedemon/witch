@@ -1467,6 +1467,7 @@ export class Coordinator {
   }
 
   private publish(update: Partial<Snapshot>): void {
+    this.runtimes.observe(update);
     this.snapshot = {
       ...this.snapshot,
       ...update,

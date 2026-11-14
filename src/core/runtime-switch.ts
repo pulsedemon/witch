@@ -52,6 +52,7 @@ interface PendingSwitch {
   recovering: boolean;
   moving: boolean;
   waiting: boolean;
+  revision: number;
   finished: PromiseWithResolvers<void>;
 }
 
@@ -69,6 +70,7 @@ export class RuntimeSwitch {
   private readonly exhaustedAt = new Map<string, number>();
   private continuation?: TurnResult;
   private stopping?: PromiseWithResolvers<void>;
+  private activityRevision = 0;
 
   constructor(private readonly host: SwitchHost) {}
 
@@ -113,8 +115,23 @@ export class RuntimeSwitch {
     return snapshot.nativeRunning || taskActivity(snapshot).running;
   }
 
+  observe(update: Partial<Snapshot>): void {
+    if (
+      this.pending?.background &&
+      (update.nativeRunning === true ||
+        update.items ||
+        update.subagents ||
+        update.backgroundCommands)
+    )
+      this.activityRevision++;
+  }
+
   private deferBackground(request: PendingSwitch): boolean {
-    if (!request.background || !this.backgroundBusy) return false;
+    if (
+      !request.background ||
+      (!this.backgroundBusy && request.revision === this.activityRevision)
+    )
+      return false;
     request.waiting = true;
     return true;
   }
@@ -129,6 +146,7 @@ export class RuntimeSwitch {
     if (!this.backgroundPending) return false;
     const request = this.pending!;
     request.waiting = false;
+    request.revision = this.activityRevision;
     try {
       await this.host.prepareBackground();
     } catch (error) {
@@ -136,7 +154,8 @@ export class RuntimeSwitch {
       throw error;
     }
     if (this.pending !== request || this.host.cancelled()) return false;
-    if (this.deferBackground(request)) return false;
+    if (this.host.snapshot().phase === 'idle' && this.deferBackground(request))
+      return false;
     return this.run(request);
   }
 
@@ -149,6 +168,7 @@ export class RuntimeSwitch {
       recovering: false,
       moving: false,
       waiting: false,
+      revision: this.activityRevision,
       finished: Promise.withResolvers<void>(),
     };
     this.pending = request;
@@ -166,6 +186,8 @@ export class RuntimeSwitch {
     try {
       return await this.attempt(request);
     } finally {
+      if (request.waiting && this.host.snapshot().phase === 'recovery')
+        request.recovering = true;
       if (this.pending === request && !request.recovering && !request.waiting) {
         if (this.host.conversation().agent === request.source?.info.agent)
           this.host.failed(true);

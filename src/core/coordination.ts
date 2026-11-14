@@ -383,11 +383,19 @@ export class SessionCoordination {
     }
   }
 
-  async quiesce(): Promise<void> {
-    if (this.active) this.active.accepting = false;
+  async quiesce(ready?: () => boolean): Promise<boolean> {
+    const active = this.active;
+    const accepting = active?.accepting ?? false;
+    if (active) active.accepting = false;
     await this.operations;
     await this.host.drain();
     await this.familiarHost.drain();
+    if (ready && !ready()) {
+      if (active && this.active === active && !this.ending && !this.closed)
+        active.accepting = accepting;
+      return false;
+    }
+    return true;
   }
 
   async deactivate(): Promise<void> {

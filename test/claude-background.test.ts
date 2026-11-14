@@ -1176,3 +1176,37 @@ test('successful native results do not rejoin the accumulated turn text', async 
     await f.session.close();
   }
 });
+
+test('background recovery preserves an earlier correlated failure', async () => {
+  const f = await background();
+  try {
+    await f.emit(idle);
+    await f.turn;
+    await f.emit(state('running'));
+    const next = f.session.send('waiting initial');
+    await until('waiting input', async () => (await f.inputs()).length === 2);
+    const initial = (await f.inputs())[1]!.uuid!;
+    const follow = await f.steer('later follow-up');
+    await writeFile(join(f.cwd, 'receipt.json'), '[]');
+    await f.emit(
+      limit(),
+      { ...failed, user_message_uuids: [] },
+      lifecycle(initial, 'started'),
+      {
+        type: 'result',
+        subtype: 'error_during_execution',
+        is_error: true,
+        errors: ['Provider rejected initial input.'],
+        user_message_uuids: [initial],
+      },
+      lifecycle(follow, 'started'),
+      result('Follow-up handled.', [follow]),
+    );
+    const outcome = await within(next, 3000, 'recovery result');
+    assert.equal(outcome.status, 'failed');
+    assert.equal(outcome.error, 'Provider rejected initial input.');
+    assert.equal(outcome.text, 'Follow-up handled.');
+  } finally {
+    await f.session.close();
+  }
+});

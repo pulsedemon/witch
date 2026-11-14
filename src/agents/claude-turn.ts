@@ -90,7 +90,7 @@ export async function recoverInput(
             exhausted: true as const,
             inputUnread: true as const,
           }
-        : turn.result!),
+        : idleResult(turn, false)),
       unread: (unread ?? []).flatMap(
         (uuid) => turn.inputs.get(uuid)?.prompt ?? [],
       ),
