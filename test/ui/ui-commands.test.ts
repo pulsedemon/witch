@@ -6,10 +6,10 @@ import { App } from '../../src/ui/App.js';
 import { parseCommands } from '../../src/ui/commands/commands.js';
 import type { WitchCommand } from '../../src/ui/commands/commands.js';
 import type { StateStore } from '../../src/persistence/store.js';
-import { unitFixture } from '../fixtures/coordinator.js';
+import { readRecord, unitFixture } from '../fixtures/coordinator.js';
 import { TurnGate } from '../fixtures/agent.js';
 import { show, fake, prompts, ENTER, UP } from '../fixtures/ui.js';
-import { until } from '../fixtures/within.js';
+import { until, within } from '../fixtures/within.js';
 
 const cases: [string, WitchCommand[] | undefined][] = [
   ['/compact', [{ name: 'compact', argument: '' }]],
@@ -164,6 +164,78 @@ test('embedded commands finish compaction and model application before queued pr
     await c.close();
   }
 });
+
+for (const picker of [false, true])
+  test(`an interrupted ${picker ? 'picked' : 'explicit'} model change reports its cancellation once`, async () => {
+    const { coordinator: c, a, root } = await unitFixture();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let ui: ReturnType<typeof show> | undefined;
+
+    try {
+      await c.selectModel({ agent: 'a', id: 'a-big' });
+
+      await a.sessions.at(-1)!.session.close();
+
+      a.beforeCheck = async () => {
+        entered.resolve();
+
+        await release.promise;
+      };
+
+      ui = show(createElement(App, { coordinator: c, onExit: () => {} }));
+
+      await delay(70);
+
+      await submit(ui, picker ? '/model /compact' : '/model a:a-new /compact');
+
+      if (picker) {
+        await until('model picker', () => ui!.text().includes('Models ·'));
+
+        ui.stdin.write('a-new');
+
+        await delay(30);
+
+        ui.stdin.write(ENTER);
+      }
+
+      await within(entered.promise, 3000, 'the model check');
+
+      ui.stdin.write('\u001b');
+
+      await until('model interrupted', () => a.sessions.at(-1)!.session.closed);
+
+      release.resolve();
+
+      await until(
+        'cancel settled',
+        () => c.snapshot.phase === 'idle' && !c.snapshot.commandsPending,
+      );
+
+      const notices = c.snapshot.items.filter(
+        ({ kind, text }) =>
+          kind === 'notice' && text === 'Model change canceled',
+      );
+
+      assert.equal(notices.length, 1);
+
+      assert.deepEqual(a.compactions, []);
+
+      const saved = (await readRecord(root, c.snapshot.conversation!.id))
+        .sessions.a;
+
+      assert.deepEqual(
+        [saved?.model, saved?.requestedModel],
+        ['a-big', 'a-big'],
+      );
+    } finally {
+      release.resolve();
+
+      ui?.unmount();
+
+      await c.close();
+    }
+  });
 
 test('model and nested effort selection include native application before the following command', async () => {
   const { app, coordinator, calls } = fake({
