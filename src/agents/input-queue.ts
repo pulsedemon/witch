@@ -6,9 +6,12 @@ export class InputQueue<T> implements AsyncIterable<T> {
 
   push(item: T): void {
     if (this.ended) throw new Error('Agent input is closed');
+
     const consumed = Promise.withResolvers<void>();
     this.flushed = consumed.promise;
+
     this.items.push({ value: item, consumed: consumed.resolve });
+
     this.waiting.resolve();
   }
 
@@ -19,6 +22,7 @@ export class InputQueue<T> implements AsyncIterable<T> {
 
   close(): void {
     this.ended = true;
+
     this.waiting.resolve();
   }
 
@@ -26,11 +30,15 @@ export class InputQueue<T> implements AsyncIterable<T> {
     while (!this.ended || this.items.length > 0) {
       if (this.items.length === 0) {
         await this.waiting.promise;
+
         this.waiting = Promise.withResolvers<void>();
       }
+
       while (this.items.length > 0) {
         const item = this.items.shift()!;
+
         yield item.value;
+
         item.consumed();
       }
     }

@@ -38,7 +38,9 @@ export const peerRequestStatusSchema = z.enum([
 ]);
 
 export type PeerRequest = z.infer<typeof peerRequestSchema>;
+
 type PeerRequestStatus = z.infer<typeof peerRequestStatusSchema>;
+
 type PeerAction = Extract<
   CoordinationAction,
   { kind: 'ask' | 'answer' | 'peer-request' }
@@ -58,7 +60,9 @@ export function peerRequestStatus(
   claims: readonly TaskClaim[],
 ): PeerRequestStatus {
   if (request.answer) return 'answered';
+
   if (request.attemptedAt) return 'attempted';
+
   return claims.some(
     ({ id, owner }) =>
       id === request.claim &&
@@ -93,10 +97,12 @@ type Peer = { claim?: { id: string }; presence: { peerRequests?: 1 } };
 /** the claim's owner must be a live session here whose Witch can answer. */
 function checkOwner(peers: readonly Peer[], claim: string): void {
   const peer = peers.find((peer) => peer.claim?.id === claim);
+
   if (!peer)
     throw new Error(
       `The owner of ${claim} is not a live session in this project.`,
     );
+
   if (!peer.presence.peerRequests)
     throw new Error(
       "The owner's Witch does not support peer requests yet; ask your user to restart that Witch onto a current build.",
@@ -199,11 +205,14 @@ export async function peerOutcome(
       work: (check: Verify) => Promise<PeerRequest>,
       verify: Verify,
     ): Promise<PeerRequest>;
+
     peers(ledger: Ledger): Promise<readonly Peer[]>;
+
     claims(): Promise<readonly TaskClaim[]>;
   },
 ): Promise<ControlOutcome> {
   const { registry, owner, deadline } = port;
+
   const found =
     action.kind === 'ask'
       ? await port.change(
@@ -225,6 +234,7 @@ export async function peerOutcome(
             deadline,
           )
         : await registry.peerRequest(owner, action.request);
+
   return {
     kind: 'peer-request',
     request: found,

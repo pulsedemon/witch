@@ -13,12 +13,14 @@ const servers = z.object({
 /** config/read emits unset options as null; native TOML overrides require them to be absent. */
 function tomlSettings(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(tomlSettings);
+
   if (value && typeof value === 'object')
     return Object.fromEntries(
       Object.entries(value)
         .filter(([, value]) => value !== null)
         .map(([name, value]) => [name, tomlSettings(value)]),
     );
+
   return value;
 }
 
@@ -28,6 +30,7 @@ function readProfile(
 ): Record<string, unknown> {
   const profile = object.parse(tomlSettings(value));
   const filesystem = object.parse(profile.filesystem ?? {});
+
   return {
     ...profile,
     ...(profile.extends === ':workspace' ? { extends: ':read-only' } : {}),
@@ -66,6 +69,7 @@ export async function answerConfiguration(
   sandbox?: 'read-only';
 }> {
   const source = await readConfig(rpc, cwd);
+
   const config: Record<string, unknown> = {
     ...withoutMcp(source),
     'features.hooks': false,
@@ -73,11 +77,15 @@ export async function answerConfiguration(
     'features.multi_agent': false,
     'features.multi_agent_v2': false,
   };
+
   const named = profile !== undefined && !profile.startsWith(':');
+
   if (named) {
     const profiles = object.parse(source.permissions ?? {});
+
     if (!(profile in profiles))
       throw new Error(`Codex did not return permission profile ${profile}.`);
+
     config.permissions = Object.fromEntries(
       Object.entries(profiles).map(([name, value]) => [
         name,
@@ -85,6 +93,7 @@ export async function answerConfiguration(
       ]),
     );
   }
+
   return {
     config,
     approvalPolicy: 'never',

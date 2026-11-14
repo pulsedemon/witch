@@ -10,11 +10,14 @@ export function chatLayout(
 ) {
   const transcript = Math.min(2, Math.max(0, height - 1));
   let remaining = Math.max(0, height - transcript - 1);
+
   const take = (wanted: number) => {
     const rows = Math.min(wanted, remaining);
     remaining -= rows;
+
     return rows;
   };
+
   const activity = take(Number(controls.working));
   const pending = take(Number(controls.pending));
   const border = width >= 5 && remaining >= 2;
@@ -23,9 +26,12 @@ export function chatLayout(
   const hints = take(minimumList);
   const commands = take(commandWindowRows);
   const gap = take(1);
+
   const list =
     hints + (controls.list ? take(Math.min(8, controls.list) - hints) : 0);
+
   const composer = Math.max(1, Math.min(Math.floor(height / 2), remaining + 1));
+
   return {
     minimumRows:
       2 +

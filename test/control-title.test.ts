@@ -9,6 +9,7 @@ const binding = {
   conversation: 'conversation-one',
   activation: '11111111-1111-4111-8111-111111111111',
 };
+
 const prefixes = {
   control: controlPrefix(binding, '/witch/dist/cli.js'),
   familiar: controlPrefix(
@@ -34,6 +35,7 @@ for (const [args, title] of [
 ]) {
   test(`a bound ${title!.split(' ')[0]} call retains its operand and complete command`, () => {
     const command = `${prefixes.control} ${args}`;
+
     assert.deepEqual(boundCommandTitle(command, prefixes), {
       title,
       expandedTitle: command,
@@ -47,8 +49,10 @@ test('native shell wrappers and source-launch prefixes preserve quoted subjects'
     ...prefixes,
     control: controlPrefix(binding, '/witch/src/cli.tsx'),
   };
+
   const command = `${source.control} --claim ${quote("task:reviewer's notes")} --summary inspect`;
   const doubleQuoted = `"${command.replace(/[\\"$`]/g, '\\$&')}"`;
+
   for (const wrapped of [
     command,
     `env TMPDIR='/task/tmp' ${command}`,
@@ -66,6 +70,7 @@ test('native shell wrappers and source-launch prefixes preserve quoted subjects'
 test('familiar calls retain their name and stdin without reading action words from native arguments or heredocs', () => {
   const claude = `TMPDIR='/task/tmp' CLAUDE_CODE_TMPDIR='/task/tmp' ${prefixes.familiar} --familiar-claude ${quote("reviewer's pass")} --report-file '/task/report' -- --model opus <<'PROMPT'\nReview --claim example.\nPROMPT`;
   const codex = `${prefixes.familiar} --familiar-codex check --report-file '/task/report' -- -c model='gpt-6-astra' < '/task/prompt'`;
+
   for (const [command, title] of [
     [claude, "Familiar Claude reviewer's pass"],
     [`env ${claude}`, "Familiar Claude reviewer's pass"],
@@ -76,6 +81,7 @@ test('familiar calls retain their name and stdin without reading action words fr
       expandedTitle: command,
       singleLine: true,
     });
+
     assert.equal(
       claudeTitle(
         'Bash',
@@ -90,6 +96,7 @@ test('familiar calls retain their name and stdin without reading action words fr
 
 test('mentions, other bindings and compound scripts keep their ordinary titles', () => {
   const call = `${prefixes.control} --peers --json`;
+
   for (const command of [
     call.replace('conversation-one', 'conversation-two'),
     call.replace(binding.activation, '22222222-2222-4222-8222-222222222222'),
@@ -103,7 +110,9 @@ test('mentions, other bindings and compound scripts keep their ordinary titles',
   ]) {
     assert.equal(boundCommandTitle(command, prefixes), undefined, command);
   }
+
   assert.equal(boundCommandTitle(call, undefined), undefined);
+
   assert.deepEqual(
     claudeTitle('Bash', { command: 'git status' }, '/task', prefixes),
     {
@@ -111,14 +120,17 @@ test('mentions, other bindings and compound scripts keep their ordinary titles',
       command: true,
     },
   );
+
   assert.equal(
     claudeTitle('Bash', { command: call }, '/task', prefixes).command,
     true,
   );
+
   assert.equal(
     claudeTitle('Read', { file_path: '/task/a.ts' }, '/task').command,
     undefined,
   );
+
   assert.equal(
     claudeTitle('Other', { command: call }, '/task', prefixes).singleLine,
     undefined,
@@ -147,7 +159,9 @@ test('later binding flags cannot disguise a foreign target as the bound call', (
       '--peers',
       '--json',
     ]);
+
     assert.equal(parsed.control?.binding[field], value);
+
     for (const extra of [
       `${option} ${quote(value)}`,
       `${option}=${quote(value)}`,
@@ -159,6 +173,7 @@ test('later binding flags cannot disguise a foreign target as the bound call', (
         ),
         undefined,
       );
+
       assert.equal(
         boundCommandTitle(
           `${prefixes.familiar} ${extra} --familiar-claude review --report-file /report -- --model opus`,

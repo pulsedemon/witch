@@ -40,6 +40,7 @@ export function coordinationInstructions(
   command: string,
 ): string {
   const required = requiresClaim(snapshot);
+
   return [
     `Control command: ${command}`,
     'Use --claim <full GitHub issue/pr URL or task:name> --summary <work> --alias <related reference> to claim. --alias is optional and repeatable.',
@@ -82,19 +83,26 @@ export function watchClaimPolicy(
   steer: (text: string) => Promise<boolean>,
 ): (() => void) | undefined {
   if (!coordination || !initial) return;
+
   const source = coordination;
   let attempted = requiresClaim(initial);
   let stopped = false;
   let running = false;
+
   const refresh = async () => {
     if (stopped || running) return;
+
     running = true;
+
     try {
       while (!stopped) {
         const snapshot = source.snapshot;
         const required = requiresClaim(snapshot);
+
         if (required === attempted) break;
+
         attempted = required;
+
         const accepted = await steer(
           [
             'Witch coordination update:',
@@ -105,6 +113,7 @@ export function watchClaimPolicy(
             ),
           ].join('\n'),
         );
+
         if (!accepted) break;
       }
     } catch {
@@ -113,10 +122,14 @@ export function watchClaimPolicy(
       running = false;
     }
   };
+
   const unsubscribe = source.subscribe(() => void refresh());
+
   void refresh();
+
   return () => {
     stopped = true;
+
     unsubscribe();
   };
 }

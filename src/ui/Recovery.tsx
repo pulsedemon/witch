@@ -20,9 +20,11 @@ export function Recovery({
   setScroll: Dispatch<SetStateAction<number>>;
 }) {
   const heading = Number(height >= 3);
+
   const explanation = conflict
     ? 'Another conversation published changes to the same notes. Keep mine merges your current changes.'
     : 'Accept these changes with their original attribution, or discard them.';
+
   const hints = wrapLines(
     piped([
       ...(conflict
@@ -36,15 +38,19 @@ export function Recovery({
     ]),
     width,
   );
+
   const hintRows = Math.min(hints.length, Math.max(1, height - heading - 2));
+
   const explanationRows = Math.min(
     wrapLines(explanation, width).length,
     Math.max(0, height - heading - hintRows - 1),
   );
+
   const pageRows = Math.min(
     height - heading - explanationRows - hintRows,
     Math.max(1, height - 5),
   );
+
   return (
     <Box flexDirection="column" height={height}>
       {heading > 0 && (

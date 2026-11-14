@@ -25,6 +25,7 @@ export function withoutMcp(
       Object.entries(object.parse(source.mcp_servers ?? {})).map(
         ([name, value]) => {
           const server = object.parse(value);
+
           // disabled servers still need a valid transport; config/read's null options are not TOML overrides.
           return [
             name,

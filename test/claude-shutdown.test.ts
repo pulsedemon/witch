@@ -14,22 +14,27 @@ for (const phase of ['dispatch', 'response', 'idle', 'late response'])
     const f = await launcher('background');
     const events: AgentEvent[] = [];
     const session = await f.connect({ onEvent: (event) => events.push(event) });
+
     try {
       const turn = session.send('initial');
+
       await until('initial result', () =>
         events.some(
           (event) =>
             event.type === 'skills' && event.skills[0]?.name === 'result-1',
         ),
       );
+
       if (phase !== 'idle') {
         assert.equal(await session.steer('uncertain follow-up'), true);
+
         await until(
           'written follow-up',
           async () =>
             (await jsonLines(join(f.cwd, 'inputs.jsonl'))).length === 2,
         );
       }
+
       if (phase === 'dispatch')
         vi.spyOn(InputQueue.prototype, 'flush').mockReturnValue(
           new Promise(() => {}),
@@ -39,30 +44,43 @@ for (const phase of ['dispatch', 'response', 'idle', 'late response'])
           join(f.cwd, phase === 'idle' ? 'hold-idle' : 'hold-interrupt'),
           '',
         );
+
       if (phase === 'late response')
         await writeFile(join(f.cwd, 'late-interrupt'), '');
+
       const first = session.interrupt({ deadline: performance.now() + 3200 });
       const second = session.interrupt();
+
       await within(
         Promise.all([first, second]),
         2500,
         'bounded SDK interruption',
       );
+
       const result = await within(turn, 1000, 'interrupted turn');
+
       if (phase === 'late response')
         assert.equal(
           await readFile(join(f.cwd, 'late-response.json'), 'utf8'),
           'true',
         );
+
       assert.equal(result.status, 'interrupted');
+
       assert.match(result.text, /Initial reply/);
+
       assert.deepEqual(result.unread ?? [], []);
+
       assert.equal(result.inputUnsent, undefined);
+
       assert.equal(session.closed, true);
+
       assert.ok(
         f.children[0]!.exitCode !== null || f.children[0]!.signalCode !== null,
       );
+
       assert.equal(events.filter((event) => event.type === 'closed').length, 1);
+
       assert.equal(
         events.filter(
           (event) =>
@@ -70,9 +88,11 @@ for (const phase of ['dispatch', 'response', 'idle', 'late response'])
         ).length,
         1,
       );
+
       await within(session.close(), 1000, 'repeated close');
     } finally {
       vi.restoreAllMocks();
+
       await session.close();
     }
   });
@@ -80,15 +100,18 @@ for (const phase of ['dispatch', 'response', 'idle', 'late response'])
 test('Claude closure bounds a missing familiar stop acknowledgment and resolves its request', async () => {
   const f = await launcher('background');
   const events: AgentEvent[] = [];
+
   const binding = {
     directory: '/control',
     conversation: 'owner',
     activation: randomUUID(),
   };
+
   const session = await f.connect({
     familiarBinding: binding,
     onEvent: (event) => events.push(event),
   });
+
   const emit = frameWriter(
     f.cwd,
     (name) =>
@@ -97,21 +120,27 @@ test('Claude closure bounds a missing familiar stop acknowledgment and resolves 
       ),
     f.children[0]!,
   );
+
   const run = randomUUID();
+
   try {
     const turn = session.send('initial');
+
     await until('initial result', () =>
       events.some(
         (event) =>
           event.type === 'skills' && event.skills[0]?.name === 'result-1',
       ),
     );
+
     await emit({
       type: 'system',
       subtype: 'session_state_changed',
       state: 'idle',
     });
+
     await turn;
+
     await writeFile(
       join(f.cwd, 'task-outputs.json'),
       JSON.stringify({
@@ -123,6 +152,7 @@ test('Claude closure bounds a missing familiar stop acknowledgment and resolves 
         }),
       }),
     );
+
     await emit({
       type: 'system',
       subtype: 'background_tasks_changed',
@@ -135,6 +165,7 @@ test('Claude closure bounds a missing familiar stop acknowledgment and resolves 
         },
       ],
     });
+
     assert.equal(
       (
         await session.familiar!.report(
@@ -144,6 +175,7 @@ test('Claude closure bounds a missing familiar stop acknowledgment and resolves 
       ).kind,
       'familiar-registered',
     );
+
     await session.familiar!.report(
       {
         kind: 'familiar-request',
@@ -157,27 +189,35 @@ test('Claude closure bounds a missing familiar stop acknowledgment and resolves 
       },
       Date.now() + 5000,
     );
+
     const request = events.find((event) => event.type === 'request');
+
     assert.ok(request?.type === 'request');
+
     await writeFile(join(f.cwd, 'hold-stop'), '');
+
     await within(
       session.close({ deadline: performance.now() + 3200 }),
       2500,
       'bounded familiar cleanup',
     );
+
     assert.equal(session.closed, true);
+
     assert.ok(
       events.some(
         (event) =>
           event.type === 'subagent' && event.subagent.status === 'stopped',
       ),
     );
+
     assert.ok(
       events.some(
         (event) =>
           event.type === 'request-resolved' && event.id === request.request.id,
       ),
     );
+
     assert.ok(
       f.children[0]!.exitCode !== null || f.children[0]!.signalCode !== null,
     );

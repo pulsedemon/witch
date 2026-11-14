@@ -21,6 +21,7 @@ async function movedDirectories(
   root: string,
 ): Promise<{ ledger?: Ledger; former: string[]; notices: string[] }> {
   let ledger;
+
   try {
     ledger = await readLedger(root);
   } catch (error) {
@@ -29,11 +30,14 @@ async function movedDirectories(
       notices: [`Could not read moved directories: ${errorMessage(error)}`],
     };
   }
+
   // only a move to `cwd` or a directory holding it can have carried it, so most turns need no git process here
   const top = ledger.moves.some(({ to }) => within(cwd, to))
     ? await memory.pathScope(cwd)
     : undefined;
+
   const former = top ? (await formerPaths(ledger, top)).map(projectKey) : [];
+
   return { ledger, former, notices: [] };
 }
 
@@ -45,7 +49,9 @@ function repointNotice(
 ): string | undefined {
   if (repointed)
     notices.push(`Repointed ${repointed} memory note(s) at moved directories.`);
+
   if (failure) notices.push(failure);
+
   return notices.join('\n') || undefined;
 }
 
@@ -61,13 +67,17 @@ export async function startActivity(
   scope?: MemoryScope,
 ): Promise<{ activity: Activity; scope: MemoryScope; notice?: string }> {
   scope ??= await workspace.memory.scopePaths(conversation.cwd);
+
   await workspace.ensureWorktree();
+
   const { ledger, former, notices } = await movedDirectories(
     workspace.memory,
     conversation.cwd,
     root,
   );
+
   const begun = await workspace.begin(scope, ledger, former);
+
   const activity = {
     id: randomUUID(),
     agent: conversation.agent,
@@ -75,7 +85,9 @@ export async function startActivity(
     baseRevision: begun.revision,
     startedAt: new Date().toISOString(),
   };
+
   conversation.activity = activity;
+
   return {
     activity,
     scope,
@@ -95,7 +107,9 @@ export async function adoptMoved(
     cwd,
     root,
   );
+
   const adopted = await workspace.adoptCheckout(scope, ledger, former);
+
   return repointNotice(notices, adopted.repointed, adopted.notice);
 }
 
@@ -112,6 +126,8 @@ export async function endActivity(
       `chore(memory): save ${activity.agent} notes\n\n${memoryAttribution(conversation.id, activity.id)}`,
       accept,
     );
+
   if ((!completed || !accept()) && (await workspace.isDirty())) return;
+
   delete conversation.activity;
 }

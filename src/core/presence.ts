@@ -8,12 +8,19 @@ interface PresenceHost {
   readonly registry: Pick<CoordinationStore, 'publish'>;
   readonly process: ProcessIdentity;
   state(): Snapshot | undefined;
+
   branch(): string | undefined;
+
   active(): Activation | undefined;
+
   closed(): boolean;
+
   ending(): boolean;
+
   failed(error: unknown): void;
+
   written(): void;
+
   /** the last presence write failed. */
   failure(): boolean;
 }
@@ -31,6 +38,7 @@ export class PresencePublisher {
   publish(active: Activation): Promise<void> {
     const presence = this.record(active);
     this.projected = presence;
+
     return this.write(presence);
   }
 
@@ -39,6 +47,7 @@ export class PresencePublisher {
     const presence = this.record(active);
     const projected = this.projected;
     const keys = Object.keys(presence) as (keyof SessionPresence)[];
+
     if (
       projected &&
       keys.length === Object.keys(projected).length &&
@@ -49,23 +58,30 @@ export class PresencePublisher {
       )
     )
       return;
+
     this.projected = presence;
     this.pending = presence;
+
     if (this.scheduled) return;
+
     this.scheduled = setTimeout(() => {
       this.scheduled = undefined;
       const pending = this.pending;
       this.pending = undefined;
+
       if (pending && active.publishing && this.host.active() === active)
         void this.write(pending);
     }, 100);
+
     this.scheduled.unref();
   }
 
   retry(): Promise<void> {
     if (this.host.closed() || !this.host.failure()) return Promise.resolve();
+
     const active = this.host.active();
     const writing = this.writing;
+
     this.retrying ??= writing
       .then(async () => {
         if (
@@ -79,17 +95,20 @@ export class PresencePublisher {
           !this.host.failure()
         )
           return;
+
         await this.write(this.record(active));
       })
       .catch(() => {})
       .finally(() => {
         this.retrying = undefined;
       });
+
     return this.retrying;
   }
 
   cancel(): void {
     clearTimeout(this.scheduled);
+
     this.scheduled = undefined;
     this.pending = undefined;
   }
@@ -109,6 +128,7 @@ export class PresencePublisher {
     const { familiars, brews } = taskActivity(state);
     const { id, title, cwd, agent } = active.conversation;
     const branch = this.host.branch();
+
     return {
       id,
       title,
@@ -140,10 +160,12 @@ export class PresencePublisher {
     const written = this.writing.then(() =>
       this.host.registry.publish(presence),
     );
+
     this.writing = written.then(
       () => this.host.written(),
       (error: unknown) => this.host.failed(error),
     );
+
     return written;
   }
 }

@@ -26,6 +26,7 @@ import { errorMessage } from '../errors.js';
 
 export const verificationProfile = 'native-update-1';
 const execute = promisify(execFile);
+
 function nativeScenarios(runtime: NativeRuntime): NativeScenario[] {
   return [
     'basic',
@@ -35,6 +36,7 @@ function nativeScenarios(runtime: NativeRuntime): NativeScenario[] {
     ...(runtime === 'claude' ? ['idle-run' as const] : []),
   ];
 }
+
 export function requiredNativeChecks(runtime: NativeRuntime): string[] {
   return [
     'cross-version resume',
@@ -82,22 +84,31 @@ export interface NativeVerificationReport {
 
 async function project(directory: string, spells = false): Promise<string> {
   const cwd = join(directory, 'project');
+
   await mkdir(cwd, { recursive: true, mode: 0o700 });
+
   const instructions =
     'This is a synthetic native compatibility check. Perform only the exact prompt. Do not commit files.\n';
+
   await writeFile(join(cwd, 'AGENTS.md'), instructions);
+
   await writeFile(join(cwd, 'CLAUDE.md'), instructions);
+
   if (spells) {
     for (const source of ['.claude/skills', '.agents/skills']) {
       const path = join(cwd, source, 'probe-spell');
+
       await mkdir(path, { recursive: true });
+
       await writeFile(
         join(path, 'SKILL.md'),
         '---\nname: probe-spell\ndescription: Answers the synthetic native probe.\n---\n\nReply with exactly `PROBE CAST` followed by any arguments. Do nothing else.\n',
       );
     }
+
     await execute('git', ['init', '-q'], { cwd });
   }
+
   return cwd;
 }
 
@@ -134,44 +145,59 @@ export async function prepareNativeUpdate(
 ): Promise<PreparedNativeUpdate> {
   if (!options.allowAccountUsage)
     throw new Error('Native qualification requires account-usage consent.');
+
   const directory = join(options.directory, 'resume');
   const cwd = await project(directory);
+
   const adapter = await verificationAdapter(previous.runtime, directory, {
     start: options.launch,
   });
+
   const models = await adapter.models({
     executable: previous.executable,
     cwd,
     signal: options.signal,
   });
+
   const preferred = previous.runtime === 'claude' ? ['haiku'] : ['gpt-6.1-sol'];
+
   const model =
     options.model ??
     preferred.find((id) => models.some((model) => model.id === id));
+
   if (!model || !models.some((value) => value.id === model))
     throw new Error('Choose an available model for native qualification.');
+
   const marker = `WITCH_RESUME_${randomBytes(16).toString('hex')}`;
   const events: AgentEvent[] = [];
+
   const session = await adapter.connect(
     sessionOptions(previous.executable, cwd, model, options.signal, (event) =>
       events.push(event),
     ),
   );
+
   try {
     options.progress(
       `Preparing ${previous.runtime} conversation on ${previous.version}`,
     );
+
     const result = await session.send(
       `Remember the exact marker ${marker} for recall after compaction and reconnect. Reply only with the marker. Do not use tools, skills or delegation.`,
     );
+
     completed(result);
+
     assert.equal(result.text.trim(), marker);
+
     completed(await session.compact());
+
     assert.equal(
       events.some((event) => event.type === 'tool'),
       false,
       'Resume preparation used tools',
     );
+
     return {
       directory,
       runtime: previous.runtime,
@@ -199,7 +225,9 @@ async function recall(
     prepared.directory,
     { start: options.launch },
   );
+
   const events: AgentEvent[] = [];
+
   const session = await adapter.connect({
     ...sessionOptions(
       executable,
@@ -210,17 +238,22 @@ async function recall(
     ),
     resume: prepared.sessionId,
   });
+
   try {
     assert.equal(session.info.id, prepared.sessionId);
+
     const result = await session.send(
       'Reply only with the exact marker I asked you to remember before compaction and reconnect. Do not use tools, read files, load skills or delegate.',
     );
+
     completed(result);
+
     assert.equal(
       result.text.trim(),
       prepared.marker,
       'Native resume lost the previous conversation context',
     );
+
     assert.equal(
       events.some((event) => event.type === 'tool'),
       false,
@@ -242,9 +275,11 @@ async function checkNativeApprovals(
 ): Promise<void> {
   const directory = join(options.directory, 'approvals');
   const cwd = await project(directory);
+
   const adapter = await verificationAdapter(candidate.runtime, directory, {
     start: options.launch,
   });
+
   let expected = '';
   let accept = false;
   let requests = 0;
@@ -253,31 +288,40 @@ async function checkNativeApprovals(
   const events: AgentEvent[] = [];
   let requestFailure: unknown;
   const failure = new AbortController();
+
   const respond = async (request: UserRequest) => {
     assert.equal(request.kind, 'approval', 'Unexpected native question');
+
     const { command, itemId } = JSON.parse(request.detail) as {
       command?: string;
       itemId?: string;
     };
+
     approvalTool = itemId ?? request.id;
+
     assert.ok(
       command === `node ${expected}.mjs` ||
         command === `/bin/zsh -lc 'node ${expected}.mjs'`,
       `Unexpected probe command: ${command}`,
     );
+
     assert.equal(
       await unlessGone(readFile(join(cwd, expected))),
       undefined,
       'The native tool wrote before approval',
     );
+
     requests++;
+
     assert.equal(
       requests,
       1,
       'Native probe requested an alternate/repeated approval',
     );
+
     session!.respond(request.id, { decision: accept ? 'accept' : 'decline' });
   };
+
   const session: AgentSession = await adapter.connect(
     sessionOptions(
       candidate.executable,
@@ -286,16 +330,19 @@ async function checkNativeApprovals(
       AbortSignal.any([options.signal, failure.signal]),
       (event) => {
         events.push(event);
+
         if (event.type === 'request')
           pending.push(
             respond(event.request).catch((error) => {
               requestFailure = error;
+
               failure.abort(error);
             }),
           );
       },
     ),
   );
+
   try {
     for (const allowed of [false, true]) {
       accept = allowed;
@@ -303,18 +350,24 @@ async function checkNativeApprovals(
       requests = 0;
       approvalTool = undefined;
       const from = events.length;
+
       await writeFile(
         join(cwd, `${expected}.mjs`),
         `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(expected)}, ${JSON.stringify(expected)});\n`,
       );
+
       completed(
         await session.send(
           `Run exactly \`node ${expected}.mjs\` once, requesting native approval. If declined, stop without trying any other tool or command. Do not read files, load skills or delegate. Reply only DONE when the attempt ends.`,
         ),
       );
+
       await Promise.all(pending);
+
       if (requestFailure) throw requestFailure;
+
       assert.equal(requests, 1, 'The native write did not request approval');
+
       assert.deepEqual(
         [
           ...new Set(
@@ -327,6 +380,7 @@ async function checkNativeApprovals(
         [approvalTool],
         'Native approval check ran an unexpected tool',
       );
+
       assert.equal(
         await unlessGone(readFile(join(cwd, expected), 'utf8')),
         allowed ? expected : undefined,
@@ -343,6 +397,7 @@ async function checkNativeApprovals(
       await session.close();
     } finally {
       await Promise.allSettled(pending);
+
       await writeJson(join(directory, 'events.json'), events);
     }
   }
@@ -355,12 +410,15 @@ export async function verifyNativeUpdate(
 ): Promise<NativeVerificationReport> {
   if (!options.allowAccountUsage)
     throw new Error('Native qualification requires account-usage consent.');
+
   assert.equal(candidate.runtime, prepared.runtime);
+
   assert.equal(
     await artifactDigest(candidate.runtime, candidate.executable),
     candidate.digest,
     'Candidate changed before qualification',
   );
+
   const report: NativeVerificationReport = {
     profile: verificationProfile,
     build: options.build,
@@ -387,20 +445,28 @@ export async function verifyNativeUpdate(
     completed: [],
     passed: false,
   };
+
   const check = async (name: string, run: () => Promise<unknown>) => {
     options.signal.throwIfAborted();
+
     options.progress(`Checking ${candidate.runtime}: ${name}`);
+
     await run();
+
     report.completed.push(name);
+
     await writeJson(join(options.directory, 'qualification.json'), report);
   };
+
   try {
     await check('cross-version resume', () =>
       recall(prepared, candidate.executable, options),
     );
+
     await check('native approval and denial', () =>
       checkNativeApprovals(candidate, prepared.model, options),
     );
+
     await check('ordinary settings', () =>
       checkNativeSettings(
         candidate,
@@ -409,6 +475,7 @@ export async function verifyNativeUpdate(
         options.signal,
       ),
     );
+
     await check('automatic answer boundaries', () =>
       checkNativeAnswer(
         candidate,
@@ -417,6 +484,7 @@ export async function verifyNativeUpdate(
         options.signal,
       ),
     );
+
     if (candidate.runtime === 'codex')
       await check('native answer sandbox', () =>
         checkCodexAnswerSandbox(
@@ -425,13 +493,17 @@ export async function verifyNativeUpdate(
           options.signal,
         ),
       );
+
     for (const scenario of nativeScenarios(candidate.runtime)) {
       const directory = join(options.directory, scenario);
       const cwd = await project(directory, scenario === 'spell');
+
       const adapter = await verificationAdapter(candidate.runtime, directory, {
         start: options.launch,
       });
+
       const events: AgentEvent[] = [];
+
       await check(scenario, async () => {
         try {
           return await nativeScenario(
@@ -452,23 +524,28 @@ export async function verifyNativeUpdate(
         }
       });
     }
+
     assert.equal(
       await artifactDigest(candidate.runtime, candidate.executable),
       candidate.digest,
       'Candidate changed during qualification',
     );
+
     assert.deepEqual(
       report.completed,
       requiredNativeChecks(candidate.runtime),
       'Native qualification omitted a required check',
     );
+
     report.passed = true;
   } catch (error) {
     report.error = errorMessage(error);
     report.diagnostic = error instanceof Error ? error.stack : String(error);
+
     throw error;
   } finally {
     await writeJson(join(options.directory, 'qualification.json'), report);
   }
+
   return report;
 }

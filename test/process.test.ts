@@ -27,24 +27,34 @@ test('process arguments preserve boundaries and omit exited processes', async (t
     '--batch',
     '',
   ];
+
   const child = spawn(process.execPath, args, {
     stdio: 'ignore',
     env: { ...process.env, WITCH_ARGUMENTS_PROBE: 'must stay out of argv' },
   });
+
   const ended = once(child, 'close');
+
   const empty = spawn('/bin/sleep', ['30'], {
     argv0: '',
     stdio: 'ignore',
     env: { WITCH_ARGUMENTS_PROBE: 'must stay out of argv' },
   });
+
   const emptyEnded = once(empty, 'close');
+
   t.onTestFinished(async () => {
     child.kill();
+
     empty.kill();
+
     await ended;
+
     await emptyEnded;
   });
+
   await Promise.all([once(child, 'spawn'), once(empty, 'spawn')]);
+
   assert.deepEqual(
     await processArguments([child.pid!, empty.pid!]),
     new Map([
@@ -52,9 +62,13 @@ test('process arguments preserve boundaries and omit exited processes', async (t
       [empty.pid!, ['', '30']],
     ]),
   );
+
   child.kill();
+
   await ended;
+
   assert.deepEqual(await processArguments([child.pid!]), new Map());
+
   assert.deepEqual(await processArguments([]), new Map());
 });
 
@@ -68,20 +82,28 @@ test('boot identity comes from the native boot session', async () => {
             'kern.bootsessionuuid',
           ])
         ).stdout;
+
   assert.equal(await bootSession(), expected.trim());
 });
 
 test('process identities preserve native start strings across a batch', async (t) => {
   const live = spawn('/bin/sleep', ['30']);
   const ended = once(live, 'close');
+
   t.onTestFinished(async () => {
     live.kill();
+
     await ended;
   });
+
   await once(live, 'spawn');
+
   const exited = spawn(process.execPath, ['-e', '']);
+
   await once(exited, 'close');
+
   const expected = new Map<number, ProcessIdentity>();
+
   for (const pid of [live.pid!, process.pid]) {
     const { stdout } = await promisify(execFile)(
       '/bin/ps',
@@ -96,12 +118,16 @@ test('process identities preserve native start strings across a batch', async (t
         },
       },
     );
+
     expected.set(pid, { pid, started: stdout.trim() });
   }
+
   const batch = await countProbes(() =>
     identifyProcesses([live.pid!, exited.pid!, process.pid, live.pid!]),
   );
+
   assert.deepEqual(batch, { value: expected, ps: 1, perl: 0, git: 0, sh: 0 });
+
   // the batch included this process, so later reads answer it without a probe
   assert.deepEqual(await countProbes(() => identifyProcesses([process.pid])), {
     value: new Map([[process.pid, expected.get(process.pid)!]]),
@@ -110,12 +136,16 @@ test('process identities preserve native start strings across a batch', async (t
     git: 0,
     sh: 0,
   });
+
   assert.deepEqual(
     await countProbes(() => identifyProcesses([live.pid!, process.pid])),
     { value: expected, ps: 1, perl: 0, git: 0, sh: 0 },
   );
+
   assert.deepEqual(await identifyProcess(live.pid!), expected.get(live.pid!));
+
   assert.equal(await identifyProcess(exited.pid!), undefined);
+
   assert.deepEqual(await countProbes(() => identifyProcesses([exited.pid!])), {
     value: new Map(),
     ps: 1,
@@ -123,6 +153,7 @@ test('process identities preserve native start strings across a batch', async (t
     git: 0,
     sh: 0,
   });
+
   assert.deepEqual(await countProbes(() => identifyProcesses([])), {
     value: new Map(),
     ps: 0,
@@ -135,17 +166,23 @@ test('process identities preserve native start strings across a batch', async (t
 test('a left process that refuses to stop still lets the others stop, then fails', async () => {
   const start = async (script: string) => {
     const child = spawn(process.execPath, ['-e', script]);
+
     await once(child.stdout, 'data');
+
     return child;
   };
+
   const stubborn = await start(
     "process.on('SIGTERM', () => {}); console.log('ready'); setTimeout(() => {}, 60_000);",
   );
+
   const usage = await start(
     "console.log('ready'); setTimeout(() => {}, 60_000);",
   );
+
   try {
     const exited = once(usage, 'exit');
+
     await assert.rejects(
       stopLeftProcesses({
         process: await identifyProcess(stubborn.pid!),
@@ -153,9 +190,11 @@ test('a left process that refuses to stop still lets the others stop, then fails
       }),
       /has not stopped/,
     );
+
     await within(exited, 1000, 'the usage process stopping');
   } finally {
     stubborn.kill('SIGKILL');
+
     usage.kill('SIGKILL');
   }
 });

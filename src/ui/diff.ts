@@ -21,11 +21,14 @@ const preview = 10;
 export function canExpandDiff(files: readonly FileDiff[]): boolean {
   return files.some((file) => {
     if (file.kind === 'update') return false;
+
     let lines = 0;
+
     for (const hunk of file.hunks)
       for (const line of hunk.lines)
         if (['+', '-', ' '].includes(line[0] ?? '') && ++lines > preview)
           return true;
+
     return false;
   });
 }
@@ -64,16 +67,20 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 function tokens(text: string): string[] {
   const found: string[] = [];
   let kind: string | undefined;
+
   for (const { segment } of graphemes.segment(text)) {
     const next = /^[\p{L}\p{N}_]/u.test(segment)
       ? 'word'
       : /^\s/.test(segment)
         ? 'space'
         : 'other';
+
     if (next !== 'other' && next === kind) found[found.length - 1] += segment;
     else found.push(segment);
+
     kind = next;
   }
+
   return found;
 }
 
@@ -86,53 +93,74 @@ function changedWords(before: string, after: string): [Range[], Range[]] {
   const oldTokens = tokens(before);
   const newTokens = tokens(after);
   let unmatched = oldTokens.length + newTokens.length;
+
   if (unmatched > maxEdits) {
     const counts = new Map<string, number>();
+
     for (const token of oldTokens)
       counts.set(token, (counts.get(token) ?? 0) + 1);
+
     for (const token of newTokens) {
       const count = counts.get(token) ?? 0;
+
       if (count) {
         counts.set(token, count - 1);
+
         unmatched -= 2;
       }
     }
+
     if (unmatched > maxEdits) return [[], []];
   }
+
   const parts = diffArrays(oldTokens, newTokens, { maxEditLength: maxEdits });
+
   if (!parts) return [[], []];
+
   const ranges: [Range[], Range[]] = [[], []];
   const at = [0, 0];
   let changed = 0;
+
   for (const part of parts) {
     const size = part.value.join('').length;
     const sides = part.removed ? [0] : part.added ? [1] : [0, 1];
+
     for (const side of sides) {
       if (sides.length === 1)
         ranges[side]!.push({ start: at[side]!, end: at[side]! + size });
+
       at[side]! += size;
     }
+
     if (sides.length === 1) changed += size;
   }
+
   return changed / (before.length + after.length) > 0.4 ? [[], []] : ranges;
 }
 
 /** each removed row with the added row at its place in the run that follows its own, as Claude Code pairs them, though a no-newline marker, which gets no row, doesn't end a run. */
 function pairs(rows: readonly Row[]): [Row, Row][] {
   const paired: [Row, Row][] = [];
+
   for (let at = 0; at < rows.length;) {
     let removed = at;
+
     while (rows[removed]?.marker === '-') removed++;
+
     let added = removed;
+
     while (rows[added]?.marker === '+') added++;
+
     for (
       let index = 0;
       index < Math.min(removed - at, added - removed);
       index++
     )
       paired.push([rows[at + index]!, rows[removed + index]!]);
+
     at = Math.max(added, at + 1);
   }
+
   return paired;
 }
 
@@ -144,24 +172,33 @@ function paint(
 ): string {
   let text = '';
   let at = 0;
+
   for (const span of spans) {
     const end = at + span.text.length;
+
     const cuts = words
       .flatMap((word) => [word.start, word.end])
       .filter((cut) => cut > at && cut < end);
+
     const starts = [at, ...cuts];
+
     for (const [index, start] of starts.entries()) {
       let piece = span.text.slice(start - at, (cuts[index] ?? end) - at);
+
       if (span.color) piece = colors.hex(span.color)(piece);
+
       if (
         background &&
         words.some((word) => word.start <= start && start < word.end)
       )
         piece = colors.bgHex(background)(piece);
+
       text += piece;
     }
+
     at = end;
   }
+
   return text;
 }
 
@@ -178,30 +215,41 @@ function prepareFile(
   let shown = 0;
   let hidden = 0;
   const top = file.hunks[0];
+
   const language = languageOf(
     file.movePath ?? file.path,
     top?.newStart === 1
       ? top.lines.find((line) => line[0] === ' ' || line[0] === '+')?.slice(1)
       : undefined,
   );
+
   for (const [index, hunk] of file.hunks.entries()) {
     if (index) rows.push(undefined);
+
     const drawn: Row[] = [];
     let old = hunk.oldStart;
     let now = hunk.newStart;
+
     for (const line of hunk.lines) {
       const marker = line[0];
+
       if (marker === '+') added++;
       else if (marker === '-') removed++;
       // such as jsdiff's `\ No newline at end of file`
       else if (marker !== ' ') continue;
+
       const number = marker === '-' ? old : now;
+
       if (marker !== '+') old++;
+
       if (marker !== '-') now++;
+
       if (whole && !full && shown === preview) hidden++;
       else {
         shown++;
+
         const code = plain(line.slice(1)).replaceAll('\r', '');
+
         drawn.push({
           number,
           marker,
@@ -211,31 +259,40 @@ function prepareFile(
         });
       }
     }
+
     for (const [removed, added] of pairs(drawn))
       [removed.words, added.words] = changedWords(removed.code, added.code);
+
     for (const row of drawn) rows.push(row);
   }
+
   // removed rows stay plain, as Claude Code draws them
   const kept = rows.filter(
     (row): row is Row => row !== undefined && row.marker !== '-',
   );
+
   const spans = syntaxSpans(
     kept.map(({ code }) => code),
     language,
   );
+
   for (const [at, row] of kept.entries()) row.spans = spans[at]!;
+
   // a loop, since spreading every number into Math.max exceeds the argument limit
   let digits = 1;
+
   for (const row of rows)
     if (row) digits = Math.max(digits, String(row.number).length);
 
   const link = (path: string) =>
     hyperlink(oneLine(shortPath(path, cwd)), path, cwd);
+
   // a file whose lines were left out carries Git's counts, and a binary one has none
   const counts =
     file.unshown === 'binary'
       ? undefined
       : (file.unshown ?? { added, removed });
+
   const header = [
     colors.dim(file.movePath ? 'Move' : verbs[file.kind]),
     link(file.path),
@@ -247,11 +304,15 @@ function prepareFile(
       ? [colors.red(`-${counts.removed}`)]
       : []),
   ].join(' ');
+
   const gutter = ' '.repeat(digits + 2);
+
   const painted = rows.map((row) => {
     if (!row) return undefined;
+
     const change = changes[row.marker];
     const number = String(row.number).padStart(digits);
+
     return {
       code: paint(row.spans, row.words, change?.word),
       prefix: change
@@ -260,21 +321,28 @@ function prepareFile(
       background: change?.line,
     };
   });
+
   return (width) => {
     const lines = [wrapLines(header, width, true)];
+
     for (const row of painted) {
       if (!row) {
         lines.push(wrapLines(colors.dim('...'), width));
+
         continue;
       }
+
       // wrapping the code on its own expands its tabs from its first column
       const numbered = width >= digits + 4;
+
       const code = numbered
         ? wrapLines(row.code, width - digits - 2)
         : wrapLines(row.prefix + row.code, width);
+
       lines.push(
         code.map((part, index) => {
           const text = (numbered ? (index ? gutter : row.prefix) : '') + part;
+
           return row.background
             ? colors.bgHex(row.background)(
                 text + ' '.repeat(Math.max(0, width - stringWidth(text))),
@@ -283,7 +351,9 @@ function prepareFile(
         }),
       );
     }
+
     if (hidden) lines.push(wrapLines(colors.dim(`… +${hidden} lines`), width));
+
     if (file.unshown)
       lines.push(
         wrapLines(
@@ -291,6 +361,7 @@ function prepareFile(
           width,
         ),
       );
+
     return lines;
   };
 }
@@ -301,6 +372,7 @@ export function prepareDiff(
   full = false,
 ): (width: number) => string[][] {
   const prepared = files.map((file) => prepareFile(file, cwd, full));
+
   return (width) =>
     prepared.flatMap((render, index) => [
       ...(index ? [['']] : []),

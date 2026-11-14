@@ -12,6 +12,7 @@ import { hyperlink, oneLine, plain } from './links.js';
 
 function referenceTarget(reference: string): string | undefined {
   const issue = githubReference(reference);
+
   return issue
     ? `https://github.com/${issue.repository}/issues/${issue.number}`
     : undefined;
@@ -22,7 +23,9 @@ export function peerTitle(peer: CoordinationSnapshot['peers'][number]): string {
     peer.claim?.summary ??
       `${peer.presence.title}${peer.selection ? '' : ' (unclaimed)'}`,
   );
+
   const target = peer.claim?.references.map(referenceTarget).find(Boolean);
+
   return target ? hyperlink(title, target, peer.presence.cwd) : title;
 }
 
@@ -30,6 +33,7 @@ export function peerStatus(
   peer: CoordinationSnapshot['peers'][number],
 ): string {
   if (peer.selection) return selectionStatus(peer.selection);
+
   return peer.claim?.suggestion ? 'suggested' : presenceStatus(peer.presence);
 }
 
@@ -43,6 +47,7 @@ function claimText(claim: TaskClaim): string {
     plain(claim.summary),
     ...claim.references.map((reference) => {
       const target = referenceTarget(reference);
+
       return target
         ? hyperlink(reference.slice('github:'.length), target, '/')
         : oneLine(reference.replace(`task:${claim.owner.project}:`, 'task:'));
@@ -57,9 +62,11 @@ export function coordinationText(
   mode: 'peers' | 'task',
 ): string {
   if (!snapshot) return 'Session coordination is unavailable.';
+
   const sections = snapshot.error
     ? [`Coordination unavailable: ${plain(snapshot.error)}`]
     : [];
+
   if (mode === 'task') {
     sections.push(
       snapshot.ownSelection
@@ -68,10 +75,13 @@ export function coordinationText(
           ? claimText(snapshot.ownClaim)
           : 'No task claimed.',
     );
+
     return sections.join('\n\n');
   }
+
   for (const peer of snapshot.peers) {
     const { presence, claim, selection } = peer;
+
     sections.push(
       [
         claim
@@ -82,8 +92,10 @@ export function coordinationText(
       ].join('\n'),
     );
   }
+
   for (const { claim, status } of snapshot.reservations)
     sections.push(`${claimText(claim)}\n${status.replaceAll('-', ' ')}`);
+
   for (const presence of snapshot.unregistered)
     sections.push(
       [
@@ -93,5 +105,6 @@ export function coordinationText(
         'Restart or close this Witch before claiming new work.',
       ].join('\n'),
     );
+
   return sections.join('\n\n') || 'No other sessions in this repository.';
 }

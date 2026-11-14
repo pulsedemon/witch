@@ -9,14 +9,17 @@ export class PentacleActivity {
 
   set(source: symbol, active: boolean): void {
     const previous = this.active;
+
     if (active) this.sources.add(source);
     else this.sources.delete(source);
+
     if (this.active !== previous)
       for (const listener of this.listeners) listener();
   }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
+
     return () => {
       this.listeners.delete(listener);
     };

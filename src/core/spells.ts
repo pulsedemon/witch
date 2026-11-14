@@ -7,6 +7,7 @@ export function castRow(
   familiar?: string,
 ): DisplayUpdate {
   const name = `\`${cast.name}\``;
+
   return {
     id: `spell/${cast.id}`,
     kind: 'notice',

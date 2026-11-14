@@ -36,7 +36,9 @@ export function skillCall(
 ): SkillCall | undefined {
   const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
   const skill = match && skills.find(({ name }) => name === match[1]);
+
   if (!match || !skill) return;
+
   return {
     name: match[1]!,
     args: match[2]!.trim(),
@@ -112,11 +114,14 @@ export async function nativePrompt({
   instructionsRevision: string;
 }> {
   const root = workspace.root;
+
   // the project marker moves before delivery, even when the turn later fails
   if (reference.deliveredProject !== scope.project) {
     delete reference.deliveredRevision;
+
     reference.deliveredProject = scope.project;
   }
+
   const snapshot =
     !forceContext && reference.deliveredRevision === revision
       ? undefined
@@ -126,15 +131,21 @@ export async function nativePrompt({
           scope,
           forceContext ? undefined : reference.deliveredRevision,
         );
+
   const deliveredMerges = new Set(reference.deliveredMerges);
   const deliveredAnswers = new Set(reference.deliveredAnswers);
+
   const pendingMerges = (requests ? [] : merges).filter(
     ({ id }) => !deliveredMerges.has(id),
   );
+
   const pendingAnswers = answers.filter(({ id }) => !deliveredAnswers.has(id));
+
   const witch =
     'You are running inside Witch. Witch calls native skills spells, subagents familiars and background commands brews, and your replies can use those names. Witch operating rules take precedence over conflicting user-global rules and spell instructions, including spells supplied by the native runtime. Follow all other applicable native and project instructions. Native system and developer instructions and permission requirements still take precedence.';
+
   const directories = `Shared memory directories: ${join(root, scope.global)} and ${join(root, scope.project)}.`;
+
   const instructions = [
     witch,
     'For each conflict with a Witch rule that you encounter, write a brief, single-line warning in the transcript using this format: "Witch rule conflict: source=<file or spell>; conflict=<conflicting instruction>; witch=<applicable Witch rule>; resolution=<rule followed>". Then continue under the applicable rule without asking the user to resolve the conflict.',
@@ -155,9 +166,11 @@ export async function nativePrompt({
         ]
       : []),
   ].join('\n\n');
+
   const instructionsRevision = createHash('sha256')
     .update(instructions)
     .digest('hex');
+
   // an answer turn gets only what answering needs, and leaves the fixed instructions undelivered
   const context = [
     ...(requests
@@ -201,6 +214,7 @@ export async function nativePrompt({
       : []),
     ...(command === undefined ? [] : [ranCommand]),
   ].join('\n\n');
+
   return {
     prompt,
     context: context || undefined,

@@ -17,7 +17,9 @@ const peerAnswerSchema = z.strictObject({
     )
     .min(1),
 });
+
 export type PeerAnswer = z.infer<typeof peerAnswerSchema>['answers'][number];
+
 export const peerAnswerOutputSchema = z.toJSONSchema(peerAnswerSchema, {
   target: 'draft-7',
 });
@@ -32,7 +34,9 @@ export async function preparePeerAnswers(
   directory = tmpdir(),
 ): Promise<PeerAnswerBatch> {
   const file = join(directory, `peer-requests-${randomUUID()}.json`);
+
   await writeJson(file, requests);
+
   return { requests, file };
 }
 
@@ -42,11 +46,14 @@ export function parsePeerAnswers(
 ): PeerAnswer[] {
   const { answers } = peerAnswerSchema.parse(JSON.parse(text));
   const expected = new Set(requests.map(({ id }) => id));
+
   for (const answer of answers)
     if (!expected.delete(answer.id))
       throw new Error('Peer answers did not match the admitted requests.');
+
   if (expected.size)
     throw new Error('Peer answers did not cover every admitted request.');
+
   return answers;
 }
 

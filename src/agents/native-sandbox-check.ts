@@ -15,6 +15,7 @@ export async function checkCodexAnswerSandbox(
   signal: AbortSignal,
 ): Promise<void> {
   await checkProfile(executable, join(directory, 'builtin'), signal, false);
+
   await checkProfile(executable, join(directory, 'checkout'), signal, true);
 }
 
@@ -27,48 +28,65 @@ async function checkProfile(
   const config = join(directory, 'config');
   const cwd = join(directory, 'project');
   const temporary = join(directory, 'tmp');
+
   await Promise.all(
     [config, cwd, temporary].map((path) =>
       mkdir(path, { recursive: true, mode: 0o700 }),
     ),
   );
+
   const requestFile = join(directory, 'request.json');
+
   await writeFile(requestFile, '{"marker":"REQUEST_TOKEN"}');
+
   const sibling = join(directory, 'private-sibling');
   const denied = join(cwd, 'denied');
+
   await writeFile(sibling, 'PRIVATE_TOKEN');
+
   await writeFile(denied, 'DENIED_TOKEN');
+
   let phase: 'ordinary' | 'answer' | 'after' = 'ordinary';
   let failure: unknown;
   let session: AgentSession | undefined;
   const outputs: Record<string, string> = {};
   const calls = new Set<string>();
+
   const server = createServer((request, response) => {
     void (async () => {
       const chunks: Buffer[] = [];
+
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
+
       const body = JSON.parse(Buffer.concat(chunks).toString()) as {
         tools: { name?: string; type: string }[];
         input: { type?: string; call_id?: string; output?: string }[];
       };
+
       const callId = `native-update-${phase}`;
+
       const output = body.input.findLast(
         (item) =>
           item.type === 'function_call_output' && item.call_id === callId,
       );
+
       let item: Record<string, unknown>;
+
       if (!output) {
         assert.ok(
           !calls.has(phase),
           `Native tool never returned its ${phase} result`,
         );
+
         assert.ok(
           body.tools.some(
             (tool) => tool.type === 'function' && tool.name === 'exec_command',
           ),
           'Native exec_command was not advertised',
         );
+
         calls.add(phase);
+
         const script =
           phase === 'answer'
             ? [
@@ -85,6 +103,7 @@ async function checkProfile(
                   : []),
               ].join('\n')
             : `printf %s ${quote(phase)} > ${quote(join(cwd, phase))}`;
+
         item = {
           type: 'function_call',
           id: `call-${phase}`,
@@ -96,31 +115,40 @@ async function checkProfile(
         };
       } else {
         assert.equal(typeof output.output, 'string');
+
         outputs[phase] = output.output!;
+
         if (phase === 'answer') {
           assert.match(output.output!, /WRITE:DENIED/);
+
           assert.match(
             output.output!,
             /operation not permitted|permission denied|read-only file system/i,
           );
+
           if (named) {
             assert.match(output.output!, /REQUEST:.*REQUEST_TOKEN/);
+
             assert.match(
               output.output!,
               /SIBLING:DENIED:.*(?:operation not permitted|permission denied)/i,
             );
+
             assert.match(
               output.output!,
               /DENIED:DENIED:.*(?:operation not permitted|permission denied)/i,
             );
+
             assert.doesNotMatch(output.output!, /PRIVATE_TOKEN|DENIED_TOKEN/);
           }
+
           assert.equal(
             await unlessGone(readFile(join(cwd, phase))),
             undefined,
             'Restricted native tool wrote its target',
           );
         } else assert.equal(await readFile(join(cwd, phase), 'utf8'), phase);
+
         item = {
           type: 'message',
           role: 'assistant',
@@ -134,7 +162,9 @@ async function checkProfile(
           ],
         };
       }
+
       const id = `response-${phase}-${output ? 'done' : 'tool'}`;
+
       const messages = [
         { type: 'response.created', response: { id } },
         { type: 'response.output_item.done', output_index: 0, item },
@@ -153,10 +183,12 @@ async function checkProfile(
           },
         },
       ];
+
       response.writeHead(200, {
         'Content-Type': 'text/event-stream',
         Connection: 'close',
       });
+
       response.end(
         messages
           .map(
@@ -167,17 +199,24 @@ async function checkProfile(
       );
     })().catch((error) => {
       failure ??= error;
+
       response.writeHead(500);
+
       response.end('Native verification failed');
     });
   });
+
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
+
       server.listen(0, '127.0.0.1', resolve);
     });
+
     const address = server.address();
+
     assert.ok(address && typeof address !== 'string');
+
     await writeFile(
       join(config, 'config.toml'),
       `model="gpt-5.4"
@@ -208,6 +247,7 @@ supports_websockets=false
 request_max_retries=0
 `,
     );
+
     const adapter = new CodexAdapter((command, directory, childSignal) =>
       spawn(command, ['app-server', '--stdio'], {
         cwd: directory,
@@ -224,6 +264,7 @@ request_max_retries=0
         },
       }),
     );
+
     session = await adapter.connect({
       executable,
       cwd,
@@ -234,18 +275,22 @@ request_max_retries=0
       onEvent: (event) => {
         if (event.type === 'request') {
           failure = new Error('Native sandbox verification asked for approval');
+
           session!.respond(event.request.id, { decision: 'decline' });
         }
       },
     });
+
     if (named)
       assert.equal(
         session.info.permissionProfile,
         'owner',
         'Native checkout profile was not selected',
       );
+
     for (const next of ['ordinary', 'answer', 'after'] as const) {
       phase = next;
+
       const result = await session.send(
         `Synthetic native boundary check ${phase}.`,
         {
@@ -266,8 +311,11 @@ request_max_retries=0
               : undefined,
         },
       );
+
       if (failure) throw failure;
+
       assert.equal(result.status, 'completed', result.error);
+
       assert.ok(phase in outputs, `No native ${phase} tool result`);
     }
   } catch (error) {
@@ -278,12 +326,16 @@ request_max_retries=0
     } catch (error) {
       failure ??= error;
     }
+
     server.closeAllConnections();
+
     await new Promise<void>((resolve) => server.close(() => resolve()));
+
     await writeJson(join(directory, 'sandbox-evidence.json'), {
       outputs,
       error: failure instanceof Error ? failure.message : undefined,
     });
   }
+
   if (failure) throw failure;
 }

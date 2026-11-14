@@ -46,16 +46,14 @@ const remote =
 
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
-
 const branches = 'conversations/';
 /** the branch a conversation's memory worktree is on. */
 export const branchOf = (id: string) => `${branches}${id}`;
-
 /** the note that indexes the rest of its scope. */
 export const indexNote = 'MEMORY.md';
 export const indexByteLimit = 6_000;
-
 const changeListByteLimit = 2_000;
+
 const staleReferences =
   'Treat all previously read reference notes as stale. Rediscover relevant notes in the current shared-memory directories before relying on them; missing notes no longer apply.';
 
@@ -76,44 +74,56 @@ const overrides = [
 export const runGit: GitRunner = (args, { cwd, env, input, signal }) =>
   new Promise((resolve, reject) => {
     signal?.throwIfAborted();
+
     const child = spawn('git', args, {
       cwd,
       env: env ? { ...process.env, ...env } : process.env,
       signal,
       killSignal: 'SIGKILL',
     });
+
     const stdout: Buffer[] = [];
     let stderr = '';
     let failure: Error | undefined;
+
     child.stdout.on('data', (chunk: Buffer) => {
       stdout.push(chunk);
     });
+
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       stderr += chunk;
     });
+
     child.stdin.on('error', () => {});
+
     child.on('error', (error) => {
       failure = error;
     });
+
     child.on('close', (code) => {
       if (failure) reject(failure);
       else resolve({ stdout: Buffer.concat(stdout), stderr, code: code ?? 1 });
     });
+
     child.stdin.end(input);
   });
 
 /** preserves APFS keys while fitting Linux's byte limit, without splitting a code point. */
 export function projectKey(identity: string): string {
   let name = '';
+
   for (const char of basename(identity)) {
     const next = name + char;
+
     if (
       (process.platform === 'linux' ? Buffer.byteLength(next) : next.length) >
       238
     )
       break;
+
     name = next;
   }
+
   return `projects/${name}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
 }
 
@@ -131,8 +141,11 @@ async function physical(path: string): Promise<string> {
   const real = await realpath(path).catch((error: unknown) => {
     if (!gone(error)) throw error;
   });
+
   if (real) return real;
+
   const parent = dirname(path);
+
   return parent === path ? path : join(await physical(parent), basename(path));
 }
 
@@ -140,8 +153,10 @@ async function physical(path: string): Promise<string> {
 export function notePath(path: string): string {
   const file = posix.normalize(path);
   const [top] = file.split('/');
+
   if (top === '..' || top === '.git')
     throw new Error('Memory path is outside the note directories');
+
   return file;
 }
 
@@ -167,6 +182,7 @@ function noteEntry(
 ): string {
   if (!/^100(644|755) blob /.test(entry))
     throw new Error(`Memory notes must be regular files: ${name}`);
+
   return entry.slice(entry.indexOf('\t') + 1);
 }
 
@@ -192,10 +208,12 @@ export class Memory {
       input: options.input,
       signal: options.signal,
     });
+
     if (!(options.codes ?? [0]).includes(result.code))
       throw new Error(
         result.stderr.trim() || `git ${args[0]} exited with ${result.code}`,
       );
+
     return result;
   }
 
@@ -210,9 +228,13 @@ export class Memory {
   /** builds the seeded bare repository beside its final path, so a second instance never sees it half made. */
   async initialize(): Promise<void> {
     if (await present(this.root)) return;
+
     const parent = dirname(this.root);
+
     await mkdir(parent, { recursive: true, mode: 0o700 });
+
     const building = `${this.root}.${randomUUID()}`;
+
     await this.git(parent, [
       'init',
       '--bare',
@@ -221,34 +243,44 @@ export class Memory {
       'main',
       building,
     ]);
+
     // git init copies info/ from its template, which may not have one
     await mkdir(join(building, 'info'), { recursive: true });
+
     // every agent indexes its notes in MEMORY.md, so overlapping index lines merge instead of conflicting
     await writeFile(
       join(building, 'info', 'attributes'),
       `${indexNote} merge=union\n`,
     );
+
     const blob = await this.git(building, ['hash-object', '-w', '--stdin'], {
       input: '# Global memory\n',
     });
+
     const global = await this.git(building, ['mktree'], {
       input: `100644 blob ${blob.trim()}\t${indexNote}\n`,
     });
+
     const tree = await this.git(building, ['mktree'], {
       input: `040000 tree ${global.trim()}\tglobal\n`,
     });
+
     const commit = await this.git(building, [
       'commit-tree',
       tree.trim(),
       '-m',
       'chore(memory): initialize shared memory',
     ]);
+
     await this.git(building, ['update-ref', main, commit.trim()]);
+
     try {
       await rename(building, this.root);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
+
       if (code !== 'ENOTEMPTY' && code !== 'EEXIST') throw error;
+
       await rm(building, { recursive: true, force: true });
     }
   }
@@ -263,13 +295,17 @@ export class Memory {
     signal?: AbortSignal,
   ): Promise<MemoryScope> {
     signal?.throwIfAborted();
+
     const { identity, top } = await this.reach(
       await realpath(directory),
       signal,
     );
+
     signal?.throwIfAborted();
+
     const project = projectKey(identity);
     const checkout = projectKey(top);
+
     return {
       global: 'global',
       project,
@@ -280,6 +316,7 @@ export class Memory {
   /** the path a directory's project key derives from, when that project is keyed by its own path rather than an origin. */
   async pathScope(directory: string): Promise<string | undefined> {
     const { identity, top } = await this.reach(await realpath(directory));
+
     return identity === top ? top : undefined;
   }
 
@@ -290,6 +327,7 @@ export class Memory {
       ['rev-parse', '--path-format=absolute', '--git-common-dir'],
       { codes: [0, 128] },
     );
+
     return result.code === 0
       ? join(result.stdout.toString('utf8').trim(), 'config')
       : undefined;
@@ -305,46 +343,61 @@ export class Memory {
     // exit 128 also covers fatal errors, so only untranslated missing-work-tree messages fall back.
     // a broken `.git` target remains an error.
     let outside = false;
+
     const read = async (
       args: string[],
       absent = /not a git repository \(|must be run in a work tree/,
     ) => {
       signal?.throwIfAborted();
+
       const result = await this.run(cwd, args, {
         codes: [0, 2, 128],
         env: { LC_ALL: 'C' },
         signal,
       });
+
       signal?.throwIfAborted();
+
       if (result.code === 128 && !absent.test(result.stderr))
         throw new Error(`${cwd}: ${result.stderr.trim()}`);
+
       outside =
         result.code === 128 && /not a git repository \(/.test(result.stderr);
+
       return result.code === 0
         ? result.stdout.toString('utf8').trim()
         : undefined;
     };
+
     // git reads a `file://` origin as the path after its host, decoding every percent escape except `%00`
     const origin = (await read(['remote', 'get-url', 'origin']))?.replace(
       /^file:\/\/[^/]*(.*)$/s,
       (_, path: string) => path.replace(/(?:%(?!00)[\da-f]{2})+/gi, decoded),
     );
+
     // outside any repository there is no top level either, so git needn't be asked
     if (outside) return { identity: cwd, top: cwd };
+
     const [, url, scp, path] = (origin && remote.exec(origin)) || [];
     const host = url ?? scp;
     const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
+
     if (host) return { identity: `${host.toLowerCase()}/${path}`, top };
+
     if (!origin) return { identity: top, top };
+
     seen.add(cwd).add(top);
+
     // git resolves a relative origin against the top level, and `<p>/.git` is `<p>`'s repository
     const given = await physical(
       origin.startsWith('/') ? origin : `${top}/${origin}`,
     );
+
     const local = basename(given) === '.git' ? dirname(given) : given;
     // git reaches the first of these that is a repository, so a directory inside another repository isn't that repository
     const dotted = await physical(`${local}.git`);
     let repository: string | undefined;
+
     for (const [form, directory] of [
       [join(local, '.git'), local],
       [local, local],
@@ -360,9 +413,12 @@ export class Memory {
         ))
       ) {
         repository = directory;
+
         break;
       }
+
     if (!repository || seen.has(repository)) return { identity: local, top };
+
     return {
       identity: (await this.reach(repository, signal, seen)).identity,
       top,
@@ -398,11 +454,15 @@ export class Memory {
     previous?: string,
   ): Promise<string> {
     const paths = [scope.global, scope.project];
+
     const changed = previous
       ? new Set(await this.touchedPaths(`${previous}..${revision}`, scope))
       : undefined;
+
     if (changed?.size === 0) return '';
+
     const files = new Set(await this.files(revision, scope));
+
     const essentials = await Promise.all(
       paths
         .map((path) => `${path}/${indexNote}`)
@@ -414,29 +474,38 @@ export class Memory {
                 `${revision}:${notePath(index)}`,
               ])
             : '(No saved essentials.)';
+
           const bytes = Buffer.byteLength(content, 'utf8');
+
           const body =
             bytes <= indexByteLimit
               ? content
               : `(${bytes} bytes)\nThis index exceeds the inline budget. Read the complete file at the path above before acting. It replaces the previous index for this scope; do not rely on an older copy. Preserve its details in linked notes before shortening it.`;
+
           return `${join(root, index)}\n${body}`;
         }),
     );
+
     let changes: string | undefined;
+
     if (previous && changed) {
       const before = new Set(await this.files(previous, scope));
+
       const list = [...changed]
         .sort()
         .map((path) => {
           const status = !files.has(path) ? 'D' : before.has(path) ? 'M' : 'A';
+
           return `${status}\t${JSON.stringify(join(root, path))}`;
         })
         .join('\n');
+
       changes =
         Buffer.byteLength(list, 'utf8') > changeListByteLimit
           ? staleReferences
           : `Changed or deleted notes since the previous snapshot:\n${list}`;
     }
+
     return [
       `Accepted shared memory, revision ${revision}.`,
       previous
@@ -457,6 +526,7 @@ export class Memory {
       scope.global,
       scope.project,
     ]);
+
     return result
       .split('\0')
       .filter(Boolean)
@@ -465,6 +535,7 @@ export class Memory {
 
   async readBytes(revision: string, path: string): Promise<Buffer> {
     const file = notePath(path);
+
     const entry = await this.git(this.root, [
       'ls-tree',
       '-z',
@@ -472,7 +543,9 @@ export class Memory {
       '--',
       file,
     ]);
+
     noteEntry(entry, file);
+
     return (await this.run(this.root, ['show', `${revision}:${file}`])).stdout;
   }
 
@@ -486,6 +559,7 @@ export class Memory {
   ): Promise<{ path: string; deleted: boolean }[]> {
     const present = new Set(await this.files(revision, scope));
     const history = await this.touchedPaths(revision, scope);
+
     return [...new Set([...present, ...history])]
       .sort()
       .map((path) => ({ path, deleted: !present.has(path) }));
@@ -506,6 +580,7 @@ export class Memory {
       scope.global,
       scope.project,
     ]);
+
     return history.split('\0').filter(Boolean);
   }
 
@@ -525,12 +600,14 @@ export class Memory {
       '--',
       notePath(path),
     ]);
+
     return log
       .trim()
       .split('\n')
       .filter(Boolean)
       .map((line) => {
         const tab = line.indexOf('\t');
+
         return { revision: line.slice(0, tab), subject: line.slice(tab + 1) };
       });
   }

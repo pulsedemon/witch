@@ -20,6 +20,7 @@ const proposal = (
     item: { id, type: 'fileChange', status: 'inProgress', changes },
   },
 });
+
 const approval = (
   id: number,
   threadId: string,
@@ -37,6 +38,7 @@ const approval = (
     grantRoot: '/work',
   },
 });
+
 const elicitation = (id: number): RpcMessage => ({
   id,
   method: 'mcpServer/elicitation/request',
@@ -57,34 +59,44 @@ const elicitation = (id: number): RpcMessage => ({
 
 async function approvalsFixture() {
   const events: AgentEvent[] = [];
+
   const context = await fixture((event) => events.push(event), {
     mode: 'file-approvals',
   });
+
   const emit = frameWriter(context.cwd, (text) =>
     events.some((event) => event.type === 'notice' && event.text === text),
   );
+
   const request = (id: number): UserRequest => {
     const event = events.find(
       (event) => event.type === 'request' && event.request.id === String(id),
     );
+
     assert.ok(event?.type === 'request');
+
     return event.request;
   };
+
   const receipt = async (id: number): Promise<unknown> => {
     const file = join(context.cwd, `response-${id}.json`);
+
     await until(`receipt ${id}`, () =>
       readFile(file).then(
         () => true,
         () => false,
       ),
     );
+
     return JSON.parse(await readFile(file, 'utf8')) as unknown;
   };
+
   return { ...context, events, emit, request, receipt };
 }
 
 test('file approvals use their exact thread, turn and item proposal', async () => {
   const f = await approvalsFixture();
+
   try {
     await f.emit(
       proposal('native-thread', 'first', 'shared', [
@@ -116,9 +128,11 @@ test('file approvals use their exact thread, turn and item proposal', async () =
         method: 'item/commandExecution/requestApproval',
       },
     );
+
     const child = f.request(901);
     const second = f.request(902);
     const first = f.request(903);
+
     assert.deepEqual(child.diff, [
       {
         path: '/work/deleted.txt',
@@ -126,6 +140,7 @@ test('file approvals use their exact thread, turn and item proposal', async () =
         hunks: [{ oldStart: 1, newStart: 0, lines: ['-deleted', '-tail'] }],
       },
     ]);
+
     assert.deepEqual(second.diff, [
       {
         path: '/work/created.txt',
@@ -133,6 +148,7 @@ test('file approvals use their exact thread, turn and item proposal', async () =
         hunks: [{ oldStart: 0, newStart: 1, lines: ['+created', '+last'] }],
       },
     ]);
+
     assert.deepEqual(first.diff, [
       {
         path: '/work/old.txt',
@@ -147,18 +163,23 @@ test('file approvals use their exact thread, turn and item proposal', async () =
         ],
       },
     ]);
+
     assert.ok(
       f.events.some(
         (event) => event.type === 'tool' && event.diff === first.diff,
       ),
     );
+
     assert.ok(
       f.events.some(
         (event) => event.type === 'tool' && event.diff === second.diff,
       ),
     );
+
     assert.equal(f.request(904).diff, undefined);
+
     assert.equal(child.title, 'reason 901');
+
     assert.deepEqual(JSON.parse(child.detail), {
       threadId: 'child-thread',
       turnId: 'first',
@@ -167,12 +188,14 @@ test('file approvals use their exact thread, turn and item proposal', async () =
       reason: 'reason 901',
       grantRoot: '/work',
     });
+
     for (const [id, decision] of [
       [901, 'decline'],
       [902, 'accept'],
       [903, 'accept'],
     ] as const) {
       f.session.respond(String(id), { decision });
+
       assert.deepEqual(await f.receipt(id), { id, result: { decision } });
     }
   } finally {
@@ -182,9 +205,11 @@ test('file approvals use their exact thread, turn and item proposal', async () =
 
 test('completed proposals cannot leak into a later approval', async () => {
   const f = await approvalsFixture();
+
   const changes = (name: string) => [
     { path: `/work/${name}.txt`, kind: { type: 'add' }, diff: `${name}\n` },
   ];
+
   try {
     await f.emit(
       proposal('native-thread', 'item-turn', 'item', changes('item-expired')),
@@ -203,8 +228,10 @@ test('completed proposals cannot leak into a later approval', async () => {
       ),
       approval(910, 'native-thread', 'item-turn', 'item'),
     );
+
     const retained = f.request(910).diff;
     const before = structuredClone(retained);
+
     await f.emit(
       {
         method: 'item/completed',
@@ -236,8 +263,11 @@ test('completed proposals cannot leak into a later approval', async () => {
         params: { itemId: 'pending' },
       },
     );
+
     assert.equal(f.request(911).diff, undefined);
+
     assert.equal(f.request(912).diff, undefined);
+
     assert.deepEqual(f.request(913).diff, [
       {
         path: '/work/same-thread-pending.txt',
@@ -245,6 +275,7 @@ test('completed proposals cannot leak into a later approval', async () => {
         hunks: [{ oldStart: 0, newStart: 1, lines: ['+same-thread-pending'] }],
       },
     ]);
+
     assert.deepEqual(f.request(914).diff, [
       {
         path: '/work/other-thread-pending.txt',
@@ -252,9 +283,13 @@ test('completed proposals cannot leak into a later approval', async () => {
         hunks: [{ oldStart: 0, newStart: 1, lines: ['+other-thread-pending'] }],
       },
     ]);
+
     assert.equal(f.request(915).diff, undefined);
+
     assert.equal(f.request(916).diff, undefined);
+
     assert.deepEqual(retained, before);
+
     assert.deepEqual(retained, [
       {
         path: '/work/item-expired.txt',
@@ -262,10 +297,13 @@ test('completed proposals cannot leak into a later approval', async () => {
         hunks: [{ oldStart: 0, newStart: 1, lines: ['+item-expired'] }],
       },
     ]);
+
     const completed = f.events.find(
       (event) => event.type === 'tool' && event.done && event.id === 'item',
     );
+
     assert.ok(completed?.type === 'tool');
+
     assert.equal(completed.diff?.[0]?.path, '/work/final-report.txt');
   } finally {
     await close(f.session, f.cwd);
@@ -275,6 +313,7 @@ test('completed proposals cannot leak into a later approval', async () => {
 for (const status of ['completed', 'interrupted', 'failed'])
   test(`a turn ending ${status} resolves only requests owned by that thread and turn`, async () => {
     const f = await approvalsFixture();
+
     try {
       await f.emit(
         approval(901, 'native-thread', 'turn-a', 'main'),
@@ -293,27 +332,35 @@ for (const status of ['completed', 'interrupted', 'failed'])
           },
         },
       );
+
       assert.deepEqual(
         f.events.flatMap((event) =>
           event.type === 'request-resolved' ? [event.id] : [],
         ),
         ['901'],
       );
+
       f.session.respond('901', { decision: 'accept' });
+
       f.session.respond('902', { decision: 'decline' });
+
       f.session.respond('903', { decision: 'accept' });
+
       f.session.respond('904', {
         decision: 'accept',
         content: { label: 'retained' },
       });
+
       assert.deepEqual(await f.receipt(902), {
         id: 902,
         result: { decision: 'decline' },
       });
+
       assert.deepEqual(await f.receipt(903), {
         id: 903,
         result: { decision: 'accept' },
       });
+
       assert.deepEqual(await f.receipt(904), {
         id: 904,
         result: {
@@ -322,6 +369,7 @@ for (const status of ['completed', 'interrupted', 'failed'])
           _meta: null,
         },
       });
+
       await assert.rejects(readFile(join(f.cwd, 'response-901.json')), {
         code: 'ENOENT',
       });
@@ -332,6 +380,7 @@ for (const status of ['completed', 'interrupted', 'failed'])
 
 test('native resolution retires a retained request after the main turn ends', async () => {
   const f = await approvalsFixture();
+
   try {
     await f.emit(
       approval(920, 'child-thread', 'turn-a', 'child'),
@@ -348,17 +397,21 @@ test('native resolution retires a retained request after the main turn ends', as
         params: { threadId: 'child-thread', requestId: 920 },
       },
     );
+
     assert.deepEqual(
       f.events.flatMap((event) =>
         event.type === 'request-resolved' ? [event.id] : [],
       ),
       ['920'],
     );
+
     f.session.respond('920', { decision: 'accept' });
+
     f.session.respond('921', {
       decision: 'accept',
       content: { label: 'still pending' },
     });
+
     assert.deepEqual(await f.receipt(921), {
       id: 921,
       result: {
@@ -367,6 +420,7 @@ test('native resolution retires a retained request after the main turn ends', as
         _meta: null,
       },
     });
+
     await assert.rejects(readFile(join(f.cwd, 'response-920.json')), {
       code: 'ENOENT',
     });
@@ -378,6 +432,7 @@ test('native resolution retires a retained request after the main turn ends', as
 for (const loss of [false, true])
   test(`${loss ? 'process exit' : 'close'} retires requests retained after the main turn`, async () => {
     const f = await approvalsFixture();
+
     try {
       await f.emit(
         approval(930, 'child-thread', 'turn-a', 'child'),
@@ -390,23 +445,29 @@ for (const loss of [false, true])
           },
         },
       );
+
       assert.equal(
         f.events.some((event) => event.type === 'request-resolved'),
         false,
       );
+
       if (loss) await writeFile(join(f.cwd, 'exit'), '');
       else await f.session.close();
+
       await until('the closed session', () => f.session.closed);
+
       assert.deepEqual(
         f.events.flatMap((event) =>
           event.type === 'request-resolved' ? [event.id] : [],
         ),
         ['930', '931'],
       );
+
       for (const id of [930, 931]) {
         assert.doesNotThrow(() =>
           f.session.respond(String(id), { decision: 'accept' }),
         );
+
         await assert.rejects(readFile(join(f.cwd, `response-${id}.json`)), {
           code: 'ENOENT',
         });

@@ -42,25 +42,34 @@ function rowStops(
   const line = visible(value.slice(start, end), secret);
   const at = visible(value.slice(start, cursor), secret).length;
   const rows: { from: number; to: number; text: string }[] = [];
+
   for (const row of wrap(line, width, end === value.length)) {
     const text = stripAnsi(row);
     const from = rows.at(-1)?.to ?? 0;
+
     rows.push({ from, to: from + text.length, text });
   }
+
   const stops = boundaries(value, start, end);
+
   // the last boundary drawn at or before `length`; a row that starts inside an expanded tab takes the whole tab
   const offset = (length: number) => {
     let low = 0;
     let high = stops.length - 1;
+
     while (low < high) {
       const middle = (low + high + 1) >> 1;
+
       if (visible(value.slice(start, stops[middle]), secret).length <= length)
         low = middle;
       else high = middle - 1;
     }
+
     return stops[low]!;
   };
+
   const drawn = rows.find((row) => at < row.to) ?? rows.at(-1)!;
+
   return {
     // restored U+009B sequences can make visible prefixes shrink, so `offset` can pass the cursor
     home: Math.min(cursor, offset(drawn.from)),
@@ -93,9 +102,12 @@ interface Props {
   initialValue?: string;
   /** fires on every edit and once on mount. */
   onChange?(value: string, cursor: number): void;
+
   onSubmit(value: string): boolean;
+
   /** runs before ↑/↓ move the cursor; `true` keeps the cursor where it is. */
   onArrow?(direction: 'up' | 'down', buffer: InputBuffer): boolean;
+
   /** replaces a paste, given the text before the cursor; never called in shell mode, where a path stays a path. */
   onPaste?(text: string, before: string): string | undefined;
 }
@@ -118,23 +130,29 @@ export function Input({
   const [state, current, setState] = useLiveState(() =>
     initialInput(initialValue),
   );
+
   const reference = useRef<DOMElement>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number }>();
   const { setCursorPosition } = useCursor();
+
   const { drawn, row, column, offset, lines } = useMemo(() => {
     const drawn = split(state, width, shell);
     const display = visible(drawn.text.value, secret);
+
     const cursor = visible(
       drawn.text.value.slice(0, drawn.text.cursor),
       secret,
     ).length;
+
     const wrapped = wrap(display, drawn.width);
     let consumed = 0;
     let row = 0;
     let column = 0;
+
     for (const [index, line] of wrapped.entries()) {
       const plain = stripAnsi(line);
       const end = consumed + plain.length;
+
       if (
         cursor < end ||
         (cursor === end && display[end] === '\n') ||
@@ -142,22 +160,29 @@ export function Input({
       ) {
         row = index;
         column = stringWidth(plain.slice(0, cursor - consumed));
+
         break;
       }
+
       consumed = end + (display[end] === '\n' ? 1 : 0);
     }
+
     const offset = Math.max(0, row - height + 1);
     const lines = wrapped.slice(offset, offset + height);
+
     return { drawn, row, column, offset, lines };
   }, [state, width, shell, secret, height]);
 
   useEffect(() => {
     if (!reference.current) return;
+
     const { x, y } = measureElement(reference.current);
+
     setOrigin((previous) =>
       previous?.x === x && previous.y === y ? previous : { x, y },
     );
   });
+
   setCursorPosition(
     active && origin
       ? { x: origin.x + column, y: origin.y + row - offset }
@@ -166,21 +191,30 @@ export function Input({
 
   const replace = (next: InputBuffer) => {
     setState(next);
+
     onChange?.(next.value, next.cursor);
   };
+
   const edit = (action: Edit) => {
     const { mark, text } = split(current.current, width, shell);
+
     // backspace at the text's start leaves shell mode.
     if (mark && !text.cursor && backward.has(action.type)) return replace(text);
+
     const next = editInput(text, action);
+
     replace({ value: mark + next.value, cursor: mark.length + next.cursor });
   };
+
   /** stored terminal sequences can hide the printable text after them when rendered. */
   const insert = (text: string) => {
     const filtered = text.replace(/(?![\t\n\r])\p{Cc}/gu, '');
+
     if (filtered) edit({ type: 'insert', text: filtered });
   };
+
   useImperativeHandle(ref, () => ({ set: replace }));
+
   useEffect(() => {
     onChange?.(current.current.value, current.current.cursor);
   }, []);
@@ -189,10 +223,12 @@ export function Input({
     (text) => {
       const { mark, text: buffer } = split(current.current, width, shell);
       const before = buffer.value.slice(0, buffer.cursor);
+
       insert((!mark && onPaste?.(text, before)) || text);
     },
     { isActive: active },
   );
+
   useInput(
     (input, key) => {
       if (
@@ -203,6 +239,7 @@ export function Input({
         key.pageDown
       )
         return;
+
       // Ghostty sends Cmd+←, Cmd+→ and Cmd+Delete as Ctrl+A, Ctrl+E and Ctrl+U
       if (key.ctrl) {
         if (input === 'a' || input === 'e' || input === 'u') {
@@ -211,7 +248,9 @@ export function Input({
             width: rowWidth,
             text,
           } = split(current.current, width, shell);
+
           const stops = rowStops(text.value, text.cursor, rowWidth, secret);
+
           if (input === 'u') edit({ type: 'backspaceRow', start: stops.back });
           else
             replace({
@@ -219,8 +258,10 @@ export function Input({
               cursor: mark.length + (input === 'a' ? stops.home : stops.end),
             });
         }
+
         return;
       }
+
       // a secret takes no Option keys: word stops in masked text would show where its words break
       if (key.meta && !secret) {
         const type = key.backspace
@@ -228,9 +269,12 @@ export function Input({
           : key.delete
             ? 'deleteWord'
             : optionSteps[input];
+
         if (type) edit({ type });
       }
+
       if (key.meta || key.super) return;
+
       if (key.return) {
         if (key.shift && multiline) insert('\n');
         else if (onSubmit(current.current.value))
@@ -239,6 +283,7 @@ export function Input({
       else if (key.rightArrow) edit({ type: 'right' });
       else if (key.upArrow || key.downArrow) {
         const direction = key.upArrow ? 'up' : 'down';
+
         if (!onArrow?.(direction, current.current) && multiline)
           edit({ type: direction });
       } else if (key.home) edit({ type: 'home' });

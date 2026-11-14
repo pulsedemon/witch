@@ -11,6 +11,7 @@ export class DelegationStore {
 
   static async open(directory: string): Promise<DelegationStore> {
     await mkdir(directory, { recursive: true, mode: 0o700 });
+
     return new DelegationStore(join(directory, 'policy.json'));
   }
 

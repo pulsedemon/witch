@@ -18,6 +18,7 @@ const familiarProgressSchema = z.object({
   notices: z.array(z.string()).optional(),
   spells: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 });
+
 export type FamiliarProgress = z.infer<typeof familiarProgressSchema>;
 
 /** a familiar's spells with the new casts added; undefined when none is new. */
@@ -27,6 +28,7 @@ export function mergeCasts(
 ): Cast[] | undefined {
   const known = new Set(spells?.map(({ id }) => id));
   const added = casts.filter(({ id }) => !known.has(id));
+
   return added.length ? [...(spells ?? []), ...added] : undefined;
 }
 
@@ -60,6 +62,7 @@ export const familiarActionSchema = z.discriminatedUnion('kind', [
     id: z.string(),
   }),
 ]);
+
 export type FamiliarAction = z.infer<typeof familiarActionSchema>;
 
 export const familiarOutcomeSchema = z.discriminatedUnion('kind', [
@@ -76,6 +79,7 @@ export const familiarOutcomeSchema = z.discriminatedUnion('kind', [
     response: userResponseSchema,
   }),
 ]);
+
 export type FamiliarOutcome = z.infer<typeof familiarOutcomeSchema>;
 
 export function isFamiliarAction(action: {
@@ -90,7 +94,9 @@ const familiarMarkerSchema = z.object({
   activation: z.string().uuid(),
   run: z.string().uuid(),
 });
+
 type FamiliarMarker = z.infer<typeof familiarMarkerSchema>;
+
 const familiarMarkerPrefix = 'WITCH_FAMILIAR ';
 
 export function familiarMarker(marker: FamiliarMarker): string {
@@ -99,6 +105,7 @@ export function familiarMarker(marker: FamiliarMarker): string {
 
 function readFamiliarMarker(line: string): FamiliarMarker | undefined {
   if (!line.startsWith(familiarMarkerPrefix)) return;
+
   try {
     return familiarMarkerSchema.safeParse(
       JSON.parse(line.slice(familiarMarkerPrefix.length)),
@@ -114,6 +121,7 @@ export function boundMarker(
   binding: Pick<ControlBinding, 'conversation' | 'activation'>,
 ): FamiliarMarker | undefined {
   const marker = readFamiliarMarker(line);
+
   return marker?.conversation === binding.conversation &&
     marker.activation === binding.activation
     ? marker
@@ -148,12 +156,15 @@ export function findFamiliar<T extends { familiars: FamiliarSlot[] }>(
       .filter(({ run }) => run === action.run)
       .map((slot) => ({ entry, slot })),
   );
+
   if (matches.length > 1)
     throw new Error('This familiar run belongs to more than one command.');
+
   if (!matches[0] && action.kind !== 'familiar-register')
     throw new Error(
       'The familiar run is not registered in this native session.',
     );
+
   return matches[0];
 }
 
@@ -172,18 +183,27 @@ export function admitFamiliar(
 ): FamiliarOutcome {
   if (action.kind === 'familiar-register') {
     if (done) throw new Error('The familiar command has already ended.');
+
     if (slot.familiar) {
       if (slot.familiar.subagent.name !== action.name)
         throw new Error('The familiar name changed.');
+
       return { kind: 'familiar-registered' };
     }
+
     const created = create(action);
+
     if (!(created instanceof FamiliarRun)) return created;
+
     slot.familiar = created;
+
     registered(created);
+
     return { kind: 'familiar-registered' };
   }
+
   if (!slot.familiar) throw new Error('The familiar run has not registered.');
+
   return slot.familiar.report(action);
 }
 

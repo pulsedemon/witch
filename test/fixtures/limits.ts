@@ -7,6 +7,7 @@ export function untimed(
 ): Omit<Limit, 'observedAt'>[] | undefined {
   return limits?.map(({ observedAt, ...window }) => {
     assert.ok(Number.isFinite(observedAt), `${window.window} has no time`);
+
     return window;
   });
 }

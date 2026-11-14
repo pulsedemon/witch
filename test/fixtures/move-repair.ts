@@ -14,9 +14,13 @@ import { seededMemory } from './seeded-memory.js';
 export async function setup({ origin = true }: { origin?: boolean } = {}) {
   const root = await scratch('witch-move-');
   const at = (path: string) => join(root, path);
+
   await mkdir(at('w/main'), { recursive: true });
+
   await git(at('w/main'), 'init', '-q', '-b', 'main');
+
   await git(at('w/main'), 'commit', '-q', '--allow-empty', '-m', 'first');
+
   if (origin)
     await git(
       at('w/main'),
@@ -25,19 +29,26 @@ export async function setup({ origin = true }: { origin?: boolean } = {}) {
       'origin',
       'https://example.invalid/move.git',
     );
+
   await git(at('w/main'), 'worktree', 'add', '-q', '--detach', at('w/main-1'));
+
   const store = await StateStore.open(at('state'));
   const memory = await seededMemory(at('state/memory.git'));
   const runs: string[][] = [];
+
   const recording: Run = (command, args, options) => {
     runs.push([command, ...args]);
+
     return runCommand(command, args, options);
   };
+
   const repair = (
     cwd: string,
     options: Parameters<typeof repairMoves>[3] = {},
   ) => repairMoves(store, memory, at(cwd), { run: recording, ...options });
+
   let day = 1;
+
   const save = async (
     id: string,
     cwd: string,
@@ -45,6 +56,7 @@ export async function setup({ origin = true }: { origin?: boolean } = {}) {
     history = true,
   ) => {
     const files = await store.create({ ...record(id, at(cwd)), ...extra });
+
     if (history)
       await files.append({
         id: `${id}-line`,
@@ -52,21 +64,29 @@ export async function setup({ origin = true }: { origin?: boolean } = {}) {
         cwd: at(cwd),
         text: `in ${id}`,
       });
+
     await files.close();
+
     const directory = at(`state/conversations/${id}`);
+
     const raw = JSON.parse(
       await readFile(join(directory, 'state.json'), 'utf8'),
     );
+
     await writeFile(
       join(directory, 'state.json'),
       JSON.stringify({ ...raw, ...extra }, null, 2),
     );
+
     const date = new Date(`2020-01-${String(day++).padStart(2, '0')}`);
+
     for (const file of ['state.json', 'history.jsonl'])
       await utimes(join(directory, file), date, date).catch(() => {});
   };
+
   const saved = async (id: string) => {
     const directory = at(`state/conversations/${id}`);
+
     return {
       raw: JSON.parse(
         await readFile(join(directory, 'state.json'), 'utf8'),
@@ -82,6 +102,10 @@ export async function setup({ origin = true }: { origin?: boolean } = {}) {
       ),
     };
   };
+
   await repair('w/main');
+
   return { root, at, store, memory, repair, runs, save, saved };
 }
+
+export const darwin = process.platform === 'darwin';

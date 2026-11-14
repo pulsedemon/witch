@@ -14,7 +14,9 @@ export class EmptyMemory extends Memory {
 
   override async run(...args: Parameters<Memory['run']>) {
     const [cwd] = args;
+
     assert.ok(cwd !== this.root && !this.workspaces.has(cwd), integration);
+
     return super.run(...args);
   }
 
@@ -29,10 +31,13 @@ export class EmptyMemory extends Memory {
   override workspace(directory: string, id: string): Workspace {
     const root = join(directory, 'memory');
     let workspace = this.workspaces.get(root);
+
     if (!workspace) {
       workspace = new EmptyWorkspace(this, root, id);
+
       this.workspaces.set(root, workspace);
     }
+
     return workspace;
   }
 
@@ -58,6 +63,7 @@ class EmptyWorkspace extends Workspace {
 
   override async ensureWorktree(): Promise<void> {
     await mkdir(this.root, { recursive: true });
+
     this.created = true;
   }
 
@@ -74,21 +80,26 @@ class EmptyWorkspace extends Workspace {
       recursive: true,
       withFileTypes: true,
     });
+
     assert.ok(
       entries.every((entry) => entry.isDirectory()),
       integration,
     );
+
     return { dirty: false, head: revision, ahead: 0, behind: 0 };
   }
 
   override async begin(scope: MemoryScope) {
     await this.status();
+
     await this.prepare(scope);
+
     return { revision, repointed: 0 };
   }
 
   override async adoptCheckout() {
     await this.status();
+
     return { repointed: 0 };
   }
 
@@ -98,6 +109,7 @@ class EmptyWorkspace extends Workspace {
 
   override async publish() {
     await this.status();
+
     return 'published' as const;
   }
 }

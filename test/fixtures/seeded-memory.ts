@@ -12,7 +12,9 @@ export async function seededMemory(
   runner?: GitRunner,
 ): Promise<Memory> {
   template ??= build();
+
   await cp(await template, root, { recursive: true });
+
   return new Memory(root, runner);
 }
 
@@ -20,6 +22,8 @@ async function build(): Promise<string> {
   const memory = new Memory(
     join(await scratch('witch-memory-template-'), 'memory.git'),
   );
+
   await memory.initialize();
+
   return memory.root;
 }

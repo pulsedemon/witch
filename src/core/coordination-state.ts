@@ -159,19 +159,31 @@ export const coordinationSnapshotSchema = z.object({
 });
 
 export type ClaimInput = z.infer<typeof claimInputSchema>;
+
 export type ClaimOwner = z.infer<typeof claimOwnerSchema>;
+
 export type TaskClaim = z.infer<typeof taskClaimSchema>;
+
 export type Transfer = NonNullable<TaskClaim['transfer']>;
+
 export type TransferTarget =
   | { field: 'transfer'; reference: string }
   | { field: 'automaticTransfer'; claim: TaskClaim };
+
 export type TransferField = TransferTarget['field'];
+
 export type SelectionScope = z.infer<typeof selectionScopeSchema>;
+
 export type SelectionTicket = z.infer<typeof selectionTicketSchema>;
+
 export type SelectionState = z.infer<typeof selectionStateSchema>;
+
 export type CoordinationAction = z.infer<typeof coordinationActionSchema>;
+
 export type RouteAction = Extract<CoordinationAction, { kind: 'route' }>;
+
 export type SessionPresence = z.infer<typeof sessionPresenceSchema>;
+
 export type CoordinationSnapshot = z.infer<typeof coordinationSnapshotSchema>;
 
 export const emptySnapshot: CoordinationSnapshot = {
@@ -182,9 +194,12 @@ export const emptySnapshot: CoordinationSnapshot = {
 
 export function selectionStates(tickets: SelectionTicket[]): SelectionState[] {
   const positions = new Map<string, number>();
+
   return tickets.map((ticket) => {
     const position = (positions.get(ticket.owner.project) ?? 0) + 1;
+
     positions.set(ticket.owner.project, position);
+
     return { ticket, position };
   });
 }
@@ -193,9 +208,12 @@ export function taskActivity(
   snapshot?: Pick<Snapshot, 'subagents' | 'backgroundCommands'>,
 ): Pick<SessionPresence, 'familiars' | 'brews'> & { running: boolean } {
   let familiars = 0;
+
   for (const { status } of snapshot?.subagents ?? [])
     if (status === 'running') familiars++;
+
   const brews = snapshot?.backgroundCommands.length ?? 0;
+
   return { familiars, brews, running: familiars > 0 || brews > 0 };
 }
 
@@ -210,6 +228,7 @@ export function checkTaskRelease(
     throw new Error(
       'Wait for idle and resolve memory recovery before releasing the task.',
     );
+
   if (taskActivity(snapshot).running)
     throw new Error(
       'Stop the running familiars and brews before releasing the task.',
@@ -233,6 +252,7 @@ export function sessionList(presences: readonly SessionPresence[]): string {
 
 export function presenceStatus(presence: SessionPresence): string {
   if (presence.requests) return 'waiting';
+
   return idleStatus(presence.phase, !!(presence.familiars || presence.brews));
 }
 
@@ -249,6 +269,7 @@ export function sessionStatus(
   >,
 ): string {
   if (snapshot.phase === 'idle' && snapshot.nativeRunning) return 'running';
+
   return idleStatus(snapshot.phase, taskActivity(snapshot).running);
 }
 
@@ -288,16 +309,20 @@ function idleStatus(phase: Phase, background: boolean): string {
 /** named tasks belong to a project; GitHub issue and pr routes share one number. */
 export function taskReference(reference: string, project: string): string {
   const value = reference.trim();
+
   if (value.startsWith('task:')) {
     const name = value.slice(5).trim().replace(/\s+/g, ' ').toLowerCase();
+
     if (name) return `task:${project}:${name}`;
   } else {
     try {
       const url = new URL(value);
+
       const match =
         /^\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/([1-9]\d*)\/*$/.exec(
           decodeURIComponent(url.pathname),
         );
+
       if (
         url.protocol === 'https:' &&
         url.hostname === 'github.com' &&
@@ -312,6 +337,7 @@ export function taskReference(reference: string, project: string): string {
         throw error;
     }
   }
+
   throw new Error('Use a full GitHub issue or pr URL, or task:<name>.');
 }
 
@@ -320,5 +346,6 @@ export function githubReference(
   reference: string,
 ): { repository: string; number: string } | undefined {
   const match = /^github:([^#]+)#(\d+)$/.exec(reference);
+
   return match ? { repository: match[1]!, number: match[2]! } : undefined;
 }

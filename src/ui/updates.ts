@@ -37,13 +37,18 @@ export function updateChoice(
   agents: Agents,
 ): string {
   const name = label(agents, entry.runtime);
+
   if (entry.journal && pendingUpdate(entry.journal))
     return `${name} · recovery required`;
+
   if (entry.error) return `${name} · check failed`;
+
   if (qualifiable(entry, snapshot))
     return `${name} · ${entry.installation!.version} · not verified`;
+
   if (entry.check?.blocked)
     return `${name} · ${entry.installation?.version ?? 'unavailable'} · setup needed`;
+
   return `${name} · ${entry.installation?.version ?? 'not installed'}${entry.check?.available ? ` → ${entry.check.target}` : ' · current'}`;
 }
 
@@ -61,8 +66,10 @@ export function updatesText(
     'Updates and qualification run only when you confirm, and their checks spend native account usage. A failed update keeps or restores the previous version, or leaves recovery pending here. Qualifying the installed version installs nothing; its failure is only reported.',
     '',
   ];
+
   for (const entry of snapshot.entries) {
     lines.push(label(agents, entry.runtime));
+
     if (entry.journal && pendingUpdate(entry.journal)) {
       lines.push(
         `${snapshot.progress ? 'Update in progress' : 'Unfinished update'} to ${entry.journal.target}. Previous version: ${entry.journal.previous.version}.`,
@@ -79,11 +86,14 @@ export function updatesText(
     } else {
       if (entry.installation) {
         lines.push(`Installed: ${entry.installation.version}`);
+
         lines.push(`Installation: ${entry.installation.launcher}`);
+
         lines.push(
           `Native automatic updates: ${entry.installation.automatic ? 'enabled; may update independently of Witch' : 'disabled'}`,
         );
       }
+
       if (entry.check)
         lines.push(
           `Available on ${entry.check.installation.channel}: ${entry.check.target}`,
@@ -91,6 +101,7 @@ export function updatesText(
           `Checked: ${new Date(entry.check.checkedAt).toLocaleString()}`,
           entry.check.blocked ?? '',
         );
+
       if (qualifiedBy(entry.journal, entry.installation, snapshot.build))
         lines.push('Verified with this Witch build.');
       else if (entry.installation)
@@ -103,18 +114,23 @@ export function updatesText(
             ? [`Earlier version lookup failed: ${entry.earlierError}`]
             : []),
         );
+
       if (entry.journal?.phase === 'recovered')
         lines.push(
           'The last update was recovered to the previous version.',
           entry.journal.error ?? '',
         );
+
       if (entry.error) lines.push(`Check failed: ${entry.error}`);
     }
+
     lines.push('');
   }
+
   lines.push(
     '/updates check refreshes releases. /updates claude or /updates codex opens confirmation.',
   );
+
   return plain(lines.join('\n'));
 }
 
@@ -141,29 +157,40 @@ export async function showUpdates(
 ): Promise<boolean> {
   if (!updates) {
     notice('Native updates are unavailable in this session.');
+
     return false;
   }
+
   if (argument && !['check', 'claude', 'codex'].includes(argument)) {
     notice('Use /updates, /updates check, /updates claude or /updates codex.');
+
     return false;
   }
+
   await updates.check(argument === 'check');
+
   if (!active()) return false;
+
   const confirm = (entry: RuntimeUpdateEntry) => {
     const journal =
       entry.journal && pendingUpdate(entry.journal) ? entry.journal : undefined;
+
     const qualify = qualifiable(entry, updates.snapshot);
+
     if (
       !journal &&
       !qualify &&
       (!entry.check?.available || entry.check.blocked || entry.error)
     )
       return details();
+
     const target = journal?.previous.version ?? entry.check!.target;
     const installation = journal?.previous ?? entry.check!.installation;
+
     const launcher = installation.launcher.startsWith(`${homedir()}/`)
       ? `~/${installation.launcher.slice(homedir().length + 1)}`
       : installation.launcher;
+
     return picker(
       `${journal ? 'Recover' : qualify ? 'Qualify' : 'Update'} ${label(agents, entry.runtime)} ${entry.installation?.version ?? installation.version}?`,
       [
@@ -179,22 +206,29 @@ export async function showUpdates(
       ],
       async (id) => {
         details();
+
         if (id !== 'confirm') return false;
+
         if (journal) await updates.recover(journal);
         else await updates.apply(entry.check!, { accountUsage: true });
+
         return true;
       },
       false,
       launcher,
     );
   };
+
   if (argument === 'check') return details();
+
   if (argument) {
     const entry = updates.snapshot.entries.find(
       (entry) => entry.runtime === argument,
     );
+
     return entry ? confirm(entry) : details();
   }
+
   return picker(
     'Native runtime updates',
     [
@@ -208,6 +242,7 @@ export async function showUpdates(
       const entry = updates.snapshot.entries.find(
         (entry) => entry.runtime === id,
       );
+
       return entry ? confirm(entry) : details();
     },
   );

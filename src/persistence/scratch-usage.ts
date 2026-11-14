@@ -40,16 +40,22 @@ interface FileReference {
 
 function processes(lines: readonly string[]): Map<number, Process> {
   const rows = new Map<number, Process>();
+
   for (const line of lines) {
     const match =
       /^\s*(\d+)\s+(\d+)\s+(-?\d+)\s+(\S+)\s+(\w+ \w+ +\d+ [\d:]+ \d+)\s+(.+?)\s*$/.exec(
         line,
       );
+
     if (!match) throw new Error('Incomplete process observation.');
+
     const [, pid, ppid, uid, state, started, name] = match;
+
     if (state!.startsWith('Z')) continue;
+
     if (!Number.isFinite(Date.parse(`${started!} UTC`)))
       throw new Error('Unknown process start time.');
+
     rows.set(Number(pid), {
       pid: Number(pid),
       ppid: Number(ppid),
@@ -58,6 +64,7 @@ function processes(lines: readonly string[]): Map<number, Process> {
       name: name!,
     });
   }
+
   return rows;
 }
 
@@ -66,38 +73,58 @@ function files(output: string): {
   references: FileReference[];
 } {
   if (!output.endsWith('\0\n')) throw new Error('Incomplete file observation.');
+
   const pids = new Set<number>();
   const references: FileReference[] = [];
   let pid: number | undefined;
   let reference: FileReference | undefined;
+
   for (const field of output.split('\0')) {
     const value = field.replace(/^\n/, '');
+
     if (!value) continue;
+
     switch (value[0]) {
       case 'p':
         if (!/^p\d+$/.test(value)) throw new Error('Invalid process field.');
+
         pid = Number(value.slice(1));
+
         pids.add(pid);
+
         reference = undefined;
+
         break;
+
       case 'f':
         if (pid === undefined || value.length === 1)
           throw new Error('File observation has no owner.');
+
         reference = { pid, fd: value.slice(1), type: '', name: '' };
+
         references.push(reference);
+
         break;
+
       case 't':
         if (!reference) throw new Error('File observation has no descriptor.');
+
         reference.type = value.slice(1);
+
         break;
+
       case 'n':
         if (!reference) throw new Error('File observation has no descriptor.');
+
         reference.name = value.slice(1);
+
         break;
+
       default:
         throw new Error('Unexpected file observation field.');
     }
   }
+
   return { pids, references };
 }
 
@@ -109,6 +136,7 @@ export async function scratchRequiresBoot(): Promise<boolean> {
         timeout: scratchProbeTimeout,
       }),
     );
+
     return (
       !rows.has(process.pid) ||
       [...rows.values()].some(({ name }) => name === 'tmux')
@@ -127,17 +155,24 @@ export function classifyScratch(
   const results = new Map<string, ScratchUse>(
     candidates.map(({ directory }) => [directory, 'unknown']),
   );
+
   try {
     const before = processes(observation.before);
     const after = processes(observation.after);
+
     if (!before.has(process.pid) || !after.has(process.pid)) return results;
+
     const opened = files(observation.files);
     const commands = new Map<number, string>();
+
     for (const line of observation.commands) {
       const match = /^\s*(\d+)\s(.*)$/.exec(line);
+
       if (!match) return results;
+
       commands.set(Number(match[1]), match[2]!);
     }
+
     for (const {
       directory,
       owner,
@@ -150,25 +185,34 @@ export function classifyScratch(
           within(name, directory) &&
           !(pid === process.pid && fd === String(lockFd) && name === directory),
       );
+
       const named = [...commands.values()].some((command) => {
         let index = command.indexOf(directory);
+
         while (index >= 0) {
           const end = index + directory.length;
           const next = command[end];
+
           if (next === undefined || /[\s/'"\\]/.test(next)) return true;
+
           index = command.indexOf(directory, end);
         }
+
         return false;
       });
+
       if (
         referenced ||
         named ||
         (!previousBoot && owner && sameProcess(after.get(owner.pid), owner))
       ) {
         results.set(directory, 'used');
+
         continue;
       }
+
       if (!previousBoot && (!owner || requiresBoot)) continue;
+
       // a reader that neither holds a file here nor names the root where ps can read looks unrelated, and loses it.
       const relevant = [...after.values()].filter(
         (row) =>
@@ -176,12 +220,14 @@ export function classifyScratch(
           row.uid === process.getuid!() &&
           sameProcess(before.get(row.pid), row),
       );
+
       const uncertain = relevant.some(
         (row) =>
           before.get(row.pid)!.ppid !== row.ppid ||
           !opened.pids.has(row.pid) ||
           !commands.has(row.pid),
       );
+
       const incomplete = opened.references.some(
         ({ pid, fd, type, name }) =>
           relevant.some((row) => row.pid === pid) &&
@@ -192,11 +238,13 @@ export function classifyScratch(
               ['REG', 'DIR'].includes(type)) &&
               (!name.startsWith('/') || name.includes('\\')))),
       );
+
       if (!uncertain && !incomplete) results.set(directory, 'unused');
     }
   } catch {
     // an incomplete native observation supplies no deletion permission.
   }
+
   return results;
 }
 
@@ -204,9 +252,11 @@ export async function inspectScratch(
   candidates: readonly ScratchCandidate[],
 ): Promise<ReadonlyMap<string, ScratchUse>> {
   if (!candidates.length) return new Map();
+
   const unknown = new Map<string, ScratchUse>(
     candidates.map(({ directory }) => [directory, 'unknown']),
   );
+
   try {
     const canonical = await Promise.all(
       candidates.map(async (candidate) => ({
@@ -214,10 +264,13 @@ export async function inspectScratch(
         directory: await realpath(candidate.directory),
       })),
     );
+
     const format = 'pid=,ppid=,uid=,stat=,lstart=,ucomm=';
+
     const before = await ps(format, undefined, {
       timeout: scratchProbeTimeout,
     });
+
     const [commands, opened] = await Promise.allSettled([
       ps('pid=,command=', undefined, {
         environment: true,
@@ -233,19 +286,23 @@ export async function inspectScratch(
         },
       ),
     ]);
+
     if (
       commands.status !== 'fulfilled' ||
       opened.status !== 'fulfilled' ||
       opened.value.stderr
     )
       return unknown;
+
     const after = await ps(format, undefined, { timeout: scratchProbeTimeout });
+
     const results = classifyScratch(canonical, {
       before,
       after,
       commands: commands.value,
       files: opened.value.stdout,
     });
+
     return new Map(
       candidates.map(({ directory }, index) => [
         directory,

@@ -3,6 +3,7 @@ import type { GitHubReviews } from '../../src/core/github-reviews.js';
 export function reviewSource(): GitHubReviews {
   const url = 'https://github.com/team/project/pull/12';
   const bot = { __typename: 'Bot', login: 'copilot-pull-request-reviewer' };
+
   return {
     pullRequest: {
       number: 12,

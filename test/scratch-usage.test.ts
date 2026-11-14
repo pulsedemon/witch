@@ -95,6 +95,7 @@ const cases: {
     expected: 'used',
     change(seen) {
       add(seen, 900002, 1, late);
+
       seen.commands = [...seen.commands, `900002 node TMPDIR=${directory}`];
     },
   },
@@ -133,6 +134,7 @@ const cases: {
     expected: 'unknown',
     change(seen) {
       add(seen, 900002, current, late);
+
       seen.after = [row(current, 1), row(900002, 1, late)];
     },
   },
@@ -141,6 +143,7 @@ const cases: {
     expected: 'unknown',
     change(seen) {
       add(seen, 900002, current, early);
+
       seen.files = reference(current, 'cwd', '/fixture/project');
     },
   },
@@ -211,6 +214,7 @@ const cases: {
     expected: 'unused',
     change(_seen, candidate) {
       delete candidate.owner;
+
       candidate.previousBoot = true;
     },
   },
@@ -263,8 +267,11 @@ for (const { name, expected, change } of cases) {
       requiresBoot: false,
       lockFd: 7,
     };
+
     const seen = observation();
+
     change(seen, candidate);
+
     assert.deepEqual(
       classifyScratch([candidate], seen),
       new Map([[directory, expected]]),
@@ -275,11 +282,16 @@ for (const { name, expected, change } of cases) {
 test('scratch inspection finds a real open file without modifying candidate contents', async () => {
   const root = await scratch('witch-usage-');
   const directory = join(root, 'root with spaces');
+
   await mkdir(directory);
+
   const marker = join(directory, 'marker');
+
   await writeFile(marker, 'still needed');
+
   const lock = await open(directory, 'r');
   const file = await open(marker, 'r');
+
   try {
     assert.deepEqual(
       await inspectScratch([
@@ -287,10 +299,13 @@ test('scratch inspection finds a real open file without modifying candidate cont
       ]),
       new Map([[directory, 'used']]),
     );
+
     assert.equal(await file.readFile('utf8'), 'still needed');
+
     assert.deepEqual(await inspectScratch([]), new Map());
   } finally {
     await file.close();
+
     await lock.close();
   }
 });

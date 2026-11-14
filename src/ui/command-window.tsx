@@ -13,9 +13,11 @@ export function CommandWindow({
   const calls = items.filter(
     (item) => item.kind === 'tool' && item.id.includes('/') && !item.shell,
   );
+
   const recent = height > 1 ? calls.slice(-(height - 1)) : [];
   const running = calls.filter((item) => !item.done).length;
   const older = running - recent.filter((item) => !item.done).length;
+
   return (
     <Box
       height={height}

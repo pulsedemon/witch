@@ -15,16 +15,23 @@ export async function replaceFile(
 ): Promise<void> {
   const temporary = `${file}.${randomUUID()}.tmp`;
   const handle = await open(temporary, 'wx', 0o600);
+
   try {
     await handle.writeFile(content);
+
     await handle.sync();
+
     if (times) await handle.utimes(times.atime, times.mtime);
+
     await handle.close();
+
     await rename(temporary, file);
   } catch (error) {
     // the original failure is the one worth reporting, so cleanup failures stay quiet
     await handle.close().catch(() => {});
+
     await rm(temporary, { force: true }).catch(() => {});
+
     throw error;
   }
 }
@@ -35,12 +42,14 @@ export async function readJson<T>(
   schema: ZodType<T>,
 ): Promise<T | undefined> {
   const text = await unlessGone(readFile(file, 'utf8'));
+
   return text === undefined ? undefined : schema.parse(JSON.parse(text));
 }
 
 /** whether a path is gone; ENOTDIR covers one under a stray file, such as Finder's .DS_Store, where a directory would be. */
 export function gone(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
+
   return code === 'ENOENT' || code === 'ENOTDIR';
 }
 
@@ -48,5 +57,6 @@ export function gone(error: unknown): boolean {
 export const unlessGone = <T>(read: Promise<T>): Promise<T | undefined> =>
   read.catch((error: unknown) => {
     if (gone(error)) return undefined;
+
     throw error;
   });

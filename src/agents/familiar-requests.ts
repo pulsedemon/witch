@@ -30,14 +30,20 @@ class FamiliarRequests {
   ): FamiliarOutcome {
     const id =
       action.kind === 'familiar-request' ? action.request.id : action.id;
+
     let request = this.requests.get(id);
+
     if (action.kind === 'familiar-request-resolved') {
       if (request) this.resolve(request);
+
       return { kind: 'familiar-updated' };
     }
+
     if (!request && action.kind === 'familiar-request') {
       request = { id: `familiar/${this.run}/${id}`, resolved: false };
+
       this.requests.set(id, request);
+
       this.emit({
         type: 'request',
         request: {
@@ -48,8 +54,10 @@ class FamiliarRequests {
         },
       });
     }
+
     if (!request || request.resolved)
       throw new Error('The familiar request is not pending.');
+
     return request.response
       ? { kind: 'familiar-response', response: request.response }
       : { kind: 'familiar-request-pending' };
@@ -60,8 +68,10 @@ class FamiliarRequests {
     for (const request of this.requests.values())
       if (request.id === id && !request.resolved) {
         request.response ??= response;
+
         return true;
       }
+
     return false;
   }
 
@@ -71,7 +81,9 @@ class FamiliarRequests {
 
   private resolve(request: Request): void {
     if (request.resolved) return;
+
     request.resolved = true;
+
     this.emit({ type: 'request-resolved', id: request.id });
   }
 }
@@ -98,7 +110,9 @@ export class FamiliarRun {
       tools: 0,
       ...(parent ? { parent } : {}),
     };
+
     this.requests = new FamiliarRequests(action.run, emit);
+
     emit({ type: 'subagent', subagent: this.subagent });
   }
 
@@ -107,24 +121,35 @@ export class FamiliarRun {
   ): FamiliarOutcome {
     if (action.kind !== 'familiar-update') {
       this.checkRunning();
+
       return this.requests.report(action);
     }
+
     // the wrapper retries an update under its sequence, so an older or repeated one changes nothing
     if (action.sequence <= this.sequence) return { kind: 'familiar-updated' };
+
     this.checkRunning();
+
     this.sequence = action.sequence;
     this.subagent = { ...this.subagent, ...action.progress };
+
     if (this.subagent.status !== 'running') this.requests.resolveAll();
+
     this.emit({ type: 'subagent', subagent: this.subagent });
+
     return { kind: 'familiar-updated' };
   }
 
   /** ends the run with the command that carried it, marking a familiar that never reported its own end. */
   end(status: 'stopped' | 'failed'): void {
     this.ended = true;
+
     this.requests.resolveAll();
+
     if (this.subagent.status !== 'running') return;
+
     this.subagent = { ...this.subagent, status };
+
     this.emit({ type: 'subagent', subagent: this.subagent });
   }
 

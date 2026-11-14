@@ -41,6 +41,7 @@ export class AnswerTurn {
     if (guard.running) throw new Error('This agent is already running');
     if (!input) throw new Error('A peer answer requires its request file.');
     if (this.active) throw new Error('A peer answer is already running.');
+
     const active = {
       abort: new AbortController(),
       finished: Promise.withResolvers<void>(),
@@ -48,9 +49,11 @@ export class AnswerTurn {
       cancelled: false,
       stop: undefined as AgentStopOptions | undefined,
     };
+
     this.active = active;
     let result: TurnResult = { status: 'interrupted', text: '' };
     const hidden = new Set<string>();
+
     try {
       active.session = await this.connect({
         ...this.options,
@@ -67,12 +70,15 @@ export class AnswerTurn {
         onEvent: (event) => {
           if (event.type === 'tool') {
             if (event.title === 'StructuredOutput') hidden.add(event.id);
+
             if (hidden.has(event.id)) return;
           }
+
           if (event.type === 'tool' || event.type === 'notice')
             this.options.onEvent(event);
         },
       });
+
       if (!active.cancelled)
         result = await active.session.send(prompt, {
           context,
@@ -85,23 +91,29 @@ export class AnswerTurn {
         await active.session?.close(active.stop);
       } finally {
         this.active = undefined;
+
         active.finished.resolve();
       }
     }
+
     return active.cancelled ? { status: 'interrupted', text: '' } : result;
   }
 
   async interrupt(options: AgentStopOptions = {}): Promise<void> {
     const active = this.active;
+
     if (!active) return;
+
     active.cancelled = true;
     active.stop = options;
+
     try {
       if (active.session)
         try {
           await active.session.interrupt(options);
         } catch (error) {
           await active.session.close(options);
+
           throw error;
         }
       else active.abort.abort(new NativeStop(options));

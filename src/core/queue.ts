@@ -22,6 +22,7 @@ export function nextTurn(
   skills?: readonly Skill[],
 ): string[] {
   const command = queue.findIndex((prompt) => alone(prompt, skills));
+
   return queue.slice(
     0,
     command === 0 ? 1 : command < 0 ? queue.length : command,
@@ -41,6 +42,7 @@ export function joining(queue: readonly string[]): string[] {
   const command = queue.findIndex(
     (prompt) => shellCommand(prompt) !== undefined,
   );
+
   return queue.slice(0, command < 0 ? queue.length : command);
 }
 
@@ -56,15 +58,19 @@ export async function steerInOrder(
 ): Promise<void> {
   const refused: string[] = [];
   let next = 0;
+
   try {
     for (; next < prompts.length; next++) {
       const prompt = prompts[next]!;
+
       if (await steer(prompt)) continue;
+
       if (skillCall(prompt, skills)) refused.push(prompt);
       else break;
     }
   } finally {
     const owed = [...refused, ...prompts.slice(next)];
+
     if (owed.length) back(owed);
   }
 }
@@ -86,18 +92,23 @@ export function recordQueue(
   arriving: readonly Pending[],
 ): boolean {
   if (!record) return false;
+
   const queue = [
     ...taken.map(({ prompt }) => prompt),
     ...queued,
     ...arriving.map(({ prompt }) => prompt),
   ];
+
   const saved = record.queue ?? [];
+
   if (
     queue.length === saved.length &&
     queue.every((prompt, i) => prompt === saved[i])
   )
     return false;
+
   if (queue.length) record.queue = queue;
   else delete record.queue;
+
   return true;
 }

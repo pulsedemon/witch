@@ -8,12 +8,16 @@ import { within } from './fixtures/within.js';
 
 test('native async question messages produce one shared request with choices and free-text questions', async () => {
   const events: AgentEvent[] = [];
+
   const { session, cwd } = await fixture((event) => events.push(event), {
     mode: 'file-approvals',
   });
+
   try {
     const sending = session.send('hold');
+
     await session.skills();
+
     const item = {
       type: 'agentMessage',
       id: 'choices',
@@ -26,7 +30,9 @@ test('native async question messages produce one shared request with choices and
         { title: 'Who owns it?' },
       ],
     };
+
     const params = { threadId: 'native-thread', turnId: 'turn-1', item };
+
     const frames = [
       { method: 'item/started', params },
       { method: 'item/completed', params },
@@ -45,11 +51,14 @@ test('native async question messages produce one shared request with choices and
         },
       },
     ];
+
     await writeJson(join(cwd, 'events-1.json'), frames);
+
     assert.equal(
       (await within(sending, 3000, 'the question turn')).status,
       'completed',
     );
+
     assert.deepEqual(
       events.filter((event) => event.type === 'request'),
       [

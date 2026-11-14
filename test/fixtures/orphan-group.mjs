@@ -13,5 +13,7 @@ const command = spawn(
   ],
   { detached: true, stdio: 'ignore' },
 );
+
 process.stdout.write(`${command.pid}\n`);
+
 setInterval(() => {}, 60_000);

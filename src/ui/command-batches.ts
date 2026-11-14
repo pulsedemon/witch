@@ -5,6 +5,7 @@ type Execute = (
   command: WitchCommand,
   active: () => boolean,
 ) => Promise<boolean>;
+
 interface Batch {
   commands: readonly WitchCommand[];
   next: number;
@@ -31,6 +32,7 @@ export class CommandBatches {
 
   submit(commands: readonly WitchCommand[], execute: Execute): void {
     if (this.closed) return;
+
     const batch: Batch = {
       commands,
       next: 0,
@@ -39,50 +41,64 @@ export class CommandBatches {
       ),
       execute,
     };
+
     this.batches.push(batch);
+
     if (!this.running) void this.drain();
   }
 
   cancel(notice = true): void {
     const batches = this.batches;
     this.batches = [];
+
     const commands = batches.flatMap((batch) =>
       batch.commands.slice(batch.next),
     );
+
     if (notice && commands.length)
       this.coordinator.notice(
         `Commands canceled. Retry explicitly: ${commands.map(({ name, argument }) => `/${name}${argument ? ` ${argument}` : ''}`).join('; ')}`,
         undefined,
         false,
       );
+
     for (const batch of batches) batch.release();
   }
 
   close(): void {
     this.closed = true;
+
     this.cancel(false);
   }
 
   private async drain(): Promise<void> {
     this.running = true;
+
     try {
       while (this.batches.length) {
         const batch = this.batches[0]!;
         const active = () => this.batches[0] === batch;
         let success = false;
+
         try {
           success = await batch.execute(batch.commands[batch.next]!, active);
         } catch (error) {
           this.coordinator.report(error);
         }
+
         if (!active()) continue;
+
         if (!success) {
           this.cancel();
+
           continue;
         }
+
         batch.next++;
+
         if (batch.next === batch.commands.length) {
           this.batches.shift();
+
           batch.release();
         }
       }

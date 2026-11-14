@@ -22,7 +22,9 @@ export class NotificationSchedule {
 
   static async open(directory: string): Promise<NotificationSchedule> {
     const boot = z.uuid().parse(await bootSession());
+
     await mkdir(directory, { recursive: true, mode: 0o700 });
+
     return new NotificationSchedule(directory, boot);
   }
 
@@ -35,20 +37,29 @@ export class NotificationSchedule {
       constants.O_RDWR | constants.O_CREAT,
       { mode: 0o600 },
     );
+
     if (!lock) return 25;
+
     try {
       const file = join(this.directory, 'schedule.json');
       const previous = await readJson(file, recordSchema);
       const data = message();
+
       if (data === undefined) return;
+
       const digest = createHash('sha256').update(data).digest('hex');
+
       if (previous?.boot === this.boot) {
         const interval = previous.digest === digest ? 6_200 : 1_200;
+
         const remaining =
           previous.sentAt + interval - Number(process.hrtime.bigint()) / 1e6;
+
         if (remaining > 0) return remaining;
       }
+
       write(data);
+
       await writeJson(file, {
         boot: this.boot,
         sentAt: Number(process.hrtime.bigint()) / 1e6,

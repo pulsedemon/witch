@@ -5,10 +5,12 @@ import { fromGitHub, gitHubPullRequestFields } from './repository.js';
 import type { PullRequest, Run } from './repository.js';
 
 const execute = promisify(execFile);
+
 const runCommand: Run = (command, args, options) =>
   execute(command, args, { ...options, maxBuffer: 16 * 1024 * 1024 });
 
 const actor = z.object({ __typename: z.string(), login: z.string() });
+
 const comment = z.object({
   id: z.string(),
   body: z.string(),
@@ -17,14 +19,17 @@ const comment = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+
 const review = comment.omit({ createdAt: true, updatedAt: true }).extend({
   state: z.string(),
   submittedAt: z.string().nullable(),
   commit: z.object({ oid: z.string() }).nullable(),
 });
+
 const reviewComment = comment.extend({
   pullRequestReview: z.object({ id: z.string() }).nullable(),
 });
+
 const thread = z.object({
   id: z.string(),
   isResolved: z.boolean(),
@@ -33,6 +38,7 @@ const thread = z.object({
   line: z.number().nullable(),
   comments: z.array(reviewComment),
 });
+
 const check = z.object({
   id: z.number(),
   name: z.string(),
@@ -40,20 +46,25 @@ const check = z.object({
   conclusion: z.string().nullable(),
   head_sha: z.string(),
 });
+
 const requested = z.object({
   requestedReviewer: z
     .object({ __typename: z.string(), login: z.string().optional() })
     .nullable(),
 });
+
 const rule = z.object({ type: z.string(), parameters: z.unknown().optional() });
+
 const copilotRule = z.object({
   review_on_push: z.boolean(),
   review_draft_pull_requests: z.boolean(),
 });
+
 const pageInfo = z.object({
   hasNextPage: z.boolean(),
   endCursor: z.string().nullable(),
 });
+
 const connection = <T extends z.ZodType>(item: T) =>
   z.object({ nodes: z.array(item), pageInfo });
 
@@ -95,19 +106,26 @@ export function copilotRequested(source: GitHubReviews): boolean {
 
 const commentFields =
   'id body url author { __typename login } createdAt updatedAt';
+
 const reviewCommentFields = `${commentFields} pullRequestReview { id }`;
+
 const threadFields = `id isResolved isOutdated path line
   comments(first:100) { nodes { ${reviewCommentFields} } pageInfo { hasNextPage endCursor } }`;
+
 const reviewFields =
   'id body url author { __typename login } state submittedAt commit { oid }';
+
 const requestedFields =
   'requestedReviewer { __typename ... on Bot { login } ... on User { login } }';
+
 const metadata = gitHubPullRequestFields.extend({
   id: z.string(),
   isDraft: z.boolean(),
 });
+
 const fields = 'id number url state headRefName headRefOid baseRefName isDraft';
 const pagedThread = thread.extend({ comments: connection(reviewComment) });
+
 const initial = metadata.extend({
   closingIssuesReferences: connection(z.object({ url: z.string() })),
   reviewRequests: connection(requested),
@@ -119,8 +137,10 @@ const initial = metadata.extend({
 function target(pr: PullRequest) {
   const url = new URL(pr.url);
   const match = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/.exec(url.pathname);
+
   if (url.protocol !== 'https:' || !match)
     throw new Error(`Invalid pull request URL: ${pr.url}`);
+
   return {
     host: url.hostname,
     owner: match[1]!,
@@ -131,16 +151,21 @@ function target(pr: PullRequest) {
 
 function client(pr: PullRequest, cwd: string, signal: AbortSignal, run: Run) {
   const { host, owner, name, number } = target(pr);
+
   const api = async (args: string[]) => {
     signal.throwIfAborted();
+
     const { stdout } = await run('gh', ['api', '--hostname', host, ...args], {
       cwd,
       signal,
       timeout: 30_000,
     });
+
     signal.throwIfAborted();
+
     return JSON.parse(stdout) as unknown;
   };
+
   const graphql = async (
     query: string,
     variables: Record<string, string | number>,
@@ -161,11 +186,15 @@ function client(pr: PullRequest, cwd: string, signal: AbortSignal, run: Run) {
           ]),
         ]),
       );
+
     if (response.errors?.length)
       throw new Error(response.errors.map(({ message }) => message).join('\n'));
+
     if (!response.data) throw new Error('GitHub returned no review data.');
+
     return response.data;
   };
+
   return { api, graphql, owner, name, number };
 }
 
@@ -177,6 +206,7 @@ export async function readGitHubReviews(
   run: Run = runCommand,
 ): Promise<GitHubReviews> {
   const { api, graphql, owner, name, number } = client(pr, cwd, signal, run);
+
   const data = await graphql(
     `query($owner:String!,$name:String!,$number:Int!) {
     viewer { login }
@@ -191,13 +221,16 @@ export async function readGitHubReviews(
   }`,
     { owner, name, number },
   );
+
   const first = z
     .object({
       viewer: z.object({ login: z.string() }),
       repository: z.object({ pullRequest: initial }),
     })
     .parse(data);
+
   const found = first.repository.pullRequest;
+
   const all = async <T extends z.ZodType>(
     parent: string,
     type: 'PullRequest' | 'PullRequestReviewThread',
@@ -209,11 +242,15 @@ export async function readGitHubReviews(
     const nodes = [...firstPage.nodes];
     let page = firstPage;
     const cursors = new Set<string>();
+
     while (page.pageInfo.hasNextPage) {
       const cursor = page.pageInfo.endCursor;
+
       if (!cursor || cursors.has(cursor))
         throw new Error(`Incomplete GitHub ${field} pagination.`);
+
       cursors.add(cursor);
+
       const next = await graphql(
         `query($id:ID!,$cursor:String!) {
         node(id:$id) { ... on ${type} {
@@ -222,12 +259,16 @@ export async function readGitHubReviews(
       }`,
         { id: parent, cursor },
       );
+
       const node = z.record(z.string(), z.unknown()).parse(next.node);
       page = connection(schema).parse(node[field]);
+
       nodes.push(...page.nodes);
     }
+
     return nodes;
   };
+
   const [
     closingIssues,
     requests,
@@ -288,6 +329,7 @@ export async function readGitHubReviews(
       '--slurp',
     ]),
   ]);
+
   const completeThreads = await Promise.all(
     threads.map(async (entry) => ({
       ...entry,
@@ -301,6 +343,7 @@ export async function readGitHubReviews(
       ),
     })),
   );
+
   const current = metadata.parse(
     (
       await graphql(
@@ -311,6 +354,7 @@ export async function readGitHubReviews(
       )
     ).node,
   );
+
   if (
     current.headRefOid !== found.headRefOid ||
     current.state !== found.state ||
@@ -319,12 +363,15 @@ export async function readGitHubReviews(
     throw new Error(
       'The pull request changed while its reviews were being read.',
     );
+
   const checks = z
     .array(z.object({ check_runs: z.array(check) }))
     .parse(checkPages)
     .flatMap((page) => page.check_runs);
+
   if (checks.some((entry) => entry.head_sha !== current.headRefOid))
     throw new Error('GitHub returned checks for another pull request head.');
+
   return {
     pullRequest: fromGitHub(current),
     draft: current.isDraft,
@@ -352,18 +399,23 @@ export async function reviewCommitPushed(
   run: Run = runCommand,
 ): Promise<boolean> {
   const { api, owner, name } = client(pr, cwd, signal, run);
+
   const response = await api([
     `repos/${owner}/${name}/compare/${encodeURIComponent(commit)}...${encodeURIComponent(pr.commit)}`,
   ]).catch((error: unknown) => {
     // GitHub answers 404 for a commit it doesn't have, which is a commit nobody pushed
     if ((error as { stderr?: string }).stderr?.includes('(HTTP 404)'))
       return undefined;
+
     throw error;
   });
+
   if (response === undefined) return false;
+
   const comparison = z
     .object({ status: z.string(), behind_by: z.number() })
     .parse(response);
+
   return (
     comparison.behind_by === 0 &&
     ['identical', 'ahead'].includes(comparison.status)

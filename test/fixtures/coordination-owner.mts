@@ -10,7 +10,9 @@ import { StateStore } from '../../src/persistence/store.js';
 const [root, conversation] = process.argv.slice(2);
 const store = await CoordinationStore.open(await StateStore.open(root!));
 const identity = (await identifyProcess(process.pid))!;
+
 setTimeout(() => process.exit(1), 30_000);
+
 process.once('message', () => {
   void (async () => {
     try {
@@ -21,7 +23,9 @@ process.once('message', () => {
         Date.now() + 5000,
         async () => {},
       );
+
       await writeFile(join(root!, `${conversation}.worked`), claim.id);
+
       process.send!({ kind: 'claimed', claim });
     } catch (error) {
       process.send!(
@@ -32,4 +36,5 @@ process.once('message', () => {
     }
   })();
 });
+
 process.send!({ kind: 'ready' });

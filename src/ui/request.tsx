@@ -49,12 +49,15 @@ export function Request({
   const options = question?.options ?? approvals.map(({ label }) => label);
   const expandable = !!request.diff && canExpandDiff(request.diff);
   const approval = request.kind === 'approval';
+
   const inputHeight = approval
     ? 0
     : Math.min(3, Math.max(1, Math.floor(height / 4)));
+
   const controlRows = approval ? 1 : inputHeight;
   const headingRows = Number(height >= controlRows + 2);
   const errorRows = Number(!!error && height > controlRows + headingRows);
+
   const hints = [
     ...(expandable ? [diffExpansionHint(full)] : []),
     approval
@@ -75,30 +78,39 @@ export function Request({
           : 'Enter a JSON object with the requested fields.',
     ...(!approval ? [piped(['ESC DECLINE', 'CTRL+C STOP TURN'])] : []),
   ].flatMap((line) => wrapLines(line, width));
+
   const hintRows = Math.min(
     hints.length,
     Math.max(0, height - controlRows - headingRows - errorRows - 2),
   );
+
   const bodyHeight = Math.min(
     height - controlRows - headingRows - errorRows - hintRows,
     Math.max(2, height - 7 - Number(expandable)),
   );
+
   const labels = options
     .map((label, index) => `${index === selection ? '› ' : '  '}${label}`)
     .join('   ');
+
   const choices =
     wrapLines(labels, width).length > 1
       ? width < 3
         ? wrapLines(options[selection] ?? '', width)[0]
         : `› ${options[selection] ?? ''}`
       : labels;
+
   const fields = `${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
+
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
     : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
+
   const lines = useMemo(() => {
     const wrap = (text: string) => wrapLines(linkify(text, cwd), width);
+
     if (question || !request.diff?.length) return wrap(detail);
+
     return [
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
       ...diffRows(request.diff, width, cwd, full).flat(),
@@ -106,6 +118,7 @@ export function Request({
       ...wrap(fields),
     ];
   }, [request, detail, fields, question, width, cwd, full]);
+
   const selectedRow = question
     ? wrapLines(question.title, width).length +
       1 +
@@ -117,6 +130,7 @@ export function Request({
           0,
         )
     : undefined;
+
   useEffect(() => {
     if (selectedRow !== undefined && bodyHeight > 0)
       setScroll((current) =>
@@ -129,28 +143,42 @@ export function Request({
         ),
       );
   }, [selectedRow, bodyHeight]);
+
   useInput((input, key) => {
     if (!active || key.eventType === 'release') return;
+
     if (key.ctrl && input === 'o' && expandable) {
       setFull((previous) => !previous);
+
       setScroll(0);
+
       return;
     }
+
     if (!ready) return;
+
     if (key.escape) {
       respond({ decision: 'decline' });
+
       return;
     }
+
     const count = (
       request.questions?.[questionIndexRef.current]?.options ?? approvals
     ).length;
+
     if (key.upArrow) setSelection(Math.max(0, selectionRef.current - 1));
+
     if (key.downArrow)
       setSelection(Math.min(count - 1, selectionRef.current + 1));
+
     if (request.kind === 'approval') {
       const plain = !key.ctrl && !key.meta && !key.super;
+
       if (plain && input === 'y') respond({ decision: 'accept' });
+
       if (plain && input === 'n') respond({ decision: 'decline' });
+
       if (key.return)
         respond({ decision: approvals[selectionRef.current]!.decision });
     }
@@ -159,11 +187,14 @@ export function Request({
   const submit = (text: string): boolean => {
     const index = questionIndexRef.current;
     const question = request.questions?.[index];
+
     if (question) {
       const options = question.options;
+
       const values = text.trim()
         ? (question.multiple ? text.split(',') : [text]).map((value) => {
             const number = Number(value.trim());
+
             return Number.isInteger(number) &&
               number > 0 &&
               number <= options.length
@@ -173,28 +204,39 @@ export function Request({
         : options[selectionRef.current]
           ? [options[selectionRef.current]!]
           : [];
+
       if (!values.length) return false;
+
       const next = { ...answers.current, [question.id]: values };
+
       if (index + 1 === request.questions!.length)
         respond({ decision: 'accept', answers: next });
       else {
         answers.current = next;
+
         setQuestionIndex(index + 1);
+
         setSelection(0);
+
         setScroll(0);
       }
+
       return true;
     }
+
     const form = !request.url || !!request.schema;
     const json = text.trim() || '{}';
     let content: UserResponse['content'];
+
     if (form)
       try {
         content = z.record(z.string(), z.unknown()).parse(JSON.parse(json));
       } catch {
         setError('Enter a JSON object matching the requested fields.');
+
         return false;
       }
+
     if (request.schema) {
       // MCP allows any $schema, and Ajv2020 throws on a meta-schema it lacks
       const validator = new Ajv2020({
@@ -202,7 +244,9 @@ export function Request({
         validateSchema: false,
         formats: fullFormats,
       });
+
       let valid: boolean;
+
       try {
         valid = validator.validate(request.schema, content);
       } catch (error) {
@@ -210,15 +254,20 @@ export function Request({
         setError(
           plain(`The request's schema can't be used: ${errorMessage(error)}`),
         );
+
         return false;
       }
+
       if (!valid) {
         // Ajv quotes the agent's property names, escapes included
         setError(plain(validator.errorsText()));
+
         return false;
       }
     }
+
     respond({ decision: 'accept', content });
+
     return true;
   };
 

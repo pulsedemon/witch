@@ -26,21 +26,30 @@ test('wire capture retains split JSON lines in both directions without consuming
     ],
     { stdio: 'pipe' },
   );
+
   const capture = observeWire(child);
   let output = '';
+
   child.stdout.on('data', (chunk) => {
     output += String(chunk);
   });
+
   child.stdin.write('{"id":');
+
   child.stdin.write('17,"text":"a\\nb"}\n');
+
   await new Promise<void>((resolve) => {
     child.stdout.on('data', () => {
       if (output.endsWith('\n')) resolve();
     });
   });
+
   child.stdin.end();
+
   await capture.finished();
+
   assert.equal(output, '{"id":17,"text":"a\\nb"}\n');
+
   assert.deepEqual(capture.frames, [
     { direction: 'client', message: { id: 17, text: 'a\nb' } },
     { direction: 'server', message: { id: 17, text: 'a\nb' } },
@@ -88,6 +97,7 @@ test('capture normalization removes account identity and encoded project paths w
       },
     },
   ];
+
   assert.deepEqual(
     normalizeWire(input, '/Users/person/project', '/Users/person'),
     [
@@ -130,12 +140,14 @@ test('capture normalization removes account identity and encoded project paths w
       },
     ],
   );
+
   assert.equal(input[1]!.message.result!.accountId, 'private-account');
 });
 
 test('replay binds request IDs consistently and rejects a changed payload', async () => {
   const cwd = await scratch('witch-native-wire-');
   const file = join(cwd, 'wire.jsonl');
+
   await writeFile(
     file,
     [
@@ -156,22 +168,29 @@ test('replay binds request IDs consistently and rejects a changed payload', asyn
       .map((frame) => JSON.stringify(frame))
       .join('\n') + '\n',
   );
+
   const replay = replayWire([file], cwd);
   const child = replay.launch();
   const capture = observeWire(child);
+
   child.stdin.write(
     JSON.stringify({ id: 41, method: 'probe', params: { value: 'first' } }) +
       '\n',
   );
+
   await new Promise<void>((resolve) =>
     child.stdout.once('data', () => resolve()),
   );
+
   child.stdin.write(
     JSON.stringify({ id: 73, method: 'probe', params: { value: 'wrong' } }) +
       '\n',
   );
+
   await assert.rejects(replay.finished(), /frame 2/);
+
   await capture.finished();
+
   assert.deepEqual(
     capture.frames.filter(({ direction }) => direction === 'server'),
     [
@@ -200,6 +219,7 @@ for (const [name, issued, expected, actual] of [
   test(`replay rejects a wrong server-issued ${name} on its first use`, async () => {
     const cwd = await scratch('witch-native-issued-id-');
     const file = join(cwd, 'wire.jsonl');
+
     await writeFile(
       file,
       [
@@ -209,12 +229,16 @@ for (const [name, issued, expected, actual] of [
         .map((frame) => JSON.stringify(frame))
         .join('\n') + '\n',
     );
+
     const replay = replayWire([file], cwd);
     const child = replay.launch();
+
     await new Promise<void>((resolve) =>
       child.stdout.once('data', () => resolve()),
     );
+
     child.stdin.end(JSON.stringify(actual) + '\n');
+
     await assert.rejects(replay.finished(), /ID mismatch/);
   });
 }
@@ -222,6 +246,7 @@ for (const [name, issued, expected, actual] of [
 test('closing replay with a missing client request fails instead of accepting a partial recording', async () => {
   const cwd = await scratch('witch-native-incomplete-');
   const file = join(cwd, 'wire.jsonl');
+
   await writeFile(
     file,
     JSON.stringify({
@@ -229,8 +254,11 @@ test('closing replay with a missing client request fails instead of accepting a 
       message: { id: 1, method: 'required', params: {} },
     }) + '\n',
   );
+
   const replay = replayWire([file], cwd);
+
   replay.launch().stdin.end();
+
   await assert.rejects(replay.finished(), /Unconsumed native trace \(0\/1\)/);
 });
 
@@ -241,7 +269,9 @@ test('native capture approves only its exact probe command', () => {
     title: 'command',
     detail: JSON.stringify({ command: 'node probe.mjs; touch unrelated' }),
   };
+
   assert.throws(() => probeApproval(request), /Unexpected capture command/);
+
   for (const command of ['node probe.mjs', "/bin/zsh -lc 'node probe.mjs'"]) {
     assert.deepEqual(
       probeApproval({ ...request, detail: JSON.stringify({ command }) }),
