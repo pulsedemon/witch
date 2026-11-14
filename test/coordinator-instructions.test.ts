@@ -126,7 +126,7 @@ test('the fixed instructions take the recommended route past a blocked step and 
   }
 });
 
-test("the fixed instructions file an issue at once for a bug the current task won't fix", async () => {
+test('the fixed instructions fix discovered bugs and file only blocked follow-ups', async () => {
   const f = await unitFixture();
   try {
     await f.coordinator.send('Initial task');
@@ -139,11 +139,23 @@ test("the fixed instructions file an issue at once for a bug the current task wo
     assert.ok(rule, context);
     assert.match(
       rule,
-      /concrete bug in the current repository's code that your current task won't fix, such as broken behavior or a failing test outside your change/,
+      /concrete bug in the current repository's code, including a failing test outside your original change, fix it in the current task instead of only filing an issue/,
     );
     assert.match(
       rule,
-      /file an issue for it at once instead of waiting to be asked, then continue the task/,
+      /Make the smallest sufficient fix, confirm it end to end, then add or update its regression test/,
+    );
+    assert.match(
+      rule,
+      /Name each incidental fix in one line in the pr description/,
+    );
+    assert.match(
+      rule,
+      /If you cannot complete the fix within authorized work, such as code claimed by another session or a fix that needs a product decision, report the blocker and file an issue at once/,
+    );
+    assert.match(
+      rule,
+      /Preserve ownership and approval boundaries, ask only for the missing decision or required approval, and continue independent task work/,
     );
     assert.match(
       rule,
@@ -163,6 +175,10 @@ test("the fixed instructions file an issue at once for a bug the current task wo
     assert.match(rule, /A bug your current task fixes needs no issue/);
     assert.match(
       rule,
+      /The post-pr follow-up audit still files work deliberately deferred outside the pr by decision; it does not defer a newly discovered fixable bug or a blocker belonging to the current pr/,
+    );
+    assert.match(
+      rule,
       /Tell the user about a bug in another project's code instead of filing it in that project's tracker/,
     );
     assert.match(
@@ -171,11 +187,28 @@ test("the fixed instructions file an issue at once for a bug the current task wo
     );
     assert.match(
       rule,
-      /Errors caused by your own change, the environment or a transient failure of an external service aren't bugs to file, and neither is a speculative improvement or a warning that shows no broken behavior/,
+      /Fix errors introduced by your own change without filing separate issues/,
+    );
+    assert.match(
+      rule,
+      /Environmental failures, transient external-service failures, speculative improvements and warnings that show no broken behavior are not bugs to file/,
     );
     assert.match(
       rule,
       /If a search or write is blocked, report the bug and the blocked step instead/,
+    );
+    assert.match(rule, /Native approval rules still apply/);
+
+    const audit = context
+      .split('\n\n')
+      .find((paragraph) =>
+        paragraph.startsWith('After successfully opening a pull request'),
+      );
+    assert.ok(audit, context);
+    assert.match(audit, /Check recorded deferred work, review findings/);
+    assert.match(
+      audit,
+      /Do not file already-fixed findings, accepted tradeoffs or speculative improvements; keep blockers belonging to the current pull request in that work/,
     );
   } finally {
     await f.coordinator.close();
