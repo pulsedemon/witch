@@ -173,6 +173,8 @@ for (const [stage, writesMemory, finishes] of [
   ['connection', true, true],
   ['quiescence', true, true],
   ['quiescence', false, false],
+  ['quiescence-microtask', false, false],
+  ['quiescence-microtask', false, true],
 ] as const)
   test(`${finishes ? 'completed' : 'running'} background work during ${stage} retains its context and continuation`, async (t) => {
     pauseDiscovery(vi.spyOn);
@@ -265,11 +267,14 @@ for (const [stage, writesMemory, finishes] of [
         return result;
       });
     }
-    if (stage === 'quiescence') {
+    if (stage.startsWith('quiescence')) {
       const quiesce = coordination.quiesce.bind(coordination);
-      vi.spyOn(coordination, 'quiesce').mockImplementation(async (ready) => {
-        if (ready) await restart();
-        return quiesce(ready);
+      vi.spyOn(coordination, 'quiesce').mockImplementation(async () => {
+        const restore = await quiesce();
+        if (stage === 'quiescence-microtask')
+          queueMicrotask(() => void restart());
+        else await restart();
+        return restore;
       });
     }
     emit({ type: 'running', running: true });
