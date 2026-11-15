@@ -9,6 +9,7 @@ import { test, vi } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../../../src/core/coordinator.js';
 import { watchMerges } from '../../../src/core/repository/merge-watch.js';
+import { refreshInstall } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import type { Repository } from '../../../src/core/repository/repository.js';
 import { openLocked } from '../../../src/persistence/lock.js';
@@ -553,6 +554,55 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
   }
 });
 
+test('a merge cleanup reports the shared rebuild waiting notice and its completed result', async () => {
+  const { coordinator, root, project } = await fixture();
+  const release = Promise.withResolvers<void>();
+  let builder: Promise<string> | undefined;
+  let cleanup: Promise<unknown> | undefined;
+
+  try {
+    const { origin, tip } = await mergedOrigin(root, project);
+    const install = join(root, 'install');
+    await git(root, 'clone', origin, install);
+    const entered = Promise.withResolvers<void>();
+    const calls: string[][] = [];
+
+    builder = refreshInstall(install, 'main', async (_, args) => {
+      calls.push(args);
+
+      if (args[0] === 'build') {
+        entered.resolve();
+        await release.promise;
+      }
+
+      return { stdout: '' };
+    });
+
+    void builder.catch(() => {});
+    await within(entered.promise, 5000, 'the shared build');
+    cleanup = coordinator.cleanUpMerge(pullRequest(tip), install);
+    void cleanup.catch(() => {});
+    const waiting = `Another Witch is rebuilding Witch at ${install}; waiting for its result.`;
+
+    await until('the waiting notice', () =>
+      notices(coordinator).includes(waiting),
+    );
+
+    assert.equal(coordinator.snapshot.phase, 'cleaning');
+    release.resolve();
+    const rebuilt = `Rebuilt Witch at ${tip.slice(0, 7)}, for its next start.`;
+    assert.equal(await builder, rebuilt);
+    assert.equal(await cleanup, true);
+    assert.deepEqual(notices(coordinator).slice(-2), [waiting, rebuilt]);
+    assert.deepEqual(calls, [['install', '--frozen-lockfile'], ['build']]);
+    assert.equal(coordinator.snapshot.phase, 'idle');
+  } finally {
+    release.resolve();
+    await Promise.allSettled([builder, cleanup]);
+    await coordinator.close();
+  }
+});
+
 test("a merge cleanup stops before switching when another Witch's turn starts in its checkout during the fetch", async () => {
   const { coordinator, store, memory, root, project } = await fixture();
   const agent = new FixtureAgent('a');
@@ -714,6 +764,7 @@ else {
     (stage === 'delete' && args[0] === 'update-ref') ||
     (stage === 'config' && args[0] === 'config' && args[1] === '--remove-section') ||
     (stage === 'pull' && args[0] === 'merge') ||
+    (stage === 'report' && args[0] === 'rev-parse' && args[1] === '--short') ||
     (stage === 'prune' && args[0] === 'branch' && args[1] === '-d');
   if (status === 0 && first && hold) gate();
   else process.exit(status);
@@ -749,13 +800,15 @@ else {
     await until(
       `the ${stage} command`,
       async () => {
+        if (coordinator.snapshot.error) assert.fail(coordinator.snapshot.error);
+
         pids = await readFile(ready, 'utf8')
           .then((text) => JSON.parse(text) as number[])
           .catch(() => []);
 
         return pids.length > 0;
       },
-      500,
+      1500,
     );
   };
 
@@ -781,6 +834,59 @@ else {
         .map((line) => JSON.parse(line) as string[]),
   };
 }
+
+test('a busy continuation after interrupted revision reporting waits without caching the skip or rebuilding', async (t) => {
+  const { coordinator, install, tip, expectedHead, entered, commands } =
+    await interruptedCleanup('report', t.onTestFinished, true);
+
+  const progress: MergeCleanup = {};
+  const cleanup = coordinator.cleanUpMerge(pullRequest(tip), install, progress);
+  void cleanup.catch(() => {});
+  await entered();
+  await coordinator.interrupt();
+  assert.equal(await cleanup, 'interrupted');
+  assert.equal(progress.install?.built, true);
+  assert.equal(progress.install?.result, undefined);
+
+  const lock = await openLocked(
+    join(install, '.git'),
+    constants.O_RDONLY | constants.O_NONBLOCK,
+  );
+
+  try {
+    assert.equal(
+      await coordinator.cleanUpMerge(pullRequest(tip), install, progress),
+      false,
+    );
+
+    assert.equal(progress.install?.result, undefined);
+
+    assert.equal(
+      notices(coordinator).at(-1),
+      `Witch's checkout at ${install} is busy, so it wasn't rebuilt.`,
+    );
+  } finally {
+    await lock.close();
+  }
+
+  assert.equal(
+    await coordinator.cleanUpMerge(pullRequest(tip), install, progress),
+    true,
+  );
+
+  assert.equal(
+    notices(coordinator).at(-1),
+    `Rebuilt Witch at ${expectedHead.slice(0, 7)}, for its next start.`,
+  );
+
+  assert.deepEqual(
+    (await commands()).filter(([tool]) => tool === 'pnpm'),
+    [
+      ['pnpm', 'install', '--frozen-lockfile'],
+      ['pnpm', 'build'],
+    ],
+  );
+});
 
 for (const [stage, worktree] of [
   ...[

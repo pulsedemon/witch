@@ -20,6 +20,15 @@ const call = (name: string, done = false): DisplayItem => ({
 
 const lines = (ui: ReturnType<typeof show>) => ui.text().split('\n');
 
+async function resize(
+  ui: ReturnType<typeof show>,
+  columns: number,
+  rows: number,
+) {
+  ui.resize(columns, rows);
+  await until('resized frame', () => lines(ui).length === rows);
+}
+
 const windowTop = (ui: ReturnType<typeof show>) =>
   lines(ui).findIndex((line) => line.trimStart().startsWith('TOOLS'));
 
@@ -298,8 +307,8 @@ test('shrinking preserves editing, the reading anchor and Ctrl+C interrupt', asy
     for (const [columns, rows] of [
       [30, 23],
       [29, 24],
-    ]) {
-      ui.resize(columns!, rows!);
+    ] as const) {
+      await resize(ui, columns, rows);
       await until('small composer', () => ui.text().includes('retained draft'));
       assert.ok(!ui.text().includes('Resize terminal'));
       assert.equal(lines(ui).length, rows);
@@ -310,19 +319,26 @@ test('shrinking preserves editing, the reading anchor and Ctrl+C interrupt', asy
       );
 
       ui.stdin.write('\u007f');
-      await delay(60);
+
+      await until(
+        'small composer deletion',
+        () =>
+          ui.text().includes('retained draft') &&
+          !ui.text().includes('retained draft+'),
+      );
+
       assert.deepEqual(calls, []);
       ui.stdin.write('\u0003');
       await until('interrupt', () => calls.length === 1);
       assert.deepEqual(calls.splice(0), [['interrupt']]);
-      ui.resize(100, 40);
+      await resize(ui, 100, 40);
       await until('draft restored', () => ui.text().includes('retained draft'));
       assert.equal(lines(ui)[1], source);
     }
 
     coordinator.publish({ phase: 'idle' });
     await until('idle', () => ui.text().startsWith('IDLE'));
-    ui.resize(30, 23);
+    await resize(ui, 30, 23);
     await until('small idle', () => ui.text().includes('retained draft'));
     ui.stdin.write('\u0003');
     await until('draft cleared', () => !ui.text().includes('retained draft'));
@@ -361,10 +377,10 @@ test('small approval and recovery views keep visible decisions and preserved scr
       line.includes('approval line'),
     );
 
-    ui.resize(30, 23);
+    await resize(ui, 30, 23);
     await until('small approval', () => ui.text().includes('› Decline'));
     assert.equal(lines(ui).length, 23);
-    ui.resize(100, 40);
+    await resize(ui, 100, 40);
     await until('decline retained', () => ui.text().includes('› Decline'));
 
     assert.equal(
@@ -372,7 +388,7 @@ test('small approval and recovery views keep visible decisions and preserved scr
       firstDetail,
     );
 
-    ui.resize(20, 8);
+    await resize(ui, 20, 8);
 
     await until('small selected decision', () =>
       ui.text().includes('› Decline'),
@@ -385,7 +401,7 @@ test('small approval and recovery views keep visible decisions and preserved scr
       ['respond', 'r1', { decision: 'decline' }],
     ]);
 
-    ui.resize(100, 40);
+    await resize(ui, 100, 40);
 
     coordinator.publish({
       requests: [],
@@ -398,7 +414,7 @@ test('small approval and recovery views keep visible decisions and preserved scr
     );
 
     await delay(550);
-    ui.resize(30, 23);
+    await resize(ui, 30, 23);
     await until('small recovery', () => ui.text().includes('a ACCEPT'));
     ui.stdin.write('a');
     await until('accepted recovery', () => calls.length === 1);
@@ -503,12 +519,12 @@ test('a picker keeps its filter editable through a small window', async () => {
       lines(ui).some((line) => line.trim() === 'memory'),
     );
 
-    ui.resize(100, 23);
+    await resize(ui, 100, 23);
     await until('small picker', () => ui.text().includes('memory'));
     ui.stdin.write('x');
     await until('small filter edit', () => ui.text().includes('memoryx'));
     ui.stdin.write('\u007f');
-    ui.resize(100, 40);
+    await resize(ui, 100, 40);
 
     await until('filter restored', () =>
       lines(ui).some((line) => line.trim() === 'memory'),
@@ -546,7 +562,7 @@ test('a partly answered request retains answers and edits its input while small'
     await until('second question', () => ui.text().includes('Question 2/2'));
     ui.stdin.write('second answer');
     await until('draft answer', () => ui.text().includes('second answer'));
-    ui.resize(100, 23);
+    await resize(ui, 100, 23);
     await until('small question', () => ui.text().includes('Question 2/2'));
     ui.stdin.write(' continued');
 
@@ -554,11 +570,10 @@ test('a partly answered request retains answers and edits its input while small'
       ui.text().includes('second answer continued'),
     );
 
-    ui.resize(100, 40);
+    await resize(ui, 100, 40);
     await until('question restored', () => ui.text().includes('Question 2/2'));
     assert.match(ui.text(), /second answer continued/);
-    ui.resize(20, 8);
-    await delay(60);
+    await resize(ui, 20, 8);
     ui.stdin.write(ENTER);
     await until('answers submitted', () => calls.length === 1);
 
