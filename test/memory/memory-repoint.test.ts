@@ -44,13 +44,9 @@ test('repointText maps references at path boundaries and leaves look-alikes alon
   const ledger = await moves([join(s, 'w/main'), join(s, 'c/main')]);
   const home = await scratch('witch-repoint-home-');
   const tilde = { ...homeMove(join(home, 'moved')), from: join(home, 'old') };
-
   ledger.moves.push(tilde);
-
   await mkdir(tilde.to);
-
   Object.assign(tilde, await identify(tilde.to));
-
   const { map } = await mapper(ledger);
   const w = join(s, 'w/main');
   const c = join(s, 'c/main');
@@ -115,9 +111,7 @@ test('repointing follows a chain and never maps into a reused directory', async 
   );
 
   await mkdir(join(s, 'spare'));
-
   await mkdir(b, { recursive: true });
-
   await rename(join(s, 'spare'), join(b, 'x'));
 
   assert.equal(
@@ -151,13 +145,9 @@ test('repointing a suspended chain stays linear in the number of references', as
 
   const ledger = await moves([a, c], [join(b, 'x'), c]);
   ledger.moves[0] = { ...ledger.moves[0]!, to: b };
-
   await mkdir(join(s, 'spare'));
-
   await mkdir(b, { recursive: true });
-
   await rename(join(s, 'spare'), join(b, 'x'));
-
   const { map } = await mapper(ledger);
   const note = `${a}/x/f`;
 
@@ -167,9 +157,7 @@ test('repointing a suspended chain stays linear in the number of references', as
     `${note}!`.repeat(20_000),
   ]) {
     const started = performance.now();
-
     assert.equal(repointText(text, [a, join(b, 'x')], map, homedir()), text);
-
     assert.ok(performance.now() - started < 1000);
   }
 });
@@ -181,7 +169,6 @@ test('a reference longer than any path is left alone', async () => {
 
   for (const tail of ['x'.repeat(1100), 'é/'.repeat(350)]) {
     const text = `\`${w}/${tail}\``;
-
     assert.equal(repointText(text, [w], map, homedir()), text, tail);
   }
 });
@@ -204,15 +191,10 @@ test('begin repoints moved paths in every scope as one published commit', async 
   });
 
   await workspace.publish();
-
   const begun = await workspace.begin(scope, ledger);
-
   assert.equal(begun.repointed, 3);
-
   assert.equal(await memory.read(main, other), `${c}\n`);
-
   assert.equal(begun.notice, undefined);
-
   assert.equal(begun.revision, await memory.resolve(main));
 
   assert.equal(
@@ -230,15 +212,10 @@ test('begin repoints moved paths in every scope as one published commit', async 
   ).stdout.toString();
 
   assert.match(message, /^chore\(memory\): repoint moved directories/);
-
   assert.ok(message.includes(`${w} -> ${c}`));
-
   assert.match(message, /conversation: a/);
-
   const again = await workspace.begin(scope, ledger);
-
   assert.equal(again.repointed, 0);
-
   assert.equal(again.revision, begun.revision);
 });
 
@@ -251,11 +228,8 @@ test('notes published later by another conversation get repointed at the next be
   const first = (await open('a')).workspace;
   const second = (await open('b')).workspace;
   const { scope } = await begin(first, s);
-
   await workspace(second, s, begin, { [`${scope.global}/late.md`]: `${w}\n` });
-
   await first.begin(scope, ledger);
-
   assert.equal(await memory.read(main, `${scope.global}/late.md`), `${c}\n`);
 });
 
@@ -268,9 +242,7 @@ async function workspace(
   notes: Record<string, string>,
 ) {
   await begin(target, cwd);
-
   await save(target, notes);
-
   await target.publish();
 }
 
@@ -285,21 +257,15 @@ async function unionRace() {
   const second = (await f.open('b')).workspace;
   const { scope } = await f.begin(first, s);
   const index = `${scope.global}/MEMORY.md`;
-
   await save(first, { [index]: `- one ${w}\n` });
-
   await first.publish();
-
   await f.begin(second, s);
-
   await save(second, { [index]: `- one ${w}\n- two ${w}/x\n` });
-
   let raced = false;
 
   f.hook.current = async (command, run) => {
     if (!raced && command[0] === 'update-ref' && command.includes(main)) {
       raced = true;
-
       await second.publish();
     }
 
@@ -311,15 +277,10 @@ async function unionRace() {
 
 test('a repoint survives a concurrent union merge of MEMORY.md', async () => {
   const f = await unionRace();
-
   await f.first.begin(f.scope, f.ledger);
-
   assert.ok(f.raced());
-
   const merged = await f.memory.read(main, f.index);
-
   assert.ok(!merged.includes(f.w), merged);
-
   assert.ok(merged.includes(`${f.c}/x`), merged);
 });
 
@@ -334,13 +295,9 @@ test('a failed repoint after the first publish is still reported', async () => {
   };
 
   const begun = await f.first.begin(f.scope, f.ledger);
-
   assert.match(begun.notice ?? '', /Could not repoint.*disk full/);
-
   assert.equal(begun.repointed, 1);
-
   assert.equal(begun.revision, await f.memory.resolve(main));
-
   assert.equal(await f.first.isDirty(), false);
 });
 
@@ -354,19 +311,12 @@ test('a follow-up repoint that loses to another conversation starts the turn fro
     .mockResolvedValueOnce({ paths: [f.index], diff: '' });
 
   const begun = await f.first.begin(f.scope, f.ledger);
-
   assert.equal(spy.mock.calls.length, 2);
-
   spy.mockRestore();
-
   assert.equal(begun.revision, await f.memory.resolve(main));
-
   assert.equal(await f.first.revision(), begun.revision);
-
   assert.ok((await f.memory.read(main, f.index)).includes(`${f.w}/x`));
-
   assert.equal((await f.first.begin(f.scope, f.ledger)).repointed, 1);
-
   assert.ok(!(await f.memory.read(main, f.index)).includes(f.w));
 });
 
@@ -378,9 +328,7 @@ test('begin without matches makes no commit', async () => {
   const { scope } = await begin(workspace, s);
   const before = await memory.resolve(main);
   const begun = await workspace.begin(scope, ledger);
-
   assert.equal(begun.repointed, 0);
-
   assert.equal(await memory.resolve(main), before);
 });
 
@@ -399,22 +347,15 @@ test('a failed note write rolls back and the turn still begins', async () => {
   });
 
   await workspace.publish();
-
   const before = await memory.resolve(main);
-
   await chmod(join(workspace.root, note), 0o444);
 
   try {
     const begun = await workspace.begin(scope, ledger);
-
     assert.match(begun.notice ?? '', /Could not repoint/);
-
     assert.equal(begun.repointed, 0);
-
     assert.equal(await workspace.isDirty(), false);
-
     assert.equal(await memory.resolve(main), before);
-
     assert.equal(await readFile(join(workspace.root, note), 'utf8'), `${w}\n`);
   } finally {
     await chmod(join(workspace.root, note), 0o644);

@@ -108,7 +108,6 @@ export async function fixture(
 /** lets a held fixture event go, so a reverted guard can't hang cleanup. */
 export async function close(session: AgentSession, cwd: string) {
   await writeFile(join(cwd, 'release'), 'yes');
-
   await session.close();
 }
 
@@ -191,17 +190,13 @@ export async function controlledFixture(
 
   const emit = async (...batch: RpcMessage[]) => {
     await frames(...batch);
-
     await session.skills();
   };
 
   const reply = async (index: number, response: unknown, kind = 'list') => {
     await appears(join(cwd, `${kind}-${index}.json`));
-
     await write(`${kind}-reply-${index}.json`, response);
-
     await appears(join(cwd, `${kind}-replied-${index}`));
-
     await emit();
   };
 

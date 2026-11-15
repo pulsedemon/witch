@@ -29,7 +29,6 @@ if (args.join(' ') === 'rev-parse --short HEAD') {
 
   if (failing === 'true') {
     process.stderr.write('revision unavailable\n');
-
     process.exit(23);
   }
 }

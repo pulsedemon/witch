@@ -311,7 +311,6 @@ export class Workspace {
     if (!gitdir) throw new Error(`Not a worktree's .git file: ${gitfile}`);
 
     const directory = resolve(this.root, gitdir);
-
     // a missing git directory fails like git would, instead of reading as no rebase
     await lstat(directory);
 
@@ -321,7 +320,6 @@ export class Workspace {
   /** reads a checkout's scope and creates its directories. */
   async scope(cwd: string): Promise<MemoryScope> {
     const paths = await this.memory.scopePaths(cwd);
-
     await this.prepare(paths);
 
     return paths;
@@ -475,7 +473,6 @@ export class Workspace {
 
       // discarding this derived move loses no accepted notes
       head = latest = await this.latest();
-
       await this.git(['reset', '--hard', '--quiet', latest]);
 
       if (attempt === 5)
@@ -540,7 +537,6 @@ export class Workspace {
       if (next === text) continue;
 
       await writeFile(path, next);
-
       changed++;
     }
 
@@ -702,7 +698,6 @@ export class Workspace {
       if (await present(target)) await rm(source);
       else {
         await mkdir(dirname(target), { recursive: true });
-
         await rename(source, target);
       }
 
@@ -815,7 +810,6 @@ export class Workspace {
     if (!accept()) return;
 
     const previous = await this.revision();
-
     await this.git(['add', '--all', '--force', '--', '.']);
 
     if (!accept()) return;
@@ -896,7 +890,6 @@ export class Workspace {
   /** `clean -ffdx` also removes repositories an agent created inside memory. */
   async discardPending(): Promise<void> {
     await this.git(['reset', '--hard', '--quiet']);
-
     await this.git(['clean', '-ffdx', '--quiet']);
   }
 
@@ -981,7 +974,6 @@ export class Workspace {
 
   async prepareNote(path: string): Promise<string> {
     const file = await this.checkedPath(path);
-
     await mkdir(dirname(file), { recursive: true });
 
     await writeFile(file, '', { flag: 'wx' }).catch((error: unknown) => {
@@ -995,11 +987,8 @@ export class Workspace {
     const file = this.path(path);
     const destination = await this.checkedPath(file);
     const content = await this.memory.readBytes(revision, file);
-
     await mkdir(dirname(destination), { recursive: true });
-
     await writeFile(destination, content);
-
     await this.commit(`chore(memory): restore ${file}`);
   }
 

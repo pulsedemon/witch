@@ -175,7 +175,6 @@ export class FixtureAgent implements AgentAdapter {
 
   async models(options: ModelDiscoveryOptions): Promise<Model[]> {
     this.discoveries.push(options);
-
     options.signal?.throwIfAborted();
 
     if (this.failDiscovery) throw new Error('Discovery failed');
@@ -188,7 +187,6 @@ export class FixtureAgent implements AgentAdapter {
     previous: AccountReading,
   ): Promise<AccountReading> {
     this.accountReads.push(options);
-
     options.signal?.throwIfAborted();
 
     return this.accountRead
@@ -215,14 +213,10 @@ export class FixtureAgent implements AgentAdapter {
     };
 
     options.onEvent({ type: 'info', info });
-
     // a bounded stand-in for the native process, never the test runner's pid
     const sleeper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
-
     sleeper.unref();
-
     await options.onProcess(sleeper.pid);
-
     let closed = false;
     let turn: PromiseWithResolvers<TurnResult> | undefined;
     // apart from `turn`, so steering is refused while a command runs, as the real agents refuse it
@@ -259,7 +253,6 @@ export class FixtureAgent implements AgentAdapter {
         if (closed) throw new Error('Session closed');
 
         this.compactions.push(info.id);
-
         turn = Promise.withResolvers<TurnResult>();
         const held = this.gate ? await this.gate.hold(turn.promise) : undefined;
         turn = undefined;
@@ -301,13 +294,11 @@ export class FixtureAgent implements AgentAdapter {
 
         if (this.modelsSkills) {
           this.skills = this.modelsSkills;
-
           options.onEvent({ type: 'skills', skills: this.skills });
         }
 
         if (this.modelsUsage) {
           usage = this.modelsUsage;
-
           options.onEvent({ type: 'usage', usage });
         }
 
@@ -340,9 +331,7 @@ export class FixtureAgent implements AgentAdapter {
         if (closed) throw new Error('Session closed');
 
         this.shells.push(command);
-
         shellRow(command);
-
         shell = Promise.withResolvers<TurnResult>();
 
         const held = this.gate
@@ -376,7 +365,6 @@ export class FixtureAgent implements AgentAdapter {
         if (contextOnly) this.contextSteers.push(prompt);
         else {
           this.steers.push(prompt);
-
           this.steerImages.push(images);
         }
 
@@ -386,7 +374,6 @@ export class FixtureAgent implements AgentAdapter {
           if (!contextOnly) steered.push(prompt);
         } else {
           this.shells.push(command);
-
           shellRow(command);
         }
 
@@ -410,16 +397,13 @@ export class FixtureAgent implements AgentAdapter {
       },
       close: async (stop) => {
         this.stops.push({ operation: 'close', options: stop });
-
         closed = true;
-
         turn?.resolve({ status: 'failed', text: '', error: 'Session closed' });
 
         try {
           if (this.failClose) throw new Error('Close failed');
         } finally {
           sleeper.kill();
-
           await options.onProcess(undefined);
         }
       },
@@ -514,7 +498,6 @@ export class FixtureAgent implements AgentAdapter {
 
           if (this.turnUsage) {
             usage = this.turnUsage;
-
             options.onEvent({ type: 'usage', usage });
           }
 

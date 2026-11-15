@@ -66,7 +66,6 @@ export async function recoverConversations(
 
       if (await workspace.branchExists()) {
         await workspace.ensureWorktree();
-
         pending = await workspace.isDirty();
 
         if (pending) reason = 'unfinished memory changes';
@@ -76,7 +75,6 @@ export async function recoverConversations(
 
       if (!pending && files.record.activity) {
         delete files.record.activity;
-
         await files.save(files.record);
       }
     } catch (error) {

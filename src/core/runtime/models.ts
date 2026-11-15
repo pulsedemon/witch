@@ -178,9 +178,7 @@ export class ModelCatalog {
       );
 
       const latestResults = await latestReads;
-
       discovery.signal.throwIfAborted();
-
       const errors: string[] = [];
 
       const failed = (label: string, reason: unknown) =>

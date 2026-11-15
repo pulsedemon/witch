@@ -106,7 +106,6 @@ const rekeyed = (sessions: ConversationRecord['sessions'], project: string) =>
 
       // as the next turn's delivery would, a new key resends the whole snapshot
       const next = { ...session, deliveredProject: project };
-
       delete next.deliveredRevision;
 
       return [name, next];
@@ -238,7 +237,6 @@ async function recordMoves(
       if (!identity) continue;
 
       Object.assign(entry, identity);
-
       copied.push([entry, path]);
     }
 
@@ -251,7 +249,6 @@ async function recordMoves(
       )
     ) {
       ledger.entries.push(vouched);
-
       relocate(ledger, [[vouched, vouched.path]]);
     }
   }
@@ -344,7 +341,6 @@ export async function repairMoves(
     };
 
     const { map } = await mapper(ledger);
-
     await repairRepositories(ledger, listed?.[0], map, report, run, preview);
 
     if (!preview) await record(ledger, cwd, seeds, records, run, report);
@@ -483,9 +479,7 @@ async function record(
 
     if (!entry) {
       const added: DirectoryEntry = { path, ...identity };
-
       ledger.entries.push(added);
-
       byPath.set(path, added);
 
       return added;
@@ -636,7 +630,6 @@ async function rewrite(
 
         // holding the lock means no Witch has it open, so these are left from a crash, and claim would stop them too
         await stopLeftProcesses(current);
-
         // the mapping as resolved must still give the target, and anything it relied on that changed while this waited
         // for the lock or the stops leaves the conversation for the next start
         const owner = savedBefore(saved);
@@ -721,7 +714,6 @@ function summarize(
 
     if (!known) {
       known = { from: move.from, to: move.to, conversations: 0, worktrees: 0 };
-
       lines.set(key, known);
     }
 

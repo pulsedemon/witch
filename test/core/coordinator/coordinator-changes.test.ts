@@ -98,17 +98,11 @@ test("a finished shell command's row gains what changed, keeps its output and su
   try {
     // connecting asks for the baseline before any tool can report
     assert.deepEqual(watcher.calls, [['watch', project]]);
-
     await coordinator.send('first');
-
     watcher.reads = [Promise.resolve({ files: diff, withHead: 2, more: 1 })];
-
     command(a.sessions.at(-1)!.options.onEvent, 'sed');
-
     await until('the diff', () => !!row(coordinator, 'Bash  $ sed')?.diff);
-
     const shown = row(coordinator, 'Bash  $ sed')!;
-
     assert.deepEqual(shown.diff, diff);
 
     assert.equal(
@@ -117,17 +111,12 @@ test("a finished shell command's row gains what changed, keeps its output and su
     );
 
     assert.equal(shown.done, true);
-
     assert.deepEqual(watcher.calls.at(-1), ['read', project]);
-
     await coordinator.close();
-
     reopened = await reopen();
-
     assert.deepEqual(row(reopened, 'Bash  $ sed')?.diff, diff);
   } finally {
     await coordinator.close();
-
     await reopened?.close();
   }
 });
@@ -148,13 +137,9 @@ test("the native session starts only once its checkout's baseline has settled", 
   );
 
   await until('the baseline request', () => watcher.calls.length === 1);
-
   await setImmediate();
-
   assert.equal(agent!.sessions.length, 0);
-
   baseline.resolve();
-
   const { coordinator, a } = await opening;
 
   try {
@@ -173,20 +158,14 @@ test('an interrupt during the baseline wait starts no native session', async () 
   try {
     watcher.watching = () => baseline.promise;
     clearing = coordinator.clear();
-
     await until('the baseline request', () => watcher.calls.length === 2);
-
     await coordinator.interrupt();
-
     // the baseline is still held: the interrupt alone ends the wait
     await assert.rejects(clearing, { name: 'AbortError' });
-
     assert.equal(a.sessions.length, 1);
   } finally {
     baseline.resolve();
-
     await clearing?.catch(() => undefined);
-
     await coordinator.close();
   }
 });
@@ -197,7 +176,6 @@ test('only shell commands are read, and counts alone append without a diff', asy
 
   try {
     await coordinator.send('first');
-
     const { onEvent } = a.sessions.at(-1)!.options;
 
     onEvent({
@@ -209,9 +187,7 @@ test('only shell commands are read, and counts alone append without a diff', asy
     });
 
     onEvent({ type: 'tool', id: 'read', title: '', text: 'a', done: true });
-
     assert.equal(watcher.calls.filter(([name]) => name === 'read').length, 0);
-
     // Codex's shape: a finish that says a command ran, with no start before it
     watcher.reads = [Promise.resolve({ files: [], withHead: 1, more: 0 })];
 
@@ -229,18 +205,12 @@ test('only shell commands are read, and counts alone append without a diff', asy
     );
 
     const counted = row(coordinator, 'git switch main')!;
-
     assert.equal(counted.text, 'switched\n… 1 file changed with HEAD');
-
     assert.equal(counted.diff, undefined);
-
     // a command that changed nothing leaves its row alone
     command(onEvent, 'ls', 'listing');
-
     await setImmediate();
-
     assert.equal(row(coordinator, 'Bash  $ ls')!.text, 'listing');
-
     assert.equal(watcher.calls.filter(([name]) => name === 'read').length, 2);
   } finally {
     await coordinator.close();
@@ -269,7 +239,6 @@ test("a tool's own diff moves the baseline past its files, unless the tool faile
 
   try {
     await coordinator.send('first');
-
     const { onEvent } = a.sessions.at(-1)!.options;
 
     onEvent({
@@ -310,23 +279,15 @@ test('a failure posts one notice until its text changes, and a failed baseline l
 
   try {
     await until('the baseline notice', () => notices(coordinator).length === 1);
-
     await coordinator.send('first');
-
     assert.equal(a.inputs.length, 1);
-
     const { onEvent } = a.sessions.at(-1)!.options;
     const failure = () => Promise.reject(new Error("Couldn't read: twice"));
     watcher.reads = [failure(), failure()];
-
     command(onEvent, 'one');
-
     command(onEvent, 'two');
-
     await until('the read notice', () => notices(coordinator).length === 2);
-
     await setImmediate();
-
     watcher.absorbing = Promise.reject(new Error("Couldn't read: absorb"));
 
     onEvent({
@@ -356,15 +317,11 @@ test('a failure that comes back after a success posts again', async () => {
 
   try {
     await coordinator.send('first');
-
     const { onEvent } = a.sessions.at(-1)!.options;
     const failure = () => Promise.reject(new Error("Couldn't read: again"));
     watcher.reads = [failure()];
-
     command(onEvent, 'one');
-
     await until('the first notice', () => notices(coordinator).length === 1);
-
     command(onEvent, 'two');
 
     await until(
@@ -373,11 +330,8 @@ test('a failure that comes back after a success posts again', async () => {
     );
 
     await setImmediate();
-
     watcher.reads = [failure()];
-
     command(onEvent, 'three');
-
     await until('the second notice', () => notices(coordinator).length === 2);
   } finally {
     await coordinator.close();
@@ -391,7 +345,6 @@ test('a new conversation posts a failure the one before it already saw', async (
 
   try {
     await until('the first notice', () => notices(coordinator).length === 1);
-
     await coordinator.newConversation();
 
     await until(
@@ -417,16 +370,12 @@ test('a read that settles after its conversation closed shows and posts nothing'
 
   try {
     await coordinator.send('first');
-
     const { onEvent } = a.sessions.at(-1)!.options;
     const shown = Promise.withResolvers<Changes>();
     const failed = Promise.withResolvers<Changes>();
     watcher.reads = [shown.promise, failed.promise];
-
     command(onEvent, 'late');
-
     command(onEvent, 'failing');
-
     await coordinator.newConversation();
 
     shown.resolve({
@@ -436,7 +385,6 @@ test('a read that settles after its conversation closed shows and posts nothing'
     });
 
     failed.reject(new Error("Couldn't read: late"));
-
     await setImmediate();
 
     assert.deepEqual(

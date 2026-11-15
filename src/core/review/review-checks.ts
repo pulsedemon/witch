@@ -221,7 +221,6 @@ function proseLines(lines: readonly string[]): (string | undefined)[] {
 
       if (opening) {
         fence = { mark: opening[1]![0]!, length: opening[1]!.length, depth };
-
         prose.push(undefined);
 
         continue;
@@ -278,9 +277,7 @@ function segments(line: string): Segment[] {
 
     if (raw) {
       flush();
-
       parts.push({ code: false, text: raw[0], raw: raw[0], html: true });
-
       index += raw[0].length;
 
       continue;
@@ -327,7 +324,6 @@ function segments(line: string): Segment[] {
     }
 
     flush();
-
     const inner = line.slice(index + run, found);
 
     parts.push({
@@ -565,7 +561,6 @@ function openBlock(
 
       klass = false;
       gap = true;
-
       line++;
 
       continue;
@@ -576,7 +571,6 @@ function openBlock(
     if (state === 'block') {
       if (char === '*' && next === '/') {
         state = 'code';
-
         index++;
       }
 
@@ -613,7 +607,6 @@ function openBlock(
 
     if (char === '/' && next === '*') {
       state = 'block';
-
       index++;
 
       continue;
@@ -692,9 +685,7 @@ function anchors(text: string): Set<string> {
 
     while (headings.has(anchor)) {
       const seen = (counts.get(base) ?? 0) + 1;
-
       counts.set(base, seen);
-
       anchor = `${base}-${seen}`;
     }
 

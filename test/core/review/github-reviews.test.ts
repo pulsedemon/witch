@@ -97,15 +97,10 @@ function fixture() {
 
   const run: Run = async (command, args, options) => {
     assert.equal(command, 'gh');
-
     assert.equal(options.cwd, '/checkout');
-
     assert.equal(options.timeout, 30_000);
-
     assert.ok(options.signal);
-
     assert.deepEqual(args.slice(0, 3), ['api', '--hostname', 'github.com']);
-
     let result: unknown;
 
     if (args.includes('graphql')) {
@@ -113,9 +108,7 @@ function fixture() {
 
       if (query.includes('repository(owner:')) {
         assert.ok(args.includes('owner=team'));
-
         assert.ok(args.includes('name=project'));
-
         assert.ok(args.includes('number=12'));
 
         result = {
@@ -127,11 +120,8 @@ function fixture() {
       } else if (args.some((arg) => arg.startsWith('cursor='))) {
         const id = args.find((arg) => arg.startsWith('id='))!.slice(3);
         const cursor = args.find((arg) => arg.startsWith('cursor='))!.slice(7);
-
         assert.ok(query.includes('after:$cursor'));
-
         result = tails.get(`${id}/${cursor}`);
-
         assert.ok(result, `unexpected page ${id}/${cursor}`);
       } else result = { data: { node: final } };
     } else if (args[3]!.startsWith('repos/team/project/rules/')) {
@@ -167,7 +157,6 @@ function fixture() {
       );
 
       assert.deepEqual(args.slice(4), ['--paginate', '--slurp']);
-
       result = checks;
     }
 
@@ -199,11 +188,8 @@ test('submitted feedback survives removal of the request and preserves source re
   });
 
   const result = await f.read();
-
   assert.equal(result.pullRequest.commit, 'fresh-head');
-
   assert.equal(result.viewer, 'owner');
-
   assert.equal(result.draft, false);
 
   assert.deepEqual(result.copilotRules, [
@@ -247,11 +233,8 @@ test('a completed check does not hide a review that arrives on the next read', a
   f.first.reviews = page([]);
   f.first.reviewThreads = page([]);
   const before = await f.read();
-
   assert.equal(before.checks[0]!.status, 'completed');
-
   assert.deepEqual(before.reviews, []);
-
   f.first.reviews = page([review('delayed')]);
 
   assert.deepEqual(
@@ -359,9 +342,7 @@ test.each(['null', 'repeat'])(
 
 test('a head change during collection rejects mixed-revision feedback', async () => {
   const f = fixture();
-
   f.final({ ...metadata, headRefOid: 'another-head' });
-
   await assert.rejects(f.read(), /changed while its reviews/);
 });
 
@@ -387,11 +368,8 @@ test('a check from another commit cannot establish this heads progress', async (
 
 test('only the Copilot Bot identity qualifies', () => {
   assert.equal(isCopilot(bot), true);
-
   assert.equal(isCopilot({ ...bot, __typename: 'User' }), false);
-
   assert.equal(isCopilot({ ...bot, login: 'Copilot' }), false);
-
   assert.equal(isCopilot(null), false);
 });
 

@@ -61,21 +61,13 @@ test('diffs wrap line numbers and notices when the gutter cannot fit', () => {
 
   for (const width of [1, 2, 4, 7]) {
     const lines = rows(files, width);
-
     assert.ok(lines.every((line) => stringWidth(line) <= width));
-
     const text = stripAnsi(lines.join('')).replaceAll(' ', '');
-
     assert.ok(text.includes('10000-old'));
-
     assert.ok(text.includes('10000+replacement'));
-
     assert.ok(text.includes('...'));
-
     assert.ok(text.includes('…+2lines'));
-
     assert.ok(text.includes('…binary'));
-
     assert.ok(text.includes('…notshown'));
   }
 });
@@ -90,9 +82,7 @@ test('a narrow diff leaves room for wide characters beside line numbers', () => 
   ];
 
   const lines = rows(files, 4);
-
   assert.ok(lines.every((line) => stringWidth(line) <= 4));
-
   assert.ok(stripAnsi(lines.join('')).includes('界'));
 });
 
@@ -127,17 +117,11 @@ test('a prepared diff preserves earlier rows while rendering new widths', () => 
     for (const width of [28, 198, 78]) {
       const drawn = render(width);
       const plain = drawn.flat().map((line) => stripAnsi(line).trimEnd());
-
       assert.equal(plain[0], 'Create ./new.ts +12');
-
       assert.ok(plain.includes('10 +const value_10 = 10;'));
-
       assert.equal(plain.includes('12 +const value_12 = 12;'), full);
-
       assert.equal(plain.includes('… +2 lines'), !full);
-
       assert.ok(drawn.flat().every((line) => stringWidth(line) <= width));
-
       assert.deepEqual(earlier, saved);
     }
 
@@ -165,13 +149,9 @@ test('whole-file expansion exposes every supplied line without changing updates 
 
     const original = structuredClone(file);
     const preview = plainRows([file]).join('\n');
-
     assert.match(preview, /line_10/);
-
     assert.doesNotMatch(preview, /line_11|line_12/);
-
     assert.match(preview, /… \+2 lines/);
-
     assert.equal(canExpandDiff([file]), true);
 
     const full = stripAnsi(
@@ -179,13 +159,9 @@ test('whole-file expansion exposes every supplied line without changing updates 
     );
 
     assert.match(full, /line_11[\s\S]*line_12/);
-
     assert.doesNotMatch(full, /… \+2 lines/);
-
     assert.deepEqual(file, original);
-
     const update: FileDiff = { ...file, kind: 'update' };
-
     assert.equal(canExpandDiff([update]), false);
 
     assert.deepEqual(
@@ -250,13 +226,11 @@ test('an edited file shows under a header counting its lines, each row numbered 
 
   for (const code of ['-delta', '-w']) {
     assert.ok(row(code).includes(red), code);
-
     assert.ok(!row(code).includes(green), code);
   }
 
   for (const code of ['+DELTA', '+y']) {
     assert.ok(row(code).includes(green), code);
-
     assert.ok(!row(code).includes(red), code);
   }
 
@@ -326,11 +300,8 @@ test('tabs and wide characters keep every row within the width, and a long line 
   }
 
   const shown = plainRows(files, 20);
-
   assert.ok(shown.includes('1 +        x中文'), shown.join('\n'));
-
   assert.ok(shown.includes('2 +' + 'a'.repeat(17)), shown.join('\n'));
-
   assert.ok(shown.includes('   ' + 'a'.repeat(13)), shown.join('\n'));
 });
 
@@ -351,9 +322,7 @@ test('escape sequences and carriage returns in a file never reach the terminal',
 
   for (const row of drawn) {
     assert.ok(!row.includes(']8;;https://x'), JSON.stringify(row));
-
     assert.ok(!row.includes('\u001b]8;;https://y'), JSON.stringify(row));
-
     assert.ok(!row.includes('\r'), JSON.stringify(row));
   }
 
@@ -437,20 +406,15 @@ test('code reads as the language its extension names, colored as Claude Code col
     drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
 
   const added = row('// done');
-
   assert.ok(added.includes('\u001b[38;2;102;217;239mconst'));
-
   assert.ok(added.includes('\u001b[38;2;230;219;116m"s"'));
-
   assert.ok(added.includes('\u001b[38;2;249;38;114mif'));
-
   assert.ok(added.includes('\u001b[38;2;117;113;94m// done'));
 
   for (const code of ['- * old', '-let y = 1;'])
     assert.ok(!syntaxOf(row(code)).includes('\u001b[38;'), code);
 
   assert.ok(added.startsWith(`${green}\u001b[38;2;80;200;80m4 +`));
-
   assert.ok(row('-let y = 1;').startsWith(`${red}\u001b[38;2;220;90;90m4 -`));
 
   assert.ok(
@@ -495,7 +459,6 @@ test('each line reads alone, as Claude Code reads it, so a hunk that opens insid
     drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
 
   assert.ok(row('+import os').includes('\u001b[38;2;249;38;114mimport'));
-
   assert.ok(row(' class A(B):').includes('\u001b[38;2;166;226;46mA'));
 });
 
@@ -531,11 +494,8 @@ test('a line whose colored runs would split a character, such as an emoji or a k
     drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
 
   assert.ok(row('+my $😀 = 2;').includes('my $😀 = 2;'));
-
   assert.ok(row('+f(1\uFE0F\u20E3);').includes('f(1\uFE0F\u20E3);'));
-
   assert.ok(row('+a[b\u2028] {}').includes('a[b\u2028] {}'));
-
   assert.ok(row(' my $x = 1;').includes('\u001b[38;2;249;38;114mmy'));
 });
 
@@ -654,15 +614,10 @@ test("words a removed row and the added row at its place in the next run changed
 
   const count = (text: string, part: string) => text.split(part).length - 1;
   const removed = row('-const answer = one;');
-
   assert.ok(removed.includes(`${removedWord}one\u001b[49m`));
-
   assert.equal(count(removed, removedWord), 1);
-
   const added = row('+const answer = forty;');
-
   assert.ok(added.includes(`${addedWord}forty\u001b[49m`));
-
   assert.equal(count(added, addedWord), 1);
 
   for (const [code, word] of [
@@ -678,15 +633,10 @@ test("words a removed row and the added row at its place in the next run changed
   }
 
   assert.ok(row('+const n = f(1);').includes(`${addedWord}(`));
-
   assert.ok(row('+const z = forty;').includes(`${addedWord}forty`));
-
   assert.ok(row('+const p = forty;').includes(`${addedWord}forty`));
-
   assert.ok(!row('-const q = two;').includes(removedWord));
-
   assert.ok(row('+const r = forty;').includes(`${addedWord}forty`));
-
   assert.ok(!row('+const s = two;').includes(addedWord));
 
   assert.ok(
@@ -734,7 +684,6 @@ test('repeated shared tokens keep a pair at 400 token edits colored and 401 unco
       [addedWord, after],
     ] as const) {
       assert.equal(drawn.includes(`${color}${text}\u001b[49m`), colored);
-
       assert.equal(drawn.split(color).length - 1, colored ? 1 : 0);
     }
   }
@@ -761,7 +710,6 @@ test('reordered tokens still receive word colors when their occurrence counts ma
   ).join('\n');
 
   assert.ok(drawn.includes(`${removedWord}one \u001b[49m`));
-
   assert.ok(drawn.includes(`${addedWord} one\u001b[49m`));
 });
 
@@ -877,17 +825,11 @@ test("a long line past the highlighting budget draws plain while shorter lines k
     drawn.some((row) => syntaxOf(row).includes('\u001b[38;'));
 
   assert.ok(colored(first!));
-
   assert.ok(!colored(second!));
-
   assert.ok(colored(short!));
-
   assert.ok(!colored(later!));
-
   assert.ok(!colored(indented!));
-
   assert.ok(colored(next!));
-
   const words = Array.from({ length: 1200 }, (_, index) => `w${index}`);
   const changed = words.map((word, index) => (index % 5 ? word : `v${index}`));
 
@@ -936,7 +878,6 @@ test('an html line opening many script tags draws quickly, with JavaScript and C
 
   // reading each tag's content as both xml and handlebars takes seconds
   const { user, system } = process.threadCpuUsage(started);
-
   assert.ok(user + system < 500_000);
 
   const row = (code: string) =>
@@ -981,15 +922,10 @@ for (const [name, before, after, oldWord, newWord] of [
     );
 
     assert.ok(removed!.includes(`${removedWord}${oldWord}\u001b[49m`));
-
     assert.ok(added!.includes(`${addedWord}${newWord}\u001b[49m`));
-
     assert.equal(removed!.split(removedWord).length - 1, 1);
-
     assert.equal(added!.split(addedWord).length - 1, 1);
-
     assert.equal(stripAnsi(removed!).trimEnd(), '1 -' + before);
-
     assert.equal(stripAnsi(added!).trimEnd(), '1 +' + after);
   });
 }
@@ -1019,7 +955,6 @@ test('word colors include exactly 40 percent changed text and exclude one additi
       [added!, addedWord, after],
     ] as const) {
       assert.equal(row.includes(`${color}${word}\u001b[49m`), colored);
-
       assert.equal(row.split(color).length - 1, colored ? 1 : 0);
     }
   }
@@ -1063,9 +998,7 @@ test('a declaration word used as a function name keeps its title color', () => {
   ]);
 
   assert.ok(row!.includes('\u001b[38;2;102;217;239mdef\u001b[39m'));
-
   assert.ok(row!.includes('\u001b[38;2;166;226;46mtype\u001b[39m'));
-
   assert.equal(stripAnsi(row!).trimEnd(), '1 +def type(): pass');
 });
 
@@ -1089,9 +1022,7 @@ test('a Python shebang selects Python syntax for code in updates and added files
     ]);
 
     assert.ok(code!.includes('\u001b[38;2;102;217;239mdef\u001b[39m'));
-
     assert.ok(code!.includes('\u001b[38;2;249;38;114mpass\u001b[39m'));
-
     assert.equal(stripAnsi(code!).trimEnd(), '2 +def f(): pass');
   }
 });

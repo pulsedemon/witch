@@ -80,13 +80,9 @@ for (const runtime of ['Codex', 'Claude']) {
 
       const at = rows().findIndex((row) => row.includes('+ ✓ claim task:'));
       const visible = rows()[at]!.slice(1, 84).trimEnd();
-
       assert.ok(visible.endsWith('…'));
-
       assert.ok(!ui.text().includes('subject-end'));
-
       assert.ok(!ui.text().includes('--control-dir'));
-
       drag(ui, [1, at], [83, at]);
 
       await until('the selected control', () =>
@@ -94,11 +90,8 @@ for (const runtime of ['Codex', 'Claude']) {
       );
 
       ui.stdin.write(CMD_C);
-
       await until('the compact copy', () => copied.length === 1);
-
       assert.equal(copied[0], visible);
-
       ui.stdin.write(`${TAB}${ENTER}`);
 
       await until('the expanded control', () =>
@@ -117,7 +110,6 @@ for (const runtime of ['Codex', 'Claude']) {
       );
 
       ui.stdin.write(CMD_C);
-
       await until('the full copy', () => copied.length === 2);
 
       assert.equal(

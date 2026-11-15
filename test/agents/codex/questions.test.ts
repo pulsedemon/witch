@@ -15,7 +15,6 @@ test('native async question messages produce one shared request with choices and
 
   try {
     const sending = session.send('hold');
-
     await session.skills();
 
     const item = {

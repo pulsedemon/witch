@@ -12,17 +12,13 @@ async function spellTree() {
   const a = join(root, 'p', '.agents', 'skills', 'a', 'SKILL.md');
   const b = join(root, 'h', 'skills', 'b', 'SKILL.md');
   const c = join(root, 'sp ace', 'skills', 'c', 'SKILL.md');
-
   await mkdir(join(a, '..', 'scripts'), { recursive: true });
-
   await mkdir(join(b, '..'), { recursive: true });
-
   await mkdir(join(c, '..'), { recursive: true });
 
   for (const path of [a, b, c]) await writeFile(path, '---\n---\n');
 
   await writeFile(join(a, '..', 'scripts', 'run.py'), '');
-
   await symlink(join(root, 'p'), join(root, 'link'));
 
   const index = castIndex([
@@ -132,7 +128,6 @@ test("a selected spell the agent also reads is one cast per turn, under the turn
 
   try {
     const path = await realpath(join(cwd, '.agents/skills/a/SKILL.md'));
-
     assert.deepEqual(await session.skills(), [{ name: 'a', description: 'A' }]);
 
     const first = await session.send('cast', {
@@ -153,7 +148,6 @@ test("a selected spell the agent also reads is one cast per turn, under the turn
     );
 
     const before = spellIds(events).length;
-
     assert.equal((await session.send('again')).status, 'completed');
 
     assert.deepEqual(spellIds(events).slice(before), [
@@ -173,11 +167,8 @@ test("a familiar's reads join its spells once, a late one from its previous turn
 
   try {
     const path = await realpath(join(cwd, '.agents/skills/a/SKILL.md'));
-
     await session.skills();
-
     assert.equal((await session.send('familiar')).status, 'completed');
-
     const cast: Cast = { id: `child-thread/child-turn-1/${path}`, name: 'a' };
 
     const child = events.flatMap((event): Subagent[] =>
@@ -220,7 +211,6 @@ test('a selected spell Codex is never sent is not announced', async () => {
     });
 
     assert.equal(result.inputUnsent, true);
-
     assert.deepEqual(spellIds(events), []);
   } finally {
     await close(session, cwd);

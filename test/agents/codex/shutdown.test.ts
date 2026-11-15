@@ -26,20 +26,16 @@ for (const phase of ['start', 'response', 'completion', 'late response'])
         await writeFile(join(cwd, 'late-interrupt'), '');
 
       const turn = session.send('hold');
-
       await appears(join(cwd, 'prompt.json'));
-
       const started = performance.now();
       const interruption = session.interrupt({ deadline: started + 3200 });
 
       if (phase === 'late response') {
         await appears(join(cwd, 'interrupt.json'));
-
         child.stdin.end();
       }
 
       await within(interruption, 2500, 'bounded interrupt');
-
       assert.equal((await turn).status, 'interrupted');
 
       if (phase === 'late response')
@@ -49,9 +45,7 @@ for (const phase of ['start', 'response', 'completion', 'late response'])
         );
 
       assert.equal(session.closed, true);
-
       assert.ok(child.exitCode !== null || child.signalCode !== null);
-
       assert.equal(events.filter((event) => event.type === 'closed').length, 1);
 
       assert.equal(
@@ -63,7 +57,6 @@ for (const phase of ['start', 'response', 'completion', 'late response'])
       );
 
       await assert.rejects(session.send('too late'), /closed/);
-
       await within(session.close(), 1000, 'close after timeout');
     } finally {
       await close(session, cwd);
@@ -75,7 +68,6 @@ test('Codex restart does not acquire the interrupt escalation deadline', async (
 
   try {
     const turn = session.send('hold');
-
     await appears(join(cwd, 'prompt.json'));
 
     const interrupting = session.interrupt({
@@ -84,19 +76,12 @@ test('Codex restart does not acquire the interrupt escalation deadline', async (
     });
 
     const done = settled(interrupting);
-
     await appears(join(cwd, 'replied'));
-
     await delay(150);
-
     assert.equal(done(), false);
-
     assert.equal(session.closed, false);
-
     await writeFile(join(cwd, 'release'), '');
-
     await within(interrupting, 2000, 'released restart interrupt');
-
     assert.equal((await turn).status, 'interrupted');
   } finally {
     await close(session, cwd);
@@ -108,7 +93,6 @@ test('a successful Codex interruption leaves a fresh budget for the next turn', 
 
   try {
     const first = session.send('hold');
-
     await appears(join(cwd, 'prompt.json'));
 
     const interrupting = session.interrupt({
@@ -116,31 +100,18 @@ test('a successful Codex interruption leaves a fresh budget for the next turn', 
     });
 
     await writeFile(join(cwd, 'release'), '');
-
     await interrupting;
-
     assert.equal((await first).status, 'interrupted');
-
     await unlink(join(cwd, 'release'));
-
     await delay(250);
-
     const second = session.send('hold');
-
     assert.equal(await session.steer('second turn'), true);
-
     const stopping = session.interrupt({ deadline: performance.now() + 3200 });
-
     await delay(50);
-
     assert.equal(session.closed, false);
-
     await writeFile(join(cwd, 'release'), '');
-
     await within(stopping, 2000, 'second interrupt');
-
     assert.equal((await second).status, 'interrupted');
-
     assert.equal(session.closed, false);
   } finally {
     await close(session, cwd);

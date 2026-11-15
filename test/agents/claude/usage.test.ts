@@ -129,7 +129,6 @@ function endpoint(child: ChildProcessWithoutNullStreams, cwd: string) {
     },
     async reply(value: unknown = report(), previous = '', error = false) {
       const request = await this.pending(previous);
-
       assert.equal(request.request.skip_behaviors, true);
 
       await emit({
@@ -186,9 +185,7 @@ async function controlled(
         if (child.exitCode !== null || child.signalCode !== null) continue;
 
         const closed = once(child, 'close');
-
         child.kill('SIGKILL');
-
         await closed;
       }
     }
@@ -209,7 +206,6 @@ async function controlled(
       )!;
 
       writeFileSync(join(launched.cwd, 'hold-usage'), '');
-
       helpers.push(endpoint(launched.child, launched.cwd));
     }
 
@@ -221,7 +217,6 @@ async function controlled(
     onUsageProcess: prepare,
     onEvent: (event) => {
       events.push(event);
-
       options.onEvent?.(event);
     },
   });
@@ -239,11 +234,8 @@ async function initial(f: Fixture) {
 
 async function poll(f: Fixture, index = 0) {
   vi.advanceTimersByTime(60_000);
-
   await until('usage helper', () => !!f.helpers[index]);
-
   const helper = f.helpers[index]!;
-
   await helper.pending();
 
   return helper;
@@ -260,21 +252,15 @@ async function complete(f: Fixture) {
   );
 
   await f.main.emit(idle);
-
   await turn;
 }
 
 test('closing Claude uses the same stop budget for a usage helper that ignores SIGTERM', async (t) => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
   const f = await controlled(t.onTestFinished, {}, 'background', 'ignore-term');
-
   await initial(f);
-
   const helper = await poll(f);
-
   vi.useRealTimers();
-
   const started = performance.now();
 
   await within(
@@ -284,9 +270,7 @@ test('closing Claude uses the same stop budget for a usage helper that ignores S
   );
 
   assert.ok(performance.now() - started < 3200);
-
   assert.equal(helper.child.signalCode, 'SIGKILL');
-
   assert.deepEqual(f.identities, [helper.child.pid, undefined]);
 
   assert.ok(
@@ -310,11 +294,8 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
     { timeout },
     async (t) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
       const f = await controlled(t.onTestFinished, {}, 'compaction');
-
       await initial(f);
-
       let finished = false;
 
       if (state !== 'idle') {
@@ -332,20 +313,13 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
       }
 
       const writes = vi.spyOn(f.children[0]!.stdin, 'write');
-
       vi.advanceTimersByTime(59_999);
-
       await f.main.barrier();
-
       assert.equal(f.helpers.length, 0);
-
       vi.advanceTimersByTime(1);
-
       await until('first periodic helper', () => !!f.helpers[0]);
-
       const helper = f.helpers[0]!;
       const first = await helper.reply();
-
       assert.deepEqual(untimed(f.session.usage.account?.limits), firstLimits);
 
       assert.ok(
@@ -357,17 +331,11 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
       );
 
       vi.advanceTimersByTime(59_999);
-
       await helper.barrier();
-
       assert.equal((await helper.requests()).length, 1);
-
       vi.advanceTimersByTime(1);
-
       await helper.reply(report(true), first);
-
       assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
-
       assert.equal(finished, false);
 
       assert.equal(
@@ -397,31 +365,18 @@ test(
     );
 
     await f.main.pending();
-
     await complete(f);
-
     await f.main.barrier();
-
     assert.equal((await f.main.requests()).length, 1);
-
     vi.advanceTimersByTime(60_000);
-
     await f.main.barrier();
-
     assert.equal(f.helpers.length, 0);
-
     const id = await f.main.reply();
-
     await f.main.reply(report(true), id);
-
     assert.equal((await f.main.requests()).length, 2);
-
     assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
-
     const helper = await poll(f);
-
     await helper.reply();
-
     assert.equal((await f.main.requests()).length, 2);
   },
 );
@@ -431,17 +386,11 @@ test(
   { timeout },
   async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const f = await controlled(t.onTestFinished);
-
     await initial(f);
-
     const helper = await poll(f);
-
     await writeFile(join(f.cwd, 'hold-context'), '');
-
     await complete(f);
-
     let context: Control | undefined;
 
     await until('completion context request', async () => {
@@ -462,25 +411,16 @@ test(
     });
 
     assert.equal(f.session.usage.context, 82);
-
     assert.equal(f.session.usage.contextWindow, 900000);
-
     assert.equal((await f.main.requests()).length, 1);
-
     await writeFile(join(f.cwd, 'hold-usage'), '');
-
     await helper.reply();
-
     const next = report(true);
     next.session.total_lines_added = 17;
     next.session.total_lines_removed = 3;
-
     await f.main.reply(next);
-
     assert.equal((await f.main.requests()).length, 2);
-
     assert.deepEqual(f.session.usage.lines, { added: 17, removed: 3 });
-
     assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
   },
 );
@@ -503,11 +443,8 @@ for (const source of ['main', 'helper'] as const) {
 
         const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000);
         const mainId = await f.main.reply();
-
         assert.deepEqual(untimed(f.session.usage.account?.limits), firstLimits);
-
         const target = source === 'main' ? f.main : await poll(f);
-
         clock.mockReturnValue(2_000);
 
         if (source === 'main') await complete(f);
@@ -550,7 +487,6 @@ for (const source of ['main', 'helper'] as const) {
         );
 
         clock.mockReturnValue(3_000);
-
         const helper = f.helpers[0] ?? (await poll(f));
 
         const last =
@@ -559,7 +495,6 @@ for (const source of ['main', 'helper'] as const) {
         if (source === 'helper') vi.advanceTimersByTime(60_000);
 
         await helper.reply(report(true), last);
-
         assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
 
         assert.deepEqual(
@@ -578,15 +513,10 @@ test(
   { timeout },
   async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const f = await controlled(t.onTestFinished, {}, 'compaction');
-
     await initial(f);
-
     await f.session.send('hello');
-
     await until('main line totals', () => f.session.usage.lines?.added === 4);
-
     const info = { ...f.session.info };
     const helper = await poll(f);
     const before = f.events.length;
@@ -607,23 +537,14 @@ test(
     );
 
     assert.equal(f.events.length, before);
-
     await helper.reply(report(true));
-
     assert.deepEqual(f.session.info, info);
-
     assert.deepEqual(f.session.usage.lines, { added: 4, removed: 1 });
-
     assert.equal(f.session.usage.context, 12.5);
-
     assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
-
     const args = f.usageChildren[0]!.args;
-
     assert.ok(!args.includes('--resume') && !args.includes(info.id));
-
     assert.ok(args.includes('--strict-mcp-config'));
-
     assert.ok(args.some((arg) => arg.includes('disableAllHooks')));
 
     const wire = (await jsonLines(join(helper.cwd, 'wire.jsonl'))) as {
@@ -639,11 +560,8 @@ test(
   { timeout },
   async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const f = await controlled(t.onTestFinished, {}, 'compaction');
-
     await initial(f);
-
     const turn = f.session.send('steerable');
 
     await until('foreground text', () =>
@@ -651,19 +569,12 @@ test(
     );
 
     const helper = await poll(f);
-
     assert.equal(await f.session.contextUsage(), 12.5);
-
     assert.equal(await f.session.steer('extra context'), true);
-
     await f.main.barrier();
-
     await f.session.interrupt();
-
     assert.equal((await turn).status, 'interrupted');
-
     assert.equal((await helper.requests()).length, 1);
-
     assert.deepEqual(f.session.usage.lines, { added: 0, removed: 0 });
   },
 );
@@ -674,7 +585,6 @@ for (const phase of ['initialization', 'registration'] as const) {
     { timeout },
     async (t) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
       const registered = Promise.withResolvers<void>();
 
       const f = await controlled(
@@ -691,13 +601,9 @@ for (const phase of ['initialization', 'registration'] as const) {
 
       try {
         await initial(f);
-
         assert.equal(f.helpers.length, 0);
-
         vi.advanceTimersByTime(60_000);
-
         await until('helper spawned', () => !!f.helpers[0]);
-
         const helper = f.helpers[0]!;
 
         await until(
@@ -707,9 +613,7 @@ for (const phase of ['initialization', 'registration'] as const) {
         );
 
         assert.equal(await f.session.contextUsage(), 12.5);
-
         assert.equal((await helper.requests()).length, 0);
-
         let closed = false;
 
         const closing = f.session.close().then(() => {
@@ -725,13 +629,9 @@ for (const phase of ['initialization', 'registration'] as const) {
         if (phase === 'registration') assert.equal(closed, false);
 
         registered.resolve();
-
         await closing;
-
         assert.deepEqual(f.identities, [helper.child.pid, undefined]);
-
         vi.advanceTimersByTime(60_000);
-
         assert.equal(f.helpers.length, 1);
       } finally {
         registered.resolve();
@@ -745,7 +645,6 @@ test(
   { timeout },
   async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const registered = Promise.withResolvers<void>();
     let starts = 0;
 
@@ -762,11 +661,8 @@ test(
 
     try {
       await initial(f);
-
       vi.advanceTimersByTime(60_000);
-
       await until('helper spawned', () => !!f.helpers[0]);
-
       const helper = f.helpers[0]!;
 
       await until(
@@ -776,13 +672,9 @@ test(
       );
 
       await complete(f);
-
       assert.equal((await f.main.requests()).length, 1);
-
       const closed = once(helper.child, 'close');
-
       registered.reject(new Error('Cannot register helper'));
-
       await closed;
 
       await until(
@@ -791,19 +683,12 @@ test(
       );
 
       assert.equal(f.session.closed, false);
-
       vi.advanceTimersByTime(59_999);
-
       await f.main.barrier();
-
       assert.equal(f.helpers.length, 1);
-
       vi.advanceTimersByTime(1);
-
       await until('replacement helper', () => f.helpers.length === 2);
-
       assert.equal(await f.session.contextUsage(), 12.5);
-
       assert.equal(f.children.length, 1);
     } finally {
       registered.resolve();
@@ -817,7 +702,6 @@ for (const failure of ['startup', 'registration'] as const) {
     { timeout },
     async (t) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
       let starts = 0;
 
       const f = await controlled(t.onTestFinished, {
@@ -832,11 +716,9 @@ for (const failure of ['startup', 'registration'] as const) {
       });
 
       await initial(f);
-
       const before = structuredClone(f.session.usage);
       const mainPid = f.children[0]!.pid;
       const sessionId = f.session.info.id;
-
       vi.advanceTimersByTime(60_000);
 
       await until(
@@ -848,27 +730,16 @@ for (const failure of ['startup', 'registration'] as const) {
       );
 
       await f.main.barrier();
-
       assert.deepEqual(f.session.usage, before);
-
       assert.equal(f.session.closed, false);
-
       vi.advanceTimersByTime(59_999);
-
       await f.main.barrier();
-
       assert.equal(f.helpers.length, 1);
-
       vi.advanceTimersByTime(1);
-
       await until('replacement helper', () => f.helpers.length === 2);
-
       await f.helpers[1]!.reply(report(true));
-
       assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
-
       assert.equal(f.children[0]!.pid, mainPid);
-
       assert.equal(f.session.info.id, sessionId);
     },
   );
@@ -879,11 +750,8 @@ test(
   { timeout },
   async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const f = await controlled(t.onTestFinished);
-
     await initial(f);
-
     const turn = f.session.send('held before helper exit');
 
     await until('native session identity', () =>
@@ -894,12 +762,9 @@ test(
     );
 
     const helper = await poll(f);
-
     await helper.reply();
-
     const firstPid = helper.child.pid;
     const sessionId = f.session.info.id;
-
     helper.child.kill('SIGTERM');
 
     await until(
@@ -908,27 +773,16 @@ test(
     );
 
     await f.main.emit(idle);
-
     await turn;
-
     await f.main.barrier();
-
     assert.equal(f.helpers.length, 1);
-
     assert.equal(f.session.closed, false);
-
     assert.equal(f.session.info.id, sessionId);
-
     vi.advanceTimersByTime(59_999);
-
     await f.main.barrier();
-
     assert.equal(f.helpers.length, 1);
-
     vi.advanceTimersByTime(1);
-
     await until('second helper', () => !!f.helpers[1]);
-
     await f.helpers[1]!.reply(report(true));
 
     assert.deepEqual(f.identities, [
@@ -938,7 +792,6 @@ test(
     ]);
 
     assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
-
     assert.equal(f.children.length, 1);
   },
 );
@@ -954,7 +807,6 @@ for (const reason of [
     { timeout },
     async (t) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
       const timers: ReturnType<typeof vi.fn<() => void>>[] = [];
       const schedule = setTimeout;
 
@@ -967,7 +819,6 @@ for (const reason of [
           if (ms !== 60_000) return schedule(callback, ms, ...args);
 
           const run = vi.fn(() => callback(...args));
-
           timers.push(run);
 
           return schedule(run, ms);
@@ -976,13 +827,9 @@ for (const reason of [
 
       try {
         const f = await controlled(t.onTestFinished);
-
         await initial(f);
-
         const helper = await poll(f);
-
         await helper.reply();
-
         let turn: ReturnType<AgentSession['send']> | undefined;
 
         if (reason === 'active exit' || reason === 'unread interruption') {
@@ -1001,7 +848,6 @@ for (const reason of [
         if (reason === 'close') await f.session.close();
         else if (reason === 'unread interruption') {
           assert.equal(await f.session.steer('queued input'), true);
-
           let uuid: string | undefined;
 
           await until('queued native input', async () => {
@@ -1018,9 +864,7 @@ for (const reason of [
           });
 
           await writeFile(join(f.cwd, 'receipt.json'), JSON.stringify([uuid]));
-
           await f.session.interrupt();
-
           assert.deepEqual((await turn!).unread, ['queued input']);
         } else f.children[0]!.kill('SIGTERM');
 
@@ -1075,13 +919,9 @@ test(
   { timeout },
   async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const f = await controlled(t.onTestFinished);
-
     await initial(f);
-
     const helper = await poll(f);
-
     await helper.reply();
 
     const reader = Reflect.get(f.session, 'usageReader') as {
@@ -1098,26 +938,16 @@ test(
       .mockImplementation(() => delayed.promise);
 
     vi.advanceTimersByTime(60_000);
-
     await until('deferred SDK request', () => method.mock.calls.length === 1);
-
     await f.session.close();
-
     const events = f.events.length;
     const usage = structuredClone(f.session.usage);
-
     delayed.resolve(report(true));
-
     await new Promise<void>((resolve) => setImmediate(resolve));
-
     assert.equal(f.events.length, events);
-
     assert.deepEqual(f.session.usage, usage);
-
     vi.advanceTimersByTime(60_000);
-
     assert.equal(method.mock.calls.length, 1);
-
     assert.equal(f.helpers.length, 1);
   },
 );
@@ -1127,9 +957,7 @@ test(
   { timeout },
   async () => {
     vi.spyOn(Date, 'now').mockImplementation(() => 1_999_996_400_000);
-
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const f = await launcher('background');
     const helpers: Endpoint[] = [];
     let session: AgentSession | undefined;
@@ -1145,7 +973,6 @@ test(
             )!;
 
             writeFileSync(join(helper.cwd, 'hold-usage'), '');
-
             helpers.push(endpoint(helper.child, helper.cwd));
           }
 
@@ -1164,9 +991,7 @@ test(
 
     try {
       await coordinator.initialize(f.cwd);
-
       await until('initial snapshot', () => !!session?.usage.account?.limits);
-
       ui = show(createElement(App, { coordinator, onExit: () => {} }));
       const main = endpoint(f.children[0]!, f.cwd);
       let finished = false;
@@ -1190,9 +1015,7 @@ test(
       });
 
       vi.advanceTimersByTime(60_000);
-
       await until('usage helper', () => !!helpers[0]);
-
       const helper = helpers[0]!;
       let id = await helper.reply();
 
@@ -1203,7 +1026,6 @@ test(
       });
 
       vi.advanceTimersByTime(60_000);
-
       id = await helper.reply(report(true), id);
 
       await until('changed held limits', () => {
@@ -1213,9 +1035,7 @@ test(
       });
 
       assert.equal(coordinator.snapshot.phase, 'running');
-
       assert.equal(finished, false);
-
       const conversation = coordinator.snapshot.conversation!.id;
 
       const recordPath = join(
@@ -1232,7 +1052,6 @@ test(
       };
 
       assert.equal(record.process.pid, f.children[0]!.pid);
-
       assert.equal(record.usageProcess.pid, helper.child.pid);
 
       await main.emit(
@@ -1257,7 +1076,6 @@ test(
       );
 
       vi.advanceTimersByTime(60_000);
-
       id = await helper.reply(report(true), id);
 
       await until('changed idle limits', () => {
@@ -1267,13 +1085,10 @@ test(
       });
 
       assert.equal(coordinator.snapshot.phase, 'idle');
-
       const unavailable = report();
       unavailable.rate_limits_available = false;
       unavailable.rate_limits = null;
-
       vi.advanceTimersByTime(60_000);
-
       await helper.reply(unavailable, id);
 
       await until('unavailable windows cleared', () => {
@@ -1283,13 +1098,10 @@ test(
       });
 
       assert.deepEqual(session!.usage.account?.limits, []);
-
       assert.deepEqual(session!.usage.lines, { added: 4, removed: 1 });
     } finally {
       vi.useRealTimers();
-
       ui?.unmount();
-
       await coordinator.close();
 
       for (const child of [
@@ -1306,11 +1118,8 @@ test(
   { timeout },
   async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const f = await controlled(t.onTestFinished);
-
     await initial(f);
-
     const helper = await poll(f);
 
     const usageEvents = f.events.filter(
@@ -1333,9 +1142,7 @@ test(
     );
 
     assert.deepEqual(f.identities, [helper.child.pid, undefined]);
-
     vi.advanceTimersByTime(60_000);
-
     assert.equal(f.helpers.length, 1);
   },
 );
@@ -1345,7 +1152,6 @@ test(
   { timeout },
   async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
     const registered = Promise.withResolvers<void>();
 
     const f = await controlled(t.onTestFinished, {
@@ -1355,21 +1161,13 @@ test(
 
     try {
       await initial(f);
-
       vi.advanceTimersByTime(60_000);
-
       await until('helper registration started', () => !!f.helpers[0]);
-
       const helper = f.helpers[0]!;
-
       await helper.barrier();
-
       await complete(f);
-
       await f.main.barrier();
-
       assert.equal((await f.main.requests()).length, 1);
-
       helper.child.kill('SIGTERM');
 
       await until(
@@ -1386,7 +1184,6 @@ test(
       );
 
       assert.equal((await f.main.requests()).length, 2);
-
       assert.equal(f.session.closed, false);
     } finally {
       registered.resolve();
@@ -1408,9 +1205,7 @@ test(
     );
 
     await initial(f);
-
     const before = structuredClone(f.session.usage);
-
     vi.advanceTimersByTime(60_000);
 
     await until(
@@ -1419,25 +1214,15 @@ test(
     );
 
     await f.main.barrier();
-
     assert.deepEqual(f.identities, []);
-
     assert.deepEqual(f.session.usage, before);
-
     assert.equal(f.session.closed, false);
-
     vi.advanceTimersByTime(59_999);
-
     await f.main.barrier();
-
     assert.equal(f.usageChildren.length, 1);
-
     vi.advanceTimersByTime(1);
-
     await until('spawn retried', () => f.usageChildren.length === 2);
-
     await f.session.close();
-
     assert.deepEqual(f.identities, []);
   },
 );

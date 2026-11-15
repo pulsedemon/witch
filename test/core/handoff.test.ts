@@ -89,9 +89,7 @@ test('a failed summary activates with transcript context and announces activatio
   });
 
   await handoff(host, selection);
-
   assert.equal(conversation.agent, 'codex');
-
   assert.equal(conversation.handoff?.summary, transcriptContext(items));
 
   assert.deepEqual(events.slice(-4), [
@@ -109,11 +107,8 @@ test('without summarizing, the source is never asked', async () => {
   });
 
   await handoff(host, selection, { summarize: false });
-
   assert.ok(!events.includes('send handoff'));
-
   assert.equal(conversation.handoff?.summary, transcriptContext(items));
-
   assert.equal(conversation.agent, 'codex');
 });
 
@@ -123,13 +118,9 @@ test('a summary that leaves memory pending, or is interrupted, keeps the source'
     [{ status: 'interrupted', text: '' }, false],
   ] as const) {
     const { host, conversation, events } = stubHost(result, activity);
-
     await assert.rejects(handoff(host, selection));
-
     assert.equal(conversation.agent, 'claude');
-
     assert.equal(conversation.handoff, undefined);
-
     assert.ok(!events.includes('activated'));
   }
 });
@@ -174,13 +165,9 @@ test('transcript context keeps the newest rows, tool titles and paths with their
   }));
 
   const capped = transcriptContext(long);
-
   assert.ok(capped.length <= 60_000 + 200);
-
   assert.match(capped, /Earlier rows are omitted\./);
-
   assert.ok(capped.endsWith(long.at(-1)!.text));
-
   assert.ok(!capped.includes(`User: 0 x`));
 });
 
@@ -225,7 +212,6 @@ test('a newest row over the limit keeps its start instead of leaving no context'
   );
 
   assert.ok(context.endsWith(' [truncated]'));
-
   assert.ok(!context.includes('User: earlier'));
 });
 
@@ -236,13 +222,9 @@ test('a background failure continues completed work without changing its recorde
   });
 
   conversation.lastTurn = { id: 'completed', status: 'completed' };
-
   await handoff(host, selection, { summarize: false, continueTask: true });
-
   assert.equal(events.filter((event) => event === 'send turn').length, 1);
-
   assert.equal(events.includes('send handoff'), false);
-
   assert.equal(conversation.lastTurn.status, 'completed');
 });
 
@@ -283,16 +265,10 @@ for (const refused of [false, true])
     ]);
 
     assert.match(context, /User: Check index migration\./);
-
     assert.equal(context.split('User: Check index migration.').length, 2);
-
     assert.match(context, /Keep the unique index/);
-
     assert.match(context, /\[truncated\]/);
-
     assert.ok(context.length <= 60_200);
-
     assert.equal(context.includes('Usage limit reached'), refused);
-
     assert.ok(!context.includes('Queued request.'));
   });

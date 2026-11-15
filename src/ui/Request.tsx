@@ -180,7 +180,6 @@ export function Request({
 
     if (key.ctrl && input === 'o' && expandable) {
       setFull((previous) => !previous);
-
       setScroll(pageStart);
 
       return;
@@ -244,11 +243,8 @@ export function Request({
         respond({ decision: 'accept', answers: next });
       else {
         answers.current = next;
-
         setQuestionIndex(index + 1);
-
         setSelection(0);
-
         setScroll(pageStart);
       }
 

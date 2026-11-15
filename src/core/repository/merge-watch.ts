@@ -47,7 +47,6 @@ export function watchMerges(
       return;
 
     clearTimeout(retryTimer);
-
     retryTimer = undefined;
     attempted = pullRequest.commit;
     const work = continuation ?? { request: pullRequest, progress: {}, owner };
@@ -57,7 +56,6 @@ export function watchMerges(
         if (acted === 'interrupted') {
           continuation = work;
           attempted = undefined;
-
           schedule();
 
           return;
@@ -68,18 +66,15 @@ export function watchMerges(
 
         if (acted) {
           continuation = undefined;
-
           settled.add(pullRequest.commit);
         } else if (!stopped) {
           retryTimer = setTimeout(retry, 5000);
-
           retryTimer.unref();
         }
       },
       // a failed cleanup shows its error; operate can't refuse, since the phase was checked this tick
       () => {
         continuation = undefined;
-
         settled.add(pullRequest.commit);
       },
     );
@@ -92,24 +87,18 @@ export function watchMerges(
 
   const retry = () => {
     clearTimeout(retryTimer);
-
     retryTimer = undefined;
     attempted = undefined;
-
     schedule();
   };
 
   const stops = [repository.subscribe(retry), coordinator.subscribe(schedule)];
-
   schedule();
 
   return () => {
     stopped = true;
-
     clearImmediate(pending);
-
     clearTimeout(retryTimer);
-
     stops.forEach((stop) => stop());
   };
 }

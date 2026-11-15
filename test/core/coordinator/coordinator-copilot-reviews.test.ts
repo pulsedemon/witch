@@ -22,28 +22,17 @@ import { until, within } from '../../fixtures/within.js';
 
 test('delayed feedback runs once, verifies the reply and pushed commit, and preserves ordinary-turn metadata', async (t) => {
   const x = await setup(t);
-
   await x.c.send('implement the fix');
-
   const before = await record(x.f, x.a);
   const completion = x.c.snapshot.completedTurn;
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await x.handled();
-
   const after = await record(x.f, x.a);
-
   assert.deepEqual(after.lastTurn, before.lastTurn);
-
   assert.equal(after.title, before.title);
-
   assert.equal(x.c.snapshot.completedTurn, completion);
-
   assert.equal(x.reviews().length, 1);
-
   assert.equal(after.copilotReviews![0]!.batch, undefined);
 
   assert.equal(
@@ -61,9 +50,7 @@ test('delayed feedback runs once, verifies the reply and pushed commit, and pres
   );
 
   await x.observe();
-
   await x.observe();
-
   assert.equal(x.reviews().length, 1);
 
   assert.equal(
@@ -77,13 +64,9 @@ test('delayed feedback runs once, verifies the reply and pushed commit, and pres
 test("a review turn's ownership check reuses the project its turn read", async (t) => {
   const x = await setup(t);
   const owns = vi.spyOn(x.a.coordination.reviews, 'owns');
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await x.handled();
-
   assert.equal(x.reviews().length, 1);
 
   assert.ok(
@@ -95,7 +78,6 @@ test("a review turn's ownership check reuses the project its turn read", async (
 
 test('unmatched feedback reports one blocker until a matching claim admits it', async (t) => {
   const x = await setup(t);
-
   await x.a.coordination.releaseTask();
 
   const notices = () =>
@@ -104,23 +86,14 @@ test('unmatched feedback reports one blocker until a matching claim admits it', 
     ).length;
 
   assert.equal(await x.observe(), false);
-
   assert.equal(await x.observe(), false);
-
   assert.equal((await record(x.f, x.a)).copilotReviews, undefined);
-
   assert.equal(x.reviews().length, 0);
-
   assert.equal(notices(), 1);
-
   const claimed = await x.a.claim(x.source.closingIssues[0]!);
-
   assert.ok(claimed.kind === 'claimed');
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await x.handled();
 
   assert.equal(
@@ -129,42 +102,27 @@ test('unmatched feedback reports one blocker until a matching claim admits it', 
   );
 
   assert.equal(x.reviews().length, 1);
-
   await x.a.coordination.releaseTask();
-
   assert.equal(await x.observe(), false);
-
   assert.equal(await x.observe(), false);
-
   assert.equal(notices(), 2);
-
   assert.equal(x.reviews().length, 1);
 });
 
 test('feedback arriving during work waits behind queued user prompts', async (t) => {
   const x = await setup(t);
-
   autoReply(x.f, x.a, x.source);
-
   const gate = new TurnGate();
   x.a.a.gate = gate;
   x.a.a.refuseSteer = true;
   const first = x.c.send('first user task');
-
   await gate.entered;
-
   const second = x.c.send('second user task');
-
   await until('queued user input', () => x.c.snapshot.queue.length === 1);
-
   await x.observe();
-
   assert.equal(x.reviews().length, 0);
-
   gate.open();
-
   await Promise.all([first, second]);
-
   await x.handled();
 
   assert.deepEqual(
@@ -177,23 +135,14 @@ test('a user prompt during a review queues without steering it', async (t) => {
   const x = await setup(t);
   const gate = new TurnGate();
   x.a.a.gate = gate;
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await within(gate.entered, 5000, 'review dispatch');
-
   const user = x.c.send('next user task');
-
   await until('queued prompt', () => x.c.snapshot.queue.length === 1);
-
   assert.deepEqual(x.a.a.steers, []);
-
   assert.equal(x.c.snapshot.reviewing, true);
-
   gate.open();
-
   await user;
 
   await until(
@@ -214,16 +163,11 @@ test('a user prompt during a review queues without steering it', async (t) => {
 test('Escape holds unknown outcomes through rereads and the next user prompt resumes after reconciliation', async (t) => {
   const x = await setup(t);
   let respond = false;
-
   autoReply(x.f, x.a, x.source, () => respond);
-
   const gate = new TurnGate();
   x.a.a.gate = gate;
-
   await x.observe();
-
   await within(gate.entered, 5000, 'review dispatch');
-
   await x.c.interrupt();
 
   await until('blocked result', async () =>
@@ -233,17 +177,11 @@ test('Escape holds unknown outcomes through rereads and the next user prompt res
   );
 
   await x.observe();
-
   assert.equal(x.reviews().length, 1);
-
   assert.ok((await record(x.f, x.a)).copilotReviews![0]!.batch);
-
   gate.open();
-
   respond = true;
-
   await x.c.send('resume this task');
-
   await x.handled();
 
   assert.deepEqual(
@@ -254,13 +192,9 @@ test('Escape holds unknown outcomes through rereads and the next user prompt res
 
 test('delivery holds and pending questions block review turns without consuming feedback', async (t) => {
   const x = await setup(t);
-
   autoReply(x.f, x.a, x.source);
-
   const release = x.c.holdPromptDelivery();
-
   await x.observe();
-
   assert.equal(x.reviews().length, 0);
 
   assert.ok(
@@ -282,17 +216,11 @@ test('delivery holds and pending questions block review turns without consuming 
   });
 
   release();
-
   await x.observe();
-
   assert.equal(x.reviews().length, 0);
-
   await x.c.respond('question', { decision: 'decline' });
-
   await x.observe();
-
   await x.handled();
-
   assert.equal(x.reviews().length, 1);
 });
 
@@ -338,7 +266,6 @@ for (const mode of ['edited', 'interrupted']) {
       .reason!;
 
     assert.match(diagnostic, /JSON|property name|Unexpected/);
-
     assert.ok(x.c.snapshot.items.some(({ text }) => text.includes(diagnostic)));
 
     if (mode === 'edited')
@@ -349,13 +276,9 @@ for (const mode of ['edited', 'interrupted']) {
       );
 
     const notices = x.c.snapshot.items.length;
-
     await x.observe();
-
     assert.equal(x.c.snapshot.items.length, notices);
-
     assert.equal(x.reviews().length, 1);
-
     assert.equal(x.c.copilot.ready(), false);
   });
 }
@@ -409,29 +332,17 @@ test('an uncertain content version stays blocked after a newer version is handle
   );
 
   x.source.threads[0]!.comments[0]!.body = 'New version.';
-
   await x.observe();
-
   respond = true;
-
   await x.c.send('reconcile the current feedback');
-
   await x.handled();
-
   x.source.threads[0]!.comments[0]!.body = original;
-
   await x.observe();
-
   const item = (await record(x.f, x.a)).copilotReviews![0]!.items[0]!;
-
   assert.equal(item.status, 'blocked');
-
   assert.equal(item.receipts.length, 2);
-
   assert.equal(x.c.copilot.ready(), false);
-
   await x.observe();
-
   assert.equal(x.reviews().length, 2);
 });
 
@@ -440,13 +351,9 @@ for (const state of ['CLOSED', 'MERGED'] as const) {
     const x = await setup(t);
     const gate = new TurnGate();
     x.a.a.gate = gate;
-
     await x.observe();
-
     await within(gate.entered, 5000, 'review dispatch');
-
     x.source.pullRequest.state = state;
-
     await x.observe();
 
     await until('closed review settlement', async () => {
@@ -460,9 +367,7 @@ for (const state of ['CLOSED', 'MERGED'] as const) {
     });
 
     const saved = (await record(x.f, x.a)).copilotReviews![0]!;
-
     assert.equal(saved.pullRequest.state, state);
-
     assert.ok(saved.batch);
 
     assert.ok(
@@ -472,15 +377,10 @@ for (const state of ['CLOSED', 'MERGED'] as const) {
     );
 
     gate.open();
-
     x.a.a.gate = undefined;
-
     await x.c.send('continue the task');
-
     await x.observe();
-
     assert.equal(x.c.copilot.ready(), false);
-
     assert.equal(x.reviews().length, 1);
   });
 }
@@ -490,9 +390,7 @@ for (const kind of ['branch', 'claim', 'project']) {
     const x = await setup(t);
     const gate = new TurnGate();
     x.a.a.gate = gate;
-
     await x.observe();
-
     await within(gate.entered, 5000, 'review dispatch');
 
     if (kind === 'branch') {
@@ -537,7 +435,6 @@ for (const kind of ['branch', 'claim', 'project']) {
     );
 
     assert.equal(x.reviews().length, 1);
-
     assert.ok((await record(x.f, x.a)).copilotReviews![0]!.batch);
 
     assert.ok(
@@ -552,11 +449,8 @@ test('new feedback observed during execution waits for its own later batch', asy
   const x = await setup(t);
   const gate = new TurnGate();
   x.a.a.gate = gate;
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await within(gate.entered, 5000, 'first review');
 
   x.source.threads.push({
@@ -573,13 +467,9 @@ test('new feedback observed during execution waits for its own later batch', asy
   });
 
   await x.observe();
-
   assert.equal(x.reviews().length, 1);
-
   gate.open();
-
   await x.handled();
-
   assert.equal(x.reviews().length, 2);
 
   assert.equal(
@@ -601,23 +491,14 @@ test('reopening reconciles a reply saved before interruption without another aut
   const x = await setup(t);
   const gate = new TurnGate();
   x.a.a.gate = gate;
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await within(gate.entered, 5000, 'review dispatch');
-
   const id = x.c.snapshot.conversation!.id;
-
   await x.c.close({ restart: true });
-
   const reopened = await x.f.start('A', { conversation: id });
-
   reopened.coordination.updateRepository(x.repository);
-
   reopened.coordinator.copilot.updateRepository(x.repository);
-
   await reopened.coordinator.copilot.observe(structuredClone(x.source));
 
   await until('recovered receipts', async () =>
@@ -646,7 +527,6 @@ for (const kind of ['thread', 'reply']) {
     session.send = async (...args) => {
       if (args[1]?.purpose === 'pr-review') {
         await reply(x.f, x.a, x.source);
-
         complete = structuredClone(x.source);
 
         if (kind === 'thread') x.source.threads = [];
@@ -675,21 +555,13 @@ for (const kind of ['thread', 'reply']) {
     );
 
     assert.equal(x.reviews().length, 1);
-
     await x.c.send('continue the task');
-
     assert.equal(x.reviews().length, 1);
-
     const id = x.c.snapshot.conversation!.id;
-
     await x.c.close({ restart: true });
-
     const reopened = await x.f.start('A', { conversation: id });
-
     reopened.coordination.updateRepository(x.repository);
-
     reopened.coordinator.copilot.updateRepository(x.repository);
-
     await reopened.coordinator.copilot.observe(structuredClone(x.source));
 
     assert.equal(
@@ -698,17 +570,11 @@ for (const kind of ['thread', 'reply']) {
     );
 
     assert.equal(reopened.coordinator.copilot.ready(), false);
-
     Object.assign(x.source, complete!);
-
     await reopened.coordinator.copilot.observe(structuredClone(x.source));
-
     const settled = (await record(x.f, reopened)).copilotReviews![0]!;
-
     assert.ok(settled.items.every(({ status }) => status === 'handled'));
-
     assert.equal(settled.batch, undefined);
-
     assert.equal(reopened.a.inputs.length, 0);
 
     assert.equal(
@@ -752,12 +618,10 @@ test('the CLI watcher wiring carries a real repository observation through a rev
   );
 
   autoReply(x.f, x.a, x.source);
-
   const stop = watchCopilotReviews(repository, x.c, x.cwd);
 
   try {
     await x.handled();
-
     const saved = await record(x.f, x.a);
 
     assert.deepEqual(
@@ -777,9 +641,7 @@ test('the CLI watcher wiring carries a real repository observation through a rev
     );
   } finally {
     stop();
-
     stopRepository();
-
     repository.close();
   }
 });
@@ -789,13 +651,9 @@ test('a prompt in another conversation cannot resume an uncertain review on retu
   const original = x.c.snapshot.conversation!.id;
   const gate = new TurnGate();
   x.a.a.gate = gate;
-
   await x.observe();
-
   await within(gate.entered, 5000, 'first review');
-
   await x.c.interrupt();
-
   gate.open();
 
   await until('uncertain result', async () =>
@@ -805,27 +663,18 @@ test('a prompt in another conversation cannot resume an uncertain review on retu
   );
 
   await x.c.newConversation('a');
-
   await x.c.send('work in this other conversation');
-
   await x.c.selectConversation(original);
-
   await x.a.claim(x.source.closingIssues[0]!);
-
   await x.observe();
-
   assert.equal(x.c.copilot.ready(), false);
-
   assert.equal(x.reviews().length, 1);
-
   assert.ok((await record(x.f, x.a)).copilotReviews![0]!.batch);
 });
 
 test('review turns compact before native input and retain the feedback packet across replacement', async (t) => {
   const x = await setup(t);
-
   await x.c.send('work on this PR');
-
   x.a.a.sessions.at(-1)!.session.contextUsage = async () => 85;
 
   autoReply(x.f, x.a, x.source, () => {
@@ -835,28 +684,19 @@ test('review turns compact before native input and retain the feedback packet ac
   });
 
   await x.observe();
-
   await x.handled();
-
   assert.match(x.reviews()[0]!.context!, /You are running inside Witch/);
-
   assert.equal(x.c.snapshot.pendingCompaction, false);
-
   assert.equal(x.reviews().length, 1);
 });
 
 test('waiting peer answers run before a pending Copilot review', async (t) => {
   const x = await setup(t);
   const b = await x.f.start('B');
-
   await b.claim('task:asker');
-
   autoReply(x.f, x.a, x.source);
-
   const release = x.c.holdPromptDelivery();
-
   await x.observe();
-
   const state = await record(x.f, x.a);
 
   const asked = await callControl(await b.binding(), {
@@ -866,11 +706,8 @@ test('waiting peer answers run before a pending Copilot review', async (t) => {
   });
 
   assert.equal(asked.kind, 'peer-request');
-
   await x.a.coordination.context();
-
   release();
-
   await x.handled();
 
   assert.deepEqual(
@@ -887,25 +724,19 @@ test('waiting peer answers run before a pending Copilot review', async (t) => {
 
 test('a closed native session reconnects without revoking the retained review claim', async (t) => {
   const x = await setup(t);
-
   await x.a.a.sessions.at(-1)!.session.close();
-
   const connect = x.a.a.connect.bind(x.a.a);
 
   vi.spyOn(x.a.a, 'connect').mockImplementation(async (options) => {
     const session = await connect(options);
-
     autoReply(x.f, x.a, x.source);
 
     return session;
   });
 
   await x.observe();
-
   await x.handled();
-
   assert.equal(x.reviews().length, 1);
-
   assert.equal(x.a.a.sessions.length, 2);
 
   assert.ok(
@@ -956,13 +787,9 @@ test('a final ownership check that proves input unsent leaves feedback pending f
   );
 
   x.a.coordination.updateRepository(x.repository);
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await x.handled();
-
   assert.equal(x.reviews().length, 1);
 });
 
@@ -997,9 +824,7 @@ test('a review the agent never read leaves feedback pending and the user queue e
 test('a peer arriving during the review read retains priority without losing the review batch', async (t) => {
   const x = await setup(t);
   const b = await x.f.start('B');
-
   await b.claim('task:asker');
-
   autoReply(x.f, x.a, x.source);
 
   vi.mocked(github.readGitHubReviews).mockImplementationOnce(async () => {
@@ -1010,14 +835,12 @@ test('a peer arriving during the review read retains priority without losing the
     });
 
     assert.equal(result.kind, 'peer-request');
-
     await x.a.coordination.context();
 
     return structuredClone(x.source);
   });
 
   await x.observe();
-
   await x.handled();
 
   assert.deepEqual(
@@ -1032,13 +855,9 @@ test('an uncertain batch with new feedback does not cause admission reads before
   const x = await setup(t);
   const gate = new TurnGate();
   x.a.a.gate = gate;
-
   await x.observe();
-
   await within(gate.entered, 5000, 'review dispatch');
-
   await x.c.interrupt();
-
   gate.open();
 
   await until(
@@ -1051,17 +870,11 @@ test('an uncertain batch with new feedback does not cause admission reads before
   );
 
   x.source.threads.push({ ...x.source.threads[0]!, id: 'thread-2' });
-
   vi.mocked(github.readGitHubReviews).mockClear();
-
   await x.observe();
-
   await x.a.coordination.context();
-
   assert.equal(x.c.copilot.ready(), false);
-
   assert.equal(vi.mocked(github.readGitHubReviews).mock.calls.length, 0);
-
   assert.equal(x.reviews().length, 1);
 
   assert.equal(
@@ -1109,15 +922,10 @@ test('an unrelated user prompt does not retry dispositions explicitly blocked fo
   );
 
   await x.c.send('an unrelated question');
-
   await x.observe();
-
   assert.equal(x.c.copilot.ready(), false);
-
   assert.equal(x.reviews().length, 1);
-
   const state = (await record(x.f, x.a)).copilotReviews![0]!;
-
   assert.equal(state.batch, undefined);
 
   assert.ok(

@@ -23,29 +23,17 @@ test('handoff returns to the original native session with updated context, and a
 
   try {
     await coordinator.send(' Start the migration\n');
-
     const original = a.inputs[0]!.session;
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.equal(b.inputs.length, 0);
-
     await coordinator.send('Work on the destination');
-
     assert.match(b.inputs[0]!.context!, /a: finish the migration/);
-
     const sourceInputs = a.inputs.length;
-
     await coordinator.selectModel({ agent: 'a', id: 'a-model' });
-
     assert.equal(a.inputs.length, sourceInputs);
-
     await coordinator.send('Return to the original task');
-
     assert.equal(a.inputs.at(-1)!.session, original);
-
     assert.match(a.inputs.at(-1)!.context!, /b: finish the migration/);
-
     assert.equal(coordinator.snapshot.conversation?.agent, 'a');
 
     assert.equal(
@@ -54,7 +42,6 @@ test('handoff returns to the original native session with updated context, and a
     );
 
     const sent = a.inputs.length;
-
     await coordinator.selectModel({ agent: 'a', id: 'a-model' });
 
     await assert.rejects(
@@ -79,19 +66,14 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
       try {
         f.a.interruptNext = status === 'interrupted';
         f.a.failNext = status === 'failed';
-
         await coordinator.send('Source task');
-
         const id = coordinator.snapshot.conversation!.id;
         const source = (await readRecord(f.root, id)).lastTurn;
-
         assert.equal(source?.status, status);
 
         if (restart) {
           await coordinator.close();
-
           coordinator = await f.reopen();
-
           assert.deepEqual((await readRecord(f.root, id)).lastTurn, source);
         }
 
@@ -101,9 +83,7 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
 
         if (status !== 'completed') {
           await within(gate.entered, 5000, 'the destination continuation');
-
           assert.deepEqual((await readRecord(f.root, id)).lastTurn, source);
-
           gate.open();
         }
 
@@ -111,17 +91,11 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
 
         if (status === 'completed') {
           assert.equal(f.b.inputs.length, 0);
-
           const stored = await readRecord(f.root, id);
-
           assert.deepEqual(stored.lastTurn, source);
-
           assert.equal(stored.handoff?.activated, true);
-
           assert.equal(stored.handoff.summary, 'a: finish the migration');
-
           await coordinator.send('Next requested action');
-
           assert.equal(f.b.inputs[0]!.prompt, 'Next requested action');
         } else
           assert.equal(
@@ -130,19 +104,13 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
           );
 
         assert.equal(f.b.inputs.length, 1);
-
         assert.match(f.b.inputs[0]!.context!, /a: finish the migration/);
-
         assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
-
         assert.equal((await readRecord(f.root, id)).handoff, undefined);
       } finally {
         gate.open();
-
         await switching?.catch(() => {});
-
         await coordinator.close();
-
         await f.coordinator.close();
       }
     });
@@ -153,13 +121,9 @@ test('a legacy conversation with history defers its handoff until the next promp
 
   try {
     await coordinator.send('Existing conversation');
-
     const id = coordinator.snapshot.conversation!.id;
-
     await coordinator.close();
-
     const stored = await readRecord(f.root, id);
-
     delete stored.lastTurn;
 
     await writeFile(
@@ -168,29 +132,18 @@ test('a legacy conversation with history defers its handoff until the next promp
     );
 
     coordinator = await f.reopen();
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.equal(f.b.inputs.length, 0);
-
     const pending = await readRecord(f.root, id);
-
     assert.equal(pending.lastTurn, undefined);
-
     assert.equal(pending.handoff?.summary, 'a: finish the migration');
-
     await coordinator.send('Next legacy request');
-
     assert.equal(f.b.inputs.length, 1);
-
     assert.equal(f.b.inputs[0]!.prompt, 'Next legacy request');
-
     assert.match(f.b.inputs[0]!.context!, /a: finish the migration/);
-
     assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
   } finally {
     await coordinator.close();
-
     await f.coordinator.close();
   }
 });
@@ -200,7 +153,6 @@ test('destination startup failure retains the source conversation and session', 
 
   try {
     await coordinator.send('Start');
-
     b.failConnect = true;
 
     await assert.rejects(
@@ -209,13 +161,9 @@ test('destination startup failure retains the source conversation and session', 
     );
 
     assert.equal(coordinator.snapshot.conversation?.agent, 'a');
-
     const saved = await readRecord(root, coordinator.snapshot.conversation!.id);
-
     assert.equal(saved.sessions.a?.id, a.inputs[0]?.session);
-
     await coordinator.send('Continue the original task');
-
     assert.equal(a.inputs.at(-1)?.session, a.inputs[0]?.session);
   } finally {
     await coordinator.close();
@@ -228,7 +176,6 @@ for (const failure of ['destination', 'summary'] as const)
 
     try {
       await coordinator.send('Start');
-
       await coordinator.selectModel({ agent: 'b', id: 'b-model' });
 
       const pending = structuredClone(
@@ -248,13 +195,9 @@ for (const failure of ['destination', 'summary'] as const)
       );
 
       const id = coordinator.snapshot.conversation!.id;
-
       assert.deepEqual(coordinator.snapshot.conversation!.handoff, pending);
-
       assert.deepEqual((await readRecord(root, id)).handoff, pending);
-
       await coordinator.send('Continue');
-
       assert.ok(b.inputs.at(-1)?.context?.includes('a: finish the migration'));
     } finally {
       await coordinator.close();
@@ -288,9 +231,7 @@ for (const resumed of [false, true])
           });
 
         const previous = coordinator.snapshot.conversation!.sessions.b?.id;
-
         await coordinator.send('Start');
-
         const source = coordinator.snapshot.native!.id;
         const id = coordinator.snapshot.conversation!.id;
         const connect = b.connect.bind(b);
@@ -309,39 +250,24 @@ for (const resumed of [false, true])
         };
 
         await coordinator.selectModel({ agent: 'b', id: 'b-big', effort });
-
         assert.equal(dispatched.length, 0);
-
         await coordinator.send('Use the selected destination model');
-
         const expectedEffort = effort ?? (resumed ? 'low' : undefined);
-
         assert.equal(dispatched.length, 1);
-
         assert.equal(dispatched[0]!.model, 'b-big');
-
         assert.equal(dispatched[0]!.effort, expectedEffort);
-
         assert.equal(b.sessions.at(-1)!.options.model, 'b-big');
-
         assert.equal(b.sessions.at(-1)!.options.effort, expectedEffort);
 
         if (resumed) assert.equal(dispatched[0]!.id, previous);
 
         const saved = await readRecord(root, id);
-
         assert.equal(saved.id, id);
-
         assert.equal(saved.sessions.b!.requestedModel, 'b-big');
-
         assert.equal(saved.sessions.b!.effort, expectedEffort);
-
         assert.match(b.inputs.at(-1)!.context!, /a: finish the migration/);
-
         await coordinator.selectModel({ agent: 'a', id: 'a-big' });
-
         await coordinator.send('Use the original session');
-
         assert.equal(a.inputs.at(-1)!.session, source);
       } finally {
         await coordinator.close();
@@ -368,7 +294,6 @@ for (const prior of [false, true])
         }
 
         await coordinator.send('Start');
-
         const source = coordinator.snapshot.native!.id;
         const previous = coordinator.snapshot.conversation!.sessions.b;
 
@@ -386,9 +311,7 @@ for (const prior of [false, true])
 
           session.selectModel = async (...args) => {
             await select(...args);
-
             entered.resolve();
-
             await release.promise;
 
             throw new Error('Selection refused');
@@ -396,7 +319,6 @@ for (const prior of [false, true])
 
           session.close = async () => {
             await close();
-
             release.resolve();
           };
 
@@ -410,24 +332,17 @@ for (const prior of [false, true])
         });
 
         const rejected = assert.rejects(switching, /Selection refused/);
-
         await within(entered.promise, 2000, 'destination setter');
-
         await coordinator.send('Queued during selection');
 
         if (cancel) await coordinator.interrupt();
         else release.resolve();
 
         await within(rejected, 2000, 'selection rejection');
-
         assert.equal(b.sessions.at(-1)!.session.closed, true);
-
         const current = coordinator.snapshot.conversation!;
-
         assert.equal(current.agent, 'a');
-
         assert.equal(current.handoff, undefined);
-
         assert.deepEqual(current.sessions.b, previous);
 
         assert.deepEqual(
@@ -442,17 +357,12 @@ for (const prior of [false, true])
         ]);
 
         assert.equal(coordinator.snapshot.recovery, undefined);
-
         coordinator.unqueue('');
-
         await coordinator.send('Resume manually');
-
         assert.equal(a.inputs.at(-1)!.session, source);
       } finally {
         release.resolve();
-
         await switching?.catch(() => {});
-
         await coordinator.close();
       }
     });
@@ -474,13 +384,9 @@ test('handoff preference and activation are durable together before continuation
 
   try {
     await coordinator.selectModel({ agent: 'b', id: 'b-old', effort: 'low' });
-
     await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
-
     a.interruptNext = true;
-
     await coordinator.send('Start');
-
     const id = coordinator.snapshot.conversation!.id;
     const source = coordinator.snapshot.native!.id;
     const file = join(root, 'state', 'conversations', id, 'state.json');
@@ -492,21 +398,13 @@ test('handoff preference and activation are durable together before continuation
           return save.call(this, record);
 
         intercepted = true;
-
         await this.flush();
-
         before = await readFile(file, 'utf8');
-
         beforeReady.resolve();
-
         await activate.promise;
-
         await save.call(this, record);
-
         after = await readFile(file, 'utf8');
-
         afterReady.resolve();
-
         await continueTurn.promise;
       },
     );
@@ -518,43 +416,24 @@ test('handoff preference and activation are durable together before continuation
     });
 
     await within(beforeReady.promise, 2000, 'activation writer');
-
     assert.equal(b.sessions.at(-1)!.session.info.model, 'b-big');
-
     assert.equal(b.sessions.at(-1)!.session.info.effort, 'high');
-
     assert.equal(b.inputs.length, 0);
-
     const unactivated = JSON.parse(before);
-
     assert.equal(unactivated.agent, 'a');
-
     assert.equal(unactivated.handoff.activated, false);
-
     assert.equal(unactivated.sessions.b.requestedModel, 'b-old');
-
     assert.equal(unactivated.sessions.b.effort, 'low');
-
     activate.resolve();
-
     await within(afterReady.promise, 2000, 'activation saved');
-
     assert.equal(b.inputs.length, 0);
-
     const activated = JSON.parse(after);
-
     assert.equal(activated.agent, 'b');
-
     assert.equal(activated.handoff.activated, true);
-
     assert.equal(activated.sessions.b.requestedModel, 'b-big');
-
     assert.equal(activated.sessions.b.effort, 'high');
-
     continueTurn.resolve();
-
     await switching;
-
     await coordinator.close();
 
     for (const [snapshot, agent, model, effort] of [
@@ -562,7 +441,6 @@ test('handoff preference and activation are durable together before continuation
       [after, 'b', 'b-big', 'high'],
     ] as const) {
       await writeFile(file, snapshot);
-
       const sent: number = a.inputs.length + b.inputs.length;
       const restarted = await reopen();
 
@@ -580,7 +458,6 @@ test('handoff preference and activation are durable together before continuation
         );
 
         assert.equal(restarted.snapshot.conversation!.sessions.a!.id, source);
-
         assert.equal(a.inputs.length + b.inputs.length, sent);
       } finally {
         await restarted.close();
@@ -588,11 +465,8 @@ test('handoff preference and activation are durable together before continuation
     }
   } finally {
     activate.resolve();
-
     continueTurn.resolve();
-
     await switching?.catch(() => {});
-
     await coordinator.close();
   }
 });
@@ -602,7 +476,6 @@ test('failed destination shutdown preserves the handoff error and persists pre-a
 
   try {
     await coordinator.send('Start');
-
     const source = coordinator.snapshot.native!.id;
     const connect = b.connect.bind(b);
 
@@ -624,27 +497,17 @@ test('failed destination shutdown preserves the handoff error and persists pre-a
     );
 
     assert.equal(coordinator.snapshot.error, 'Selection refused');
-
     const saved = await readRecord(root, coordinator.snapshot.conversation!.id);
-
     assert.equal(saved.agent, 'a');
-
     assert.equal(saved.sessions.b, undefined);
-
     assert.equal(coordinator.snapshot.conversation!.sessions.b, undefined);
-
     assert.equal(b.sessions.at(-1)!.session.closed, true);
-
     assert.deepEqual(b.inputs, []);
-
     b.failClose = false;
-
     await coordinator.send('Resume manually');
-
     assert.equal(a.inputs.at(-1)!.session, source);
   } finally {
     b.failClose = false;
-
     await coordinator.close();
   }
 });
@@ -669,9 +532,7 @@ for (const stage of [
     } = await unitFixture();
 
     const id = original.snapshot.conversation!.id;
-
     await original.close();
-
     const activated = ['activated', 'continuing', 'completed'].includes(stage);
     const files = await store.claim(id);
     const conversation = files.record;
@@ -716,9 +577,7 @@ for (const stage of [
     });
 
     await files.save(conversation);
-
     await files.close();
-
     const restarted = await reopen();
 
     try {
@@ -731,14 +590,11 @@ for (const stage of [
 
       if (activated) {
         assert.equal(restarted.snapshot.native!.model, 'b-big');
-
         assert.equal(restarted.snapshot.native!.effort, 'high');
       }
 
       assert.equal(a.inputs.length + b.inputs.length, 0);
-
       await restarted.send('Resume manually');
-
       const active = activated ? b : a;
       const prior = conversation.sessions[active.id]!;
 
@@ -770,9 +626,7 @@ test('undelivered handoff context survives visiting another conversation and cle
   } = await unitFixture();
 
   const id = original.snapshot.conversation!.id;
-
   await original.close();
-
   const files = await store.claim(id);
   const conversation = files.record;
   conversation.agent = 'b';
@@ -798,28 +652,18 @@ test('undelivered handoff context survives visiting another conversation and cle
   });
 
   await files.save(conversation);
-
   await files.close();
-
   const coordinator = await reopen();
 
   try {
     await coordinator.newConversation('a');
-
     await coordinator.send('Independent task');
-
     assert.doesNotMatch(a.inputs.at(-1)!.context!, /amber-195/);
-
     await coordinator.selectConversation(conversation.id);
-
     b.interruptNext = true;
-
     await coordinator.send('Continue');
-
     assert.match(b.inputs.at(-1)!.context!, /amber-195/);
-
     assert.ok(coordinator.snapshot.conversation!.handoff);
-
     b.interruptNext = true;
 
     await assert.rejects(
@@ -828,9 +672,7 @@ test('undelivered handoff context survives visiting another conversation and cle
     );
 
     await coordinator.send('Continue manually');
-
     assert.match(b.inputs.at(-1)!.context!, /amber-195/);
-
     assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
   } finally {
     await coordinator.close();
@@ -844,7 +686,6 @@ for (const reason of ['held', 'bad history'] as const) {
 
     try {
       await coordinator.send('Start');
-
       const current = coordinator.snapshot.conversation!.id;
 
       if (reason === 'bad history') {
@@ -877,14 +718,12 @@ for (const reason of ['held', 'bad history'] as const) {
       );
 
       assert.equal(a.sessions.at(-1)!.session.closed, false);
-
       assert.equal(a.sessions.length, connects);
 
       if (reason === 'bad history')
         await (await store.claim(target.record.id)).close();
     } finally {
       await target.close();
-
       await coordinator.close();
     }
   });
@@ -895,11 +734,8 @@ test('selecting the current conversation keeps its session and claim', async () 
 
   try {
     await coordinator.send('Start');
-
     const current = coordinator.snapshot.conversation!.id;
-
     await coordinator.selectConversation(current);
-
     assert.equal(a.sessions.at(-1)!.session.closed, false);
 
     await assert.rejects(
@@ -916,9 +752,7 @@ test('selecting the current conversation keeps its session and claim', async () 
 async function failedCloseSwitch() {
   const context = await unitFixture();
   const { coordinator, store, a, project } = context;
-
   await coordinator.send('Start');
-
   const previous = coordinator.snapshot.conversation!.id;
   const released = a.sessions.at(-1)!.options;
 
@@ -928,11 +762,8 @@ async function failedCloseSwitch() {
   });
 
   await target.close();
-
   a.failClose = true;
-
   await coordinator.selectConversation(target.record.id);
-
   a.failClose = false;
 
   return { ...context, previous, released, target: target.record.id };
@@ -943,11 +774,8 @@ test('a disconnect that throws during a switch still adopts the new conversation
 
   try {
     assert.equal(coordinator.snapshot.conversation!.id, target);
-
     assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
-
     assert.match(coordinator.snapshot.error ?? '', /Close failed/);
-
     await (await store.claim(previous)).close();
   } finally {
     await coordinator.close();
@@ -963,7 +791,6 @@ test('a late event from a released session reaches neither conversation', async 
   try {
     const reported = coordinator.snapshot.error;
     const errors: (string | undefined)[] = [];
-
     coordinator.subscribe(() => errors.push(coordinator.snapshot.error));
 
     const files = (id: string) =>
@@ -979,9 +806,7 @@ test('a late event from a released session reaches neither conversation', async 
     const before = await files(previous);
     const adopted = await files(target);
     const items = coordinator.snapshot.items;
-
     released.onEvent({ type: 'text', id: 'late', text: 'Late text' });
-
     let rejection: unknown;
 
     await within(
@@ -996,14 +821,11 @@ test('a late event from a released session reaches neither conversation', async 
 
     for (let elapsed = 0; elapsed < 200; elapsed += 20) {
       assert.deepEqual(await files(previous), before);
-
       assert.deepEqual(await files(target), adopted);
-
       await delay(20);
     }
 
     assert.equal(coordinator.snapshot.items, items);
-
     assert.notEqual((await readRecord(root, target)).process?.pid, sleeper.pid);
 
     assert.deepEqual(
@@ -1012,7 +834,6 @@ test('a late event from a released session reaches neither conversation', async 
     );
   } finally {
     sleeper.kill('SIGKILL');
-
     await coordinator.close();
   }
 });
@@ -1022,17 +843,11 @@ test('switching between conversations on one agent connects a fresh native sessi
 
   try {
     await coordinator.send('First');
-
     const first = coordinator.snapshot.conversation!.id;
-
     assert.ok((await readRecord(root, first)).process);
-
     await coordinator.newConversation('a');
-
     assert.equal((await readRecord(root, first)).process, undefined);
-
     await coordinator.send('Second');
-
     assert.notEqual(a.inputs.at(-1)!.session, a.inputs[0]!.session);
   } finally {
     await coordinator.close();
@@ -1042,17 +857,13 @@ test('switching between conversations on one agent connects a fresh native sessi
 /** a conversation on agent a with one turn, ready to hand off to b. */
 async function handoffFixture(createFixture = unitFixture) {
   const context = await createFixture();
-
   await context.coordinator.send('Start the migration');
-
   const source = context.a.inputs[0]!.session;
 
   const assertSourceActive = async () => {
     const { coordinator, a, root } = context;
     const conversation = coordinator.snapshot.conversation!;
-
     assert.equal(conversation.agent, 'a');
-
     assert.equal(conversation.handoff, undefined);
 
     assert.equal(
@@ -1061,11 +872,8 @@ async function handoffFixture(createFixture = unitFixture) {
     );
 
     assert.equal(a.sessions.at(-1)!.session.closed, true);
-
     a.gate = undefined;
-
     await coordinator.send('Continue here');
-
     assert.equal(a.inputs.at(-1)!.session, source);
   };
 
@@ -1080,17 +888,12 @@ test('a handoff cancelled during the summary keeps the source', async () => {
 
   try {
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     await within(gate.entered, 2000, 'the summary turn');
-
     await coordinator.interrupt();
-
     await assert.rejects(switching, /interrupted/);
-
     await context.assertSourceActive();
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -1106,7 +909,6 @@ test('a handoff cancelled while the summary is saved never connects the destinat
 
   try {
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     await within(gate.entered, 2000, 'the summary turn');
 
     // the summary turn saves first, without a handoff
@@ -1114,34 +916,23 @@ test('a handoff cancelled while the summary is saved never connects the destinat
       if (!record.handoff) return save.call(this, record);
 
       ConversationStore.prototype.save = save;
-
       holding.resolve();
 
       return held.promise.then(() => save.call(this, record));
     };
 
     gate.open();
-
     await within(holding.promise, 2000, 'the save of the summary');
-
     const connects = b.sessions.length;
-
     await coordinator.interrupt();
-
     held.resolve();
-
     await assert.rejects(switching, /interrupted/);
-
     assert.equal(b.sessions.length, connects);
-
     await context.assertSourceActive();
   } finally {
     ConversationStore.prototype.save = save;
-
     held.resolve();
-
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -1157,13 +948,9 @@ test('a handoff cancelled during the destination connect keeps the source', asyn
 
   try {
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     await within(connecting.promise, 2000, 'the destination connect');
-
     await coordinator.interrupt();
-
     await assert.rejects(switching, /interrupted/);
-
     await context.assertSourceActive();
   } finally {
     await coordinator.close();
@@ -1192,11 +979,8 @@ test('a handoff cancelled while saving its connection starts no catalog discover
           record.process
         ) {
           held = true;
-
           await pending;
-
           entered.resolve();
-
           await release.promise;
         } else await pending;
       },
@@ -1211,27 +995,17 @@ test('a handoff cancelled while saving its connection starts no catalog discover
     });
 
     const rejected = assert.rejects(switching, /interrupted/);
-
     await within(entered.promise, 2000, 'connection save');
-
     await coordinator.interrupt();
-
     release.resolve();
-
     await rejected;
-
     assert.equal(a.discoveries.length, discoveries);
-
     assert.equal(b.sessions.at(-1)!.session.closed, true);
-
     assert.equal(coordinator.snapshot.conversation!.agent, 'a');
-
     assert.equal(coordinator.snapshot.conversation!.sessions.b, undefined);
   } finally {
     release.resolve();
-
     await switching?.catch(() => {});
-
     await coordinator.close();
   }
 });
@@ -1244,7 +1018,6 @@ test('a handoff cancelled during the continuation stays with the destination', a
 
   try {
     a.interruptNext = true;
-
     await coordinator.send('Unfinished migration');
 
     const switching = coordinator.selectModel({
@@ -1254,23 +1027,15 @@ test('a handoff cancelled during the continuation stays with the destination', a
     });
 
     await within(gate.entered, 2000, 'the continuation');
-
     await coordinator.interrupt();
-
     await within(switching, 2000, 'the handoff');
-
     const conversation = coordinator.snapshot.conversation!;
-
     assert.equal(conversation.agent, 'b');
-
     assert.equal(conversation.handoff?.activated, true);
-
     assert.equal(conversation.sessions.b!.requestedModel, 'b-big');
-
     assert.equal(conversation.sessions.b!.effort, 'high');
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -1282,17 +1047,11 @@ test('a prompt sent during a handoff waits and goes to the destination', async (
 
   try {
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     await within(gate.entered, 2000, 'the summary turn');
-
     await coordinator.send('During');
-
     assert.deepEqual(a.steers, []);
-
     assert.deepEqual(coordinator.snapshot.queue, ['During']);
-
     gate.open();
-
     await within(switching, 2000, 'the handoff');
 
     await until('the queued prompt', () =>
@@ -1312,7 +1071,6 @@ test('a prompt sent during a handoff waits and goes to the destination', async (
     );
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -1325,23 +1083,14 @@ test('a /model switch whose summary fails activates with transcript context and 
   try {
     a.failNext = true;
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     await within(gate.entered, 2000, 'the summary turn');
-
     await coordinator.send('During');
-
     gate.open();
-
     await within(switching, 2000, 'the handoff');
-
     await until('the queued prompt', () => b.inputs.length === 1);
-
     assert.equal(b.inputs[0]!.prompt, 'During');
-
     assert.match(b.inputs[0]!.context!, /could not summarize/);
-
     assert.match(b.inputs[0]!.context!, /User: Start the migration/);
-
     assert.equal(coordinator.snapshot.conversation!.agent, 'b');
 
     assert.ok(
@@ -1351,7 +1100,6 @@ test('a /model switch whose summary fails activates with transcript context and 
     );
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -1380,15 +1128,11 @@ test('a /model switch whose failed summary leaves memory pending keeps the sourc
     );
 
     assert.equal(coordinator.snapshot.conversation!.agent, 'a');
-
     assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
-
     assert.equal(coordinator.snapshot.phase, 'recovery');
-
     assert.equal(b.sessions.length, 0);
   } finally {
     vi.restoreAllMocks();
-
     await coordinator.close();
   }
 });

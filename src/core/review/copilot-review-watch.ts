@@ -41,9 +41,7 @@ export class CopilotReviewWatch {
     if (pr?.url !== this.pr?.url) this.completed.clear();
 
     this.pr = pr;
-
     this.generation++;
-
     this.running?.abort();
 
     if (this.timer) clearTimeout(this.timer);
@@ -70,11 +68,8 @@ export class CopilotReviewWatch {
 
   close(): void {
     this.closed = true;
-
     this.generation++;
-
     this.requested = false;
-
     this.running?.abort();
 
     if (this.timer) clearTimeout(this.timer);
@@ -118,7 +113,6 @@ export class CopilotReviewWatch {
           continue;
 
         this.completed.add(check.id);
-
         this.requested = true;
       }
 
@@ -180,7 +174,6 @@ export function watchCopilotReviews(
 
   const update = () => {
     coordinator.copilot.updateRepository(repository.snapshot);
-
     const status = repository.snapshot;
 
     watch.update(
@@ -205,9 +198,7 @@ export function watchCopilotReviews(
 
     if (key !== claim) {
       claim = key;
-
       repository.refreshPullRequest();
-
       watch.refresh();
     }
   };
@@ -232,7 +223,6 @@ export function watchCopilotReviews(
   ];
 
   update();
-
   owner();
 
   return () => {

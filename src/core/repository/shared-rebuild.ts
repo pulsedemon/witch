@@ -79,7 +79,6 @@ async function waitForResult(
 
   for (;;) {
     signal?.throwIfAborted();
-
     const { size, nlink } = await receipt.stat();
 
     const { buffer, bytesRead } = await receipt.read(
@@ -126,7 +125,6 @@ export async function sharedRebuild(
 ): Promise<RebuildResult> {
   const state = join(directory, 'witch-rebuild.json');
   const pathFor = (id: string) => join(directory, `witch-rebuild-${id}.json`);
-
   let lock: FileHandle | undefined;
   let receipt: FileHandle | undefined;
   let lifetime: FileHandle | undefined;
@@ -174,22 +172,18 @@ export async function sharedRebuild(
         joined = true;
       } else {
         await receipt?.close();
-
         receipt = undefined;
 
         if (active) {
           await rm(pathFor(active.id), { force: true });
-
           await rm(state, { force: true });
         }
 
         attempt = { id: randomUUID() };
-
         const path = pathFor(attempt.id);
         receipt = await open(path, 'wx+', 0o600);
         created = path;
         lifetime = await openLocked(path, constants.O_RDWR);
-
         await writeJson(state, attempt);
       }
     } catch (error) {
@@ -197,7 +191,6 @@ export async function sharedRebuild(
     }
 
     await lock.close();
-
     lock = undefined;
 
     if (joined) {
@@ -224,7 +217,6 @@ export async function sharedRebuild(
 
     try {
       lock = await admission(directory);
-
       // the final newline publishes a complete receipt; already-open readers survive its unlink.
       await receipt.writeFile(`${JSON.stringify(outcome)}\n`);
     } catch (cause) {

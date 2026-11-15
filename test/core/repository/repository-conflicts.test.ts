@@ -29,7 +29,6 @@ function conflictWatch(options: {
 
       if (args[0] === 'api') {
         reads.tips.push(args);
-
         const tip = options.tip?.() ?? 'f00';
 
         if (tip instanceof Error) throw tip;
@@ -38,7 +37,6 @@ function conflictWatch(options: {
       }
 
       reads.pr++;
-
       const answer = options.answer();
 
       if (answer instanceof Error) throw answer;
@@ -77,11 +75,8 @@ test("a conflicting read records its base's tip, and only a mergeable or closed 
 
   const read = async (next: object | Error) => {
     answer = next;
-
     watch.refreshPullRequest();
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
   };
 
@@ -100,53 +95,29 @@ test("a conflicting read records its base's tip, and only a mergeable or closed 
     ]);
 
     assert.equal(conflict()?.baseTip, 'f00');
-
     assert.equal(conflict()?.pullRequest.commit, 'a1b2c3');
-
     await read({ mergeable: 'UNKNOWN' });
-
     assert.equal(watch.snapshot?.pullRequest?.mergeable, 'UNKNOWN');
-
     assert.equal(conflict()?.baseTip, 'f00');
-
     await read(new Error('network'));
-
     assert.equal(watch.snapshot?.pullRequest, undefined);
-
     assert.equal(conflict()?.baseTip, 'f00');
-
     await read({ mergeable: 'UNKNOWN' });
-
     assert.equal(conflict()?.baseTip, 'f00');
-
     assert.equal(reads.tips.length, 1);
-
     await read({ mergeable: 'UNKNOWN', headRefOid: 'd4e5f6' });
-
     assert.equal(conflict()?.pullRequest.commit, 'a1b2c3', 'a pushed head');
-
     tip = new Error('not found');
-
     await read({ mergeable: 'CONFLICTING' });
-
     assert.ok(conflict());
-
     assert.equal(conflict()?.baseTip, undefined);
-
     await read({ mergeable: 'UNKNOWN', baseRefName: 'main' });
-
     assert.equal(conflict()?.pullRequest.base, 'develop', 'a new base');
-
     await read({ mergeable: 'MERGEABLE' });
-
     assert.equal(conflict(), undefined);
-
     await read({ mergeable: 'CONFLICTING' });
-
     await read({ state: 'MERGED' });
-
     assert.equal(conflict(), undefined);
-
     assert.equal(reads.tips.length, 3);
   } finally {
     watch.close();
@@ -164,29 +135,17 @@ test('an uncomputed mergeability is read again after 10 seconds, while a status 
 
   try {
     await delay(20);
-
     answer = { mergeable: 'UNKNOWN' };
-
     watch.refreshPullRequest();
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(reads.pr, 2);
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(reads.pr, 2);
-
     assert.ok(watch.snapshot?.conflict);
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(reads.pr, 3);
   } finally {
     watch.close();
@@ -213,30 +172,19 @@ test('another local branch leaves a conflict out of the snapshot, and a read for
 
   try {
     await delay(20);
-
     assert.ok(watch.snapshot?.conflict);
-
     project = 'b';
     answer = { mergeable: 'MERGEABLE' };
-
     watch.refreshPullRequest();
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.ok(watch.snapshot?.conflict);
-
     project = 'a';
     answer = new Error('no pull requests found');
     branch = 'feat/y';
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(watch.snapshot?.branch, 'feat/y');
-
     assert.equal(watch.snapshot?.conflict, undefined);
   } finally {
     watch.close();
@@ -256,7 +204,6 @@ test('a refresh asked for while a pull request read runs reads again once it end
       return Promise.resolve({ stdout: '# branch.head main\n' });
 
     const read = Promise.withResolvers<{ stdout: string }>();
-
     gh.push(read);
 
     return read.promise;
@@ -264,25 +211,15 @@ test('a refresh asked for while a pull request read runs reads again once it end
 
   try {
     await delay(20);
-
     assert.equal(gh.length, 1);
-
     watch.refreshPullRequest();
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(gh.length, 1);
-
     gh[0]!.resolve({ stdout: view({ state: 'OPEN', statusCheckRollup: [] }) });
-
     await delay(20);
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(gh.length, 2);
   } finally {
     watch.close();
@@ -305,20 +242,14 @@ test('a detached head reads no pull request', async () => {
 
   try {
     await delay(20);
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(watch.snapshot?.branch, 'HEAD');
-
     assert.equal(calls.length, 4);
 
     for (const [command, args, { cwd, timeout, env }] of calls) {
       assert.equal(command, 'git');
-
       assert.equal(cwd, '/work');
-
       assert.equal(timeout, 10_000);
 
       assert.deepEqual(
@@ -338,7 +269,6 @@ test('a detached head reads no pull request', async () => {
 
       if (args.includes('status')) {
         assert.equal(env?.GIT_NO_LAZY_FETCH, '1');
-
         assert.equal(env?.GIT_ALLOW_PROTOCOL, '');
       }
     }
@@ -373,13 +303,9 @@ test('a cached pull request keeps its observed project until a fresh scoped read
     );
 
     project = 'project-b';
-
     vi.advanceTimersByTime(5000);
-
     await delay(20);
-
     assert.equal(watch.snapshot?.pullRequestProject, 'project-a');
-
     vi.advanceTimersByTime(85_000);
 
     await until(
@@ -415,9 +341,7 @@ test('a project change during a pull request read invalidates the observation', 
 
   try {
     await until('scope recheck', () => scopeReads === 2);
-
     await new Promise((resolve) => setImmediate(resolve));
-
     assert.equal(watch.snapshot?.pullRequest, undefined);
   } finally {
     watch.close();
@@ -458,45 +382,27 @@ test('head and upstream status changes refresh the pull request, while file edit
 
   const step = async () => {
     vi.advanceTimersByTime(5000);
-
     await delay(20);
   };
 
   dirty = true;
-
   await step();
-
   assert.equal(watch.snapshot?.untracked, 1);
-
   assert.equal(reads, 1);
-
   commit = 'd4e5f6';
   ahead = 1;
-
   await step();
-
   assert.equal(watch.snapshot?.pullRequest?.commit, 'd4e5f6');
-
   assert.equal(reads, 2);
-
   ahead = 0;
-
   await step();
-
   assert.equal(watch.snapshot?.ahead, 0);
-
   assert.equal(reads, 3, 'pushing the already observed commit');
-
   upstream = 'other/feat/x';
-
   await step();
-
   assert.equal(watch.snapshot?.upstream, 'other/feat/x');
-
   assert.equal(reads, 4);
-
   await step();
-
   assert.equal(reads, 4, 'unchanged status');
 
   assert.equal(
@@ -519,9 +425,7 @@ test('an awaited admission refresh reads after an older request and publishes be
   });
 
   t.onTestFinished(() => watch.close());
-
   await until('old read', () => reads === 1);
-
   let finished = false;
 
   const fresh = watch.readPullRequest().then(() => {
@@ -529,54 +433,33 @@ test('an awaited admission refresh reads after an older request and publishes be
   });
 
   await delay(20);
-
   assert.equal(finished, false);
-
   assert.equal(reads, 1);
-
   pending.resolve({ stdout: view({ state: 'OPEN', mergeable: 'UNKNOWN' }) });
-
   await fresh;
-
   assert.equal(reads, 2);
-
   assert.equal(watch.snapshot?.pullRequest?.mergeable, 'MERGEABLE');
-
   assert.equal(watch.snapshot?.commit, 'a1b2c3');
 });
 
 test('an awaited refresh retains a confirmed conflict on failure or UNKNOWN without retaining repair eligibility', async (t) => {
   let answer: object | Error = { mergeable: 'CONFLICTING' };
   const { watch, reads } = conflictWatch({ answer: () => answer });
-
   t.onTestFinished(() => watch.close());
-
   await until('conflict', () => !!watch.snapshot?.conflict);
-
   const conflict = watch.snapshot!.conflict;
   const current = () => watch.snapshot?.pullRequest;
   answer = new Error('network unavailable');
-
   await watch.readPullRequest();
-
   assert.equal(current(), undefined);
-
   assert.deepEqual(watch.snapshot?.conflict, conflict);
-
   answer = { mergeable: 'UNKNOWN' };
-
   await watch.readPullRequest();
-
   assert.equal(current()?.mergeable, 'UNKNOWN');
-
   assert.deepEqual(watch.snapshot?.conflict, conflict);
-
   answer = { mergeable: 'MERGEABLE' };
-
   await watch.readPullRequest();
-
   assert.equal(watch.snapshot?.conflict, undefined);
-
   assert.equal(reads.pr, 4);
 });
 
@@ -611,7 +494,6 @@ test('a head change during the base-tip lookup cannot publish the old conflictin
   });
 
   t.onTestFinished(() => watch.close());
-
   const conflicts: string[] = [];
 
   watch.subscribe(() => {
@@ -620,21 +502,13 @@ test('a head change during the base-tip lookup cannot publish the old conflictin
   });
 
   await until('base-tip read', () => lookingUp);
-
   commit = 'd4e5f6';
-
   vi.advanceTimersByTime(5000);
-
   await until('new local head', () => watch.snapshot?.commit === commit);
-
   tip.resolve({ stdout: 'f00\n' });
-
   await watch.readPullRequest();
-
   assert.deepEqual(conflicts, []);
-
   assert.equal(watch.snapshot?.pullRequest?.commit, 'd4e5f6');
-
   assert.equal(watch.snapshot?.conflict, undefined);
 });
 
@@ -667,19 +541,13 @@ for (const kind of ['status', 'pull request'] as const) {
     });
 
     t.onTestFinished(() => watch.close());
-
     let publications = 0;
-
     watch.subscribe(() => publications++);
-
     await entered.promise;
-
     const snapshot = watch.snapshot;
     const before = publications;
     const reading = watch.readPullRequest();
-
     watch.close();
-
     const readsAtClose = { ...reads };
 
     response.resolve({
@@ -690,11 +558,8 @@ for (const kind of ['status', 'pull request'] as const) {
     });
 
     await reading;
-
     assert.equal(watch.snapshot, snapshot);
-
     assert.equal(publications, before);
-
     assert.deepEqual(reads, readsAtClose);
   });
 }
@@ -738,15 +603,10 @@ for (const change of ['head', 'upstream status'] as const) {
     });
 
     t.onTestFinished(() => watch.close());
-
     await until('initial conflict', () => !!watch.snapshot?.conflict);
-
     assert.equal(reads, 1);
-
     fail = true;
-
     vi.advanceTimersByTime(5000);
-
     await until('failed local read', () => watch.snapshot === undefined);
 
     if (change === 'head') commit = 'd4e5f6';
@@ -754,7 +614,6 @@ for (const change of ['head', 'upstream status'] as const) {
 
     mergeable = 'MERGEABLE';
     fail = false;
-
     vi.advanceTimersByTime(5000);
 
     await until(

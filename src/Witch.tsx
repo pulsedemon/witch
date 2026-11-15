@@ -70,7 +70,6 @@ export async function runWitch(
     store = await StateStore.open(root);
   } catch (error) {
     process.stderr.write(`witch: ${errorMessage(error)}\n`);
-
     process.exit(1);
   }
 
@@ -102,7 +101,6 @@ export async function runWitch(
       if (!preview && report.blocked.length) process.exitCode = 1;
     } catch (error) {
       process.stderr.write(`witch: ${errorMessage(error)}\n`);
-
       process.exitCode = 1;
     }
 
@@ -110,7 +108,6 @@ export async function runWitch(
   }
 
   registerNativeParticipant();
-
   const prompt = positionals.join(' ');
   let stopTerminal: (() => void) | undefined;
 
@@ -119,9 +116,7 @@ export async function runWitch(
 
     if (stopTerminal) {
       stopTerminal();
-
       stopTerminal = undefined;
-
       process.stdout.write('\u001b]2;\u001b\\');
     }
   };
@@ -129,7 +124,6 @@ export async function runWitch(
   // runs on every exit, including a second Ctrl+C's process.exit and a crash, and first, so a slow directory removal
   // can't hold mouse reporting on
   process.once('exit', restore);
-
   const scratchParent = join(store.root, 'scratch');
 
   const scratchResume =
@@ -220,14 +214,12 @@ export async function runWitch(
   const policy = await DelegationStore.open(join(store.root, 'delegation'));
   coordination.router = router(coordinator, policy);
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
-
   // straight to the terminal, since the link screen would read image data as printed text
   const graphics = new Graphics((data) => process.stdout.write(data));
 
   /** frees the images while the alternate screen that holds them is still active. */
   const unmount = () => {
     graphics.release();
-
     application.unmount();
   };
 
@@ -235,13 +227,11 @@ export async function runWitch(
 
   const shutdown = () => {
     updates.close();
-
     stopTerminal?.();
 
     // a second request quits without waiting for a stuck agent
     if (shuttingDown) {
       unmount();
-
       process.exit(130);
     }
 
@@ -251,9 +241,7 @@ export async function runWitch(
       .close({ restart: restarting })
       .then(unmount, (error: unknown) => {
         unmount();
-
         process.stderr.write(`witch: ${errorMessage(error)}\n`);
-
         process.exitCode = 1;
       });
   };
@@ -262,7 +250,6 @@ export async function runWitch(
 
   const restart = () => {
     restarting = true;
-
     shutdown();
   };
 
@@ -357,7 +344,6 @@ export async function runWitch(
   );
 
   process.stdout.write(captureMouse);
-
   // a closed terminal fails every write and may send SIGHUP; whichever comes first stops a running Claude `!`
   // command before anything awaits
   const signals = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const;
@@ -388,21 +374,13 @@ export async function runWitch(
     );
 
   await application.waitUntilExit();
-
   updates.close();
-
   stopMerges();
-
   stopConflicts();
-
   stopCopilot();
-
   stopCoordinationRepository();
-
   repository.close();
-
   changes.close();
-
   jobs.close();
 
   for (const signal of signals) process.removeListener(signal, shutdown);
@@ -423,12 +401,9 @@ export async function runWitch(
   if (restarting) {
     // the replacement takes over this pid's snapshot directory, so no snapshot operation here may still be running
     await changes.settled();
-
     // execve fires no exit event; the replacement resets job reports and resumes scratch
     restore();
-
     const id = coordinator.snapshot.conversation?.id ?? handedOver;
-
     // the replacement keeps this pid, so `-w` would never end the hold; any other exit ends it
     stopWake();
 

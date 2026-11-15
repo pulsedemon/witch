@@ -27,7 +27,6 @@ export function wrapSourceLines(
       return wrapLines(line, width, trim).map((text) => {
         const plain = stripAnsi(text);
         const start = trim ? source.indexOf(plain, offset) : offset;
-
         offset = start + plain.length;
 
         return { text, offset: start };

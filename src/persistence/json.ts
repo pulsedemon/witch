@@ -18,18 +18,15 @@ export async function replaceFile(
 
   try {
     await handle.writeFile(content);
-
     await handle.sync();
 
     if (times) await handle.utimes(times.atime, times.mtime);
 
     await handle.close();
-
     await rename(temporary, file);
   } catch (error) {
     // the original failure is the one worth reporting, so cleanup failures stay quiet
     await handle.close().catch(() => {});
-
     await rm(temporary, { force: true }).catch(() => {});
 
     throw error;

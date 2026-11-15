@@ -14,17 +14,11 @@ const instance = fileURLToPath(
 test("an instance directory goes when its process exits, read-only contents included, and so do those of processes that are gone or of an earlier process with its pid, while live and unprobeable processes' directories stay", async () => {
   const parent = await scratch('witch-instance-');
   const exited = spawn('/usr/bin/true');
-
   await once(exited, 'exit');
-
   await mkdir(join(parent, String(exited.pid)));
-
   await mkdir(join(parent, String(process.pid)));
-
   await mkdir(join(parent, 'notes'));
-
   await mkdir(join(parent, '100001'));
-
   await writeFile(join(parent, '100001', 'marker'), 'kept');
 
   const script = `
@@ -68,9 +62,7 @@ test("an instance directory goes when its process exits, read-only contents incl
   });
 
   const [code] = await once(child, 'close');
-
   assert.equal(code, 0);
-
   assert.equal(stdout.trim(), join(parent, String(child.pid)));
 
   assert.deepEqual(

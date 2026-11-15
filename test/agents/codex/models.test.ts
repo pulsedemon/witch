@@ -26,11 +26,8 @@ test('a failed picker refresh leaves no listed model to pass a selection uncheck
 
   try {
     assert.ok((await session.models()).some(({ id }) => id === 'model-b'));
-
     await writeFile(join(cwd, 'models-fail'), '');
-
     await assert.rejects(session.models(), /model\/list failed/);
-
     await assert.rejects(session.checkModel!('model-b'), /model\/list failed/);
   } finally {
     await close(session, cwd);
@@ -76,7 +73,6 @@ test('failed standalone discovery settles with no catalog read still active', as
     contextCatalog: async ({ signal }) => {
       active = true;
       const stop = () => finished.resolve();
-
       signal?.addEventListener('abort', stop, { once: true });
 
       try {
@@ -85,7 +81,6 @@ test('failed standalone discovery settles with no catalog read still active', as
         return { models: [] };
       } finally {
         active = false;
-
         signal?.removeEventListener('abort', stop);
       }
     },
@@ -102,7 +97,6 @@ test('failed standalone discovery settles with no catalog read still active', as
     assert.equal(active, false);
   } finally {
     finished.resolve();
-
     await close(f.session, f.cwd);
   }
 });
@@ -148,19 +142,12 @@ setInterval(() => {}, 1000);
       );
 
     await appears(ready);
-
     pid = Number(await readFile(ready, 'utf8'));
-
     assert.ok(Number.isSafeInteger(pid) && pid > 0);
-
     controller.abort();
-
     const error = await outcome;
-
     assert.ok(error instanceof Error);
-
     assert.equal(error.name, 'AbortError');
-
     assert.equal(exited(pid), true);
   } finally {
     controller.abort();
@@ -171,7 +158,6 @@ setInterval(() => {}, 1000);
       await until('catalog child exits', () => exited(pid!));
 
     await outcome;
-
     await close(f.session, f.cwd);
   }
 });

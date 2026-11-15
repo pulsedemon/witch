@@ -28,7 +28,6 @@ test('a direct busy compact coalesces callers and holds later input until the or
 
     native.send = async (...args) => {
       const result = await send(...args);
-
       order.push(args[0]);
 
       return result;
@@ -41,24 +40,17 @@ test('a direct busy compact coalesces callers and holds later input until the or
     };
 
     const parent = c.send('original parent');
-
     await gate.entered;
 
     const first = c.compact(),
       second = c.compact();
 
     assert.equal(first, second);
-
     assert.equal(c.snapshot.pendingCompaction, true);
-
     await c.send('distinct later prompt');
-
     assert.deepEqual(f.a.steers, []);
-
     gate.open();
-
     assert.equal(await within(first, 3000, 'deferred compact'), true);
-
     await parent;
 
     await until(
@@ -73,11 +65,9 @@ test('a direct busy compact coalesces callers and holds later input until the or
     ]);
 
     assert.equal(c.snapshot.pendingCompaction, false);
-
     assert.deepEqual(f.a.stops, []);
   } finally {
     gate.open();
-
     await c.close();
   }
 });
@@ -90,12 +80,9 @@ for (const success of [true, false]) {
 
     try {
       await c.send('remember-port');
-
       f.a.gate = gate;
       const parent = c.send('parent result');
-
       await gate.entered;
-
       f.a.replied = true;
 
       const native = f.a.sessions.at(-1)!,
@@ -104,13 +91,9 @@ for (const success of [true, false]) {
       native.session.compactDuringTurn = () => completed.promise;
       const release = c.holdPromptDelivery();
       const compact = c.compact();
-
       await c.send('later under new model');
-
       const note = await f.note();
-
       await writeFile(join(f.workspace().root, note), 'unfinished hook note');
-
       assert.deepEqual(f.a.steers, []);
 
       if (success) native.options.onEvent({ type: 'compacted' });
@@ -122,11 +105,8 @@ for (const success of [true, false]) {
       );
 
       assert.equal(await within(compact, 3000, 'busy compact'), success);
-
       assert.equal(await f.workspace().isDirty(), true);
-
       assert.equal(await f.memory.read('main', note), 'Use port 4567.');
-
       const steered: [string, string][] = [];
       const steer = native.session.steer.bind(native.session);
 
@@ -140,41 +120,30 @@ for (const success of [true, false]) {
         await c.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
 
       release();
-
       release();
-
       assert.equal(c.snapshot.commandsPending, false);
 
       if (success) {
         await until('new-model steering', () => f.a.steers.length === 1);
-
         assert.deepEqual(steered, [['later under new model', 'a-big']]);
       }
 
       gate.open();
-
       await parent;
-
       const record = await readRecord(f.root, c.snapshot.conversation!.id);
-
       assert.equal(record.lastTurn?.status, 'completed');
-
       assert.equal(c.snapshot.phase, success ? 'idle' : 'recovery');
 
       if (success) {
         assert.equal(record.sessions.a!.deliveredRevision, undefined);
-
         assert.equal(await f.memory.read('main', note), 'unfinished hook note');
       } else {
         assert.deepEqual(c.snapshot.queue, ['later under new model']);
-
         assert.deepEqual(steered, []);
-
         assert.match(c.snapshot.recovery!.diff, /unfinished hook note/);
       }
     } finally {
       gate.open();
-
       await c.close();
     }
   });
@@ -188,7 +157,6 @@ test('busy foreground compact waits for parent settlement before admitting model
   try {
     f.a.gate = gate;
     const parent = c.send('foreground');
-
     await gate.entered;
 
     const native = f.a.sessions.at(-1)!,
@@ -197,29 +165,18 @@ test('busy foreground compact waits for parent settlement before admitting model
     native.session.compactDuringTurn = () => completed.promise;
     const compact = c.compact();
     const isSettled = settled(compact);
-
     completed.resolve({ status: 'completed', text: '' });
-
     await Promise.resolve();
-
     await Promise.resolve();
-
     assert.equal(isSettled(), false);
-
     gate.open();
-
     assert.equal(await within(compact, 3000, 'parent settlement'), true);
-
     assert.equal(c.snapshot.phase, 'idle');
-
     await c.selectModel({ agent: 'a', id: 'a-big' });
-
     assert.equal(native.session.info.model, 'a-big');
-
     await parent;
   } finally {
     gate.open();
-
     await c.close();
   }
 });
@@ -235,44 +192,28 @@ test('a model choice after a busy compaction waits for the finished turn to sett
   try {
     f.a.gate = gate;
     const parent = c.send('foreground');
-
     await gate.entered;
-
     f.a.replied = true;
 
     native.compactDuringTurn = () =>
       Promise.resolve({ status: 'completed', text: '' });
 
     assert.equal(await within(c.compact(), 3000, 'busy compact'), true);
-
     const before = f.a.selections.length;
-
     gate.open();
-
     await within(settlement.entered, 2000, 'the post-turn save');
-
     assert.equal(c.snapshot.phase, 'running');
-
     assert.equal(native.replied, false);
-
     const choice = c.selectModel({ agent: 'a', id: 'a-big' });
-
     settlement.release();
-
     await within(choice, 2000, 'the model choice');
-
     assert.equal(native.info.model, 'a-big');
-
     assert.deepEqual(f.a.selections.slice(before), [['a-big', undefined]]);
-
     assert.equal(c.snapshot.phase, 'idle');
-
     await parent;
   } finally {
     settlement.restore();
-
     gate.open();
-
     await c.close();
   }
 });
@@ -284,31 +225,20 @@ test('manual compact joins an automatic compact and restores the removed batch b
 
   try {
     await c.send('seed');
-
     const native = f.a.sessions.at(-1)!.session;
     native.contextUsage = async () => 80;
     f.a.gate = gate;
     const sending = c.send('dequeued original');
-
     await gate.entered;
-
     const release = c.holdPromptDelivery();
     const compact = c.compact();
-
     await c.send('later');
-
     native.contextUsage = async () => 0;
-
     gate.open();
-
     assert.equal(await within(compact, 3000, 'joined automatic'), true);
-
     await sending;
-
     assert.deepEqual(c.snapshot.queue, ['dequeued original', 'later']);
-
     assert.equal(f.a.compactions.length, 1);
-
     const observed: [string, string][] = [];
     const send = native.send.bind(native);
 
@@ -319,7 +249,6 @@ test('manual compact joins an automatic compact and restores the removed batch b
     };
 
     await c.selectModel({ agent: 'a', id: 'a-big' });
-
     release();
 
     await until(
@@ -330,7 +259,6 @@ test('manual compact joins an automatic compact and restores the removed batch b
     assert.deepEqual(observed, [['dequeued original\nlater', 'a-big']]);
   } finally {
     gate.open();
-
     await c.close();
   }
 });
@@ -344,16 +272,12 @@ for (const outcome of ['interrupt', 'failure', 'close'] as const) {
     try {
       f.a.gate = gate;
       const parent = c.send('ordinary');
-
       await gate.entered;
-
       const compact = c.compact();
-
       await c.send('held later');
 
       if (outcome === 'failure') {
         f.a.failNext = true;
-
         gate.open();
       } else if (outcome === 'interrupt') await c.interrupt();
       else await c.close();
@@ -364,15 +288,11 @@ for (const outcome of ['interrupt', 'failure', 'close'] as const) {
       );
 
       await parent;
-
       assert.deepEqual(f.a.compactions, []);
-
       assert.deepEqual(c.snapshot.queue, ['held later']);
-
       assert.equal(c.snapshot.pendingCompaction, false);
     } finally {
       gate.open();
-
       await c.close();
     }
   });
@@ -386,7 +306,6 @@ test('a compaction requested while a conversation changes never runs in the repl
     const before = c.snapshot.conversation!.id;
     const changing = c.newConversation();
     const compact = c.compact();
-
     await changing;
 
     assert.equal(
@@ -395,9 +314,7 @@ test('a compaction requested while a conversation changes never runs in the repl
     );
 
     assert.notEqual(c.snapshot.conversation!.id, before);
-
     assert.deepEqual(f.a.compactions, []);
-
     assert.equal(c.snapshot.pendingCompaction, false);
   } finally {
     await c.close();
@@ -424,9 +341,7 @@ for (const closed of [false, true])
       .mockImplementation(async function (this: Workspace) {
         if (armed) {
           armed = false;
-
           settling.resolve();
-
           await finish.promise;
         }
 
@@ -441,29 +356,21 @@ for (const closed of [false, true])
       };
 
       const sending = c.send('original awaiting delivery');
-
       await reading.promise;
-
       const release = c.holdPromptDelivery();
       armed = true;
-
       read.resolve(0);
-
       await within(settling.promise, 3000, 'settling held batch');
-
       assert.deepEqual(c.snapshot.queue, []);
 
       if (closed) await f.a.sessions[0]!.session.close();
 
       release();
-
       finish.resolve();
-
       await sending;
 
       if (closed) {
         assert.deepEqual(c.snapshot.queue, ['original awaiting delivery']);
-
         assert.equal(f.a.inputs.length, 0);
       } else {
         await until(
@@ -475,11 +382,8 @@ for (const closed of [false, true])
       }
     } finally {
       finish.resolve();
-
       read.resolve(0);
-
       override.mockRestore();
-
       await c.close();
     }
   });

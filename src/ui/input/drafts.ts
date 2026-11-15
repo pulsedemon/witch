@@ -45,7 +45,6 @@ export function useDrafts(
     },
     setDraft: (id: string, value: string) => {
       setDrafts((previous) => ({ ...previous, [id]: value }));
-
       // a restart keeps the draft typed before browsing, as a switch does
       coordinator.draft(id, typed() ?? value);
     },

@@ -25,7 +25,6 @@ const compacted = 'Conversation compacted';
 
 async function jsonl(file: string, rows: readonly unknown[]): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
-
   await writeFile(file, rows.map((row) => JSON.stringify(row)).join('\n'));
 }
 
@@ -429,7 +428,6 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
 
   // Finder leaves files beside the conversations
   await writeFile(join(home, '.witch', 'conversations', '.DS_Store'), '');
-
   const { cases, packets, find, sections } = await extract(home);
   const witch = find('claude', 100);
 
@@ -453,17 +451,11 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   );
 
   const nativePacket = await sections(native);
-
   assert.ok(nativePacket.before.includes('!git status'));
-
   assert.ok(!nativePacket.after.includes('!git status'));
-
   assert.equal(native.promptsAfter, 0);
-
   assert.equal(find('compete-b', 3010).tokens, 700000);
-
   assert.equal(find('compete-a', 3000).runtime, undefined);
-
   const long = await sections(find('long', 4200));
 
   const has = (text: string, n: number) =>
@@ -475,7 +467,6 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   );
 
   assert.ok(long.opening.includes('reply-02'));
-
   assert.ok(!long.opening.includes('before the clear'));
 
   assert.deepEqual(
@@ -497,13 +488,9 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   );
 
   assert.equal(cases.filter((c) => c.conversation === 'terminal').length, 1);
-
   assert.equal(packets.filter((p) => p.startsWith('terminal-')).length, 1);
-
   const terminal = find('terminal', 5100);
-
   assert.deepEqual([terminal.runtime, terminal.tokens], ['claude', 111000]);
-
   assert.equal(find('mixed', 5300).runtime, 'codex');
 
   for (const [index, type] of outputs.entries()) {
@@ -551,15 +538,10 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   );
 
   const claudePacket = await sections(witch);
-
   assert.ok(!claudePacket.before.includes('forgotten request'));
-
   assert.ok(claudePacket.before.includes('finished part one'));
-
   assert.equal(claudePacket.before.split('queued prompt').length, 2);
-
   assert.ok(claudePacket.before.includes('queued answer'));
-
   assert.ok(!claudePacket.before.includes('superseded draft'));
 
   assert.match(
@@ -568,15 +550,10 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   );
 
   assert.ok(claudePacket.after.includes('answered in chunks'));
-
   assert.equal(witch.promptsAfter, 4);
-
   assert.ok(!claudePacket.after.includes('fifth after'));
-
   const commandPacket = await sections(command);
-
   assert.equal(command.promptsAfter, 2);
-
   assert.ok(!commandPacket.after.includes('start-of-turn reply'));
 
   assert.match(
@@ -585,11 +562,8 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   );
 
   const midTurnPacket = await sections(midTurn);
-
   assert.match(midTurnPacket.after, /^\s*### agent\s+final/);
-
   assert.equal(midTurn.promptsAfter, 1);
-
   assert.ok(!midTurnPacket.after.includes('p2 after clear'));
 });
 
@@ -624,7 +598,6 @@ test('matches compactions just inside either one-minute boundary but not at it',
 test('stops on a malformed row before the last one', async () => {
   const home = await scratch('witch-compaction-cases-');
   const dir = join(home, '.witch', 'conversations', 'broken');
-
   await mkdir(dir, { recursive: true });
 
   await writeFile(

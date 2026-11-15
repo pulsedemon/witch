@@ -39,9 +39,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
   const cli = await compiledCli();
   const project = join(root, 'project');
   const bin = join(root, 'bin');
-
   await mkdir(project, { recursive: true });
-
   await mkdir(bin, { recursive: true });
 
   const git = (
@@ -69,9 +67,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
 
   // a screenshot name's spaces and U+202F, and a tool's image that has no file until it is clicked
   const shot = join(project, 'Screenshot 2026-10-30 at 3.35.40\u202fPM.png');
-
   await writeFile(shot, png(16, 16));
-
   const toolImage = png(24, 24);
 
   await files.append({
@@ -104,7 +100,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
   });
 
   await files.close();
-
   const spawned = performance.now();
 
   const child = spawn(
@@ -138,9 +133,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
   );
 
   const closed = once(child, 'close');
-
   void closed.catch(() => {});
-
   const messages: DesktopEvent[] = [];
   const screen = new Screen({ columns: 80, rows: 30 });
   let output = '';
@@ -157,13 +150,11 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       open >= 0 && !text.includes('\u001b\\', open) ? open : text.length;
 
     transmission = text.slice(end);
-
     // eslint-disable-next-line no-control-regex
     screen.write(text.slice(0, end).replace(/\u001b_G[^\u001b]*\u001b\\/g, ''));
   });
 
   child.stderr!.on('data', (chunk) => (stderr += chunk.toString()));
-
   const diagnostics: string[] = [];
 
   child.on('message', (message: DesktopEvent) => {
@@ -215,11 +206,12 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
 
   const submit = async (text: string) => {
     const start = output.length;
-
     write(text);
 
+    // Enter written before the app reads the text arrives in the same chunk and is inserted as a newline.
+    // the transcript repeats earlier prompts, so only the composer's own row shows this one was read
     await wait('composer text', () =>
-      stripAnsi(output.slice(start)).includes(text),
+      stripAnsi(output.slice(start)).includes(`┃ ${text}`),
     );
 
     write('\r');
@@ -240,7 +232,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
 
   const configure = async (failure: string) => {
     const start = messages.length;
-
     child.send({ failure });
 
     await wait('failure configured', () =>
@@ -280,11 +271,8 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
     );
 
     const first = screen.linkAt(1, 4)!;
-
     write(mouse('press', 1, 4));
-
     await delay(50);
-
     write('\u001b[5~');
 
     await wait(
@@ -295,7 +283,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
     );
 
     const changed = screen.linkAt(1, 4)!;
-
     write(mouse('release', 1, 4));
 
     await wait('opened captured link', () =>
@@ -325,7 +312,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
     );
 
     assert.equal(messages.filter((m) => m.file === '/usr/bin/open').length, 1);
-
     let turn = 0;
 
     for (const [kind, failure, errorText] of [
@@ -335,13 +321,9 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       ['memory', 'memoryDirectories', 'fixture memory lookup failed'],
     ] as const) {
       const held = ++turn;
-
       await submit(`hold for ${kind}`);
-
       await wait('held native turn', () => request(`turn-${held}`));
-
       const queuedAt = output.length;
-
       await submit('refused');
 
       await wait('refused steer stays queued', async () => {
@@ -364,9 +346,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
             : url.startsWith('https://example.com/');
 
       write('\u001b[5~');
-
       await wait('clickable target', () => linkCell(matches));
-
       const cell = linkCell(matches)!;
       const failedAt = output.length;
       const opened = messages.filter((m) => m.file === '/usr/bin/open').length;
@@ -403,9 +383,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
         );
 
       await configure('none');
-
       await finish(held);
-
       const next = ++turn;
 
       await wait(`${kind} failure allows the followup`, () =>
@@ -418,7 +396,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       );
 
       const idleAt = output.length;
-
       await finish(next);
 
       await wait('followup completed', () =>
@@ -443,7 +420,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       };
 
       await wait(name, bottom);
-
       const cell = bottom()!;
 
       write(
@@ -463,14 +439,10 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
     };
 
     write('\u001b[5~'.repeat(10));
-
     // open gets the real path, which differs where TMPDIR sits under a symlink such as macOS /var
     const shotLink = pathToFileURL(await realpath(shot)).href;
-
     await open('screenshot image', (url) => url === shotLink);
-
     const focused = output.length;
-
     write('\t');
 
     await wait('tool focus', () =>
@@ -484,14 +456,10 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
     );
 
     assert.deepEqual(await readFile(fileURLToPath(saved)), toolImage);
-
     // an idle Ctrl+C asks for a second press before exiting
     write('\u0003\u0003');
-
     const [code, signal] = await within(closed, 5000, 'CLI exit');
-
     assert.equal(code, 0, `${stderr} ${signal}`);
-
     assert.equal(existsSync(fileURLToPath(saved)), false);
   } finally {
     await writeFile(join(project, 'release'), 'yes');
@@ -503,7 +471,6 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
         await within(closed, 5000, 'CLI cleanup');
       } catch {
         child.kill('SIGKILL');
-
         await within(closed, 5000, 'CLI kill');
       }
     }

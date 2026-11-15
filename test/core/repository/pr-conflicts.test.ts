@@ -138,11 +138,8 @@ test('a conflict reaches the coordinator with one unsaved notice per conversatio
 
   const conflict = { pullRequest: pr({ mergeable: 'CONFLICTING' }) };
   const conflicted = status({ pullRequest: conflict.pullRequest, conflict });
-
   await stub.publish(conflicted);
-
   assert.deepEqual(coordinator.conflict, conflict);
-
   assert.equal(observed.at(-1), conflicted);
 
   assert.deepEqual(notices, [
@@ -153,31 +150,18 @@ test('a conflict reaches the coordinator with one unsaved notice per conversatio
   ]);
 
   await stub.publish(status({ pullRequest: conflict.pullRequest, conflict }));
-
   assert.equal(notices.length, 1);
-
   observed.length = 0;
-
   publish({ conversation: { id: 'd', cwd: '/w' } as never, items: [] });
-
   await tick();
-
   assert.equal(notices.length, 2, 'a newly opened conversation');
-
   assert.deepEqual(observed, [conflicted], 'a coordinator publication');
-
   await stub.publish(undefined);
-
   assert.deepEqual(coordinator.conflict, conflict);
-
   assert.equal(observed.at(-1), undefined);
-
   const mergeable = status({ pullRequest: pr({ mergeable: 'MERGEABLE' }) });
-
   await stub.publish(mergeable);
-
   assert.equal(coordinator.conflict, undefined);
-
   assert.equal(observed.at(-1), mergeable);
 });
 
@@ -190,52 +174,29 @@ test('a pull request read that failed gets one unsaved notice per failure, again
 
   const text = "Can't read this branch's pull request: number: missing";
   const conversation = { id: 'c', cwd: '/w' } as never;
-
   publish({ conversation: undefined });
-
   await stub.publish(failed());
-
   assert.equal(notices.length, 0, 'no conversation is open');
-
   publish({ conversation });
-
   await tick();
-
   assert.deepEqual(notices, [{ text, save: false }]);
-
   await stub.publish(failed());
-
   assert.equal(notices.length, 1, 'the same failure again');
-
   await stub.publish(status());
-
   await stub.publish(failed());
-
   assert.equal(notices.length, 1, 'gh had no answer in between');
-
   await stub.publish(status({ pullRequest: pr() }));
-
   await stub.publish(failed());
-
   assert.equal(notices.length, 2, 'the failure came back after a read worked');
-
   // both publications land before the scheduled check runs
   void stub.publish(status({ pullRequest: pr() }));
-
   await stub.publish(failed());
-
   assert.equal(notices.length, 3, 'a read worked between two checks');
-
   await stub.publish(failed('url: missing'));
-
   assert.equal(notices.at(-1)!.text.endsWith('url: missing'), true);
-
   assert.equal(notices.length, 4, 'a different failure');
-
   publish({ conversation: { id: 'd', cwd: '/w' } as never, items: [] });
-
   await tick();
-
   assert.equal(notices.length, 5, 'a newly opened conversation');
 });
 
@@ -251,7 +212,6 @@ test('a failure beside a pull request that was read gets one notice until a read
     });
 
   await stub.publish(partial());
-
   await stub.publish(partial({ modified: 1 }));
 
   assert.deepEqual(
@@ -261,7 +221,6 @@ test('a failure beside a pull request that was read gets one notice until a read
   );
 
   await stub.publish(status({ pullRequest: pr() }));
-
   await stub.publish(partial());
 
   assert.equal(
@@ -302,33 +261,22 @@ test('a merge into the pull request base reads it again, and a pull request that
   });
 
   t.onTestFinished(() => watch.close());
-
   const { coordinator, merged } = fixture(t.onTestFinished, watch);
 
   const step = async () => {
     vi.advanceTimersByTime(5000);
-
     await delay(20);
   };
 
   await until('first pull request read', () => !!watch.snapshot?.pullRequest);
-
   assert.equal(reads, 1);
-
   const before = '1969-12-31T23:59:59.000Z';
-
   await merged([merge('old', 'main', before)]);
-
   await step();
-
   assert.equal(reads, 1, 'a merge recorded before the first read');
-
   mergeable = 'CONFLICTING';
-
   await merged([merge('old', 'main'), merge('other', 'release')]);
-
   await step();
-
   assert.equal(reads, 1, 'a merge into another base');
 
   await merged([
@@ -338,12 +286,9 @@ test('a merge into the pull request base reads it again, and a pull request that
   ]);
 
   await step();
-
   // the base tip's read follows the pull request's, so the conflict can land after the read starts
   await until('conflict', () => coordinator.conflict?.baseTip === 'f00');
-
   assert.equal(reads, 2);
-
   assert.equal(coordinator.conflict?.pullRequest.mergeable, 'CONFLICTING');
 
   await merged([
@@ -353,7 +298,6 @@ test('a merge into the pull request base reads it again, and a pull request that
   ]);
 
   await step();
-
   assert.equal(reads, 2, 'a repeated event');
 });
 
@@ -367,12 +311,9 @@ for (const [name, observed, expected] of [
     const stub = stubRepository();
     const { merged } = fixture(t.onTestFinished, stub.repository);
     stub.repository.pullRequestReadAt = 1000;
-
     await stub.publish(status({ pullRequest: pr() }));
-
     // the first coordination notification after the read
     await merged([merge('m', 'main', at(observed))]);
-
     assert.equal(stub.refreshes(), expected);
   });
 
@@ -380,13 +321,9 @@ test('a merge delivered before the open read publishes refreshes it once it does
   const stub = stubRepository();
   const { merged } = fixture(t.onTestFinished, stub.repository);
   stub.repository.pullRequestReadAt = 1000;
-
   await merged([merge('m', 'main', at(1500))]);
-
   assert.equal(stub.refreshes(), 0);
-
   await stub.publish(status({ pullRequest: pr() }));
-
   assert.equal(stub.refreshes(), 1);
 });
 
@@ -399,20 +336,12 @@ test('a merge delivered before the conversation opens refreshes the pull request
   );
 
   const conversation = coordinator.snapshot.conversation;
-
   publish({ conversation: undefined });
-
   stub.repository.pullRequestReadAt = 1000;
-
   await stub.publish(status({ pullRequest: pr() }));
-
   await merged([merge('m', 'main', at(2000))]);
-
   assert.equal(stub.refreshes(), 0);
-
   publish({ conversation });
-
   await tick();
-
   assert.equal(stub.refreshes(), 1);
 });

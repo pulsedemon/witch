@@ -113,7 +113,6 @@ export class ClaudeTask {
 
         if (model !== this.identity.model) {
           this.identity = { ...this.identity, model };
-
           this.emit(this.progress());
         }
       } else if (message.type === 'assistant') {
@@ -138,9 +137,7 @@ export class ClaudeTask {
             if (this.tools.has(use.id)) continue;
 
             this.tools.add(use.id);
-
             this.activity = claudeTitle(use.name, use.input, this.cwd).title;
-
             this.emit(this.progress());
           }
         }

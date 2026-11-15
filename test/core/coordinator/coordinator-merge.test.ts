@@ -35,28 +35,19 @@ const kept =
 async function mergedOrigin(root: string, project: string, worktree = false) {
   const origin = join(root, 'origin.git');
   const install = worktree ? join(root, 'launcher') : project;
-
   await git(root, 'init', '--bare', origin);
-
   await git(root, 'clone', origin, install);
-
   await git(install, 'commit', '--allow-empty', '-m', 'base');
-
   await git(install, 'push', '-u', 'origin', 'main');
-
   const base = await git(install, 'rev-parse', 'HEAD');
 
   if (worktree) await git(install, 'worktree', 'add', '-b', 'feat/x', project);
   else await git(project, 'switch', '-c', 'feat/x');
 
   await git(project, 'commit', '--allow-empty', '-m', 'feature');
-
   const tip = await git(project, 'rev-parse', 'HEAD');
-
   await git(project, 'push', 'origin', 'feat/x:main');
-
   await git(project, 'config', 'branch.feat/x.remote', 'origin');
-
   await git(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
 
   return { origin, install, base, tip };
@@ -67,9 +58,7 @@ test('a merge cleanup holds the phase and spins the pentacle, a prompt sent duri
 
   try {
     await git(project, 'init', '-q', '-b', 'feat/x');
-
     await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
-
     let queued = false;
     const spinning: boolean[] = [];
     let sent: Promise<void> | undefined;
@@ -78,7 +67,6 @@ test('a merge cleanup holds the phase and spins the pentacle, a prompt sent duri
       if (coordinator.snapshot.phase !== 'cleaning') return;
 
       spinning.push(coordinator.pentacle.active);
-
       sent ??= coordinator.send('After');
 
       if (coordinator.snapshot.queue.includes('After')) queued = true;
@@ -90,11 +78,8 @@ test('a merge cleanup holds the phase and spins the pentacle, a prompt sent duri
     );
 
     assert.equal(acted, true);
-
     assert.ok(queued);
-
     assert.ok(spinning.length > 0 && spinning.every(Boolean));
-
     await sent;
 
     await until('the queued prompt', () =>
@@ -109,11 +94,8 @@ test('a merge cleanup holds the phase and spins the pentacle, a prompt sent duri
 
 test('a turn that ends with a prompt queued runs that prompt before the merge cleanup', async () => {
   const { coordinator, a, project } = await fixture();
-
   await git(project, 'init', '-q', '-b', 'feat/x');
-
   await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
-
   const gate = new TurnGate();
 
   const repository = {
@@ -129,17 +111,11 @@ test('a turn that ends with a prompt queued runs that prompt before the merge cl
     a.gate = gate;
     a.refuseSteer = true;
     const sending = coordinator.send('first');
-
     await within(gate.entered, 2000, 'the gated turn');
-
     stop = watchMerges(repository, coordinator);
-
     await coordinator.send('second');
-
     gate.open();
-
     await within(sending, 2000, 'the queued turn');
-
     await until('the notice', () => notices(coordinator).length > 0);
 
     assert.deepEqual(turns(a), [
@@ -148,13 +124,10 @@ test('a turn that ends with a prompt queued runs that prompt before the merge cl
     ]);
 
     const texts = coordinator.snapshot.items.map((item) => item.text);
-
     assert.ok(texts.indexOf(kept) > texts.indexOf('second'));
   } finally {
     stop();
-
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -172,14 +145,10 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
 
   try {
     await other.initialize(project);
-
     await git(project, 'init', '-q', '-b', 'feat/x');
-
     await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
-
     agent.gate = gate;
     const sending = other.send('Start');
-
     await within(gate.entered, 2000, 'the other turn');
 
     assert.equal(
@@ -188,9 +157,7 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
     );
 
     assert.deepEqual(notices(coordinator), []);
-
     gate.open();
-
     await within(sending, 2000, 'the other turn');
 
     for (const [cwd, owner] of [
@@ -199,12 +166,9 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
       [join(project, '..'), (await identifyProcess(process.pid))!],
     ] as const) {
       const files = await store.create(record(randomUUID(), cwd));
-
       left.push(files);
-
       files.record.activity = activity();
       files.record.process = owner;
-
       await files.save(files.record);
     }
 
@@ -220,7 +184,6 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
     for (const files of left) await files.close();
 
     await other.close();
-
     await coordinator.close();
   }
 });
@@ -239,39 +202,23 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
 
   try {
     const origin = join(root, 'origin.git');
-
     await git(root, 'init', '--bare', origin);
-
     await git(root, 'clone', origin, project);
-
     await git(project, 'commit', '--allow-empty', '-m', 'base');
-
     await git(project, 'push', '-u', 'origin', 'main');
-
     await git(project, 'switch', '-c', 'feat/x');
-
     await git(project, 'commit', '--allow-empty', '-m', 'feature');
-
     await git(project, 'push', '-u', 'origin', 'feat/x');
-
     const tip = await git(project, 'rev-parse', 'HEAD');
     const merger = join(root, 'merger');
-
     await git(root, 'clone', origin, merger);
-
     await git(merger, 'merge', '--no-ff', '-m', 'merge', 'origin/feat/x');
-
     await git(merger, 'push', 'origin', 'main');
-
     await git(merger, 'push', 'origin', '--delete', 'feat/x');
-
     const merged = await git(merger, 'rev-parse', 'HEAD');
-
     await peer.initialize(project);
-
     agent.gate = gate;
     sending = peer.send('Read without changing the checkout');
-
     await within(gate.entered, 3000, 'the peer turn');
 
     const repository = {
@@ -290,9 +237,7 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
 
     coordinator.cleanUpMerge = async (...args) => {
       statuses.push(await git(project, 'status', '--porcelain=v2', '--branch'));
-
       const acted = await cleanup(...args);
-
       first.resolve(acted);
 
       if (acted) completed.resolve();
@@ -308,17 +253,11 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
     );
 
     gate.open();
-
     await sending;
-
     await within(completed.promise, 15_000, 'automatic cleanup');
-
     assert.equal(statuses.length, 2);
-
     assert.equal(statuses[1], statuses[0]);
-
     assert.equal(await git(project, 'branch', '--show-current'), 'main');
-
     assert.equal(await git(project, 'rev-parse', 'HEAD'), merged);
 
     await assert.rejects(
@@ -331,13 +270,9 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
     ]);
   } finally {
     stop();
-
     gate.open();
-
     await sending;
-
     await peer.close();
-
     await coordinator.close();
   }
 });
@@ -353,23 +288,16 @@ test("a merge cleanup waits for another Witch's turn anywhere in its checkout, b
 
   try {
     await git(project, 'init', '-q', '-b', 'feat/x');
-
     await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
-
     await mkdir(join(project, 'src'));
-
     await other.initialize(join(project, 'src'));
-
     const live = (await identifyProcess(process.pid))!;
 
     const running = async (cwd: string) => {
       const files = await store.create(record(randomUUID(), cwd));
-
       left.push(files);
-
       files.record.activity = activity();
       files.record.process = live;
-
       await files.save(files.record);
 
       return files;
@@ -389,7 +317,6 @@ test("a merge cleanup waits for another Witch's turn anywhere in its checkout, b
       );
 
       delete files.record.activity;
-
       await files.save(files.record);
 
       assert.equal(
@@ -401,7 +328,6 @@ test("a merge cleanup waits for another Witch's turn anywhere in its checkout, b
     for (const files of left) await files.close();
 
     await other.close();
-
     await coordinator.close();
   }
 });
@@ -411,13 +337,9 @@ test("a merge cleanup waits while a conversation record can't be read", async ()
 
   try {
     await git(project, 'init', '-q', '-b', 'feat/x');
-
     await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
-
     const broken = join(store.root, 'conversations', randomUUID());
-
     await mkdir(broken);
-
     await writeFile(join(broken, 'state.json'), '{');
 
     assert.equal(
@@ -426,7 +348,6 @@ test("a merge cleanup waits while a conversation record can't be read", async ()
     );
 
     assert.deepEqual(notices(coordinator), []);
-
     await rm(broken, { recursive: true });
 
     assert.equal(
@@ -443,13 +364,9 @@ test('a merge cleanup leaves a checkout that changed alone, and says nothing', a
 
   try {
     await git(project, 'init', '-q', '-b', 'feat/x');
-
     await writeFile(join(project, 'a.txt'), 'a\n');
-
     await git(project, 'add', '.');
-
     await git(project, 'commit', '-q', '-m', 'one');
-
     await writeFile(join(project, 'a.txt'), 'b\n');
 
     assert.equal(
@@ -499,7 +416,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
       coordinator.cleanUpMerge(pullRequest(tip)),
       (error: unknown) => {
         assert.ok(error instanceof Error);
-
         rejected = error;
 
         assert.ok(
@@ -509,7 +425,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
         );
 
         assert.match(error.message, /injected sibling listing failure/);
-
         assert.equal((error.cause as { code: number }).code, 23);
 
         return true;
@@ -517,11 +432,8 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     );
 
     assert.equal(coordinator.snapshot.error, rejected!.message);
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual(notices(coordinator), []);
-
     assert.equal(await git(project, 'branch', '--show-current'), 'main');
 
     assert.equal(
@@ -546,47 +458,28 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
 
     try {
       const a = join(root, 'a.git');
-
       await git(root, 'init', '-q', '--bare', a);
-
       await git(root, 'clone', '-q', a, project);
-
       await writeFile(join(project, 'a.txt'), 'a\n');
-
       await git(project, 'add', '.');
-
       await git(project, 'commit', '-q', '-m', 'base');
-
       await git(project, 'push', '-q', '-u', 'origin', 'main');
-
       await git(project, 'switch', '-q', '-c', 'feat/x');
-
       await writeFile(join(project, 'x.txt'), 'x\n');
-
       await git(project, 'add', '.');
-
       await git(project, 'commit', '-q', '-m', 'x');
-
       await git(project, 'push', '-q', '-u', 'origin', 'feat/x');
-
       const tip = await git(project, 'rev-parse', 'HEAD');
       const merger = join(root, 'merger');
-
       await git(root, 'clone', '-q', a, merger);
-
       await git(merger, 'merge', '-q', '--no-ff', 'origin/feat/x');
-
       await git(merger, 'push', '-q');
-
       await git(merger, 'push', '-q', 'origin', '--delete', 'feat/x');
-
       const install = join(root, 'install');
 
       if (variant === 'b') {
         const b = join(root, 'b.git');
-
         await git(root, 'init', '-q', '--bare', b);
-
         await git(root, 'clone', '-q', b, install);
       } else if (variant !== 'none') {
         await git(root, 'clone', '-q', a, install);
@@ -596,7 +489,6 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
         else if (variant === 'diverged') {
           // a commit the merge doesn't have, so the install can't fast-forward
           await git(install, 'reset', '-q', '--hard', 'HEAD~1');
-
           await git(install, 'commit', '-q', '--allow-empty', '-m', 'local');
         }
       }
@@ -605,7 +497,6 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
 
       if (variant === 'busy') {
         const bin = join(root, 'bin');
-
         await mkdir(bin);
 
         await writeFile(
@@ -650,9 +541,7 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
 
       if (variant === 'busy') {
         assert.equal(coordinator.snapshot.phase, 'idle');
-
         assert.equal(coordinator.snapshot.error, undefined);
-
         await assert.rejects(readFile(pnpmCalls), { code: 'ENOENT' });
       }
     } finally {
@@ -660,7 +549,6 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
       else process.env.PATH = previousPath;
 
       await lock?.close();
-
       await coordinator.close();
     }
   }
@@ -675,9 +563,7 @@ test('a merge cleanup reports the shared rebuild waiting notice and its complete
   try {
     const { origin, tip } = await mergedOrigin(root, project);
     const install = join(root, 'install');
-
     await git(root, 'clone', origin, install);
-
     const entered = Promise.withResolvers<void>();
     const calls: string[][] = [];
 
@@ -686,7 +572,6 @@ test('a merge cleanup reports the shared rebuild waiting notice and its complete
 
       if (args[0] === 'build') {
         entered.resolve();
-
         await release.promise;
       }
 
@@ -694,13 +579,9 @@ test('a merge cleanup reports the shared rebuild waiting notice and its complete
     });
 
     void builder.catch(() => {});
-
     await within(entered.promise, 5000, 'the shared build');
-
     cleanup = coordinator.cleanUpMerge(pullRequest(tip), install);
-
     void cleanup.catch(() => {});
-
     const waiting = `Another Witch is rebuilding Witch at ${install}; waiting for its result.`;
 
     await until('the waiting notice', () =>
@@ -708,25 +589,16 @@ test('a merge cleanup reports the shared rebuild waiting notice and its complete
     );
 
     assert.equal(coordinator.snapshot.phase, 'cleaning');
-
     release.resolve();
-
     const rebuilt = `Rebuilt Witch at ${tip.slice(0, 7)}, for its next start.`;
-
     assert.equal(await builder, rebuilt);
-
     assert.equal(await cleanup, true);
-
     assert.deepEqual(notices(coordinator).slice(-2), [waiting, rebuilt]);
-
     assert.deepEqual(calls, [['install', '--frozen-lockfile'], ['build']]);
-
     assert.equal(coordinator.snapshot.phase, 'idle');
   } finally {
     release.resolve();
-
     await Promise.allSettled([builder, cleanup]);
-
     await coordinator.close();
   }
 });
@@ -745,9 +617,7 @@ test("a merge cleanup stops before switching when another Witch's turn starts in
 
   try {
     const { tip } = await mergedOrigin(root, project);
-
     await other.initialize(project);
-
     const bin = join(root, 'bin');
 
     const realGit = (
@@ -783,17 +653,11 @@ exec '${realGit}' "$@"
 
     agent.gate = gate;
     sending = other.send('Start');
-
     await within(gate.entered, 2000, 'the other turn');
-
     await writeFile(join(root, 'release'), '');
-
     assert.equal(await cleanup, false);
-
     assert.deepEqual(notices(coordinator), []);
-
     assert.equal(await git(project, 'branch', '--show-current'), 'feat/x');
-
     assert.equal(await git(project, 'rev-parse', 'feat/x'), tip);
   } finally {
     await writeFile(join(root, 'release'), '');
@@ -806,7 +670,6 @@ exec '${realGit}' "$@"
     if (sending) await within(sending, 2000, 'the other turn');
 
     await other.close();
-
     await coordinator.close();
   }
 });
@@ -843,19 +706,14 @@ async function interruptedCleanup(
   );
 
   await git(project, 'branch', 'feat/y', 'main');
-
   await git(project, 'config', 'branch.feat/y.remote', 'origin');
-
   await git(project, 'config', 'branch.feat/y.merge', 'refs/heads/feat/y');
-
   const later = join(root, 'later');
   let expectedHead = tip;
 
   if (stage === 'advanced') {
     await git(root, 'clone', origin, later);
-
     await git(later, 'commit', '--allow-empty', '-m', 'later remote commit');
-
     expectedHead = await git(later, 'rev-parse', 'HEAD');
   }
 
@@ -868,7 +726,6 @@ async function interruptedCleanup(
   const bin = join(root, 'bin');
   const ready = join(root, 'ready.json');
   const log = join(root, 'commands.jsonl');
-
   await mkdir(bin);
 
   for (const tool of ['git', 'pnpm'])
@@ -984,17 +841,11 @@ test('a busy continuation after interrupted revision reporting waits without cac
 
   const progress: MergeCleanup = {};
   const cleanup = coordinator.cleanUpMerge(pullRequest(tip), install, progress);
-
   void cleanup.catch(() => {});
-
   await entered();
-
   await coordinator.interrupt();
-
   assert.equal(await cleanup, 'interrupted');
-
   assert.equal(progress.install?.built, true);
-
   assert.equal(progress.install?.result, undefined);
 
   const lock = await openLocked(
@@ -1099,11 +950,8 @@ for (const [stage, worktree] of [
         delete repository.snapshot.pullRequest;
 
       await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
-
       await completed.promise;
-
       assert.deepEqual(results, ['interrupted', true]);
-
       assert.equal(coordinator.snapshot.error, undefined);
 
       assert.equal(
@@ -1112,7 +960,6 @@ for (const [stage, worktree] of [
       );
 
       assert.equal(await git(project, 'rev-parse', 'HEAD'), expectedHead);
-
       // the launcher, still on main, is pulled before its rebuild
       assert.equal(await git(install, 'rev-parse', 'HEAD'), expectedHead);
 
@@ -1188,7 +1035,6 @@ for (const stage of ['delete', 'install'])
 
     coordinator.cleanUpMerge = async (...args) => {
       const result = await cleanup(...args);
-
       results.push(result);
 
       return result;
@@ -1205,17 +1051,11 @@ for (const stage of ['delete', 'install'])
 
     try {
       await entered();
-
       await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
-
       await until('cleanup settles', () => results.length > 0, 500);
-
       await stopped();
-
       assert.deepEqual(results, [true]);
-
       assert.equal(coordinator.snapshot.error, undefined);
-
       assert.equal(coordinator.snapshot.phase, 'idle');
 
       assert.deepEqual(
@@ -1265,18 +1105,13 @@ for (const changed of ['edit', 'branch', 'commit', 'recreated branch'])
     const progress: MergeCleanup = {};
     const request = pullRequest(tip);
     const first = coordinator.cleanUpMerge(request, project, progress);
-
     await entered();
-
     await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
-
     assert.equal(await first, 'interrupted');
-
     await stopped();
 
     if (changed === 'edit') {
       await writeFile(join(project, 'added.txt'), 'keep this');
-
       await git(project, 'add', 'added.txt');
     } else if (changed === 'branch')
       await git(project, 'switch', '-c', 'feat/new');
@@ -1311,7 +1146,6 @@ for (const restart of [false, true])
       await interruptedCleanup('install', t.onTestFinished);
 
     const cleanup = coordinator.cleanUpMerge(pullRequest(tip), project);
-
     await entered();
 
     await within(
@@ -1321,7 +1155,6 @@ for (const restart of [false, true])
     );
 
     assert.equal(await cleanup, 'interrupted');
-
     await stopped();
 
     assert.deepEqual(
@@ -1338,22 +1171,14 @@ for (const stage of ['delete', 'prune'])
     const progress: MergeCleanup = {};
     const request = pullRequest(tip);
     const first = coordinator.cleanUpMerge(request, project, progress);
-
     await entered();
-
     await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
-
     assert.equal(await first, 'interrupted');
-
     await stopped();
-
     const name = stage === 'delete' ? 'feat/x' : 'feat/y';
     const head = stage === 'delete' ? tip : base;
-
     await git(project, 'branch', name, head);
-
     await git(project, 'config', `branch.${name}.remote`, 'origin');
-
     await git(project, 'config', `branch.${name}.merge`, `refs/heads/${name}`);
 
     assert.equal(

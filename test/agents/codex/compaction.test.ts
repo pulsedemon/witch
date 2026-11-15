@@ -62,7 +62,6 @@ test('Codex compaction waits for its matching item and turn after acknowledgemen
 
   try {
     const pending = await f.compact();
-
     assert.equal(pending.settled(), false);
 
     await f.emit(
@@ -78,13 +77,9 @@ test('Codex compaction waits for its matching item and turn after acknowledgemen
     );
 
     assert.equal(pending.settled(), false);
-
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 0);
-
     await f.emit(item('item/completed', 'summary'));
-
     assert.equal(pending.settled(), false);
-
     await f.emit(turn('turn/completed', 'compact-1'));
 
     assert.deepEqual(await within(pending.result, 2000, 'compaction'), {
@@ -93,11 +88,9 @@ test('Codex compaction waits for its matching item and turn after acknowledgemen
     });
 
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 1);
-
     assert.equal(f.events.filter((e) => e.type === 'tool').length, 0);
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
-
     await close(f.session, f.cwd);
   }
 });
@@ -118,7 +111,6 @@ test('Codex does not accept another compaction item as its own completion', asyn
     assert.equal((await pending.result).status, 'failed');
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
-
     await close(f.session, f.cwd);
   }
 });
@@ -150,7 +142,6 @@ test('Codex compaction that runs out of usage reports exhaustion', async () => {
     });
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
-
     await close(f.session, f.cwd);
   }
 });
@@ -169,11 +160,9 @@ test('Codex replacement is reported even when a later hook interrupts the compac
     );
 
     assert.equal((await pending.result).status, 'interrupted');
-
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 1);
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
-
     await close(f.session, f.cwd);
   }
 });
@@ -195,17 +184,12 @@ test('Codex reports automatic replacement and drops context sampled for another 
     });
 
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 1);
-
     assert.equal(await f.session.contextUsage(), 80);
-
     await f.session.selectModel('model-b');
-
     assert.equal(await f.session.contextUsage(), undefined);
-
     assert.equal(f.session.usage.contextWindow, undefined);
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
-
     await close(f.session, f.cwd);
   }
 });
@@ -213,7 +197,6 @@ test('Codex reports automatic replacement and drops context sampled for another 
 test('Codex process closure settles a compact request that never started', async () => {
   const f = await scripted();
   const pending = await f.compact();
-
   await writeFile(join(f.cwd, 'exit'), '');
 
   assert.equal(

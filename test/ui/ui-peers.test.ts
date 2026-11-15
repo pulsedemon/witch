@@ -88,7 +88,6 @@ const sidebar = (text: string) =>
 
 const enter = (ui: ReturnType<typeof show>, text: string) => {
   ui.stdin.write(text);
-
   ui.stdin.write('\x1b[13u');
 };
 
@@ -97,7 +96,6 @@ test('peer sidebar uses the task, agent, actual status and linked checkout on tw
     unclaimed = peer(1);
 
   delete unclaimed.claim;
-
   const fixture = peersApp(snapshot([claimed, unclaimed]));
 
   const ui = show(
@@ -118,11 +116,8 @@ test('peer sidebar uses the task, agent, actual status and linked checkout on tw
     ]);
 
     assert.ok(ui.frame().includes('https://github.com/example/demo/issues/4'));
-
     assert.ok(ui.frame().includes('vscode://file/work/checkout-3'));
-
     fixture.publish(snapshot([]));
-
     await until('empty heading removed', () => !ui.text().includes('SESSIONS'));
   } finally {
     ui.unmount();
@@ -195,7 +190,6 @@ for (const [height, expected] of [
       );
 
       const rows = sidebar(ui.text());
-
       assert.deepEqual(rows.slice(0, height - 11), expected);
 
       assert.ok(
@@ -222,11 +216,8 @@ test('peer labels cannot insert extra rows or forged terminal links', async () =
 
   try {
     await until('peer shown', () => ui.text().includes('SESSIONS'));
-
     assert.ok(sidebar(ui.text())[1]!.startsWith('Title'));
-
     assert.match(sidebar(ui.text())[2]!, /^agent name \| idle \| checkout-2/);
-
     assert.ok(!ui.frame().includes('\x1b]8;;x-evil'));
   } finally {
     ui.unmount();
@@ -260,19 +251,12 @@ test('the narrow peers page stays live and read-only during work and describes r
     );
 
     assert.ok(!ui.text().includes('SESSIONS'));
-
     assert.ok(ui.text().includes('branch-0'));
-
     assert.ok(ui.text().includes('/work/checkout-0'));
-
     assert.ok(ui.text().includes('owner outside project'));
-
     assert.ok(ui.text().includes('Conversation 2 | unregistered'));
-
     assert.ok(!ui.text().includes('branch-1'));
-
     assert.ok(!ui.text().includes('/work/checkout-1'));
-
     assert.deepEqual(fixture.calls, []);
 
     fixture.publish({
@@ -286,7 +270,6 @@ test('the narrow peers page stays live and read-only during work and describes r
     );
 
     assert.ok(ui.text().includes(first.claim!.id));
-
     fixture.publish({ ...snapshot([]), error: 'Unreadable ownership' });
 
     await until('unavailable', () =>
@@ -307,9 +290,7 @@ test('a real peer updates its summary and keeps its reservation across an origin
     b = await start('B');
 
   await start('C');
-
   await a.claim('task:original', 'Owner task');
-
   const owned = (await registry.claims())[0]!;
 
   const ui = show(
@@ -320,15 +301,10 @@ test('a real peer updates its summary and keeps its reservation across an origin
 
   try {
     await until('real sidebar', () => ui.text().includes('Owner task'));
-
     assert.ok(!sidebar(ui.text()).join('\n').includes(' | C'));
-
     enter(ui, '/peers');
-
     await until('open page', () => ui.text().includes('Repository sessions'));
-
     await a.claim('task:original', 'Updated live task');
-
     await until('live summary', () => ui.text().includes('Updated live task'));
 
     await git(
@@ -350,7 +326,6 @@ test('a real peer updates its summary and keeps its reservation across an origin
     );
 
     assert.equal((await b.query()).reservations[0]!.claim.id, owned.id);
-
     ui.resize(100);
 
     await until(
@@ -359,11 +334,8 @@ test('a real peer updates its summary and keeps its reservation across an origin
     );
 
     await a.coordinator.close();
-
     await until('claim removed live', () => !ui.text().includes(owned.id));
-
     assert.ok(!ui.text().includes('Updated live task'));
-
     assert.equal((await b.claim('task:original')).kind, 'claimed');
   } finally {
     ui.unmount();
@@ -378,9 +350,7 @@ test('task release refuses running or background work in chat without changing p
     b = await start('B');
 
   await a.claim('task:mine', 'My current task');
-
   await b.claim('task:theirs', 'Other current task');
-
   const own = (await a.query()).ownClaim!;
 
   const ui = show(
@@ -396,7 +366,6 @@ test('task release refuses running or background work in chat without changing p
 
   try {
     await within(gate.entered, 5000, 'held turn');
-
     await a.coordinator.send('queued followup');
 
     await until('queued followup', () =>
@@ -404,19 +373,12 @@ test('task release refuses running or background work in chat without changing p
     );
 
     enter(ui, '/task release');
-
     await until('idle refusal', () => ui.text().includes('Wait for idle'));
-
     assert.ok(!ui.text().includes('Current task'), ui.text());
-
     assert.equal(a.coordinator.snapshot.error, undefined);
-
     assert.equal(a.coordinator.snapshot.phase, 'running');
-
     assert.deepEqual((await a.query()).ownClaim, own);
-
     gate.open();
-
     await sending;
 
     assert.deepEqual(turns(a.a), [
@@ -436,7 +398,6 @@ test('task release refuses running or background work in chat without changing p
     );
 
     assert.equal(a.coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual((await a.query()).ownClaim, own);
 
     a.a.sessions.at(-1)!.options.onEvent({
@@ -445,7 +406,6 @@ test('task release refuses running or background work in chat without changing p
     });
 
     enter(ui, '/task release');
-
     await until('released own', () => ui.text().includes('No task claimed.'));
 
     assert.deepEqual(
@@ -459,9 +419,7 @@ test('task release refuses running or background work in chat without changing p
     );
   } finally {
     gate.open();
-
     await sending;
-
     ui.unmount();
   }
 });
@@ -484,7 +442,6 @@ test('a refused /task take stays in chat and leaves queued prompts runnable', as
 
   try {
     await within(gate.entered, 5000, 'held turn');
-
     await a.coordinator.send('queued followup');
 
     await until('queued followup', () =>
@@ -502,11 +459,8 @@ test('a refused /task take stays in chat and leaves queued prompts runnable', as
     );
 
     assert.ok(!ui.text().includes('Current task'), ui.text());
-
     assert.equal(a.coordinator.snapshot.error, undefined);
-
     gate.open();
-
     await sending;
 
     assert.deepEqual(turns(a.a), [
@@ -515,9 +469,7 @@ test('a refused /task take stays in chat and leaves queued prompts runnable', as
     ]);
   } finally {
     gate.open();
-
     await sending;
-
     ui.unmount();
   }
 });
@@ -532,7 +484,6 @@ test('queue and suggestion rows preserve task links and detailed activity status
     [queued, 2],
   ] as const) {
     delete entry.claim;
-
     entry.presence.phase = 'running';
 
     entry.selection = {
@@ -581,13 +532,9 @@ test('queue and suggestion rows preserve task links and detailed activity status
     );
 
     assert.ok(ui.text().includes('agent-1 | choosing | running'));
-
     assert.ok(ui.text().includes('agent-2 | queued #2 | running'));
-
     assert.ok(ui.text().includes('agent-3 | suggested | background'));
-
     assert.ok(ui.text().includes('Suggested task'));
-
     assert.ok(ui.frame().includes('https://github.com/example/demo/issues/4'));
   } finally {
     ui.unmount();
@@ -597,7 +544,6 @@ test('queue and suggestion rows preserve task links and detailed activity status
 test('task selection advances live and suggested ownership stays visible at narrow width', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('D');
 
   const a = await f.start(),
@@ -612,7 +558,6 @@ test('task selection advances live and suggested ownership stays visible at narr
     queued = await second.select();
 
   await third.select();
-
   await b.query();
 
   const ui = show(
@@ -623,15 +568,10 @@ test('task selection advances live and suggested ownership stays visible at narr
 
   try {
     enter(ui, '/task');
-
     await until('queued task view', () => ui.text().includes('Queued #2'));
-
     assert.ok(ui.text().includes(queued.ticket.id));
-
     await first.recommend(head.ticket.id);
-
     await first.finish();
-
     await b.query();
 
     await until('live advancement', () =>
@@ -639,25 +579,15 @@ test('task selection advances live and suggested ownership stays visible at narr
     );
 
     assert.ok(ui.text().includes(queued.ticket.id));
-
     ui.stdin.write('\x1b');
-
     await until('task page closed', () => !ui.text().includes('Current task'));
-
     enter(ui, '/peers');
-
     await until('suggested peer', () => ui.text().includes('Suggested task'));
-
     assert.ok(ui.text().includes('queued #2'));
-
     assert.ok(ui.frame().includes('https://github.com/acme/queue/issues/17'));
-
     ui.resize(100);
-
     await until('narrow peers', () => !ui.text().includes('SESSIONS'));
-
     assert.ok(ui.text().includes('Suggested task'));
-
     assert.ok(ui.text().includes('Issue 17'));
   } finally {
     ui.unmount();
@@ -688,7 +618,6 @@ test("/task take shows the idle owner's claim in this conversation's task view",
     );
 
     ticks[0]!();
-
     await until('moved claim shown', () => ui.text().includes('Shared work'));
 
     assert.equal(

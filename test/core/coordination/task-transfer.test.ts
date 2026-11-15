@@ -44,7 +44,6 @@ async function transfer(
     /** an exhausted owner's periodic tick must answer without a model turn. */
     answer: async (field: TransferField = 'transfer', owner = 0) => {
       await requested(field);
-
       ticks[owner]!();
     },
   };
@@ -53,16 +52,11 @@ async function transfer(
 test('an idle owner hands over its task without a model turn, and its next context names the move', async (t) => {
   const { a, b, answer, registry } = await transfer(t);
   a.a.failNext = true;
-
   await a.coordinator.send('turn that fails');
-
   assert.equal(a.coordinator.snapshot.phase, 'idle');
-
   const [before] = await registry.claims();
   const turns = a.a.inputs.length;
-
   await Promise.all([b.coordination.takeTask('task:shared'), answer()]);
-
   const taker = b.coordinator.snapshot.conversation!.id;
   const owned = b.coordination.snapshot.ownClaim!;
 
@@ -104,12 +98,10 @@ test('a running turn, a native run, a running brew and memory recovery each refu
 
   const refuses = async (reason: RegExp) => {
     const taking = b.coordination.takeTask('task:shared');
-
     await answer();
 
     await assert.rejects(taking, (error: Error) => {
       assert.match(error.message, /still holds task:shared\. /);
-
       assert.match(error.message, reason);
 
       return true;
@@ -121,7 +113,6 @@ test('a running turn, a native run, a running brew and memory recovery each refu
   const gate = new TurnGate();
   a.a.gate = gate;
   const sending = a.coordinator.send('Held work');
-
   await within(gate.entered, 5000, 'held turn');
 
   await refuses(
@@ -129,15 +120,10 @@ test('a running turn, a native run, a running brew and memory recovery each refu
   );
 
   gate.open();
-
   await sending;
-
   const emit = a.a.sessions.at(-1)!.options.onEvent;
-
   emit({ type: 'running', running: true });
-
   await refuses(/It is running on its own\. Wait for it to go idle/);
-
   emit({ type: 'running', running: false });
 
   emit({
@@ -153,11 +139,8 @@ test('a running turn, a native run, a running brew and memory recovery each refu
   });
 
   a.a.interruptNext = true;
-
   await a.coordinator.send('remember-port');
-
   assert.equal(a.coordinator.snapshot.phase, 'recovery');
-
   await refuses(/It has unresolved memory recovery\. Resolve it there/);
 });
 
@@ -171,7 +154,6 @@ test('an owner that never reads the ledger times out and leaves no request', asy
   );
 
   assert.deepEqual(await registry.claims(), before);
-
   assert.equal(b.coordination.snapshot.error, undefined);
 });
 
@@ -213,7 +195,6 @@ test('an owner whose handover fails shows why until one succeeds', async (t) => 
   });
 
   await taking;
-
   assert.equal(a.coordination.snapshot.error, undefined);
 
   assert.equal(
@@ -263,14 +244,12 @@ test('a handover cut short by the owner quiescing is not shown as a failure', as
   vi.spyOn(local, 'handOver').mockImplementation(async () => {
     // not awaited: quiesce waits for the operation this runs in
     void a.coordination.quiesce();
-
     cut = true;
 
     throw new Error('claims.json could not be written');
   });
 
   const taking = b.coordination.takeTask('task:shared', 3000);
-
   await requested();
 
   await until('the cut handover', () => {
@@ -280,9 +259,7 @@ test('a handover cut short by the owner quiescing is not shown as a failure', as
   });
 
   await a.coordination.quiesce();
-
   assert.equal(a.coordination.snapshot.error, undefined);
-
   await assert.rejects(taking, /did not answer/);
 });
 
@@ -310,7 +287,6 @@ test('a successful withdrawal clears a failed ledger poll', async (t) => {
       if (!pending) return state(...args);
 
       args[1]?.();
-
       failed = true;
 
       throw new Error('Failed ledger poll');
@@ -323,13 +299,10 @@ test('a successful withdrawal clears a failed ledger poll', async (t) => {
     );
 
     assert.equal(failed, true);
-
     assert.deepEqual(await registry.claims(), before);
-
     assert.equal(b.coordination.snapshot.error, undefined);
   } finally {
     requesting.mockRestore();
-
     reading.mockRestore();
   }
 });
@@ -339,28 +312,19 @@ test('a requester that switches conversations stops waiting and withdraws its re
   const before = await registry.claims();
   const started = Date.now();
   const taking = b.coordination.takeTask('task:shared');
-
   await requested();
-
   const switching = b.coordinator.newConversation();
-
   await assert.rejects(taking, /no longer current/);
-
   await switching;
-
   assert.ok(Date.now() - started < 5000, 'the wait ended with the switch');
-
   assert.deepEqual(await registry.claims(), before);
 });
 
 test('an owner that closes while a request is pending reports the release', async (t) => {
   const { a, b, requested } = await transfer(t);
   const taking = b.coordination.takeTask('task:shared');
-
   await requested();
-
   await a.coordinator.close();
-
   await assert.rejects(taking, /task:shared was released\. Claim it again\./);
 });
 
@@ -459,7 +423,6 @@ async function automatic(
 
   const answer = async (field: TransferField = 'automaticTransfer') => {
     await requested(field);
-
     ticks[0]!();
   };
 
@@ -492,11 +455,8 @@ for (const ids of [
   test(`an exhausted ${ids[0]} owner transfers to ${ids[1]} on claim without a model turn`, async (t) => {
     const f = await automatic(t, ids);
     f.nativeOwner.failNext = true;
-
     await f.owner.coordinator.send('turn that fails');
-
     assert.equal(f.owner.coordinator.snapshot.phase, 'idle');
-
     const turns = f.nativeOwner.inputs.length;
     const result = await f.attempt();
 
@@ -512,11 +472,8 @@ for (const ids of [
     });
 
     assert.deepEqual(await f.registry.claims(), [result.claim]);
-
     assert.deepEqual(f.requester.coordination.snapshot.ownClaim, result.claim);
-
     assert.equal(f.nativeOwner.inputs.length, turns);
-
     const context = (await f.owner.coordination.context()).context;
 
     assert.ok(
@@ -543,9 +500,7 @@ test('merged credits veto automatic transfer after a sparse reconnect, while man
   });
 
   assert.equal(f.owner.coordinator.snapshot.usage.account!.funding, undefined);
-
   const result = await f.attempt();
-
   assert.equal(result.kind, 'conflict');
 
   assert.match(
@@ -674,13 +629,9 @@ test('automatic transfer requires an exhausted window whose reported reset is st
   };
 
   assert.match(transferRefusal(state, true)!, /stopped with an error/);
-
   f.emit({ type: 'usage', usage: {} });
-
   f.owner.coordinator.report('Usage limit reached');
-
   assert.equal((await f.attempt()).kind, 'conflict');
-
   assert.deepEqual(await f.registry.claims(), [f.original]);
 });
 
@@ -689,21 +640,18 @@ test('automatic transfer keeps running turns, familiars, brews and recovery with
 
   const refuses = async () => {
     assert.equal((await f.attempt()).kind, 'conflict');
-
     assert.deepEqual(await f.registry.claims(), [f.original]);
   };
 
   const gate = new TurnGate();
   f.nativeOwner.gate = gate;
   const sending = f.owner.coordinator.send('Held work');
-
   await within(gate.entered, 5000, 'held owner');
 
   try {
     await refuses();
   } finally {
     gate.open();
-
     await sending;
   }
 
@@ -742,11 +690,8 @@ test('automatic transfer keeps running turns, familiars, brews and recovery with
   });
 
   f.nativeOwner.interruptNext = true;
-
   await f.owner.coordinator.send('remember-port');
-
   assert.equal(f.owner.coordinator.snapshot.phase, 'recovery');
-
   await refuses();
 });
 
@@ -804,7 +749,6 @@ for (const change of ['report', 'reset'] as const)
     );
 
     assert.equal((await f.attempt()).kind, 'conflict');
-
     assert.deepEqual(await f.registry.claims(), [f.original]);
   });
 
@@ -826,11 +770,8 @@ test('an alias conflict transfers the original claim without reserving the calle
   if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
 
   assert.equal(result.claim.id, f.original.id);
-
   assert.deepEqual(result.claim.references, f.original.references);
-
   assert.equal(result.claim.summary, 'Original work');
-
   assert.deepEqual(result.claim.assigned, ['github:acme/queue#7']);
 });
 
@@ -880,7 +821,6 @@ for (const alias of ['task:ALIAS', 'https://github.com/acme/queue/pull/7'])
     ]);
 
     const [owned] = await f.registry.claims();
-
     assert.equal(owned!.id, f.original.id);
 
     assert.equal(
@@ -904,25 +844,18 @@ test('an automatic request times out without granting ownership or leaving a req
   );
 
   assert.equal(result.kind, 'conflict');
-
   assert.deepEqual(await f.registry.claims(), [f.original]);
-
   assert.equal(f.requester.coordination.snapshot.error, undefined);
 });
 
 test('an automatic requester that switches conversations withdraws without admission', async (t) => {
   const f = await automatic(t);
   const claiming = f.requester.claim();
-
   await f.requested();
-
   const switching = f.requester.coordinator.newConversation();
   const result = await claiming;
-
   await switching;
-
   assert.equal(result.kind, 'error');
-
   assert.deepEqual(await f.registry.claims(), [f.original]);
 });
 
@@ -988,7 +921,6 @@ test('a handover during withdrawal returns the actual automatic ownership', asyn
   );
 
   assert.deepEqual(await f.registry.claims(), [result.claim]);
-
   assert.equal(result.claim.automaticTransfer, undefined);
 });
 
@@ -1013,6 +945,5 @@ test('unconfirmed automatic withdrawal reports an unknown result instead of a co
   );
 
   const [claim] = await f.registry.claims();
-
   assert.deepEqual(claim?.owner, f.original.owner);
 });

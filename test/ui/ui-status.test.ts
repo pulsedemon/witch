@@ -47,7 +47,6 @@ test('the status line waits for a live model and uses its runtime label, and the
     });
 
     await until('the live label', () => /^ LIVE LABEL \|/m.test(ui.text()));
-
     assert.match(row(0), /^IDLE \| ON-REQUEST/);
   } finally {
     ui.unmount();
@@ -69,13 +68,9 @@ test('the phase row of an idle session reads background while a brew runs and ru
     });
 
     await until('the background row', () => /^BACKGROUND\b/.test(phase()));
-
     coordinator.publish({ nativeRunning: true });
-
     await until('the running row', () => /^RUNNING\b/.test(phase()));
-
     coordinator.publish({ nativeRunning: false, backgroundCommands: [] });
-
     await until('the idle row again', () => /^IDLE\b/.test(phase()));
   } finally {
     ui.unmount();
@@ -102,9 +97,7 @@ test('a failed reconnect clears the displayed model and usage while preserving r
     );
 
     await a.sessions[0]!.session.close();
-
     a.failConnect = true;
-
     await coordinator.send('Reconnect');
 
     await until('the reconnect failure', () =>
@@ -112,29 +105,18 @@ test('a failed reconnect clears the displayed model and usage while preserving r
     );
 
     assert.equal(coordinator.snapshot.native, undefined);
-
     assert.deepEqual(coordinator.snapshot.usage, {});
-
     assert.doesNotMatch(ui.text(), /A-BIG|CTX 42%/);
-
     assert.deepEqual(coordinator.snapshot.conversation!.sessions.a, saved);
-
     a.failConnect = false;
-
     await coordinator.send('Resume');
-
     await until('the resumed model', () => /^ A-BIG \| HIGH/m.test(ui.text()));
-
     assert.equal(a.sessions.at(-1)!.options.resume, saved!.id);
-
     assert.equal(a.sessions.at(-1)!.options.model, 'a-big');
-
     assert.equal(a.sessions.at(-1)!.options.effort, 'high');
   } finally {
     ui.unmount();
-
     a.failConnect = false;
-
     await coordinator.close();
   }
 });
@@ -154,7 +136,6 @@ test('a session that closes during reconnect discovery does not restore its disp
     );
 
     await a.sessions[0]!.session.close();
-
     const connect = a.connect.bind(a);
 
     a.connect = async (options) => {
@@ -162,9 +143,7 @@ test('a session that closes during reconnect discovery does not restore its disp
 
       session.models = async () => {
         options.onEvent({ type: 'usage', usage: { context: 63 } });
-
         await session.close();
-
         options.onEvent({ type: 'closed' });
 
         closedStatus = {
@@ -185,17 +164,12 @@ test('a session that closes during reconnect discovery does not restore its disp
     );
 
     assert.deepEqual(closedStatus, { native: undefined, usage: {} });
-
     assert.equal(a.sessions.at(-1)!.session.closed, true);
-
     assert.equal(coordinator.snapshot.native, undefined);
-
     assert.deepEqual(coordinator.snapshot.usage, {});
-
     assert.doesNotMatch(ui.text(), /A-MODEL|CTX (42|63)%/);
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -225,7 +199,6 @@ test('a project name, model and permission mode carrying a link sequence show as
 
   try {
     await until('the status line', () => ui.text().includes('MODEL'));
-
     assert.match(ui.text(), / \| project\]8;;x-evil:payloadproject\]8;; \|/);
 
     assert.ok(
@@ -256,7 +229,6 @@ test('the pentacle follows independent activity across sidebar visibility change
 
   try {
     await delay(60);
-
     assert.equal(braille(narrow.text()), undefined);
   } finally {
     narrow.unmount();
@@ -272,47 +244,26 @@ test('the pentacle follows independent activity across sidebar visibility change
 
   try {
     await until('the pentacle', () => !!inSidebar(ui.text()));
-
     const rest = inSidebar(ui.text());
-
     coordinator.pentacle.set(source, true);
-
     await until('a turn', () => inSidebar(ui.text()) !== rest);
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     coordinator.pentacle.set(source, false);
-
     await until('the rest', () => inSidebar(ui.text()) === rest);
-
     await delay(200);
-
     assert.equal(inSidebar(ui.text()), rest);
-
     coordinator.pentacle.set(source, true);
-
     await until('another turn', () => inSidebar(ui.text()) !== rest);
-
     ui.resize(114);
-
     await until('the hidden sidebar', () => !braille(ui.text()));
-
     coordinator.pentacle.set(source, false);
-
     ui.resize(115);
-
     await until('the restored rest', () => inSidebar(ui.text()) === rest);
-
     await delay(200);
-
     assert.equal(inSidebar(ui.text()), rest);
-
     ui.resize(114);
-
     await until('the hidden sidebar again', () => !braille(ui.text()));
-
     coordinator.pentacle.set(source, true);
-
     ui.resize(115);
 
     await until(
@@ -321,7 +272,6 @@ test('the pentacle follows independent activity across sidebar visibility change
     );
   } finally {
     coordinator.pentacle.set(source, false);
-
     ui.unmount();
   }
 });
@@ -369,7 +319,6 @@ for (const height of [20, 19, 15])
 
     try {
       await until('mixed familiars', () => ui.text().includes('FAMILIARS'));
-
       const rows = sidebarRows(ui.text());
 
       if (height === 20)
@@ -446,7 +395,6 @@ for (const height of [21, 20, 16])
 
     try {
       await until('nested identity', () => ui.text().includes('FAMILIARS'));
-
       const rows = sidebarRows(ui.text());
 
       if (height === 16) {
@@ -458,7 +406,6 @@ for (const height of [21, 20, 16])
         );
       } else {
         const index = rows.indexOf('  ● inspect tests');
-
         assert.ok(index > 0);
 
         assert.deepEqual(rows.slice(index + 1, index + 3), [
@@ -467,9 +414,7 @@ for (const height of [21, 20, 16])
         ]);
 
         assert.match(rows[index + 3]!, /^ {4}\d+S \| 3 TOOLS$/);
-
         assert.equal(rows[index + 4], '    Read tests');
-
         assert.equal(rows.includes('● inspect source'), height === 21);
 
         if (height === 20) {
@@ -488,11 +433,8 @@ for (const height of [21, 20, 16])
           );
 
           const updated = sidebarRows(ui.text());
-
           assert.equal(updated.includes('+1 MORE'), false);
-
           assert.ok(updated.includes('● inspect source'));
-
           assert.equal(updated.filter((row) => row.includes('●')).length, 2);
         }
       }
@@ -607,14 +549,10 @@ test('the sidebar lists only running familiars, depth first under the familiar t
 
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
-
     const rows = sidebarRows(ui.text()).slice(0, 10);
-
     // a running familiar's time ticks, so its row is matched rather than compared
     assert.match(rows[2]!, /^ {2}\dS \| 2 TOOLS$/);
-
     assert.match(rows[5]!, /^ {4}\dS \| 1 TOOL$/);
-
     assert.match(rows[8]!, /^ {2}\dS \| 0 TOOLS$/);
 
     assert.deepEqual(rows, [
@@ -704,9 +642,7 @@ test("a running familiar's time ticks once a second, also when it starts after t
     });
 
     await until('the familiar', () => ui.text().includes('FAMILIARS'));
-
     const first = seconds();
-
     await until('a tick', () => seconds() > first);
   } finally {
     ui.unmount();
@@ -743,7 +679,6 @@ test('a terminal too narrow for the sidebar counts running familiars and brews i
 
     try {
       await until('the phase row', () => ui.text().includes('BACKGROUND'));
-
       // the sidebar shares the first row at 140 columns
       const phase = ui.text().split('\n')[0]!.split('┃')[0]!;
 
@@ -778,7 +713,6 @@ test('familiars that overflow the sidebar show the last whole familiars in tree 
 
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
-
     const rows = sidebarRows(ui.text());
 
     // eight rows above the pentacle: the heading, the count and two familiars of three rows each
@@ -840,7 +774,6 @@ test('the sidebar lists running brews above the familiars, each with what it is 
     ]);
 
     coordinator.publish({ backgroundCommands: [] });
-
     await until('no brews', () => !ui.text().includes('BREWS'));
   } finally {
     ui.unmount();
@@ -885,7 +818,6 @@ test('brews take the sidebar rows first and show their last whole brews under a 
     ]);
 
     coordinator.publish({ subagents: [familiar('1', 'task 1')] });
-
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
 
     assert.deepEqual(above(), [
@@ -905,9 +837,7 @@ test('brews take the sidebar rows first and show their last whole brews under a 
     });
 
     await until('the second familiar', () => ui.text().includes('● task 2'));
-
     const rows = above();
-
     assert.match(rows[6]!, /^ {2}\dS \| 0 TOOLS$/);
 
     assert.deepEqual(rows, [
@@ -1015,13 +945,9 @@ test('while the agent works, activity sits below a separator against the compose
 
   try {
     await until('the activity row', () => activity.exec(row())?.[2] === '0');
-
     assert.equal(row(2), '');
-
     await until('a second later', () => activity.exec(row())?.[2] === '1');
-
     coordinator.publish({ phase: 'idle' });
-
     await until('the row gone', () => !ui.text().includes('ESC TO INTERRUPT'));
   } finally {
     ui.unmount();
@@ -1034,9 +960,7 @@ for (const [key, label] of [
 ] as const) {
   test(`compacting stays visible without a sidebar and ${label} restores queued input for editing`, async () => {
     const f = await coordinatorFixture();
-
     await f.coordinator.send('existing transcript');
-
     const gate = new TurnGate();
     f.a.gate = gate;
     let exited = false;
@@ -1054,17 +978,11 @@ for (const [key, label] of [
 
     try {
       await delay(60);
-
       ui.stdin.write('/compact');
-
       await delay(30);
-
       ui.stdin.write(ENTER);
-
       await until('compacting phase', () => ui.text().startsWith('COMPACTING'));
-
       assert.ok(ui.text().includes('existing transcript'));
-
       ui.resize(130);
 
       await until(
@@ -1090,11 +1008,8 @@ for (const [key, label] of [
       );
 
       assert.equal(exited, false);
-
       assert.equal(f.a.inputs.length, 1);
-
       f.a.gate = undefined;
-
       ui.stdin.write(ENTER);
 
       await until(
@@ -1106,9 +1021,7 @@ for (const [key, label] of [
       assert.match(f.a.inputs[1]!.prompt, /^distinct queued input$/);
     } finally {
       ui.unmount();
-
       gate.open();
-
       await f.coordinator.close();
     }
   });
@@ -1196,9 +1109,7 @@ test('a terminal too short for the usage block leaves usage to the status line',
 
   try {
     await until('the status line', () => ui.text().includes('B 5H 12% 7D 40%'));
-
     assert.ok(!sidebarRows(ui.text()).includes('USAGE'));
-
     assert.match(ui.text(), /0M \| 5H 20% 7D 75% \| B 5H 12% 7D 40%/);
   } finally {
     ui.unmount();
@@ -1207,7 +1118,6 @@ test('a terminal too short for the usage block leaves usage to the status line',
 
 test('a usage window turns dim with its age once it stops being current, without a new reading', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-
   const now = Date.now();
 
   const { app } = fake({

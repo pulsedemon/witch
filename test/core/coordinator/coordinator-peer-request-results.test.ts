@@ -61,11 +61,8 @@ const merged: PullRequest = {
 
 test('answer turns keep pending context, handoffs, merges and answers, and the compaction check', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
-
   await b.coordinator.send('start');
-
   await b.coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
   assert.equal(b.coordinator.snapshot.conversation!.handoff?.to, 'b');
 
   const { project } = await a.coordinator.memory.scopePaths(
@@ -81,12 +78,10 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
   );
 
   const own = await ask(b, await claimed(a, 'a-work'), 'From B?');
-
   await answer(a, own, 'From A');
 
   await until('merge and answer reach the owner', async () => {
     await refreshed(b);
-
     const id = b.coordinator.snapshot.conversation!.id;
 
     return (
@@ -105,13 +100,10 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
   });
 
   await b.coordinator.send('seed');
-
   session.send = send;
   const usage = session.contextUsage;
   session.contextUsage = async () => 90;
-
   await ask(a, claim, 'Answer now?');
-
   await refreshed(b);
 
   await until(
@@ -120,7 +112,6 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
   );
 
   assert.equal(b.b.compactions.length, 1);
-
   session.contextUsage = usage;
 
   const paragraphs = [
@@ -136,7 +127,6 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
     assert.ok(!answered.context!.includes(paragraph), paragraph);
 
   await b.coordinator.send('after');
-
   const user = b.b.inputs.at(-1)!;
 
   for (const paragraph of paragraphs)
@@ -161,16 +151,11 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
   b.a.gate = gate;
   const request = await ask(a, claim, 'Hold on?');
   const second = await ask(a, claim, 'Second question');
-
   await refreshed(b);
-
   await gate.entered;
-
   assert.equal(b.coordinator.snapshot.answering, true);
-
   const binding = await b.binding();
   const peers = await callControl(binding, { kind: 'peers' });
-
   assert.equal(peers.kind, 'peers', JSON.stringify(peers));
 
   const read = await callControl(binding, {
@@ -179,9 +164,7 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
   });
 
   assert.equal(read.kind, 'peer-request', JSON.stringify(read));
-
   await answer(b, request, 'Mid-turn');
-
   assert.equal((await stored(f, request)).answer?.message, 'Mid-turn');
 
   for (const action of [
@@ -192,7 +175,6 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
     { kind: 'resume', pause: randomUUID() },
   ] as const) {
     const result = await callControl(binding, action);
-
     assert.equal(result.kind, 'error', JSON.stringify(result));
 
     if (result.kind === 'error')
@@ -203,9 +185,7 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
   }
 
   gate.open();
-
   await until('owner settled', () => settled(b));
-
   assert.equal((await stored(f, request)).answer?.message, 'Mid-turn');
 
   assert.equal(
@@ -214,9 +194,7 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
   );
 
   await refreshed(b);
-
   assert.equal(answerTurns(b).length, 1);
-
   assert.equal((await b.query()).ownClaim?.id, claim.id);
 });
 
@@ -226,75 +204,40 @@ test('answers follow native session receipts', async (t) => {
   const gate = new TurnGate();
   a.a.gate = gate;
   const working = a.coordinator.send('working');
-
   await gate.entered;
-
   await answer(b, first, 'First answer');
-
   await refreshed(a);
-
   gate.open();
-
   await working;
-
   a.a.gate = undefined;
-
   assert.deepEqual(listed(a.a.inputs.at(-1)!.context), []);
-
   await a.coordinator.send('next');
-
   assert.deepEqual(listed(a.a.inputs.at(-1)!.context), [first.id]);
-
   await a.coordinator.send('again');
-
   assert.deepEqual(listed(a.a.inputs.at(-1)!.context), []);
-
   const second = await ask(a, claim, 'Second?');
-
   await answer(b, second, 'Second answer');
-
   await refreshed(a);
-
   a.a.interruptNext = true;
-
   await a.coordinator.send('interrupted');
-
   assert.deepEqual(listed(a.a.inputs.at(-1)!.context), [second.id]);
-
   await a.coordinator.send('resumed');
-
   assert.deepEqual(listed(a.a.inputs.at(-1)!.context), [second.id]);
-
   await a.coordinator.send('settled');
-
   assert.deepEqual(listed(a.a.inputs.at(-1)!.context), []);
-
   await a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
   await a.coordinator.send('on b');
-
   assert.deepEqual(listed(a.b.inputs.at(-1)!.context), [first.id, second.id]);
-
   await a.coordinator.send('again on b');
-
   assert.deepEqual(listed(a.b.inputs.at(-1)!.context), []);
-
   await a.coordinator.compact();
-
   await a.coordinator.send('compacted');
-
   assert.deepEqual(listed(a.b.inputs.at(-1)!.context), [first.id, second.id]);
-
   await a.coordinator.send('once');
-
   assert.deepEqual(listed(a.b.inputs.at(-1)!.context), []);
-
   const conversation = a.coordinator.snapshot.conversation!.id;
-
   await a.coordinator.close({ restart: true });
-
   const restarted = await f.start('A', { conversation });
-
   await refreshed(restarted);
 
   assert.equal(
@@ -303,9 +246,7 @@ test('answers follow native session receipts', async (t) => {
   );
 
   await restarted.coordinator.send('restarted');
-
   assert.deepEqual(listed(restarted.b.inputs.at(-1)!.context), []);
-
   const native = restarted.b.sessions.at(-1)!;
 
   native.options.onEvent({
@@ -324,9 +265,7 @@ test('answers follow native session receipts', async (t) => {
 test('peer notices stay single across restart', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   const request = await ask(a, claim, 'Once?');
-
   await answer(b, request, 'Only once');
-
   const clients = { a, b };
 
   const ids = {
@@ -347,21 +286,13 @@ test('peer notices stay single across restart', async (t) => {
 
   for (const name of ['a', 'b'] as const) {
     let client = clients[name];
-
     await refreshed(client);
-
     assert.ok(notice(client, ids[name]));
-
     const conversation = client.coordinator.snapshot.conversation!.id;
-
     await client.coordinator.close({ restart: true });
-
     assert.equal(await rows(conversation, ids[name]), 1);
-
     client = await f.start(name.toUpperCase(), { conversation });
-
     await refreshed(client);
-
     await refreshed(client);
 
     assert.equal(
@@ -371,7 +302,6 @@ test('peer notices stay single across restart', async (t) => {
     );
 
     await client.coordinator.close({ restart: true });
-
     assert.equal(await rows(conversation, ids[name]), 1);
   }
 });
@@ -397,9 +327,7 @@ test('peer notices escape peer text', async (t) => {
   );
 
   await refreshed(b);
-
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-
   const about = 'about task:\\[x\\](https://example.com)';
 
   assert.equal(
@@ -419,15 +347,10 @@ test('invalid native answers publish nothing and consume their one automatic att
   const { a, b, claim, f } = await owners(t.onTestFinished);
   b.a.peerReply = () => '{"answers":[]}';
   const request = await ask(a, claim, 'Malformed?');
-
   await refreshed(b);
-
   await until('failed answer', () => answerTurns(b).length === 1 && settled(b));
-
   const stored = await f.registry.peerRequests(request.project, request.to);
-
   assert.ok(stored.find(({ id }) => id === request.id)?.attemptedAt);
-
   assert.equal(stored.find(({ id }) => id === request.id)?.answer, undefined);
 
   assert.equal(
@@ -436,7 +359,6 @@ test('invalid native answers publish nothing and consume their one automatic att
   );
 
   await refreshed(b);
-
   assert.equal(answerTurns(b).length, 1);
 });
 
@@ -448,7 +370,6 @@ test('a failed turn cleanup still removes the request file', async (t) => {
   );
 
   await ask(a, claim, 'Cleanup?');
-
   await refreshed(b);
 
   await until(
@@ -481,19 +402,12 @@ test('a failed admission clears and retries', async (t) => {
   });
 
   const request = await ask(a, claim, 'Retry?');
-
   await refreshed(b);
-
   await until('admission failure', () => failed && settled(b));
-
   await refreshed(b);
-
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-
   assert.equal(attempts.mock.calls.length, 2);
-
   assert.equal(b.coordination.snapshot.error, undefined);
-
   assert.ok((await stored(f, request)).attemptedAt);
 });
 
@@ -515,7 +429,6 @@ test('a failed peer request read reports and clears', async (t) => {
   );
 
   await ask(a, claim, 'Readable?');
-
   await refreshed(b);
 
   await until('read failure', () =>
@@ -523,11 +436,8 @@ test('a failed peer request read reports and clears', async (t) => {
   );
 
   assert.deepEqual(answerTurns(b), []);
-
   await refreshed(b);
-
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-
   assert.equal(b.coordination.snapshot.error, undefined);
 });
 
@@ -545,13 +455,9 @@ test('a failed merge read leaves peer requests flowing', async (t) => {
   );
 
   const request = await ask(a, claim, 'Despite merges?');
-
   await refreshed(b);
-
   assert.match(b.coordination.snapshot.error ?? '', /Merge events unreadable/);
-
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-
   assert.ok(notice(b, `peer-request/${request.id}`));
 });
 
@@ -614,22 +520,15 @@ test("an answer turn keeps a user turn's completion notice on time", async (t) =
   );
 
   t.onTestFinished(stop);
-
   const user = new TurnGate();
   b.a.gate = user;
   const working = b.coordinator.send('user work');
-
   await user.entered;
-
   await ask(a, claim, 'Meanwhile?');
-
   await refreshed(b);
-
   const answering = new TurnGate();
   b.a.gate = answering;
-
   user.open();
-
   await answering.entered;
 
   await until(
@@ -639,9 +538,7 @@ test("an answer turn keeps a user turn's completion notice on time", async (t) =
   );
 
   assert.equal(b.coordinator.snapshot.answering, true);
-
   answering.open();
-
   await working;
 });
 
@@ -650,7 +547,6 @@ async function nativeOwner(
   name: 'claude' | 'codex',
 ) {
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(orderedCleanup(register));
   const source = await f.start('A');
   const cwd = join(f.root, 'B');
@@ -680,7 +576,6 @@ async function nativeOwner(
             return launch(options.signal);
 
           const directory = join(cwd, 'usage');
-
           mkdirSync(directory, { recursive: true });
 
           return spawn(process.execPath, [executable, 'background'], {
@@ -699,7 +594,6 @@ async function nativeOwner(
         if (accepted.has(request.id)) continue;
 
         accepted.add(request.id);
-
         void owner.coordinator.respond(request.id, { decision: 'accept' });
       }
     }),
@@ -709,7 +603,6 @@ async function nativeOwner(
 
   const answerTurn = async () => {
     const request = await ask(source, claim, `Native? ${secret}`);
-
     await refreshed(owner);
 
     await until(
@@ -739,18 +632,12 @@ test("Claude answer turns are labeled as Witch's", async (t) => {
     JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as string;
 
   await within(owner.coordinator.send('user turn'), 10_000, 'user turn');
-
   const user = await content();
-
   assert.match(user, /Delegate work only through Witch/);
-
   assert.ok(user.endsWith('User request:\nuser turn'));
-
   const request = await answerTurn();
   const input = await content();
-
   assert.ok(input.endsWith(`Witch request:\n${answerInstruction}`));
-
   assert.ok(input.includes(request.id));
 
   for (const absent of [
@@ -774,7 +661,6 @@ test('Codex answer turns keep peer text out of native input', async (t) => {
     .join('\n');
 
   assert.ok(context.includes(request.id));
-
   assert.ok(!context.includes(secret));
 
   const start = JSON.parse(

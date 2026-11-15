@@ -247,7 +247,6 @@ export class CodexCompactionPolicy {
     if (!this.changed(model, contextWindow)) return;
 
     this.assertIdle(model, busy, contextWindow);
-
     await this.rpc.request('thread/unsubscribe', { threadId: info.id });
 
     const response = await this.rpc.request(

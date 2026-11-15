@@ -7,7 +7,6 @@ const pending = [];
 
 if (process.argv.includes('--ignore-term')) {
   process.on('SIGTERM', () => {});
-
   setInterval(() => {}, 1000);
 }
 

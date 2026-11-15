@@ -16,7 +16,6 @@ export function readLines(
   line: (text: string) => void,
 ): void {
   let pending = '';
-
   stream.setEncoding('utf8');
 
   stream.on('data', (chunk: string) => {
@@ -57,7 +56,6 @@ export function watchChild(child: ChildProcess): ChildExit {
       for (const stream of [child.stdout, child.stderr])
         if (stream && !stream.destroyed) {
           stream.push(null);
-
           stream.destroy();
         }
     }, 200);

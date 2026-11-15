@@ -14,11 +14,8 @@ import { seededMemory } from './seeded-memory.js';
 export async function setup({ origin = true }: { origin?: boolean } = {}) {
   const root = await scratch('witch-move-');
   const at = (path: string) => join(root, path);
-
   await mkdir(at('w/main'), { recursive: true });
-
   await git(at('w/main'), 'init', '-q', '-b', 'main');
-
   await git(at('w/main'), 'commit', '-q', '--allow-empty', '-m', 'first');
 
   if (origin)
@@ -31,7 +28,6 @@ export async function setup({ origin = true }: { origin?: boolean } = {}) {
     );
 
   await git(at('w/main'), 'worktree', 'add', '-q', '--detach', at('w/main-1'));
-
   const store = await StateStore.open(at('state'));
   const memory = await seededMemory(at('state/memory.git'));
   const runs: string[][] = [];
@@ -66,7 +62,6 @@ export async function setup({ origin = true }: { origin?: boolean } = {}) {
       });
 
     await files.close();
-
     const directory = at(`state/conversations/${id}`);
 
     const raw = JSON.parse(

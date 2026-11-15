@@ -122,13 +122,9 @@ test('native Codex credit states reach both rendered layouts beside a full weekl
       );
 
       await f.session.readAccountUsage!();
-
       const account = f.session.usage.account!;
-
       store.report('codex', account);
-
       assert.equal(creditCapacity(account, Date.now()), capacity);
-
       assert.equal(fundingText(account.funding!), expected);
 
       for (const width of [115, 80]) {
@@ -165,7 +161,6 @@ test('native Codex credit states reach both rendered layouts beside a full weekl
     }
   } finally {
     ui.unmount();
-
     await close(f.session, f.cwd);
   }
 });
@@ -190,7 +185,6 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
     );
 
     await f.session.readAccountUsage!();
-
     const initial = f.session.usage.account!;
 
     await f.emit({
@@ -272,7 +266,6 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
     );
 
     assert.equal(f.session.usage.account!.funding?.kind, 'credits');
-
     assert.notEqual(f.session.usage.account!.funding, initial.funding);
   } finally {
     await close(f.session, f.cwd);
@@ -311,11 +304,8 @@ test('a delayed account reply preserves newer native fields and accepts untouche
     );
 
     await f.session.readAccountUsage!();
-
     await writeFile(join(f.cwd, 'hold-account'), 'yes');
-
     const pending = f.session.readAccountUsage!();
-
     await appears(join(f.cwd, 'account-1.json'));
 
     await f.emit({
@@ -332,17 +322,11 @@ test('a delayed account reply preserves newer native fields and accepts untouche
 
     const newer = f.session.usage.account!;
     response.rateLimits.secondary.usedPercent = 41;
-
     await f.reply(1, { result: response }, 'account');
-
     await pending;
-
     const reading = f.session.usage.account!;
-
     assert.equal(reading.funding, newer.funding);
-
     assert.equal(reading.creditAccess, newer.creditAccess);
-
     assert.equal(creditCapacity(reading, Date.now()), 'unavailable');
 
     assert.deepEqual(
@@ -356,7 +340,6 @@ test('a delayed account reply preserves newer native fields and accepts untouche
     );
 
     const next = f.session.readAccountUsage!();
-
     await appears(join(f.cwd, 'account-2.json'));
 
     await f.emit({
@@ -371,9 +354,7 @@ test('a delayed account reply preserves newer native fields and accepts untouche
 
     const denial = f.session.usage.account!.creditAccess;
     response.rateLimits.credits.balance = '789.012';
-
     await f.reply(2, { result: response }, 'account');
-
     await next;
 
     assert.equal(
@@ -382,9 +363,7 @@ test('a delayed account reply preserves newer native fields and accepts untouche
     );
 
     assert.equal(f.session.usage.account!.creditAccess, denial);
-
     await rm(join(f.cwd, 'hold-account'));
-
     await f.session.readAccountUsage!();
 
     assert.equal(
@@ -393,9 +372,7 @@ test('a delayed account reply preserves newer native fields and accepts untouche
     );
 
     await writeFile(join(f.cwd, 'hold-account'), 'yes');
-
     const switched = f.session.readAccountUsage!();
-
     await appears(join(f.cwd, 'account-3.json'));
 
     await f.emit({
@@ -404,9 +381,7 @@ test('a delayed account reply preserves newer native fields and accepts untouche
     });
 
     await f.reply(3, { result: { ...response, accountId: 'two' } }, 'account');
-
     await switched;
-
     assert.equal(f.session.usage.account!.identity, 'two:codex');
 
     assert.equal(
@@ -436,7 +411,6 @@ for (const [name, limitId, accountId, minutes, denial, expectedPercent] of [
 
     try {
       const pending = f.session.readAccountUsage!();
-
       await appears(join(f.cwd, 'account-1.json'));
 
       await f.emit({
@@ -482,7 +456,6 @@ for (const [name, limitId, accountId, minutes, denial, expectedPercent] of [
       );
 
       await pending;
-
       const reading = f.session.usage.account!;
 
       assert.deepEqual(
@@ -503,7 +476,6 @@ for (const [name, limitId, accountId, minutes, denial, expectedPercent] of [
 
 test('Claude spend keeps native units and disabled state, and a cached failure cannot refresh it', () => {
   const now = 2000000000000;
-
   vi.spyOn(Date, 'now').mockReturnValue(now);
 
   try {
@@ -535,7 +507,6 @@ test('Claude spend keeps native units and disabled state, and a cached failure c
     });
 
     assert.equal(creditCapacity(first, now), 'unavailable');
-
     vi.spyOn(Date, 'now').mockReturnValue(now + USAGE_CURRENT_MS + 1);
 
     const failed = accountReading(
@@ -544,11 +515,8 @@ test('Claude spend keeps native units and disabled state, and a cached failure c
     )!;
 
     assert.equal(failed.limits, first.limits);
-
     assert.equal(failed.funding, first.funding);
-
     assert.equal(failed.creditAccess, first.creditAccess);
-
     assert.equal(creditCapacity(failed, Date.now()), 'unknown');
 
     const malformed = accountReading(
@@ -563,7 +531,6 @@ test('Claude spend keeps native units and disabled state, and a cached failure c
     )!;
 
     assert.equal(malformed.funding, first.funding);
-
     assert.equal(malformed.limits[0]!.percent, 100);
   } finally {
     vi.restoreAllMocks();
@@ -596,13 +563,9 @@ test('funding retained during an account read expires before its later access ob
 
   try {
     await f.session.readAccountUsage!();
-
     await writeFile(join(f.cwd, 'hold-account'), 'yes');
-
     const pending = f.session.readAccountUsage!();
-
     await appears(join(f.cwd, 'account-1.json'));
-
     const now = 2_000_000_000_000;
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
 
@@ -619,17 +582,11 @@ test('funding retained during an account read expires before its later access ob
     });
 
     clock.mockReturnValue(now + 1000);
-
     await f.reply(1, { result: { rateLimits } }, 'account');
-
     await pending;
-
     const reading = f.session.usage.account!;
-
     assert.equal(reading.funding!.observedAt, now);
-
     assert.equal(reading.creditAccess!.observedAt, now + 1000);
-
     assert.equal(creditCapacity(reading, now + USAGE_CURRENT_MS), 'available');
 
     assert.equal(
@@ -638,7 +595,6 @@ test('funding retained during an account read expires before its later access ob
     );
   } finally {
     vi.restoreAllMocks();
-
     await close(f.session, f.cwd);
   }
 });
@@ -716,7 +672,6 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
       );
 
       assert.equal(ui.text().split('\n').length, height);
-
       assert.match(ui.text(), /CTX/);
     } finally {
       ui.unmount();
@@ -797,9 +752,7 @@ test('the minimum terminal preserves the composer and live balance beside two ac
     );
 
     assert.equal(ui.text().split('\n').length, 24);
-
     assert.match(ui.text(), /Ask the agent/);
-
     assert.match(ui.text(), /\/delegation/);
 
     for (const [funding, expected] of [
@@ -829,14 +782,11 @@ test('the minimum terminal preserves the composer and live balance beside two ac
       );
 
       assert.equal(ui.text().split('\n').length, 24);
-
       assert.match(ui.text(), /Ask the agent/);
     }
 
     const draft = 'first line\nsecond line\nthird line\nfourth line';
-
     ui.stdin.write(`\u001b[200~${draft}\u001b[201~`);
-
     await until('multiline draft', () => ui.text().includes('fourth line'));
 
     for (const [phase, pendingCompaction] of [
@@ -878,22 +828,18 @@ test('the minimum terminal preserves the composer and live balance beside two ac
       });
 
       assert.equal(ui.text().split('\n').length, 24);
-
       assert.match(ui.text(), /live command/);
 
       if (phase === 'running') assert.match(ui.text(), /[A-Z]+ \| \d+S/);
 
       assert.match(ui.text(), /^ ┃ fourth line\s+┃$/m);
-
       assert.match(ui.text(), /^ ┗━+┛$/m);
 
       if (pendingCompaction) assert.match(ui.text(), /^ Pending: \/compact$/m);
     }
 
     coordinator.publish({ phase: 'idle', pendingCompaction: false });
-
     await until('idle composer', () => ui.text().startsWith('IDLE'));
-
     ui.stdin.write(ENTER);
 
     await until('complete draft sent', () =>

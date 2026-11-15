@@ -27,7 +27,6 @@ const past = '2020-01-01T00:00:00Z';
 async function repository(files: Record<string, string> = { 'a.txt': 'a\n' }) {
   const root = await scratch('witch-changes-');
   const work = join(root, 'work');
-
   await mkdir(work);
 
   const git = async (...args: string[]) =>
@@ -53,7 +52,6 @@ async function repository(files: Record<string, string> = { 'a.txt': 'a\n' }) {
     await writeFile(join(work, name), text);
 
   await git('add', '-f', '-A');
-
   await old('-m', 'first');
 
   return {
@@ -106,15 +104,10 @@ test('an update, an add and a delete come back with their hunks and absolute pat
 
   // the user's setting would strip the space from the blank context line
   await git('config', 'diff.suppressBlankEmpty', 'true');
-
   await changes.watch(work);
-
   await appendFile(join(work, 'a.txt'), 'four\n');
-
   await writeFile(join(work, 'new file.txt'), 'hello\n');
-
   await writeFile(join(work, 'debug.log'), 'noise\n');
-
   await rm(join(work, 'gone.txt'));
 
   assert.deepEqual(await changes.read(work), {
@@ -144,9 +137,7 @@ test('an update, an add and a delete come back with their hunks and absolute pat
 
 test('consecutive reads each show only what changed since the one before', async () => {
   const { work, changes } = await repository();
-
   await changes.watch(work);
-
   await appendFile(join(work, 'a.txt'), 'b\n');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -169,13 +160,9 @@ test('a tracked file that an ignore rule matches stays covered, also when only s
   });
 
   await writeFile(join(work, 'staged.log'), 'staged\n');
-
   await git('add', '-f', 'staged.log');
-
   await changes.watch(work);
-
   await appendFile(join(work, 'kept.log'), 'two\n');
-
   await appendFile(join(work, 'staged.log'), 'more\n');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -203,29 +190,17 @@ test("the repository's Git directory keeps its contents through a watch, a read 
   });
 
   await git('config', 'core.splitIndex', 'true');
-
   const hook = join(work, '.git', 'hooks', 'post-index-change');
-
   await mkdir(join(work, '.git', 'hooks'), { recursive: true });
-
   await writeFile(hook, '#!/bin/sh\ntouch "$(git rev-parse --git-dir)/RAN"\n');
-
   await chmod(hook, 0o755);
-
   await appendFile(join(work, 'a.txt'), 'staged\n');
-
   await git('add', 'a.txt');
-
   await rm(join(work, '.git', 'RAN'), { force: true });
-
   const before = await contents(join(work, '.git'));
-
   await changes.watch(work);
-
   await appendFile(join(work, 'a.txt'), 'edited\n');
-
   await appendFile(join(work, 'b.txt'), 'edited\n');
-
   await changes.absorb(work, [join(work, 'a.txt')]);
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -238,18 +213,12 @@ test("the repository's Git directory keeps its contents through a watch, a read 
 test('a read from a subdirectory of a linked worktree covers the whole worktree', async () => {
   const { root, work, git, changes } = await repository();
   const linked = join(root, 'linked');
-
   await git('worktree', 'add', '-q', linked, '-b', 'side');
-
   // the user's setting would limit a diff to the directory it runs in
   await git('config', 'diff.relative', 'true');
-
   await mkdir(join(linked, 'deep'));
-
   await changes.watch(join(linked, 'deep'));
-
   await appendFile(join(linked, 'a.txt'), 'top\n');
-
   await writeFile(join(linked, 'deep', 'in.txt'), 'in\n');
 
   assert.deepEqual(changed(linked, await changes.read(join(linked, 'deep'))), [
@@ -264,7 +233,6 @@ for (const name of ['ends in a space ', 'a:b"c\\d', 'line\nbreak'])
   test(`a checkout in a directory named ${JSON.stringify(name)} is read as itself`, async () => {
     const root = await scratch('witch-changes-');
     const work = join(root, name);
-
     await mkdir(work);
 
     const git = (...args: string[]) =>
@@ -273,25 +241,16 @@ for (const name of ['ends in a space ', 'a:b"c\\d', 'line\nbreak'])
       });
 
     await git('init', '-q', '-b', 'main');
-
     // tracked though ignored, so a snapshot has it only from the repository's index
     await writeFile(join(work, '.gitignore'), '*.log\n');
-
     await writeFile(join(work, 'tracked.log'), 'a\n');
-
     await writeFile(join(work, 'kept.txt'), 'kept\n');
-
     // older than the index, so a snapshot takes this file's content from the repository's objects
     await utimes(join(work, 'kept.txt'), new Date(past), new Date(past));
-
     await git('add', '-A', '-f');
-
     await git('commit', '-qm', 'first');
-
     const changes = new WorkTreeChanges(join(root, 'changes'));
-
     await changes.watch(work);
-
     await appendFile(join(work, 'tracked.log'), 'more\n');
 
     assert.deepEqual(changed(work, await changes.read(work)), [
@@ -306,13 +265,9 @@ test('a read with no baseline takes one and shows nothing, and an absorb with no
   });
 
   await appendFile(join(work, 'a.txt'), 'native\n');
-
   await changes.absorb(work, [join(work, 'a.txt')]);
-
   await appendFile(join(work, 'b.txt'), 'before\n');
-
   assert.deepEqual(await changes.read(work), none);
-
   await appendFile(join(work, 'b.txt'), 'after\n');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -324,17 +279,11 @@ test('a checkout keeps its baseline through a second watch and a watch of anothe
   const first = await repository();
   const second = await repository();
   const changes = first.changes;
-
   await changes.watch(first.work);
-
   await appendFile(join(first.work, 'a.txt'), 'between\n');
-
   await changes.watch(first.work);
-
   await changes.watch(second.work);
-
   await appendFile(join(first.work, 'a.txt'), 'meanwhile\n');
-
   await appendFile(join(second.work, 'a.txt'), 'own\n');
 
   assert.deepEqual(changed(second.work, await changes.read(second.work)), [
@@ -349,19 +298,14 @@ test('a checkout keeps its baseline through a second watch and a watch of anothe
 test('storage inside the checkout stays out of its own snapshots', async () => {
   const { work } = await repository();
   const changes = new WorkTreeChanges(join(work, 'state', 'changes'));
-
   await changes.watch(work);
-
   assert.deepEqual(await changes.read(work), none);
-
   assert.deepEqual(await changes.read(work), none);
 });
 
 test('concurrent operations run one at a time', async () => {
   const { work, changes } = await repository();
-
   await changes.watch(work);
-
   await appendFile(join(work, 'a.txt'), 'b\n');
 
   const [first, second] = await Promise.all([
@@ -385,13 +329,9 @@ test('absorb takes only the reported paths into the baseline', async () => {
   });
 
   await changes.watch(work);
-
   await appendFile(join(work, 'a.txt'), 'native\n');
-
   await appendFile(join(work, 'b.txt'), 'shell\n');
-
   await rm(join(work, 'gone.txt'));
-
   await writeFile(join(work, 'native.log'), 'ignored\n');
 
   await changes.absorb(work, [
@@ -407,7 +347,6 @@ test('absorb takes only the reported paths into the baseline', async () => {
   ]);
 
   await appendFile(join(work, 'a.txt'), 'later\n');
-
   // only outside paths, so nothing is taken in
   await changes.absorb(work, [join(root, 'outside.txt')]);
 
@@ -418,25 +357,15 @@ test('absorb takes only the reported paths into the baseline', async () => {
 
 test('absorb takes a file that became a directory, and a directory that became a file', async () => {
   const { work, git, changes } = await repository({ file: 'file\n' });
-
   await mkdir(join(work, 'directory'));
-
   await writeFile(join(work, 'directory', 'inside.txt'), 'inside\n');
-
   await git('add', '-A');
-
   await git('commit', '-qm', 'directory');
-
   await changes.watch(work);
-
   await rm(join(work, 'file'));
-
   await mkdir(join(work, 'file'));
-
   await writeFile(join(work, 'file', 'new.txt'), 'new\n');
-
   await rm(join(work, 'directory'), { recursive: true });
-
   await writeFile(join(work, 'directory'), 'now a file\n');
 
   await changes.absorb(work, [
@@ -449,12 +378,9 @@ test('absorb takes a file that became a directory, and a directory that became a
 
 test('an edit committed since the baseline shows, as does the first commit of an unborn branch', async () => {
   const { work, git, changes } = await repository();
-
   await changes.watch(work);
-
   // lands in the baseline's own second
   await appendFile(join(work, 'a.txt'), 'committed\n');
-
   await git('commit', '-qam', 'local');
 
   assert.deepEqual(
@@ -464,15 +390,10 @@ test('an edit committed since the baseline shows, as does the first commit of an
 
   const root = await scratch('witch-changes-');
   const unborn = join(root, 'work');
-
   await mkdir(unborn);
-
   await execute('git', ['init', '-q', '-b', 'main'], { cwd: unborn });
-
   const fresh = new WorkTreeChanges(join(root, 'changes'));
-
   await fresh.watch(unborn);
-
   await writeFile(join(unborn, 'first.txt'), 'first\n');
 
   await execute(
@@ -499,30 +420,18 @@ test('files that only follow a moved HEAD are counted, and one the command left 
   });
 
   await git('branch', 'older');
-
   await appendFile(join(work, 'a.txt'), 'newer\n');
-
   await appendFile(join(work, 'b.txt'), 'newer\n');
-
   await old('-am', 'second');
-
   await changes.watch(work);
-
   await git('switch', '-q', 'older');
-
   assert.deepEqual(await changes.read(work), { ...none, withHead: 2 });
-
   // a fast-forward to commits that existed before the baseline
   await git('merge', '-q', '--ff-only', 'main');
-
   assert.deepEqual(await changes.read(work), { ...none, withHead: 2 });
-
   await git('switch', '-q', '-c', 'side', 'HEAD~1');
-
   await appendFile(join(work, 'b.txt'), 'dirty\n');
-
   const moved = await changes.read(work);
-
   assert.equal(moved.withHead, 1);
 
   assert.deepEqual(changed(work, moved), [
@@ -531,21 +440,13 @@ test('files that only follow a moved HEAD are counted, and one the command left 
 
   // an edit committed and then merged with older commits is inside the count
   await git('restore', 'b.txt');
-
   await changes.read(work);
-
   await writeFile(join(work, 'c.txt'), 'c\n');
-
   await git('add', 'c.txt');
-
   await git('commit', '-qm', 'local');
-
   await git('merge', '-q', '--no-edit', 'main');
-
   assert.deepEqual(await changes.read(work), { ...none, withHead: 3 });
-
   await git('checkout', '-q', '--orphan', 'fresh');
-
   await appendFile(join(work, 'a.txt'), 'orphan\n');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -561,9 +462,7 @@ test('a revert with HEAD unchanged shows, and an edit Git stores identically doe
   });
 
   await appendFile(join(work, 'a.txt'), 'pending\n');
-
   await changes.watch(work);
-
   await git('restore', 'a.txt');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -571,27 +470,18 @@ test('a revert with HEAD unchanged shows, and an edit Git stores identically doe
   ]);
 
   await writeFile(join(work, 'crlf.txt'), 'one\r\ntwo\r\n');
-
   assert.deepEqual(await changes.read(work), none);
 });
 
 test('an equal-length edit made in the second the index was written shows', async () => {
   const { work, git, changes } = await repository({ 'a.txt': 'aaaa\n' });
-
   await git('config', 'core.checkStat', 'minimal');
-
   const second = new Date('2024-01-01T00:00:00Z');
-
   await utimes(join(work, 'a.txt'), second, second);
-
   await git('add', 'a.txt');
-
   await utimes(join(work, '.git', 'index'), second, second);
-
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'bbbb\n');
-
   await utimes(join(work, 'a.txt'), second, second);
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -615,13 +505,9 @@ test('a file past the line budget, a binary file and a type change keep their he
   );
 
   await writeFile(join(work, 'data.bin'), Buffer.from([0, 1, 2, 0]));
-
   await writeFile(join(work, 'forced.bin'), 'a\u0000c\n');
-
   await rm(join(work, 'link.txt'));
-
   await symlink('small.txt', join(work, 'link.txt'));
-
   await appendFile(join(work, 'small.txt'), 'more\n');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -650,16 +536,13 @@ test('a file past the line budget, a binary file and a type change keep their he
 
 test("a row's files share the line budget, and a name Git could read as pathspec magic keeps its count", async () => {
   const { work, changes } = await repository();
-
   await changes.watch(work);
 
   const lines = (count: number) =>
     Array.from({ length: count }, (_, line) => `${line}\n`).join('');
 
   await writeFile(join(work, ':a.txt'), lines(401));
-
   await writeFile(join(work, 'first.txt'), lines(250));
-
   await writeFile(join(work, 'second.txt'), lines(250));
 
   assert.deepEqual(
@@ -684,7 +567,6 @@ test("the user's setting to join nearby hunks leaves the lines between them out"
   });
 
   await git('config', 'diff.interHunkContext', '100');
-
   await changes.watch(work);
 
   await writeFile(
@@ -716,11 +598,8 @@ test('a long line takes more of the line budget, as a changed line or as context
     ]);
 
   await changes.watch(work);
-
   await writeFile(join(work, 'long.json'), `${'x'.repeat(100_000)}\n`);
-
   assert.deepEqual(await sizes(), [['long.json', 0, { added: 1, removed: 0 }]]);
-
   await writeFile(join(work, 'context.txt'), `${'x'.repeat(90_000)}\nedited\n`);
 
   assert.deepEqual(await sizes(), [
@@ -729,7 +608,6 @@ test('a long line takes more of the line budget, as a changed line or as context
 
   // 199 characters cost one line each, so 400 of them take the whole budget and no more
   await writeFile(join(work, 'fits.txt'), `${'x'.repeat(199)}\n`.repeat(400));
-
   assert.deepEqual(await sizes(), [['fits.txt', 400, undefined]]);
 });
 
@@ -745,7 +623,6 @@ test('files past the hundredth are counted, and only the listed files have their
   };
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
-
   await changes.watch(work);
 
   const names = Array.from(
@@ -756,13 +633,9 @@ test('files past the hundredth are counted, and only the listed files have their
   for (const name of names) await writeFile(join(work, name), 'n\n');
 
   const read = await changes.read(work);
-
   assert.equal(read.files.length, 100);
-
   assert.equal(read.more, 1);
-
   assert.equal(read.files.at(-1)!.path, join(work, 'n099.txt'));
-
   assert.deepEqual(counted, [names.slice(0, 100)]);
 });
 
@@ -775,11 +648,8 @@ test('a file whose content Git fails to hand over keeps its header, and the rest
       : execute(command, args, options);
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
-
   await changes.watch(work);
-
   await appendFile(join(work, 'a.txt'), 'more\n');
-
   await writeFile(join(work, 'new.txt'), 'new\n');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -802,7 +672,6 @@ test("a file replaced by a directory, and a nested repository's new commit, leav
   });
 
   const nested = join(work, 'nested');
-
   await mkdir(nested);
 
   const inner = (...args: string[]) =>
@@ -811,16 +680,11 @@ test("a file replaced by a directory, and a nested repository's new commit, leav
     });
 
   await inner('init', '-q', '-b', 'main');
-
   await inner('commit', '-q', '--allow-empty', '-m', 'one');
-
   // the user's setting would print a nested repository's change without a file header
   await git('config', 'diff.submodule', 'log');
-
   await changes.watch(work);
-
   await rm(join(work, 'a'));
-
   await mkdir(join(work, 'a'));
 
   await writeFile(
@@ -829,7 +693,6 @@ test("a file replaced by a directory, and a nested repository's new commit, leav
   );
 
   await inner('commit', '-q', '--allow-empty', '-m', 'two');
-
   await appendFile(join(work, 'z.txt'), 'edited\n');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -854,7 +717,6 @@ test('a nested repository the index tracks never runs its own filter, and shows 
   const { root, work, git, changes } = await repository();
   const nested = join(work, 'nested');
   const marker = join(root, 'ran');
-
   await mkdir(nested);
 
   const inner = (...args: string[]) =>
@@ -863,36 +725,21 @@ test('a nested repository the index tracks never runs its own filter, and shows 
     });
 
   await inner('init', '-q', '-b', 'main');
-
   await writeFile(join(nested, '.gitattributes'), 'in.txt filter=probe\n');
-
   await writeFile(join(nested, 'in.txt'), 'a\n');
-
   await inner('add', '-A');
-
   await inner('commit', '-qm', 'one');
-
   await inner('config', 'filter.probe.clean', `sh -c 'touch "${marker}"; cat'`);
-
   await git('add', 'nested');
-
   await git('commit', '-qm', 'nested');
-
   await changes.watch(work);
-
   // the same size at another time, which Git settles only by reading the content through the filter
   await writeFile(join(nested, 'in.txt'), 'b\n');
-
   await utimes(join(nested, 'in.txt'), new Date(past), new Date(past));
-
   assert.deepEqual(await changes.read(work), none);
-
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
-
   await inner('commit', '-qam', 'two');
-
   assert.deepEqual(await changes.read(work), none);
-
   await git('add', 'nested');
 
   assert.deepEqual(changed(work, await changes.read(work)), [
@@ -913,7 +760,6 @@ test('settled waits for the operations already asked for', async () => {
   const run: Run = async (command, args, options) => {
     if (args.includes('write-tree')) {
       await held.promise;
-
       order.push('snapshot');
     }
 
@@ -923,13 +769,9 @@ test('settled waits for the operations already asked for', async () => {
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
   const watching = changes.watch(work);
   const settled = changes.settled().then(() => order.push('settled'));
-
   held.resolve();
-
   await settled;
-
   await watching;
-
   assert.deepEqual(order, ['snapshot', 'settled']);
 });
 
@@ -952,19 +794,12 @@ test('close stops the Git call in flight and fails what is queued behind it with
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
   const watching = changes.watch(work);
   const queued = changes.read(work);
-
   await inFlight.promise;
-
   const started = calls.length;
-
   changes.close();
-
   await assert.rejects(watching, /^Error: Couldn't read file changes: /);
-
   await assert.rejects(queued, /^Error: Couldn't read file changes: /);
-
   await changes.settled();
-
   assert.equal(calls.length, started);
 });
 
@@ -985,11 +820,8 @@ test('a directory outside a repository reads nothing, and another failure of the
   };
 
   const changes = new WorkTreeChanges(join(root, 'changes'), outside);
-
   await changes.watch(root);
-
   assert.deepEqual(await changes.read(root), none);
-
   assert.equal(calls.length, 2);
 
   const refused: Run = () =>
@@ -1013,11 +845,8 @@ test('a directory outside a repository reads nothing, and another failure of the
 for (const wording of ['the installed', 'a newer'])
   test(`a nested repository with no commit stays out of the snapshot in ${wording} Git's wording, and the rest still shows`, async () => {
     const { root, work } = await repository({ 'a.txt': 'a\n' });
-
     await execute('git', ['init', '-q', join(work, 'nested')]);
-
     await writeFile(join(work, 'nested', 'inside.txt'), 'inside\n');
-
     // Git 2.56 follows its complaint with this line, which Git 2.45 leaves out
     const followed = "error: unable to index file 'nested/'\n";
 
@@ -1030,9 +859,7 @@ for (const wording of ['the installed', 'a newer'])
       });
 
     const changes = new WorkTreeChanges(join(root, 'worded'), run);
-
     await changes.watch(work);
-
     await appendFile(join(work, 'a.txt'), 'more\n');
 
     assert.deepEqual(changed(work, await changes.read(work)), [
@@ -1112,9 +939,7 @@ test('a failed read keeps its baseline, so the next read still shows the change'
   };
 
   const changes = new WorkTreeChanges(join(root, 'changes'), run);
-
   await changes.watch(work);
-
   await appendFile(join(work, 'a.txt'), 'before\n');
 
   await assert.rejects(changes.read(work), {
@@ -1122,7 +947,6 @@ test('a failed read keeps its baseline, so the next read still shows the change'
   });
 
   await appendFile(join(work, 'b.txt'), 'native\n');
-
   await changes.absorb(work, [join(work, 'b.txt')]);
 
   assert.deepEqual(changed(work, await changes.read(work)), [

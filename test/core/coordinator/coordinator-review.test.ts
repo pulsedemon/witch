@@ -88,9 +88,7 @@ async function harness(
 
   const cwd = coordinator.snapshot.conversation!.cwd;
   const plan = join(cwd, 'plan.md');
-
   await writeFile(plan, options.plan ?? `${target.join('\n')}\n`);
-
   const lines = async () => (await readFile(plan, 'utf8')).split('\n');
 
   const setLines = async (edits: Record<number, string>) => {
@@ -137,7 +135,6 @@ async function harness(
     });
 
     await state.during?.();
-
     await state.hold;
 
     return reviewers.map((reviewer) => {
@@ -213,17 +210,11 @@ async function harness(
     );
 
     await other.ensureWorktree();
-
     await other.scope(cwd);
-
     const path = `${(await f.memory.scopePaths(cwd)).project}/notes.md`;
-
     await mkdir(join(other.root, path, '..'), { recursive: true });
-
     await writeFile(join(other.root, path), text);
-
     await other.commit('chore(memory): save outside notes');
-
     await other.publish();
   };
 
@@ -303,19 +294,12 @@ test('a single-harness change brings the quiet harness back', async (t) => {
     });
 
   const [first, second, ...rest] = h.correctionPrompts();
-
   assert.deepEqual(rest, []);
-
   assert.match(first!, /Blocking[^\n]*\n- plan\.md:5: remember-port five/);
-
   assert.match(first!, /Non-blocking[^\n]*\n- plan\.md:25: issue on line 25/);
-
   assert.match(second!, /- plan\.md:15: issue on line 15/);
-
   assert.doesNotMatch(second!, /plan\.md:5:/);
-
   assert.match(h.notice('Review round 1')!, /claude · claude-opus-5-5/);
-
   assert.match(h.notice('Review round 1')!, /codex · gpt-6\.1-sol/);
 
   assert.match(
@@ -324,13 +308,9 @@ test('a single-harness change brings the quiet harness back', async (t) => {
   );
 
   assert.doesNotMatch(h.notice('Review round 3')!, /sits out/);
-
   assert.match(h.rounds[1]!.brief, /^\+fixed five$/m);
-
   assert.match(h.rounds[2]!.brief, /^\+fixed fifteen$/m);
-
   assert.doesNotMatch(h.rounds[2]!.brief, /^\+fixed five$/m);
-
   assert.match(h.rounds[3]!.brief, /full text of every file/);
 
   assert.match(
@@ -358,7 +338,6 @@ test("each round's reviewers use the familiar prefix current when it starts", as
 
   h.corrections.push(async () => {
     familiar = '/after';
-
     await h.setLines({ 5: 'fixed five' });
   });
 
@@ -384,9 +363,7 @@ test('blockers in the previous corrections stop the review', async (t) => {
   );
 
   assert.equal(await h.coordinator.review('plan.md'), true);
-
   assert.deepEqual(h.rounds.map(names), [['claude', 'codex'], ['claude']]);
-
   assert.equal(h.correctionPrompts().length, 2);
 
   assert.deepEqual(
@@ -420,9 +397,7 @@ test('a round leaves no abort listener on the review behind', async (t) => {
   };
 
   assert.equal(await h.coordinator.review('plan.md'), true);
-
   assert.equal(listeners.length, 2);
-
   assert.equal(listeners[1], listeners[0]);
 });
 
@@ -433,22 +408,16 @@ test("a settling round's non-blocking findings get a final turn", async (t) => {
     runtime === 'claude' ? { findings: [{ line: 7, blocking: false }] } : {};
 
   h.corrections.push(() => h.setLines({ 7: 'tidied seven' }));
-
   assert.equal(await h.coordinator.review('plan.md'), true);
-
   assert.equal(h.rounds.length, 1);
-
   assert.equal(h.correctionPrompts().length, 1);
-
   assert.match(h.notice('Review finished')!, /1 non-blocking findings sent/);
 });
 
 test("a correction turn that quotes a pasted image's marker sends no image", async (t) => {
   const h = await harness(t);
   const shot = join(h.cwd, 'shot.png');
-
   await writeFile(shot, png(1, 1));
-
   const marker = h.coordinator.paste(shot, '')!;
 
   h.state.outcome = (_round, { runtime }) =>
@@ -457,7 +426,6 @@ test("a correction turn that quotes a pasted image's marker sends no image", asy
       : {};
 
   h.corrections.push(() => h.setLines({ 7: 'tidied seven' }));
-
   assert.equal(await h.coordinator.review('plan.md'), true);
 
   const [correction] = h.claude.inputs.filter(({ prompt }) =>
@@ -465,7 +433,6 @@ test("a correction turn that quotes a pasted image's marker sends no image", asy
   );
 
   assert.match(correction!.prompt, /see \[Image #1\]/);
-
   assert.equal(correction!.images, undefined);
 });
 
@@ -490,11 +457,8 @@ test('a final correction that removes a target the checks skip fails the review'
       : {};
 
   h.corrections.push(() => rm(join(h.cwd, 'plan.ts')));
-
   await assert.rejects(h.coordinator.review('plan.ts'), { code: 'ENOENT' });
-
   assert.equal(h.correctionPrompts().length, 1);
-
   assert.ok(!h.notice('Review finished'), h.notices().join('\n'));
 });
 
@@ -510,7 +474,6 @@ test('sitting out never empties a round', async (t) => {
       : {};
 
   h.corrections.push(() => h.setLines({ 5: 'fixed five' }));
-
   assert.equal(await h.coordinator.review('plan.md'), true);
 
   assert.deepEqual(h.rounds.map(names), [
@@ -544,13 +507,11 @@ test('a large correction gets a full pass', async (t) => {
   );
 
   assert.equal(await h.coordinator.review('plan.md'), true);
-
   assert.match(h.rounds[1]!.brief, /full text of every file/);
 });
 
 test('an empty or bad target refuses', async (t) => {
   const h = await harness(t);
-
   await writeFile(join(h.cwd, '..', 'outside.md'), 'x\n');
 
   for (const [argument, message] of [
@@ -559,20 +520,14 @@ test('an empty or bad target refuses', async (t) => {
     ['../outside.md', 'Review refused: ../outside.md is not a file'],
   ] as const) {
     assert.equal(await h.coordinator.review(argument), false);
-
     assert.ok(h.notice(message), message);
   }
 
   assert.equal(h.rounds.length, 0);
-
   assert.equal(await h.coordinator.review('@plan.md'), true, 'file completion');
-
   assert.equal(h.rounds.length, 1);
-
   h.rounds.length = 0;
-
   assert.equal(h.correctionPrompts().length, 0);
-
   const runs = batches(h);
 
   runs.submit([
@@ -588,7 +543,6 @@ test('an empty or bad target refuses', async (t) => {
   ]);
 
   await runs.idle();
-
   assert.deepEqual(runs.ran, ['review', 'review']);
 
   runs.submit([
@@ -597,7 +551,6 @@ test('an empty or bad target refuses', async (t) => {
   ]);
 
   await runs.idle();
-
   assert.deepEqual(runs.ran, ['review', 'review', 'review', 'clear']);
 });
 
@@ -608,30 +561,22 @@ test('quotes or a backslash keep a space inside a target name', async (t) => {
     await writeFile(join(h.cwd, name), 'x\n');
 
   assert.equal(await h.coordinator.review(`"a b.md" c\\ d.md @'e f.md'`), true);
-
   assert.match(h.rounds[0]!.brief, /^- a b\.md\n- c d\.md\n- e f\.md$/m);
 });
 
 test('a target whose name starts with two dots is inside the directory', async (t) => {
   const h = await harness(t);
-
   await writeFile(join(h.cwd, '..notes.md'), 'x\n');
-
   assert.equal(await h.coordinator.review('..notes.md'), true);
-
   assert.ok(!h.notice('Review refused'), h.notices().join('\n'));
-
   assert.match(h.rounds[0]!.brief, /^- \.\.notes\.md$/m);
 });
 
 test('a target Witch cannot stat stops the review with the error', async (t) => {
   const h = await harness(t);
   const locked = join(h.cwd, 'locked');
-
   await mkdir(locked);
-
   await writeFile(join(locked, 'plan.md'), 'x\n');
-
   await chmod(locked, 0o000);
 
   try {
@@ -643,9 +588,7 @@ test('a target Witch cannot stat stops the review with the error', async (t) => 
   }
 
   assert.match(h.coordinator.snapshot.error ?? '', /EACCES/);
-
   assert.ok(!h.notice('Review refused'), h.notices().join('\n'));
-
   assert.equal(h.rounds.length, 0);
 });
 
@@ -680,7 +623,6 @@ test('a reviewer that fails, stops, exits non-zero, reports another model or wri
       runtime === 'claude' ? outcome : {};
 
     const before = h.notices().length;
-
     assert.equal(await h.coordinator.review('plan.md'), false);
 
     const stop = h
@@ -689,16 +631,12 @@ test('a reviewer that fails, stops, exits non-zero, reports another model or wri
       .find((text) => text.startsWith('Review stopped'));
 
     const [text, report] = stop!.split(' · report ');
-
     assert.match(text!, /^Review stopped: review-[0-9a-f]{8}-1-claude /);
-
     assert.match(text!, reason);
-
     assert.match(report!, /\/review-[0-9a-f]{8}-1-claude\.md$/);
   }
 
   assert.equal(h.correctionPrompts().length, 0);
-
   assert.equal(h.notice('Review finished'), undefined);
 });
 
@@ -711,11 +649,8 @@ test('every failed reviewer in a round is named in the stop notice', async (t) =
   });
 
   assert.equal(await h.coordinator.review('plan.md'), false);
-
   const stop = h.notice('Review stopped')!;
-
   assert.match(stop, /-claude ended failed: witch: claude broke · report /);
-
   assert.match(stop, /-codex ended failed: witch: codex broke · report /);
 });
 
@@ -728,26 +663,18 @@ test('a refused route stops the review', async (t) => {
   });
 
   assert.equal(await h.coordinator.review('plan.md'), false);
-
   assert.equal(h.rounds.length, 0);
-
   assert.ok(h.notice('Review stopped: no runtime'));
-
   h.coordination.router = async () => ({ kind: 'route', routes: [] });
-
   assert.equal(await h.coordinator.review('plan.md'), false);
-
   assert.equal(h.rounds.length, 0);
-
   assert.ok(h.notice('Review stopped: no reviewer was routed'));
-
   assert.equal(h.notice('Review finished'), undefined);
 });
 
 test('targets changed while reviewers ran stop the review', async (t) => {
   const h = await harness(t);
   h.state.during = () => h.setLines({ 3: 'edited meanwhile' });
-
   assert.equal(await h.coordinator.review('plan.md'), false);
 
   assert.ok(
@@ -764,7 +691,6 @@ test('unapplied blockers stop the review', async (t) => {
     runtime === 'claude' ? { findings: [{ line: 5, blocking: true }] } : {};
 
   assert.equal(await h.coordinator.review('plan.md'), false);
-
   assert.ok(h.notice('Review stopped: the blockers were not applied'));
 });
 
@@ -781,7 +707,6 @@ test('failed mechanical checks get one correction turn before any reviewer', asy
     },
     async () => {
       const text = await h.lines();
-
       await writeFile(join(h.cwd, 'plan.md'), ['inserted', ...text].join('\n'));
     },
   );
@@ -792,19 +717,12 @@ test('failed mechanical checks get one correction turn before any reviewer', asy
       : {};
 
   assert.equal(await h.coordinator.review('plan.md'), true);
-
   const [mechanical, ...others] = h.correctionPrompts();
-
   assert.equal(reviewersBeforeFirst, 0);
-
   assert.match(mechanical!, /mechanical check failures/);
-
   assert.match(mechanical!, /plan\.md:2: em dash in prose/);
-
   assert.ok(others.every((prompt) => !/mechanical check/.test(prompt)));
-
   assert.match(h.rounds[0]!.brief, /already reported[^]*plan\.md:2: em dash/);
-
   assert.match(h.notice('Review finished')!, /1 mechanical failures remain/);
 });
 
@@ -819,17 +737,11 @@ test('a failure the mechanical correction introduces gets its own correction', a
   );
 
   assert.equal(await h.coordinator.review('plan.md'), true);
-
   const [dash, link, ...others] = h.correctionPrompts();
-
   assert.match(dash!, /plan\.md:2: em dash in prose/);
-
   assert.match(link!, /plan\.md:2: link target missing\.md does not exist/);
-
   assert.deepEqual(others, []);
-
   assert.equal(h.rounds.length, 1);
-
   assert.match(h.notice('Review finished')!, /0 mechanical failures remain/);
 });
 
@@ -838,27 +750,17 @@ test('Escape while reviewers run aborts them with the native stop deadline', asy
   const held = Promise.withResolvers<void>();
   h.state.hold = held.promise;
   const reviewing = h.coordinator.review('plan.md');
-
   await until('the reviewers', () => h.rounds.length === 1, 500);
-
   const deadline = performance.now() + 2000;
   const interrupting = h.coordinator.interrupt({ deadline });
   const { signal } = h.rounds[0]!;
-
   await until('the abort', () => signal.aborted, 500);
-
   assert.ok(signal.reason instanceof NativeStop);
-
   assert.equal(signal.reason.options.deadline, deadline);
-
   held.resolve();
-
   await interrupting;
-
   assert.equal(await reviewing, false);
-
   assert.equal(h.correctionPrompts().length, 0);
-
   assert.equal(h.notice('Review finished'), undefined);
 });
 
@@ -867,19 +769,12 @@ test('a review refused while another runs leaves Escape able to stop the first',
   const held = Promise.withResolvers<void>();
   h.state.hold = held.promise;
   const reviewing = h.coordinator.review('plan.md');
-
   await until('the reviewers', () => h.rounds.length === 1, 500);
-
   await assert.rejects(h.coordinator.review('plan.md'), /Stop the current/);
-
   const interrupting = h.coordinator.interrupt();
-
   await until('the abort', () => h.rounds[0]!.signal.aborted, 500);
-
   held.resolve();
-
   await interrupting;
-
   assert.equal(await reviewing, false);
 });
 
@@ -893,7 +788,6 @@ test('Escape while a review settles fails it without a finished notice', async (
     vi.spyOn(ConversationStore.prototype, 'flush').mockImplementation(
       async function (this: ConversationStore) {
         settling.resolve();
-
         await held.promise;
 
         return flush.call(this);
@@ -902,17 +796,11 @@ test('Escape while a review settles fails it without a finished notice', async (
   };
 
   const reviewing = h.coordinator.review('plan.md');
-
   await within(settling.promise, 3000, 'settlement');
-
   const interrupting = h.coordinator.interrupt();
-
   held.resolve();
-
   await interrupting;
-
   assert.equal(await reviewing, false);
-
   assert.equal(h.notice('Review finished'), undefined);
 });
 
@@ -921,19 +809,12 @@ test('closing Witch during a review aborts its reviewers', async (t) => {
   const held = Promise.withResolvers<void>();
   h.state.hold = held.promise;
   const reviewing = h.coordinator.review('plan.md');
-
   await until('the reviewers', () => h.rounds.length === 1, 500);
-
   const closing = h.coordinator.close();
-
   await until('the abort', () => h.rounds[0]!.signal.aborted, 500);
-
   assert.ok(h.rounds[0]!.signal.reason instanceof NativeStop);
-
   held.resolve();
-
   await closing;
-
   assert.equal(await reviewing, false);
 });
 
@@ -946,15 +827,10 @@ test('closing Witch as a round starts ends the review cleanly', async (t) => {
   });
 
   const reviewing = h.coordinator.review('plan.md');
-
   await until('the close', () => closing !== undefined, 500);
-
   stop();
-
   await closing;
-
   assert.equal(await reviewing, false);
-
   assert.equal(h.notice('Review finished'), undefined);
 });
 
@@ -978,9 +854,7 @@ test('closing Witch fails when a reviewer outlives the stop deadline', async (t)
   );
 
   await until('the reviewers', () => started, 500);
-
   await assert.rejects(h.coordinator.close(), NativeStopTimeout);
-
   assert.ok((await reviewing) instanceof NativeStopTimeout);
 });
 
@@ -996,17 +870,11 @@ test('Escape during routing launches no reviewer', async (t) => {
     })));
 
   const reviewing = h.coordinator.review('plan.md');
-
   await until('the route request', () => routing !== undefined, 500);
-
   await h.coordinator.interrupt();
-
   assert.equal(await within(reviewing, 3000, 'the review'), false);
-
   held.resolve();
-
   await routing;
-
   assert.equal(h.rounds.length, 0);
 });
 
@@ -1027,15 +895,10 @@ async function cancelHeldRoute(
   let routed: ReturnType<typeof route> | undefined;
   h.coordination.router = (action, signal) => (routed = route(action, signal));
   const reviewing = h.coordinator.review('plan.md');
-
   await until('the held route', held.waiting, 500);
-
   await h.coordinator.interrupt();
-
   assert.equal(await within(reviewing, 3000, 'the review'), false);
-
   await h.coordinator.newConversation();
-
   held.release();
 
   assert.deepEqual(await within(routed!, 5000, 'the cancelled route'), {
@@ -1060,7 +923,6 @@ test('a route cancelled during its policy read posts nothing later', async (t) =
       h,
       async () => {
         reading = true;
-
         await gate.promise;
 
         if (outcome === 'failed') throw new Error('policy unreadable');
@@ -1079,7 +941,6 @@ test('a route cancelled during its usage refresh posts nothing later', async (t)
 
   h.coordinator.accountUsage.refresh = async () => {
     refreshing = true;
-
     await gate.promise;
   };
 
@@ -1104,9 +965,7 @@ test('an interrupted correction turn ends the review and keeps its memory pendin
   });
 
   assert.equal(await h.coordinator.review('plan.md'), false);
-
   assert.equal(h.rounds.length, 1);
-
   assert.equal(h.coordinator.snapshot.recovery?.kind, 'pending');
 });
 
@@ -1121,23 +980,15 @@ test('a publication conflict after a correction stops the review', async (t) => 
       : {};
 
   h.corrections.push(() => h.setLines({ 5: 'fixed five' }));
-
   const gate = new TurnGate();
   h.claude.gate = gate;
   const reviewing = h.coordinator.review('plan.md');
-
   await within(gate.entered, 3000, 'the correction turn');
-
   await h.publishOutside('theirs');
-
   gate.open();
-
   assert.equal(await reviewing, false);
-
   assert.equal(h.rounds.length, 1);
-
   assert.equal(h.coordinator.snapshot.recovery?.kind, 'conflict');
-
   assert.equal(h.notice('Review finished'), undefined);
 
   assert.equal(
@@ -1164,11 +1015,8 @@ test("a final turn's memory publication failure fails the review", async (t) => 
   });
 
   assert.equal(await h.coordinator.review('plan.md'), false);
-
   assert.equal(h.correctionPrompts().length, 1);
-
   assert.ok(h.notice('Memory publication failed: remote refused'));
-
   assert.equal(h.notice('Review finished'), undefined);
 });
 
@@ -1181,23 +1029,15 @@ test('prompts typed during a review wait for it', async (t) => {
       : {};
 
   h.corrections.push(() => h.setLines({ 5: 'fixed five' }));
-
   const gate = new TurnGate();
   h.claude.gate = gate;
   const runs = batches(h);
-
   runs.submit([{ name: 'review', argument: 'plan.md' }]);
-
   await within(gate.entered, 3000, 'the correction turn');
-
   await h.coordinator.send('typed meanwhile');
-
   assert.deepEqual(h.claude.steers, []);
-
   assert.deepEqual(h.coordinator.snapshot.queue, ['typed meanwhile']);
-
   gate.open();
-
   await runs.idle();
 
   await until(
@@ -1229,19 +1069,14 @@ test('a correction turn compacts first when context is high', async (t) => {
   });
 
   assert.equal(await h.coordinator.review('plan.md'), true);
-
   assert.equal(compactedBefore, 1);
-
   assert.equal(h.claude.compactions.length, 1);
 });
 
 test("a first review keeps handoff's summary", async (t) => {
   const h = await harness(t);
-
   assert.equal(await h.coordinator.review('plan.md'), true);
-
   assert.equal(h.claude.inputs.length, 0);
-
   await h.coordinator.selectModel({ agent: 'codex', id: 'codex-model' });
 
   const summary = h.claude.inputs.find(({ prompt }) =>
@@ -1249,6 +1084,5 @@ test("a first review keeps handoff's summary", async (t) => {
   );
 
   assert.ok(summary, 'the handoff summary turn ran');
-
   assert.match(summary.context!, /Witch ran \/review plan\.md: settled/);
 });

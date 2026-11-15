@@ -189,7 +189,6 @@ export class Coordinator {
     },
     changed: () => {
       this.publish({});
-
       this.delivery.drainAfter();
     },
     failed: () => (this.turnFailed = true),
@@ -232,7 +231,6 @@ export class Coordinator {
             return;
 
           this.runtimes.backgroundExhausted(session);
-
           this.delivery.drainAfter();
         },
         publish: (update) => this.publish(update),
@@ -319,9 +317,7 @@ export class Coordinator {
     );
 
     this.snapshot = initialSnapshot(agents);
-
     this.coordination?.attach(() => this.link.session);
-
     this.publish({});
 
     watchEventNotices(
@@ -334,9 +330,7 @@ export class Coordinator {
 
     coordination?.subscribe(() => {
       this.pauses.apply();
-
       this.copilot.checkBinding();
-
       this.repair.checkBinding();
 
       if (!this.snapshot.queue.length) this.delivery.drainAfter();
@@ -353,19 +347,16 @@ export class Coordinator {
 
     try {
       await this.task;
-
       this.link.retryInitialization = undefined;
     } catch (error) {
       throw this.enterError(error);
     } finally {
       this.task = undefined;
-
       this.delivery.drainAfter();
     }
   }
   private async load(directory: string, options: Launch): Promise<void> {
     await this.memory.initialize();
-
     const cwd = await realpath(directory);
     const moved = await startupMoves(this.store, this.memory, cwd);
 
@@ -464,17 +455,13 @@ export class Coordinator {
       this.files = files;
       this.record = files.record;
       this.delivery.automaticHeld = false;
-
       this.copilot.activate();
-
       this.repair.resume();
-
       this.workspace = workspace;
 
       if (!this.record.handoff?.activated) delete this.record.handoff;
 
       const queue = (this.record.queue ?? []).map(unnumbered);
-
       this.delivery.restore(queue);
 
       this.publish({
@@ -492,7 +479,6 @@ export class Coordinator {
       if (failure !== undefined) this.report(failure);
 
       const scope = await this.memory.scopePaths(this.record.cwd);
-
       await this.coordination?.activate(this.record, scope.project);
 
       return scope;
@@ -546,7 +532,6 @@ export class Coordinator {
     await this.operate('starting', async () => {
       const source = this.current();
       const chosen = agent ?? source.agent;
-
       this.catalog.installed(chosen);
 
       const scope = await this.openConversation({
@@ -630,7 +615,6 @@ export class Coordinator {
     if (selection.agent !== this.current().agent)
       return this.operate('switching', async () => {
         this.catalog.installed(selection.agent);
-
         await this.runtimes.handoff(selection);
       });
 
@@ -660,9 +644,7 @@ export class Coordinator {
 
     const { task, operations } = this;
     const draining = this.delivery.drained;
-
     await task?.catch(() => {});
-
     await draining;
 
     return this.operations === operations && !this.cancelled && !this.halted();
@@ -687,9 +669,7 @@ export class Coordinator {
         throw new Refusal('Model change canceled');
 
       conversation.sessions[selection.agent] = selected;
-
       await this.save();
-
       this.publish({ conversation, native: session.info });
     } catch (error) {
       if (!starting) throw error;
@@ -722,11 +702,8 @@ export class Coordinator {
     if (refresh) refresh.cancelled = true;
 
     this.cancelled = true;
-
     this.compaction.cancel();
-
     this.attachments.cancel();
-
     this.runtimes.stop();
 
     this.publish({
@@ -736,15 +713,10 @@ export class Coordinator {
     });
 
     this.link.connecting?.abort(new NativeStop(stop));
-
     this.catalog.cancel(new NativeStop(stop));
-
     this.editorCancellation?.abort();
-
     this.cleanupCancellation?.abort();
-
     this.reviewCancellation?.abort(new NativeStop(stop));
-
     this.nativeUpdateCancellation?.abort(new NativeStop(stop));
 
     const results = await Promise.allSettled([
@@ -761,7 +733,6 @@ export class Coordinator {
           await this.link.session?.close(stop);
         else {
           const session = this.link.session;
-
           await session?.interrupt(stop);
 
           if (this.changingModel || this.runtimes.selecting)
@@ -816,13 +787,9 @@ export class Coordinator {
     const release = this.holdPromptDelivery();
     const abort = new AbortController();
     this.nativeUpdateCancellation = abort;
-
     this.operations++;
-
     this.cancelled = false;
-
     this.publish({ phase: 'updating', error: undefined });
-
     const operation = this.link.maintain(runtime, () => run(abort.signal));
     this.task = operation;
 
@@ -831,7 +798,6 @@ export class Coordinator {
     } finally {
       this.task = undefined;
       this.nativeUpdateCancellation = undefined;
-
       release();
     }
   }
@@ -844,7 +810,6 @@ export class Coordinator {
         'editing',
         async () => {
           await recoverMemory(this.workspace!, this.current(), kind, decision);
-
           await this.save();
         },
         'recovery',
@@ -866,11 +831,8 @@ export class Coordinator {
     await this.operate('editing', async () => {
       const scope = await this.memory.scopePaths(this.current().cwd);
       const note = path ?? `${scope.project}/${indexNote}`;
-
       this.notice(`Memory edit: ${noticeText(note)}`, this.workspace!.root);
-
       await this.beginActivity('memory-edit', scope);
-
       const abort = (this.editorCancellation = new AbortController());
 
       if (this.cancelled) abort.abort();
@@ -885,7 +847,6 @@ export class Coordinator {
       if (!saved) return;
 
       delete this.current().activity;
-
       await this.save();
     });
   }
@@ -923,7 +884,6 @@ export class Coordinator {
   async review(argument: string): Promise<boolean> {
     const conversation = this.current();
     const abort = new AbortController();
-
     // a call operate refuses leaves the running review's controller in place
     this.reviewCancellation ??= abort;
 
@@ -965,11 +925,8 @@ export class Coordinator {
       );
 
       await this.beginActivity('memory-edit');
-
       await this.workspace!.restore(path, revision);
-
       delete this.current().activity;
-
       await this.save();
     });
   }
@@ -993,21 +950,14 @@ export class Coordinator {
     if (this.closed) return;
 
     this.closed = true;
-
     this.pauses.close();
-
     this.copilot.close();
-
     const stop = { ...options, deadline: stopDeadline() };
-
     this.coordination?.attach(undefined);
-
     const quiescing = this.coordination?.quiesce();
     // interrupt() reads the phase before `closing` replaces it
     const interrupting = this.interrupt(stop);
-
     this.publish({ phase: 'closing' });
-
     let failure: unknown;
 
     try {
@@ -1015,13 +965,11 @@ export class Coordinator {
         await Promise.all([interrupting, quiescing]);
       } catch (error) {
         failure = error;
-
         // Codex's close() interrupts again and would rethrow, so the session ends here
         await this.link.disconnect(false, false, stop).catch(() => {});
       }
 
       await this.task?.catch(() => {});
-
       await this.delivery.drained;
 
       // settle() returns early once closed, so an accepted recovery is published here
@@ -1035,7 +983,6 @@ export class Coordinator {
     } finally {
       try {
         await this.accountUsage.close(stop);
-
         await this.link.disconnect(false, false, stop);
       } finally {
         try {
@@ -1105,7 +1052,6 @@ export class Coordinator {
       return;
 
     const stamped = { ...update, at: new Date().toISOString() };
-
     this.publish({ items: applyDisplayUpdate(this.snapshot.items, stamped) });
 
     if (save) this.persist(this.files!.append(stamped));
@@ -1135,7 +1081,6 @@ export class Coordinator {
   warning(text: string): void {
     const cwd = this.record?.cwd ?? process.cwd();
     const id = randomUUID();
-
     this.display({ id, kind: 'notice', text, cwd, warning: true });
   }
 
@@ -1168,13 +1113,11 @@ export class Coordinator {
     if (this.closed) return;
 
     await this.files!.flush();
-
     const { recovery, failure } = await settleMemory(this.workspace!);
 
     if (recovery?.kind !== 'pending') delete this.current().activity;
 
     await this.save();
-
     const error = [report, failure].filter(Boolean).join('\n\n');
 
     this.publish({
@@ -1209,9 +1152,7 @@ export class Coordinator {
 
     this.cancelled = false;
     this.turnEnded = false;
-
     this.operations++;
-
     this.compaction.beginActivity();
 
     if (expected === 'idle') this.turnFailed = false;
@@ -1225,7 +1166,6 @@ export class Coordinator {
         await operation();
       } catch (error) {
         failure = error;
-
         this.report(error);
       }
 
@@ -1243,7 +1183,6 @@ export class Coordinator {
       await this.task;
     } finally {
       this.task = undefined;
-
       this.delivery.drainAfter();
     }
   }
@@ -1267,10 +1206,8 @@ export class Coordinator {
     if ('queue' in update) this.delivery.saveQueue();
 
     this.pentacle.set(localActivity, witchWorking(this.snapshot));
-
     // merge cleanup and closing start no agent jobs
     this.jobs?.setActive(sessionWorking(this.snapshot));
-
     this.coordination?.update(this.snapshot);
 
     if ('nativeRunning' in update && !update.nativeRunning) {

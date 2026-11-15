@@ -20,9 +20,7 @@ test('solo context retains PR claims and selection without requiring other task 
   const a = await start();
   const choosing = await selectionTurn(cleanup, a);
   const input = a.a.inputs.at(-1)!;
-
   assert.equal(input.prompt, 'Choose the next task');
-
   assert.doesNotMatch(input.context!, /--release|Before starting a new task/);
 
   assert.match(
@@ -41,17 +39,11 @@ test('solo context retains PR claims and selection without requiring other task 
     assert.ok(input.context!.includes(command));
 
   assert.match(input.context!, /--claim/);
-
   assert.match(input.context!, /Open pull requests still need an active claim/);
-
   assert.match(input.context!, /Control command:/);
-
   assert.match(input.context!, /Session coordination:/);
-
   assert.ok(input.context!.includes(`Selection turn: ${choosing.turn}`));
-
   const selection = await choosing.select();
-
   assert.equal(selection.position, 1);
 });
 
@@ -62,11 +54,8 @@ test('policy overrides survive fixed-instruction caching and ignore other projec
 
   const send = async (prompt: string, required: boolean, fixed: boolean) => {
     await a.coordinator.send(prompt);
-
     const input = a.a.inputs.at(-1)!;
-
     assert.equal(input.prompt, prompt);
-
     assert.equal(input.context!.includes('Control command:'), fixed);
 
     assert.equal(
@@ -75,7 +64,6 @@ test('policy overrides survive fixed-instruction caching and ignore other projec
     );
 
     assert.equal(input.context!.includes('New work needs no claim'), !required);
-
     assert.equal(input.context!.includes('--claim'), fixed);
 
     assert.equal(
@@ -85,23 +73,14 @@ test('policy overrides survive fixed-instruction caching and ignore other projec
   };
 
   await send('First solo request', false, true);
-
   await send('Second solo request', false, false);
-
   await start('C');
-
   await send('Another project is open', false, false);
-
   const b = await start('B');
-
   await send('A possible owner joined', true, true);
-
   await send('The same owner remains', true, false);
-
   await b.coordinator.close();
-
   await send('The possible owner left', false, true);
-
   await send('Still solo', false, false);
 });
 
@@ -111,7 +90,6 @@ test('a reservation retains claim instructions without a same-project peer', asy
   const a = await start();
   const b = await start('B');
   const held = await b.claim('task:reserved');
-
   assert.equal(held.kind, 'claimed');
 
   await git(
@@ -131,17 +109,11 @@ test('a reservation retains claim instructions without a same-project peer', asy
   );
 
   const input = await a.coordination.context();
-
   assert.equal(input.snapshot.error, undefined);
-
   assert.deepEqual(input.snapshot.peers, []);
-
   assert.equal(input.snapshot.reservations.length, 1);
-
   assert.match(input.instructions, /--claim/);
-
   assert.match(input.context, /Claim any unclaimed task already underway/);
-
   assert.equal((await a.claim('task:reserved')).kind, 'conflict');
 });
 
@@ -150,17 +122,11 @@ test('an unregistered owner retains claim instructions', async (t) => {
   const { root, start, store } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const legacy = record(randomUUID(), join(root, 'B'));
-
   await (await store.create(legacy)).close();
-
   const lock = await legacyLock(store, legacy.id);
-
   cleanup(() => lock.close());
-
   const input = await a.coordination.context();
-
   assert.equal(input.snapshot.error, undefined);
-
   assert.deepEqual(input.snapshot.peers, []);
 
   assert.deepEqual(
@@ -169,15 +135,12 @@ test('an unregistered owner retains claim instructions', async (t) => {
   );
 
   assert.match(input.instructions, /--claim/);
-
   assert.match(input.context, /Claim coordination is required/);
 });
 
 test('failed discovery never grants solo policy', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const { start, store } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const id = randomUUID();
@@ -194,19 +157,12 @@ test('failed discovery never grants solo policy', async (t) => {
   );
 
   const input = await a.coordination.context();
-
   assert.deepEqual(input.snapshot.peers, []);
-
   assert.deepEqual(input.snapshot.reservations, []);
-
   assert.ok(input.snapshot.error);
-
   assert.match(input.instructions, /--claim/);
-
   assert.match(input.context, /Coordination is unavailable/);
-
   assert.match(input.context, /Claim coordination is required/);
-
   assert.doesNotMatch(input.context, /New work needs no claim/);
 });
 
@@ -221,20 +177,14 @@ for (const owned of ['active claim', 'recorded suggestion']) {
     else {
       const choosing = await selectionTurn(cleanup, a);
       const { ticket } = await choosing.select();
-
       await choosing.recommend(ticket.id);
-
       await choosing.finish();
     }
 
     const before = await registry.claims();
-
     assert.equal(before.length, 1);
-
     const input = await a.coordination.context();
-
     assert.deepEqual(input.snapshot.ownClaim, before[0]);
-
     assert.match(input.instructions, /--release <claim-id>/);
 
     assert.match(
@@ -255,11 +205,8 @@ for (const owned of ['active claim', 'recorded suggestion']) {
     );
 
     assert.match(input.context, /New work needs no claim/);
-
     assert.deepEqual(await registry.claims(), before);
-
     await a.coordinator.releaseTask();
-
     assert.deepEqual(await registry.claims(), []);
 
     assert.doesNotMatch(

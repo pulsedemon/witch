@@ -76,7 +76,6 @@ for (const runtime of ['codex', 'claude']) {
     const onEvent = (event: AgentEvent) => {
       if (event.type === 'request') {
         requests.push(event.request.kind);
-
         session.respond(event.request.id, { decision: 'accept' });
       }
     };
@@ -92,9 +91,7 @@ for (const runtime of ['codex', 'claude']) {
         : await f.connect({ onAnswerProcess, onEvent });
 
     t.onTestFinished(() => session.close());
-
     assert.equal((await session.send('normal')).status, 'completed');
-
     const id = session.info.id;
     requests.length = 0;
 
@@ -109,7 +106,6 @@ for (const runtime of ['codex', 'claude']) {
     );
 
     assert.equal(session.info.id, id);
-
     assert.deepEqual(processes, []);
 
     if ('session' in f) {
@@ -118,15 +114,11 @@ for (const runtime of ['codex', 'claude']) {
       ) as { params: Record<string, unknown> };
 
       assert.equal(frame.params.threadId, id);
-
       assert.equal(frame.params.outputSchema, undefined);
-
       assert.ok(requests.includes('approval'));
     } else {
       const content = await readFile(join(f.cwd, 'content.json'), 'utf8');
-
       assert.match(content, /Witch request/);
-
       assert.equal(f.children.length, 1);
     }
 
@@ -176,15 +168,10 @@ for (const history of [false, true]) {
     );
 
     await answer(session, cwd);
-
     assert.deepEqual(session.info, before);
-
     assert.equal(child.exitCode, null);
-
     assert.notEqual(processes[0], child.pid);
-
     assert.equal(processes.length, 2);
-
     assert.equal(processes[1], undefined);
 
     assert.ok(
@@ -198,17 +185,11 @@ for (const history of [false, true]) {
     ) as { method: string; params: Record<string, unknown> };
 
     assert.equal(request.method, history ? 'thread/fork' : 'thread/start');
-
     assert.equal(request.params.threadId, history ? before.id : undefined);
-
     assert.equal(request.params.excludeTurns, history ? true : undefined);
-
     assert.equal(request.params.approvalPolicy, 'never');
-
     assert.equal(request.params.sandbox, 'read-only');
-
     assert.equal(request.params.ephemeral, true);
-
     const config = request.params.config as Record<string, unknown>;
 
     for (const feature of [
@@ -233,7 +214,6 @@ for (const history of [false, true]) {
     ) as { params: Record<string, unknown> };
 
     assert.deepEqual(turn.params.outputSchema, peerAnswerOutputSchema);
-
     assert.equal((await session.send('normal afterward')).status, 'completed');
   });
 
@@ -265,15 +245,10 @@ for (const history of [false, true]) {
 
     const before = { ...session.info };
     events.length = 0;
-
     await answer(session, f.cwd);
-
     assert.deepEqual(session.info, before);
-
     assert.equal(f.children[0]!.exitCode, null);
-
     assert.equal(processes[0], f.children[1]!.pid);
-
     assert.deepEqual(processes.slice(1), [undefined]);
 
     assert.ok(
@@ -284,9 +259,7 @@ for (const history of [false, true]) {
     );
 
     const args = f.args[1]!;
-
     assert.equal(args.includes('--fork-session'), history);
-
     assert.equal(args.includes(`--resume=${before.id}`), history);
 
     for (const argument of [
@@ -366,7 +339,6 @@ for (const builtin of [undefined, ':workspace']) {
     ) as { params: Record<string, unknown> };
 
     assert.equal(params.permissions, 'owner');
-
     assert.equal(params.sandbox, undefined);
 
     assert.deepEqual((params.config as Record<string, unknown>).permissions, {
@@ -395,7 +367,6 @@ for (const builtin of [undefined, ':workspace']) {
 
 test('Codex answers follow changed and cleared native permission profiles', async (t) => {
   const f = await controlledFixture('identity');
-
   t.onTestFinished(() => f.session.close());
 
   await writeJson(join(f.cwd, 'config.json'), {
@@ -443,7 +414,6 @@ test('Codex answers follow changed and cleared native permission profiles', asyn
     ) as { params: Record<string, unknown> };
 
     assert.equal(params.permissions, expected.permissions);
-
     assert.equal(params.sandbox, expected.sandbox);
   }
 });
@@ -493,7 +463,6 @@ for (const reason of ['missing profile', 'exposed tool', 'registration']) {
     });
 
     assert.equal(child.exitCode, null);
-
     assert.equal((await session.send('normal afterward')).status, 'completed');
   });
 }
@@ -504,11 +473,8 @@ for (const runtime of ['codex', 'claude'] as const) {
     const onEvent = (event: AgentEvent) => events.push(event);
     const f = runtime === 'codex' ? await codex(onEvent) : await claude();
     const session = 'session' in f ? f.session : await f.connect({ onEvent });
-
     t.onTestFinished(() => session.close());
-
     await writeFile(join(f.cwd, 'answer-approval'), '');
-
     await answer(session, f.cwd);
 
     const response: unknown = JSON.parse(
@@ -530,11 +496,8 @@ test('Claude allows its exact request file when the native read needs approval',
   const f = await claude();
   const events: AgentEvent[] = [];
   const session = await f.connect({ onEvent: (event) => events.push(event) });
-
   t.onTestFinished(() => session.close());
-
   const batch = await input(f.cwd);
-
   await writeFile(join(f.cwd, 'answer-approval'), batch.file);
 
   const result = await session.send(answerInstruction, {
@@ -550,9 +513,7 @@ test('Claude allows its exact request file when the native read needs approval',
   ) as { response: { behavior: string; updatedInput: unknown } };
 
   assert.equal(response.response.behavior, 'allow');
-
   assert.deepEqual(response.response.updatedInput, { file_path: batch.file });
-
   assert.ok(!events.some((event) => event.type === 'request'));
 
   assert.deepEqual(
@@ -578,13 +539,9 @@ test('Claude closes a child whose process registration fails and keeps its owner
   });
 
   t.onTestFinished(() => session.close());
-
   await assert.rejects(answer(session, f.cwd), /Registration failed/);
-
   assert.notEqual(f.children[1]!.exitCode ?? f.children[1]!.signalCode, null);
-
   assert.equal(f.children[0]!.exitCode, null);
-
   assert.equal((await session.send('normal afterward')).status, 'completed');
 });
 
@@ -684,7 +641,6 @@ test('Codex owner shutdown collects its familiar after answer cleanup rejects', 
     );
   } finally {
     interrupted.mockRestore();
-
     await f.session.close().catch(() => {});
   }
 });
@@ -699,11 +655,9 @@ test('Claude owner shutdown still closes its native process after answer cleanup
 
   try {
     await assert.rejects(session.close(), /Answer cleanup refused/);
-
     assert.notEqual(f.children[0]!.exitCode ?? f.children[0]!.signalCode, null);
   } finally {
     interrupt.mockRestore();
-
     f.children[0]!.kill();
   }
 });
@@ -743,9 +697,7 @@ for (const runtime of ['codex', 'claude'] as const) {
       );
 
       await closing;
-
       await rejected;
-
       assert.deepEqual(processes, []);
     });
   }
@@ -758,9 +710,7 @@ for (const runtime of ['codex', 'claude'] as const) {
     const onAnswerProcess = async (pid: number | undefined) => {
       if (pid !== undefined) {
         answerPid = pid;
-
         entered.resolve();
-
         await registered.promise;
       }
     };
@@ -775,7 +725,6 @@ for (const runtime of ['codex', 'claude'] as const) {
 
     t.onTestFinished(async () => {
       registered.resolve();
-
       await session.close();
     });
 
@@ -791,19 +740,12 @@ for (const runtime of ['codex', 'claude'] as const) {
     });
 
     await entered.promise;
-
     const stopping = session.interrupt();
-
     registered.resolve();
-
     await stopping;
-
     assert.equal((await sending).status, 'interrupted');
-
     assert.throws(() => process.kill(answerPid!, 0), { code: 'ESRCH' });
-
     assert.equal(session.closed, false);
-
     assert.ok((await session.skills()).length > 0);
   });
 }

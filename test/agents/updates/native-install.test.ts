@@ -24,11 +24,8 @@ test('Claude installation preserves native argument ordering and retains install
   const launcher = join(home, '.local/bin/claude');
   const operation = join(directory, 'operation');
   const shell = join(directory, 'user-shell');
-
   await mkdir(dirname(executable), { recursive: true });
-
   await mkdir(dirname(launcher), { recursive: true });
-
   await mkdir(operation);
 
   await writeFile(
@@ -43,9 +40,7 @@ test('Claude installation preserves native argument ordering and retains install
   );
 
   await chmod(executable, 0o700);
-
   await symlink(executable, launcher);
-
   const installation = join(directory, 'installation.json');
 
   await writeFile(
@@ -127,7 +122,6 @@ test('Claude installation preserves native argument ordering and retains install
 
   await assert.rejects(run('1.0.0'), (error: unknown) => {
     assert.match(String(error), /exited 17/);
-
     assert.doesNotMatch(String(error), /early recovery diagnostic/);
 
     return true;
@@ -146,7 +140,6 @@ test('Claude installation preserves native argument ordering and retains install
   );
 
   assert.match(retained, /early recovery diagnostic/);
-
   assert.match(retained, /recovery retry completed/);
 
   await writeFile(
@@ -172,9 +165,7 @@ test('Claude installation preserves native argument ordering and retains install
   });
 
   await mkdir(join(home, 'zsh'));
-
   await writeFile(join(home, 'zsh/.zshrc'), 'alias claude="legacy-claude"\n');
-
   await assert.rejects(run(), /would edit.*\.zshrc/);
 
   assert.equal(

@@ -104,9 +104,7 @@ async function holdFixture(
     async release() {
       try {
         child.stdin.end('release');
-
         const [code] = await within(ended, 5000, 'scratch holder exit');
-
         assert.equal(code, 0);
       } finally {
         await close();
@@ -130,7 +128,6 @@ test('fresh scratch waits for a competing sweep and records its owner', async (t
 
         if (dirname(directory) === parent) {
           holder = await holdFixture(t, directory, 'hold-unowned');
-
           created.resolve(directory);
         }
 
@@ -139,28 +136,20 @@ test('fresh scratch waits for a competing sweep and records its owner', async (t
     );
 
     syncBuiltinESMExports();
-
     opening = ScratchSpace.open(parent, firstBoot);
     const isSettled = settled(opening);
     const directory = await within(created.promise, 5000, 'competing sweep');
-
     await delay(150);
 
     if (isSettled()) await opening;
 
     assert.equal(isSettled(), false);
-
     await holder!.release();
-
     holder = undefined;
     const space = await within(opening, 5000, 'fresh scratch acquisition');
-
     assert.equal(space.directory, directory);
-
     assert.equal((await stat(directory)).mode & 0o777, 0o700);
-
     const owner = await identifyProcess(process.pid);
-
     assert.ok(owner);
 
     const { requiresBoot, ...record } = JSON.parse(
@@ -168,11 +157,9 @@ test('fresh scratch waits for a competing sweep and records its owner', async (t
     );
 
     assert.equal(typeof requiresBoot, 'boolean');
-
     assert.deepEqual(record, { version: 2, boot: bootA, owner });
   } finally {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
 
     try {
@@ -197,13 +184,9 @@ test('concurrent scratch opens retain distinct owned directories', async (t) => 
 
   for (const { directory, pid } of holders) {
     assert.equal(dirname(directory), parent);
-
     assert.match(basename(directory), /^[0-9a-f]{12}$/);
-
     assert.equal((await stat(directory)).mode & 0o777, 0o700);
-
     const owner = await identifyProcess(pid);
-
     assert.ok(owner);
 
     const { requiresBoot, ...record } = JSON.parse(
@@ -211,7 +194,6 @@ test('concurrent scratch opens retain distinct owned directories', async (t) => 
     );
 
     assert.equal(typeof requiresBoot, 'boolean');
-
     assert.deepEqual(record, { version: 2, boot: bootA, owner });
   }
 
@@ -221,15 +203,10 @@ test('concurrent scratch opens retain distinct owned directories', async (t) => 
 test('scratch resumes in place and stays private, then an exited owner is reclaimed on the next launch', async () => {
   const parent = await scratch('witch-scratch-');
   const [before, after] = await runFixture(parent);
-
   assert.ok(before);
-
   assert.ok(before.identity);
-
   assert.deepEqual(after, before);
-
   const marker = join(before.directory, 'marker');
-
   assert.equal(await readFile(marker, 'utf8'), 'before restart');
 
   const record = JSON.parse(
@@ -240,15 +217,10 @@ test('scratch resumes in place and stays private, then an exited owner is reclai
 
   try {
     assert.equal((await stat(fresh.directory)).mode & 0o777, 0o700);
-
     const freshMarker = join(fresh.directory, 'marker');
-
     await writeFile(freshMarker, 'fresh scratch');
-
     await fresh.close();
-
     assert.equal(await readFile(freshMarker, 'utf8'), 'fresh scratch');
-
     assert.equal(existsSync(marker), record.requiresBoot);
   } finally {
     await fresh.close();
@@ -258,35 +230,20 @@ test('scratch resumes in place and stays private, then an exited owner is reclai
 test('retained scratch survives its boot and is swept after a different boot', async () => {
   const parent = await scratch('witch-scratch-');
   const retained = await ScratchSpace.open(parent, firstBoot);
-
   await writeFile(join(retained.directory, 'marker'), 'survivor');
-
   const locked = join(retained.directory, 'readonly');
-
   await mkdir(locked);
-
   await writeFile(join(locked, 'file'), 'contents');
-
   await chmod(locked, 0o500);
-
   await retained.close();
-
   const unrelated = join(parent, 'notes');
-
   await mkdir(unrelated);
-
   await writeFile(join(unrelated, 'marker'), 'leave me');
-
   const outside = await scratch('witch-scratch-outside-');
-
   await writeFile(join(outside, 'marker'), 'outside');
-
   const link = join(parent, randomUUID());
-
   await symlink(outside, link);
-
   const same = await ScratchSpace.open(parent, firstBoot);
-
   await same.close();
 
   assert.equal(
@@ -298,13 +255,9 @@ test('retained scratch survives its boot and is swept after a different boot', a
 
   try {
     assert.equal(existsSync(retained.directory), false);
-
     assert.equal(existsSync(same.directory), false);
-
     assert.equal(await readFile(join(unrelated, 'marker'), 'utf8'), 'leave me');
-
     assert.equal(await readFile(join(link, 'marker'), 'utf8'), 'outside');
-
     assert.equal(existsSync(join(outside, '.witch-scratch.json')), false);
   } finally {
     await later.close();
@@ -315,7 +268,6 @@ test("a held directory remains untouched during another instance's sweep", async
   const parent = await scratch('witch-scratch-');
   const holder = await holdFixture(t, parent);
   const contender = await ScratchSpace.open(parent, laterBoot);
-
   await contender.close();
 
   assert.equal(
@@ -324,30 +276,20 @@ test("a held directory remains untouched during another instance's sweep", async
   );
 
   await holder.release();
-
   const later = await ScratchSpace.open(parent, laterBoot);
-
   await later.close();
-
   assert.equal(existsSync(holder.directory), false);
 });
 
 test('the first restart adopts its numeric scratch without moving files', async () => {
   const parent = await scratch('witch-scratch-');
   const live = join(parent, String(process.pid));
-
   await mkdir(live);
-
   await writeFile(join(live, 'marker'), 'another live owner');
-
   const [before, after] = await runFixture(parent, 'legacy');
-
   assert.ok(before);
-
   assert.ok(before.identity);
-
   assert.equal(before.directory, join(parent, String(before.identity.pid)));
-
   assert.deepEqual(after, before);
 
   assert.equal(
@@ -387,18 +329,13 @@ for (const [mode, restarts] of [
     try {
       const reports = await runFixture(parent, mode, String(restarts));
       const first = reports[0]!;
-
       assert.equal(reports.length, restarts + 1);
-
       assert.ok(first.worker);
-
       assert.ok(first.identity);
-
       assert.equal(gone(first.worker), false);
 
       for (const report of reports) {
         assert.equal(report.directory, first.directory);
-
         assert.deepEqual(report.identity, first.identity);
       }
 
@@ -420,11 +357,8 @@ for (const [mode, restarts] of [
       );
 
       assert.equal(gone(descendant), false);
-
       const next = await ScratchSpace.open(join(parent, 'scratch'));
-
       await next.close();
-
       await writeFile(join(parent, 'release-descendant'), 'release');
 
       await until('descendant marker read', () =>
@@ -440,12 +374,10 @@ for (const [mode, restarts] of [
     } finally {
       for (const name of ['worker', 'descendant']) {
         await writeFile(join(parent, `release-${name}`), 'release');
-
         const file = join(parent, `${name}.pid`);
 
         if (existsSync(file)) {
           const pid = Number(await readFile(file, 'utf8'));
-
           await until(`${name} cleanup`, () => gone(pid));
         }
       }
@@ -456,9 +388,7 @@ for (const [mode, restarts] of [
 test('uncertain legacy scratch establishes a boot boundary without deleting data', async () => {
   const parent = await scratch('witch-scratch-');
   const child = spawn('/usr/bin/true');
-
   await once(child, 'exit');
-
   const abandoned = join(parent, String(child.pid));
   const incomplete = join(parent, randomUUID());
   const digits = join(parent, '123456789012');
@@ -467,12 +397,10 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
 
   for (const directory of [abandoned, incomplete, digits, invalid, denied]) {
     await mkdir(directory);
-
     await writeFile(join(directory, 'marker'), directory);
   }
 
   await writeFile(join(invalid, '.witch-scratch.json'), '{invalid');
-
   const kill = process.kill.bind(process);
 
   vi.spyOn(process, 'kill').mockImplementation(
@@ -485,7 +413,6 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
   );
 
   const observed = await ScratchSpace.open(parent, firstBoot);
-
   await observed.close();
 
   for (const directory of [abandoned, incomplete, digits, invalid, denied])
@@ -500,15 +427,10 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
     );
 
   assert.equal(existsSync(join(denied, '.witch-scratch.json')), false);
-
   const later = await ScratchSpace.open(parent, laterBoot);
-
   await later.close();
-
   assert.equal(existsSync(abandoned), false);
-
   assert.equal(existsSync(incomplete), false);
-
   assert.equal(existsSync(digits), false);
 
   for (const directory of [invalid, denied])
@@ -518,11 +440,8 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
 test('a version 1 root naming an exited owner is judged and reclaimed in its boot', async () => {
   const parent = await scratch('witch-scratch-');
   const child = spawn('/usr/bin/true');
-
   await once(child, 'exit');
-
   const owned = join(parent, randomUUID());
-
   await mkdir(owned);
 
   await writeFile(
@@ -613,7 +532,6 @@ test('scratch resume rejects a different owner or an invalid location', async ()
   );
 
   const link = join(parent, randomUUID());
-
   await symlink(original.directory, link);
 
   await assert.rejects(
@@ -626,7 +544,6 @@ test('scratch resume rejects a different owner or an invalid location', async ()
   );
 
   await writeFile(join(outside.directory, 'marker'), 'outside');
-
   await outside.close();
 
   await assert.rejects(
@@ -660,7 +577,6 @@ test('a live owner resumes while another root is still being inspected', async (
   const parent = await scratch('witch-scratch-restart-gap-');
   const holder = await holdFixture(t, parent, 'restart-gap');
   const abandoned = join(parent, randomUUID());
-
   await mkdir(abandoned);
 
   await writeFile(
@@ -669,7 +585,6 @@ test('a live owner resumes while another root is still being inspected', async (
   );
 
   await writeFile(join(abandoned, 'marker'), 'abandoned');
-
   const inspecting = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
 
@@ -677,7 +592,6 @@ test('a live owner resumes while another root is still being inspected', async (
     ...firstBoot,
     inspect: async (candidates) => {
       inspecting.resolve();
-
       await release.promise;
 
       return decisions(candidates, 'unused');
@@ -700,15 +614,11 @@ test('a live owner resumes while another root is still being inspected', async (
     );
 
     release.resolve();
-
     const cleaner = await within(opening, 5000, 'completed cleanup');
-
     await cleaner.close();
-
     assert.equal(existsSync(abandoned), false);
   } finally {
     release.resolve();
-
     await (await opening).close();
   }
 });
@@ -716,11 +626,8 @@ test('a live owner resumes while another root is still being inspected', async (
 test('uncertain ownership survives restart after the observed process has gone', async () => {
   const parent = await scratch('witch-scratch-uncertain-');
   const [before, after] = await runFixture(parent, 'uncertain');
-
   assert.ok(before);
-
   assert.deepEqual(after, before);
-
   const cleaner = await ScratchSpace.open(parent, { inspect: unused });
 
   try {
@@ -742,9 +649,7 @@ test('uncertain ownership survives restart after the observed process has gone',
 test('concurrent cleaners retain a root until its owning sweep completes', async (t) => {
   const parent = await scratch('witch-scratch-cleaners-');
   const holder = await holdFixture(t, parent);
-
   await holder.release();
-
   const inspecting = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
 
@@ -752,7 +657,6 @@ test('concurrent cleaners retain a root until its owning sweep completes', async
     ...laterBoot,
     inspect: async (candidates) => {
       inspecting.resolve();
-
       await release.promise;
 
       return decisions(candidates, 'unused');
@@ -763,7 +667,6 @@ test('concurrent cleaners retain a root until its owning sweep completes', async
 
   try {
     await within(inspecting.promise, 5000, 'first cleaner inspection');
-
     second = await ScratchSpace.open(parent, laterBoot);
 
     assert.equal(
@@ -772,17 +675,12 @@ test('concurrent cleaners retain a root until its owning sweep completes', async
     );
 
     release.resolve();
-
     const first = await within(opening, 5000, 'first cleaner completion');
-
     await first.close();
-
     assert.equal(existsSync(holder.directory), false);
   } finally {
     release.resolve();
-
     await (await opening).close();
-
     await second?.close();
   }
 });
@@ -790,9 +688,7 @@ test('concurrent cleaners retain a root until its owning sweep completes', async
 test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
   const parent = await scratch('witch-scratch-close-');
   const holder = await holdFixture(t, parent);
-
   await holder.release();
-
   const inspecting = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let initial = true;
@@ -808,7 +704,6 @@ test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
       }
 
       inspecting.resolve();
-
       await release.promise;
 
       return decisions(candidates, 'unused');
@@ -817,7 +712,6 @@ test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
 
   try {
     await within(inspecting.promise, 5000, 'periodic inspection');
-
     let closed = false;
 
     const closing = cleaner.close().then(() => {
@@ -825,19 +719,12 @@ test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
     });
 
     await delay(50);
-
     assert.equal(closed, false);
-
     assert.equal(existsSync(holder.directory), true);
-
     release.resolve();
-
     await within(closing, 5000, 'joined cleanup');
-
     assert.equal(existsSync(holder.directory), false);
-
     const later = join(parent, randomUUID());
-
     await mkdir(later);
 
     await writeFile(
@@ -846,13 +733,10 @@ test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
     );
 
     await writeFile(join(later, 'marker'), 'after close');
-
     await delay(80);
-
     assert.equal(await readFile(join(later, 'marker'), 'utf8'), 'after close');
   } finally {
     release.resolve();
-
     await cleaner.close();
   }
 });
@@ -860,9 +744,7 @@ test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
 test('a failed observation preserves files and the next periodic sweep reclaims them', async (t) => {
   const parent = await scratch('witch-scratch-retry-');
   const holder = await holdFixture(t, parent);
-
   await holder.release();
-
   let first = true;
 
   const cleaner = await ScratchSpace.open(parent, {
@@ -895,9 +777,7 @@ for (const change of ['metadata', 'directory'] as const) {
   test(`cleanup leaves a ${change} changed during inspection untouched`, async (t) => {
     const parent = await scratch('witch-scratch-changed-');
     const holder = await holdFixture(t, parent);
-
     await holder.release();
-
     const moved = join(parent, 'moved');
 
     const cleaner = await ScratchSpace.open(parent, {
@@ -905,9 +785,7 @@ for (const change of ['metadata', 'directory'] as const) {
       inspect: async (candidates) => {
         if (change === 'directory') {
           await rename(holder.directory, moved);
-
           await mkdir(holder.directory);
-
           await writeFile(join(holder.directory, 'marker'), 'replacement');
         } else {
           await writeFile(

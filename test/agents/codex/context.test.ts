@@ -21,15 +21,10 @@ test('Codex inserts complete context before the exact user request', async () =>
   try {
     const prompt = '  review target 17\nonly the selected files  ';
     const context = `context 29\n${'é'.repeat(5000)}\ncontext 41`;
-
     await writeFile(join(cwd, 'release'), 'yes');
-
     const sending = session.send(prompt, { context });
-
     await inserted(cwd);
-
     await assert.rejects(access(join(cwd, 'prompt.json')));
-
     await writeFile(join(cwd, 'release-context'), 'yes');
 
     assert.deepEqual(await within(sending, 5000, 'contextual turn'), {
@@ -61,7 +56,6 @@ test('Codex inserts complete context before the exact user request', async () =>
     assert.equal(await readFile(join(cwd, 'approved.txt'), 'utf8'), 'approved');
   } finally {
     await writeFile(join(cwd, 'release-context'), 'yes');
-
     await close(session, cwd);
   }
 });
@@ -78,9 +72,7 @@ for (const mode of ['context-error', 'context-exit']) {
       );
 
       assert.equal(result.status, 'failed');
-
       assert.equal(result.inputUnsent, true);
-
       await assert.rejects(access(join(cwd, 'prompt.json')));
     } finally {
       await close(session, cwd);
@@ -94,11 +86,8 @@ for (const action of ['interrupt', 'close'] as const) {
 
     try {
       const sending = session.send('request 17', { context: 'context 29' });
-
       await inserted(cwd);
-
       const stopping = session[action]();
-
       await writeFile(join(cwd, 'release-context'), 'yes');
 
       assert.deepEqual(await within(sending, 5000, 'canceled input'), {
@@ -108,11 +97,9 @@ for (const action of ['interrupt', 'close'] as const) {
       });
 
       await within(stopping, 5000, 'completed cancellation');
-
       await assert.rejects(access(join(cwd, 'prompt.json')));
     } finally {
       await writeFile(join(cwd, 'release-context'), 'yes');
-
       await close(session, cwd);
     }
   });
@@ -125,13 +112,9 @@ test('a failed turn-start response does not prove the input was unwritten', asyn
 
   try {
     const result = await session.send('request 17', { context: 'context 29' });
-
     assert.equal(result.status, 'failed');
-
     assert.equal(result.inputUnsent, undefined);
-
     const start = JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8'));
-
     assert.equal(start.params.input[0].text, 'request 17');
   } finally {
     await close(session, cwd);

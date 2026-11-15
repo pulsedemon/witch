@@ -59,9 +59,7 @@ test('display history keeps streamed deltas without duplicating final messages',
     });
 
     const streamed = await files.items();
-
     assert.equal(streamed.length, 1);
-
     assert.equal(streamed[0]?.text, 'Hello');
 
     await files.append({
@@ -73,9 +71,7 @@ test('display history keeps streamed deltas without duplicating final messages',
     });
 
     const items = await files.items();
-
     assert.equal(items.length, 1);
-
     assert.equal(items[0]?.text, 'Hello!');
   } finally {
     await files.close();
@@ -85,9 +81,7 @@ test('display history keeps streamed deltas without duplicating final messages',
 test('a history burst writes one replacement and settles its appends', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-burst-'));
   const held = await store.create(conversation('burst'));
-
   t.onTestFinished(() => held.close());
-
   const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
 
   const writes = Array.from({ length: 1000 }, (_, index) =>
@@ -95,15 +89,10 @@ test('a history burst writes one replacement and settles its appends', async (t)
   );
 
   writes.push(held.append({ ...update, text: 'finished', replace: true }));
-
   await Promise.all(writes);
-
   const records = await recordedHistory(held.directory);
-
   assert.equal(records.length, 1);
-
   assert.equal(records[0]?.text, 'finished');
-
   assert.equal((await held.items())[0]?.text, 'finished');
 });
 
@@ -113,7 +102,6 @@ test(
   async (t) => {
     const store = await StateStore.open(await scratch('witch-history-timer-'));
     const held = await store.create(conversation('timer'));
-
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
     t.onTestFinished(async () => {
@@ -126,9 +114,7 @@ test(
 
     const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
     const first = held.append({ ...update, text: 'first' });
-
     vi.advanceTimersByTime(99);
-
     const second = held.append({ ...update, text: 'second' });
 
     await assert.rejects(access(join(held.directory, 'history.jsonl')), {
@@ -136,7 +122,6 @@ test(
     });
 
     vi.advanceTimersByTime(1);
-
     await Promise.all([first, second]);
 
     assert.deepEqual(
@@ -145,9 +130,7 @@ test(
     );
 
     const third = held.append({ ...update, text: 'third' });
-
     vi.advanceTimersByTime(100);
-
     await third;
 
     assert.deepEqual(
@@ -156,7 +139,6 @@ test(
     );
 
     await held.append({ ...update, text: 'replacement', replace: true });
-
     assert.equal((await held.items())[0]?.text, 'replacement');
   },
 );
@@ -164,9 +146,7 @@ test(
 test('history batches preserve first appearance order across returning ids', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-order-'));
   const held = await store.create(conversation('order'));
-
   t.onTestFinished(() => held.close());
-
   const update = { kind: 'assistant', cwd: '/project' } as const;
 
   const writes = [
@@ -176,7 +156,6 @@ test('history batches preserve first appearance order across returning ids', asy
   ];
 
   await held.flush();
-
   await Promise.all(writes);
 
   assert.deepEqual(
@@ -196,9 +175,7 @@ test('history batches preserve first appearance order across returning ids', asy
 test('history batches snapshot metadata and retain it across appends and replacements', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-metadata-'));
   const held = await store.create(conversation('metadata'));
-
   t.onTestFinished(() => held.close());
-
   const images = ['first.png'];
 
   const diff: NonNullable<DisplayUpdate['diff']> = [
@@ -234,11 +211,8 @@ test('history batches snapshot metadata and retain it across appends and replace
   });
 
   await held.flush();
-
   await Promise.all([first, second]);
-
   assert.equal((await held.items())[0]?.cwd, '/sub');
-
   assert.equal((await held.items())[0]?.text, 'headtail');
 
   await held.append({
@@ -289,7 +263,6 @@ for (const boundary of [
       );
 
       const held = await store.create(conversation('boundary'));
-
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
       t.onTestFinished(async () => {
@@ -314,19 +287,15 @@ for (const boundary of [
       else await held[boundary]();
 
       await writing;
-
       assert.equal((await recordedHistory(held.directory))[0]?.text, 'pending');
 
       if (boundary === 'close') {
         await assert.rejects(held.append(update), /no longer open/);
-
         const reopened = await store.claim('boundary');
 
         try {
           vi.advanceTimersByTime(1000);
-
           assert.equal((await recordedHistory(held.directory)).length, 1);
-
           assert.equal((await reopened.items())[0]?.text, 'pending');
         } finally {
           await reopened.close();
@@ -353,7 +322,6 @@ test('close waits for in-flight history and drains the next batch once', async (
         vi.spyOn(file, 'writeFile').mockImplementation(
           async (...args: Parameters<typeof write>) => {
             entered.resolve();
-
             await release.promise;
 
             return write(...args);
@@ -366,7 +334,6 @@ test('close waits for in-flight history and drains the next batch once', async (
   );
 
   syncBuiltinESMExports();
-
   let closing: Promise<void> | undefined;
 
   try {
@@ -379,9 +346,7 @@ test('close waits for in-flight history and drains the next batch once', async (
     });
 
     const flushing = held.flush();
-
     await within(entered.promise, 5000, 'history write entered');
-
     const second = held.append({ ...update, text: 'after' });
 
     closing = held.close().then(() => {
@@ -389,13 +354,9 @@ test('close waits for in-flight history and drains the next batch once', async (
     });
 
     await Promise.resolve();
-
     assert.equal(appended, false);
-
     assert.equal(closed, false);
-
     release.resolve();
-
     await Promise.all([first, second, flushing, closing]);
 
     assert.deepEqual(
@@ -404,17 +365,12 @@ test('close waits for in-flight history and drains the next batch once', async (
     );
 
     const reclaimed = await store.claim('flight');
-
     await reclaimed.close();
   } finally {
     release.resolve();
-
     await closing;
-
     await held.close();
-
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   }
 });
@@ -422,11 +378,8 @@ test('close waits for in-flight history and drains the next batch once', async (
 test('a timer write rejects its batch and later operations while releasing locks', async () => {
   const store = await StateStore.open(await scratch('witch-history-failure-'));
   const held = await store.create(conversation('failure'));
-
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
   const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
-
   await chmod(held.directory, 0o500);
 
   try {
@@ -441,23 +394,15 @@ test('a timer write rejects its batch and later operations while releasing locks
     );
 
     vi.advanceTimersByTime(100);
-
     await Promise.all([first, second]);
-
     await chmod(held.directory, 0o700);
-
     await assert.rejects(held.append({ ...update, text: 'later' }), /EACCES/);
-
     await assert.rejects(held.flush(), /EACCES/);
-
     await assert.rejects(held.close(), /EACCES/);
-
     await (await store.claim('failure')).close();
   } finally {
     await chmod(held.directory, 0o700);
-
     await held.close().catch(() => {});
-
     vi.useRealTimers();
   }
 });
@@ -465,7 +410,6 @@ test('a timer write rejects its batch and later operations while releasing locks
 for (const kind of ['assistant', 'tool'] as const) {
   test(`a crashed writer retains timer-written ${kind} text`, async (t) => {
     const store = await StateStore.open(await scratch('witch-history-crash-'));
-
     await (await store.create(conversation('crash'))).close();
 
     const child = spawn(
@@ -501,11 +445,8 @@ for (const kind of ['assistant', 'tool'] as const) {
     );
 
     assert.equal(String(ready), 'written\n');
-
     child.kill('SIGKILL');
-
     await within(ended, 5000, 'history writer exit');
-
     const reopened = await store.claim('crash');
 
     try {
@@ -573,9 +514,7 @@ for (const [name, complete, partial, expectedRead] of [
 ] as const) {
   test(`history append inspects only the required tail: ${name}`, async () => {
     const store = await StateStore.open(await scratch('witch-history-tail-'));
-
     await (await store.create(conversation('tail'))).close();
-
     const path = join(store.root, 'conversations', 'tail', 'history.jsonl');
 
     const prefix = complete
@@ -583,7 +522,6 @@ for (const [name, complete, partial, expectedRead] of [
       : '';
 
     await writeFile(path, prefix + partial);
-
     const opening = files.open;
     let fullReads = 0;
     let bytesRead = 0;
@@ -619,7 +557,6 @@ for (const [name, complete, partial, expectedRead] of [
     );
 
     syncBuiltinESMExports();
-
     const held = await store.claim('tail');
 
     try {
@@ -638,13 +575,10 @@ for (const [name, complete, partial, expectedRead] of [
       );
 
       assert.equal(fullReads, 0);
-
       assert.equal(bytesRead, expectedRead);
     } finally {
       vi.restoreAllMocks();
-
       syncBuiltinESMExports();
-
       await held.close();
     }
   });
@@ -743,9 +677,7 @@ test("listing keeps this directory's conversations with history, newest history 
   }
 
   await mkdir(join(root, 'conversations', 'stray'));
-
   await writeFile(join(root, 'conversations', '.DS_Store'), '');
-
   assert.deepEqual((await store.records()).unreadable, []);
 
   for (const [id, seconds] of [
@@ -820,20 +752,13 @@ test("listing keeps a conversation with a saved draft or queue but no history, p
 test("prompts list this directory's newest first after a restart, keep line breaks, and skip a line a crash cut short without losing the next", async () => {
   const root = await scratch('witch-prompts-');
   const store = await StateStore.open(root);
-
   assert.deepEqual(await store.prompts('/a'), []);
-
   await store.addPrompt('/a', 'one');
-
   await store.addPrompt('/b', 'other');
-
   await store.addPrompt('/a', 'two\nlines');
-
   // a cut append still wrote the line break it starts with
   await appendFile(join(root, 'prompts.jsonl'), '\n{"cwd":"/a","text":"cut');
-
   await (await StateStore.open(root)).addPrompt('/a', 'three');
-
   const reopened = await StateStore.open(root);
 
   assert.deepEqual(await reopened.prompts('/a'), [
@@ -867,9 +792,7 @@ test('prompts one instance adds at once are stored newest first', async () => {
   const store = await StateStore.open(root);
   // long prompts take long enough to write that unordered appends land out of order in most runs
   const texts = [...'abcdefgh'].map((letter) => letter.repeat(2 ** 20));
-
   await Promise.all(texts.map((text) => store.addPrompt('/a', text)));
-
   assert.deepEqual(await store.prompts('/a'), texts.toReversed());
 });
 

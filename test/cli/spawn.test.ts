@@ -31,13 +31,9 @@ test("spawn creates the missing worktrees detached at the main checkout's upstre
   const { root, origin, main, slot } = await checkout();
   // the slots must sit on this commit, which the main checkout sees only after a fetch
   const other = join(root, 'other');
-
   await git(root, 'clone', origin, other);
-
   await git(other, 'commit', '--allow-empty', '-m', 'later');
-
   await git(other, 'push', 'origin', 'main');
-
   const later = await git(other, 'rev-parse', 'HEAD');
   const { run, calls, tabs } = recording();
 
@@ -80,26 +76,16 @@ test("spawn creates the missing worktrees detached at the main checkout's upstre
 test("spawn starts worktrees at the main checkout's own upstream, not origin's main", async () => {
   const { root, main, slot } = await checkout();
   const fork = join(root, 'fork.git');
-
   await git(root, 'init', '--bare', '-b', 'stable', fork);
-
   await git(main, 'remote', 'add', 'fork', fork);
-
   await git(main, 'commit', '--allow-empty', '-m', 'stable only');
-
   await git(main, 'push', 'fork', 'HEAD:stable');
-
   await git(main, 'branch', '--set-upstream-to', 'fork/stable');
-
   // the main checkout sees this commit only once spawn fetches its upstream's remote
   const other = join(root, 'other');
-
   await git(root, 'clone', '-b', 'stable', fork, other);
-
   await git(other, 'commit', '--allow-empty', '-m', 'later');
-
   await git(other, 'push');
-
   const stable = await git(other, 'rev-parse', 'HEAD');
 
   const { base } = await spawnWorktrees(main, 1, {
@@ -108,7 +94,6 @@ test("spawn starts worktrees at the main checkout's own upstream, not origin's m
   });
 
   assert.equal(base, 'fork/stable');
-
   assert.equal(await git(slot(1), 'rev-parse', 'HEAD'), stable);
 });
 
@@ -121,7 +106,6 @@ test('spawn reuses existing worktrees, installs and opens tabs only where no ses
   });
 
   await rm(slot(2), { recursive: true });
-
   const { run, installs, tabs } = recording();
 
   const { slots } = await spawnWorktrees(main, 4, {
@@ -143,17 +127,13 @@ test('spawn reuses existing worktrees, installs and opens tabs only where no ses
   ]);
 
   assert.deepEqual(installs(), [slot(3), slot(4)]);
-
   assert.deepEqual(tabs(), [[slot(3), slot(4)]]);
 });
 
 test("spawn leaves a non-empty directory that isn't a worktree alone", async () => {
   const { main, slot } = await checkout();
-
   await mkdir(slot(1));
-
   await writeFile(join(slot(1), 'notes.txt'), 'mine\n');
-
   const { run, installs, tabs } = recording();
 
   const { slots } = await spawnWorktrees(main, 2, {
@@ -162,13 +142,9 @@ test("spawn leaves a non-empty directory that isn't a worktree alone", async () 
   });
 
   const [blocked, created] = slots;
-
   assert.equal(blocked!.slot, false);
-
   assert.equal(blocked!.created, false);
-
   assert.equal(blocked!.opened, false);
-
   assert.match(blocked!.error!, /already exists/);
 
   assert.deepEqual(created, {
@@ -179,11 +155,8 @@ test("spawn leaves a non-empty directory that isn't a worktree alone", async () 
   });
 
   assert.deepEqual(await worktrees(main), [main, slot(2)]);
-
   assert.equal(await exists(join(slot(1), 'notes.txt')), true);
-
   assert.deepEqual(installs(), [slot(2)]);
-
   assert.deepEqual(tabs(), [[slot(2)]]);
 });
 
@@ -299,7 +272,6 @@ test('spawn names slots from the main worktree when run inside one', async () =>
 test('spawn passes paths with spaces and quotes to osascript as arguments', async () => {
   const { main, slot } = await checkout("it's a repo");
   const { run, calls } = recording();
-
   await spawnWorktrees(main, 1, { run, live: async () => false });
 
   const [script, ...paths] = calls
@@ -307,17 +279,13 @@ test('spawn passes paths with spaces and quotes to osascript as arguments', asyn
     .args.slice(1);
 
   assert.deepEqual(paths, [slot(1)]);
-
   assert.equal(script!.includes(main), false);
-
   assert.equal(script!.includes("it's"), false);
 });
 
 test('spawn fails before creating anything when the main checkout is detached', async () => {
   const { main } = await checkout();
-
   await git(main, 'switch', '--detach');
-
   const { run, calls } = recording();
 
   await assert.rejects(
@@ -328,25 +296,17 @@ test('spawn fails before creating anything when the main checkout is detached', 
   );
 
   assert.deepEqual(await worktrees(main), [main]);
-
   assert.deepEqual(calls, []);
 });
 
 test('an ignored file that fails to copy is reported along with a failed install, and the rest are copied', async () => {
   const { main, slot } = await checkout();
-
   await writeFile(join(main, '.gitignore'), '*.local\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'ignores');
-
   await git(main, 'push');
-
   await writeFile(join(main, 'a.local'), 'a');
-
   await chmod(join(main, 'a.local'), 0o000);
-
   await writeFile(join(main, 'b.local'), 'b');
 
   const { run, tabs } = recording((command) =>
@@ -363,23 +323,16 @@ test('an ignored file that fails to copy is reported along with a failed install
   );
 
   assert.equal(spawned!.opened, true);
-
   assert.deepEqual(tabs(), [[slot(1)]]);
-
   assert.equal(await exists(join(slot(1), 'a.local')), false);
-
   assert.equal(await readFile(join(slot(1), 'b.local'), 'utf8'), 'b');
 });
 
 test("copies the new worktree's own rules don't ignore are removed and reported", async () => {
   const { main, slot } = await checkout();
-
   await writeFile(join(main, '.gitignore'), 'keys/*\n!keys/visible.env\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'ignores');
-
   await git(main, 'push');
 
   // ignored only by the launcher's uncommitted .gitignore, so the worktree at the upstream would show them untracked
@@ -390,24 +343,15 @@ test("copies the new worktree's own rules don't ignore are removed and reported"
 
   // a nested clone, which git lists as its directory
   await mkdir(join(main, 'vendor', 'lib'), { recursive: true });
-
   await git(join(main, 'vendor', 'lib'), 'init', '-q');
-
   await writeFile(join(main, 'vendor', 'lib', 'lib.js'), '');
-
   await writeFile(join(main, 'secret'), 'token');
-
   await writeFile(join(main, 'secret.env'), 'token');
-
   await mkdir(join(main, 'exports'));
-
   await writeFile(join(main, 'exports', 'build.bin'), '');
-
   // git lists keys/ whole, but the upstream's rules keep visible.env out of the ignore
   await mkdir(join(main, 'keys'));
-
   await writeFile(join(main, 'keys', 'visible.env'), 'token');
-
   await writeFile(join(main, 'keys', 'a.key'), 'key');
 
   const [spawned] = (
@@ -423,36 +367,23 @@ test("copies the new worktree's own rules don't ignore are removed and reported"
   );
 
   assert.equal(await readFile(join(slot(1), 'keys', 'a.key'), 'utf8'), 'key');
-
   assert.equal(await exists(join(slot(1), 'vendor', 'lib')), false);
-
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
 });
 
 test("an ignored directory the upstream tracks a file in gets the main checkout's other files one by one", async () => {
   const { main, slot } = await checkout();
-
   await mkdir(join(main, '.claude'));
-
   await writeFile(join(main, '.claude', 'settings.json'), '{}');
-
   await writeFile(join(main, '.gitignore'), '.claude/settings.local.json\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'claude settings');
-
   await git(main, 'push');
-
   // a launcher commit not pushed yet ignores the whole directory, so git lists it as one entry
   await git(main, 'rm', '-q', '.claude/settings.json');
-
   await writeFile(join(main, '.gitignore'), '.claude/\n');
-
   await git(main, 'commit', '-qam', 'ignore claude');
-
   await mkdir(join(main, '.claude'), { recursive: true });
-
   await writeFile(join(main, '.claude', 'settings.local.json'), '{"main":1}');
 
   const [spawned] = (
@@ -477,14 +408,10 @@ test("an ignored directory the upstream tracks a file in gets the main checkout'
 
 test("removing a copied .gitignore removes what it was ignoring, when the worktree's rules don't ignore that either", async () => {
   const { main, slot } = await checkout();
-
   // ignored only by the launcher's uncommitted .gitignore
   await writeFile(join(main, '.gitignore'), 'out/\n');
-
   await mkdir(join(main, 'out'));
-
   await writeFile(join(main, 'out', '.gitignore'), '*.bin\n');
-
   await writeFile(join(main, 'out', 'a.bin'), 'secret');
 
   const [spawned] = (
@@ -500,44 +427,27 @@ test("removing a copied .gitignore removes what it was ignoring, when the worktr
   );
 
   assert.equal(await exists(join(slot(1), 'out', 'a.bin')), false);
-
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
 });
 
 test('a copy that a symlink the upstream tracks would carry outside the worktree is reported, not written', async () => {
   const { root, origin, main, slot } = await checkout();
-
   await mkdir(join(main, 'config'));
-
   await writeFile(join(main, 'config', 'tracked.txt'), '');
-
   await writeFile(join(main, '.gitignore'), '*.env\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'config');
-
   await git(main, 'push');
-
   await writeFile(join(main, 'config', 'secret.env'), 'token');
-
   // the upstream turns config into a symlink to a directory outside any checkout
   const outside = join(root, 'outside');
-
   await mkdir(outside);
-
   const other = join(root, 'other');
-
   await git(root, 'clone', origin, other);
-
   await git(other, 'rm', '-rq', 'config');
-
   await symlink(outside, join(other, 'config'));
-
   await git(other, 'add', 'config');
-
   await git(other, 'commit', '-m', 'link config');
-
   await git(other, 'push');
 
   const [spawned] = (
@@ -553,7 +463,6 @@ test('a copy that a symlink the upstream tracks would carry outside the worktree
   );
 
   assert.deepEqual(await readdir(outside), []);
-
   assert.equal(await exists(join(slot(1), 'config')), true);
 });
 
@@ -566,7 +475,6 @@ test('a slot spawn cannot look at reports why and does not stop the next one', a
   });
 
   unreadable(t, slot(1));
-
   const { run, installs, tabs } = recording();
 
   const { slots } = await spawnWorktrees(main, 2, {
@@ -586,7 +494,6 @@ test('a slot spawn cannot look at reports why and does not stop the next one', a
   ]);
 
   assert.deepEqual(installs(), [slot(2)]);
-
   assert.deepEqual(tabs(), [[slot(2)]]);
 });
 
@@ -635,9 +542,7 @@ test('a lockfile spawn cannot look at skips that install and nothing else', asyn
   });
 
   const lockfile = join(slot(1), 'pnpm-lock.yaml');
-
   unreadable(t, lockfile);
-
   const { run, installs, tabs } = recording();
 
   const { slots } = await spawnWorktrees(main, 2, {
@@ -657,29 +562,19 @@ test('a lockfile spawn cannot look at skips that install and nothing else', asyn
   ]);
 
   assert.deepEqual(installs(), [slot(2)]);
-
   assert.deepEqual(tabs(), [[slot(1), slot(2)]]);
 });
 
 test('an ignored symlink whose target spawn cannot reach is still copied as the link', async () => {
   const { root, main, slot } = await checkout();
-
   await writeFile(join(main, '.gitignore'), '.env.local\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'ignores');
-
   await git(main, 'push');
-
   const locked = join(root, 'locked');
-
   await mkdir(locked);
-
   await writeFile(join(locked, 'env'), 'token');
-
   await symlink(join(locked, 'env'), join(main, '.env.local'));
-
   await chmod(locked, 0o000);
 
   try {
@@ -703,31 +598,18 @@ test('an ignored symlink whose target spawn cannot reach is still copied as the 
 
 test('in a directory the upstream tracks a file in, one entry that fails to copy is reported and the rest still arrive', async () => {
   const { main, slot } = await checkout();
-
   await mkdir(join(main, '.claude'));
-
   await writeFile(join(main, '.claude', 'settings.json'), '{}');
-
   await writeFile(join(main, '.gitignore'), '.claude/*.local*\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'claude settings');
-
   await git(main, 'push');
-
   await git(main, 'rm', '-q', '.claude/settings.json');
-
   await writeFile(join(main, '.gitignore'), '.claude/\n');
-
   await git(main, 'commit', '-qam', 'ignore claude');
-
   await mkdir(join(main, '.claude'), { recursive: true });
-
   await writeFile(join(main, '.claude', 'a.local'), 'a');
-
   await chmod(join(main, '.claude', 'a.local'), 0o000);
-
   await writeFile(join(main, '.claude', 'settings.local.json'), '{"main":1}');
 
   const [spawned] = (
@@ -750,21 +632,13 @@ test('in a directory the upstream tracks a file in, one entry that fails to copy
 
 test('a left-out path that cannot be removed from a copy is reported, and the others are still removed', async () => {
   const { main, slot } = await checkout();
-
   await writeFile(join(main, '.gitignore'), 'tools/\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'ignores');
-
   await git(main, 'push');
-
   await mkdir(join(main, 'tools', 'stuck', '.godot'), { recursive: true });
-
   await mkdir(join(main, 'tools', 'venv'), { recursive: true });
-
   await writeFile(join(main, 'tools', 'venv', 'pyvenv.cfg'), '');
-
   // a read-only parent, which the copy keeps, so its .godot can't be removed
   await chmod(join(main, 'tools', 'stuck'), 0o555);
 
@@ -777,11 +651,9 @@ test('a left-out path that cannot be removed from a copy is reported, and the ot
     ).slots;
 
     assert.match(spawned!.error!, /^left in the copy: .*stuck\/\.godot/);
-
     assert.equal(await exists(join(slot(1), 'tools', 'venv')), false);
   } finally {
     await chmod(join(main, 'tools', 'stuck'), 0o755);
-
     await chmod(join(slot(1), 'tools', 'stuck'), 0o755).catch(() => {});
   }
 });
@@ -815,25 +687,15 @@ test('a failed check of the copies is reported and the slot still opens its tab'
 
 test("a directory git can't read while listing ignored files is reported on the new worktrees, not reused ones", async () => {
   const { main } = await checkout();
-
   await mkdir(join(main, 'config'));
-
   await writeFile(join(main, 'config', 'tracked.txt'), '');
-
   await writeFile(join(main, '.gitignore'), '*.local\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'config');
-
   await git(main, 'push');
-
   await writeFile(join(main, 'config', 'secret.local'), 'token');
-
   const { run } = recording();
-
   await spawnWorktrees(main, 1, { run, live: async () => false });
-
   await chmod(join(main, 'config'), 0o000);
 
   try {
@@ -855,21 +717,13 @@ test("a directory git can't read while listing ignored files is reported on the 
 
 test('a directory copy that fails partway still leaves out what its copy would act on', async () => {
   const { main, slot } = await checkout();
-
   await writeFile(join(main, '.gitignore'), 'tools/\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'ignores');
-
   await git(main, 'push');
-
   await mkdir(join(main, 'tools', 'venv'), { recursive: true });
-
   await writeFile(join(main, 'tools', 'venv', 'pyvenv.cfg'), '');
-
   await writeFile(join(main, 'tools', 'locked'), '');
-
   await chmod(join(main, 'tools', 'locked'), 0o000);
 
   const [spawned] = (
@@ -889,19 +743,12 @@ test('a directory copy that fails partway still leaves out what its copy would a
 
 test('an ignored file that leaves the main checkout while its worktree is created is skipped, and the rest are copied', async () => {
   const { main, slot } = await checkout();
-
   await writeFile(join(main, '.gitignore'), '*.local\n');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'ignores');
-
   await git(main, 'push');
-
   await writeFile(join(main, 'a.local'), 'a');
-
   await writeFile(join(main, 'b.local'), 'b');
-
   const { run: recorded } = recording();
 
   const run: Run = async (command, args, options) => {
@@ -919,15 +766,12 @@ test('an ignored file that leaves the main checkout while its worktree is create
   );
 
   assert.equal(await exists(join(slot(1), 'a.local')), false);
-
   assert.equal(await readFile(join(slot(1), 'b.local'), 'utf8'), 'b');
 });
 
 test("spawn fails before creating anything when the main checkout's branch has no upstream", async () => {
   const { main } = await checkout();
-
   await git(main, 'branch', '--unset-upstream');
-
   const { run, calls } = recording();
 
   await assert.rejects(
@@ -936,7 +780,6 @@ test("spawn fails before creating anything when the main checkout's branch has n
   );
 
   assert.deepEqual(await worktrees(main), [main]);
-
   assert.deepEqual(calls, []);
 });
 
@@ -948,9 +791,7 @@ test('a session counts as open in a slot only while its conversation is locked a
     await mkdir(path, { recursive: true });
 
   const link = join(root, 'link');
-
   await symlink(`${main}-2`, link);
-
   const state = join(root, 'state');
   const store = await StateStore.open(state);
 
@@ -972,17 +813,11 @@ test('a session counts as open in a slot only while its conversation is locked a
 
   try {
     const live = sessionsIn(state);
-
     assert.equal(await live(`${main}-1`), false);
-
     assert.equal(await live(`${main}-2`), true);
-
     assert.equal(await live(`${main}-10`), true);
-
     assert.equal(await live(link), true);
-
     held.push(await store.create(conversation('later', `${main}-1`)));
-
     assert.equal(await live(`${main}-1`), true);
   } finally {
     for (const files of held) await files.close();
@@ -1031,9 +866,7 @@ test('an unreadable open conversation record blocks tabs and names its file', as
   });
 
   const file = join(state, 'conversations', 'damaged', 'state.json');
-
   await writeFile(file, '{broken');
-
   const { run, calls } = recording();
 
   try {
@@ -1076,61 +909,37 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
 
   // one cache partly tracked, so git lists its contents on their own, and one wholly ignored
   await mkdir(join(main, 'app', '.godot'), { recursive: true });
-
   await writeFile(join(main, 'app', '.godot', '.gitkeep'), '');
-
   await mkdir(join(main, 'game'));
-
   await writeFile(join(main, 'game', 'project.godot'), '');
-
   await mkdir(join(main, 'docs', 'superpowers', 'plans'), { recursive: true });
-
   await writeFile(join(main, 'docs', 'superpowers', 'plans', '.gitkeep'), '');
-
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'ignores');
-
   await git(main, 'push');
 
   const local = async (path: string, text = '') => {
     await mkdir(dirname(join(main, path)), { recursive: true });
-
     await writeFile(join(main, path), text);
   };
 
   await local('.env.local', 'main\n');
-
   // alone in an untracked directory, which git lists along with the file, as in netshooter
   await local('.claude/settings.local.json', '{"main":1}');
-
   await local('node_modules/x/index.js');
-
   await local('app/.godot/instances/1');
-
   await local('game/.godot/instances/1');
-
   await local('.claude/worktrees/agent/.git', 'gitdir: elsewhere');
-
   await local('app/.plugged/addon/.git/HEAD', 'ref: refs/heads/main');
-
   await local('tools/venv/pyvenv.cfg');
-
   await local('tools/notes.txt');
-
   await local('.superpowers/sdd/ledger');
-
   await local('.superpowers/brainstorm.md');
-
   await local('docs/superpowers/plans/task.md');
-
   await local('docs/plans/task.md');
-
   // ignored only by its own .gitignore, like husky's hooks or a pytest cache, which the worktree lacks until it's copied
   await local('.cache/.gitignore', '*\n');
-
   await local('.cache/data');
-
   const { run } = recording();
 
   assert.deepEqual(
@@ -1139,7 +948,6 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
   );
 
   const copied = async (path: string) => exists(join(slot(1), path));
-
   assert.equal(await readFile(join(slot(1), '.env.local'), 'utf8'), 'main\n');
 
   assert.equal(
@@ -1168,26 +976,18 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
     assert.equal(await copied(path), false, path);
 
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
-
   await writeFile(join(slot(1), '.env.local'), 'slot\n');
-
   await writeFile(join(main, '.env.local'), 'changed\n');
-
   await spawnWorktrees(main, 1, { run, live: async () => false });
-
   assert.equal(await readFile(join(slot(1), '.env.local'), 'utf8'), 'slot\n');
 });
 
 test('a repository without pnpm-lock.yaml gets its worktrees and tabs without pnpm', async () => {
   const { main, slot } = await checkout('repo', false);
   const { run, installs, tabs } = recording();
-
   await spawnWorktrees(main, 2, { run, live: async () => false });
-
   assert.deepEqual(await worktrees(main), [main, slot(1), slot(2)]);
-
   assert.deepEqual(installs(), []);
-
   assert.deepEqual(tabs(), [[slot(1), slot(2)]]);
 });
 
@@ -1201,7 +1001,6 @@ test('a slot whose session opens while a later slot installs gets no tab', async
   });
 
   assert.deepEqual(installs(), [slot(1), slot(2)]);
-
   assert.deepEqual(tabs(), [[slot(2)]]);
 
   assert.deepEqual(slots, [

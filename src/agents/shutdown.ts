@@ -41,7 +41,6 @@ export async function closeFailedStart(
 ): Promise<never> {
   // read before close, so a stop that lands while it waits doesn't replace the startup error
   const reason: unknown = signal?.reason;
-
   await close();
 
   throw reason instanceof NativeStop ? reason : error;

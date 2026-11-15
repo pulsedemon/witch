@@ -71,7 +71,6 @@ test('parseFindings reads only the last json block and normalizes paths, and say
 
   const invalid = (report: string) => {
     const parsed = parseFindings(report, '/w/repo', ['plan.md']);
-
     assert.ok('invalid' in parsed, JSON.stringify(parsed));
 
     return parsed.invalid;
@@ -120,15 +119,10 @@ test('parseFindings reads only the last json block and normalizes paths, and say
 
 test('changes counts deletions', () => {
   const tail = changes({ 'plan.md': 'a\nb\nc\nd\n' }, { 'plan.md': 'a\n' });
-
   assert.equal(tail.ratio, 3);
-
   assert.equal(tail.changed.get('plan.md'), undefined);
-
   const middle = changes({ 'plan.md': 'a\nb\nc\n' }, { 'plan.md': 'a\nc\n' });
-
   assert.equal(middle.ratio, 1 / 2);
-
   assert.equal(middle.changed.get('plan.md'), undefined);
 });
 
@@ -139,11 +133,8 @@ test('changes maps a replacement to its added line', () => {
   );
 
   assert.deepEqual(replaced.changed.get('plan.md'), new Set([2]));
-
   assert.equal(replaced.ratio, 2 / 3);
-
   assert.match(replaced.diff, /^-b$/m);
-
   assert.match(replaced.diff, /^\+B$/m);
 });
 
@@ -199,7 +190,6 @@ test('a change in a single-harness round brings every harness back', () => {
 test('a quiet diff round runs one closing pass with everyone', () => {
   const round: Round = { number: 2, scope: 'diff', runtimes: ['claude'] };
   const decided = decide({ round, reviews: [review('claude')] });
-
   assert.deepEqual(decided, { blockers: [], sittingOut: [] });
 
   assert.deepEqual(
@@ -287,7 +277,6 @@ test('the regression stop needs every blocker', () => {
   });
 
   assert.ok('blockers' in decided);
-
   assert.equal(decided.stopAfter, undefined);
 });
 
@@ -304,7 +293,6 @@ test('deleting the line before a blocker is not a regression', () => {
   });
 
   assert.ok('blockers' in decided);
-
   assert.equal(decided.stopAfter, undefined);
 });
 
@@ -350,11 +338,8 @@ test('unapplied blockers stop the loop', () => {
 
 test('scopeFor gives round 1, closing passes and large diffs a full pass', () => {
   assert.equal(scopeFor({ number: 1, closing: false }, 0), 'full');
-
   assert.equal(scopeFor({ number: 4, closing: true }, 0), 'full');
-
   assert.equal(scopeFor({ number: 4, closing: false }, 0.6), 'full');
-
   assert.equal(scopeFor({ number: 4, closing: false }, 0.5), 'diff');
 });
 
@@ -437,21 +422,13 @@ test('brief carries the diff for a diff round and asks for the full text in a fu
   });
 
   assert.match(diffed, /^- plan\.md$/m);
-
   assert.match(diffed, /^- docs\/b\.md$/m);
-
   assert.match(diffed, /^\+b$/m);
-
   assert.match(diffed, /changes since the last round/);
-
   assert.match(diffed, /^- plan\.md:4: em dash in prose$/m);
-
   const full = brief({ files: ['plan.md'], scope: 'full', known: [] });
-
   assert.match(full, /full text of every file/);
-
   assert.doesNotMatch(full, /changes since the last round/);
-
   assert.doesNotMatch(full, /already reported/);
 });
 

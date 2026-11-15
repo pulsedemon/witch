@@ -26,13 +26,9 @@ configureGitEnvironment();
 test('the install pulls, installs and builds when clean on the base, and stays put otherwise', async () => {
   const { root, origin, other } = await merged({ 'a.txt': 'a\n' });
   const install = join(root, 'install');
-
   await git(root, 'clone', origin, install);
-
   await git(other, 'commit', '--allow-empty', '-m', 'ahead');
-
   await git(other, 'push');
-
   const calls: [string, string[], { cwd: string; timeout: number }][] = [];
 
   const run = async (
@@ -64,21 +60,13 @@ test('the install pulls, installs and builds when clean on the base, and stays p
   ]);
 
   const kept = `Witch's checkout at ${install} isn't clean on main, so it wasn't rebuilt.`;
-
   await writeFile(join(install, 'a.txt'), 'changed\n');
-
   assert.equal(await refreshInstall(install, 'main', run), kept);
-
   await git(install, 'checkout', '--', 'a.txt');
-
   await git(install, 'switch', '-c', 'elsewhere');
-
   assert.equal(await refreshInstall(install, 'main', run), kept);
-
   assert.equal(calls.length, 2);
-
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
-
   await git(install, 'switch', 'main');
 
   assert.equal(
@@ -99,9 +87,7 @@ test('the install pulls, installs and builds when clean on the base, and stays p
 test('a busy install is skipped before fetching', async () => {
   const { root, origin } = await merged();
   const install = join(root, 'install');
-
   await git(root, 'clone', origin, install);
-
   const fetchMarker = join(root, 'fetches');
   const pack = join(root, 'upload-pack');
 
@@ -111,7 +97,6 @@ test('a busy install is skipped before fetching', async () => {
   );
 
   await chmod(pack, 0o755);
-
   await git(install, 'config', 'remote.origin.uploadpack', pack);
 
   const lock = await openLocked(
@@ -138,7 +123,6 @@ test('a busy install is skipped before fetching', async () => {
     );
 
     assert.deepEqual(calls, []);
-
     assert.equal(await exists(fetchMarker), false);
   } finally {
     await lock.close();
@@ -150,13 +134,9 @@ test('an install stays locked through install and build, aliases share it, and a
   const install = join(root, 'install');
   const independent = join(root, 'independent');
   const alias = join(root, 'alias');
-
   await git(root, 'clone', origin, install);
-
   await git(root, 'clone', origin, independent);
-
   await symlink(install, alias);
-
   const head = await git(origin, 'rev-parse', 'main');
   const rebuilt = `Rebuilt Witch at ${head.slice(0, 7)}, for its next start.`;
   const request = { ...pullRequest(head), branch: 'main' };
@@ -176,18 +156,14 @@ test('an install stays locked through install and build, aliases share it, and a
 
   const refreshing = refreshInstall(install, 'main', async (_, args) => {
     leaderCalls.push(args);
-
     const gate = args[0] === 'install' ? gates.install : gates.build;
-
     gate.entered.resolve();
-
     await gate.release.promise;
 
     return { stdout: '' };
   });
 
   void refreshing.catch(() => {});
-
   const calls: string[][] = [];
   const contenders: Promise<string>[] = [];
 
@@ -203,7 +179,6 @@ test('an install stays locked through install and build, aliases share it, and a
       ['build', install],
     ] as const) {
       await within(gates[stage].entered.promise, 5000, `the held ${stage}`);
-
       const waiting = Promise.withResolvers<void>();
 
       const contender = refreshInstall(target, 'main', run, {
@@ -211,13 +186,9 @@ test('an install stays locked through install and build, aliases share it, and a
       });
 
       void contender.catch(() => {});
-
       contenders.push(contender);
-
       await within(waiting.promise, 5000, 'the waiting contender');
-
       assert.deepEqual(calls, []);
-
       assert.equal(await cleanUpMerge(install, request, idle), undefined);
 
       if (stage === 'install') {
@@ -248,7 +219,6 @@ test('an install stays locked through install and build, aliases share it, and a
     }
 
     assert.equal(await refreshing, rebuilt);
-
     assert.deepEqual(await Promise.all(contenders), [rebuilt, rebuilt]);
 
     assert.deepEqual(leaderCalls, [
@@ -262,15 +232,11 @@ test('an install stays locked through install and build, aliases share it, and a
     });
 
     assert.equal(await refreshInstall(install, 'main', run), rebuilt);
-
     assert.deepEqual(calls, [['install', '--frozen-lockfile'], ['build']]);
   } finally {
     gates.install.release.resolve();
-
     gates.build.release.resolve();
-
     await refreshing;
-
     await Promise.allSettled(contenders);
   }
 });
@@ -278,9 +244,7 @@ test('an install stays locked through install and build, aliases share it, and a
 test('an install stays locked through revision reporting and releases on success or failure', async () => {
   const { root, origin } = await merged();
   const install = join(root, 'install');
-
   await git(root, 'clone', origin, install);
-
   const head = await git(origin, 'rev-parse', '--short', 'main');
   const directory = join(install, '.git');
   const marker = join(root, 'revision-lock');
@@ -310,7 +274,6 @@ exec ${[
     );
 
     await chmod(join(bin, 'git'), 0o755);
-
     process.env.PATH = `${bin}:${previousPath}`;
 
     try {
@@ -329,7 +292,6 @@ exec ${[
           );
 
           assert.match(error.message, /revision unavailable/);
-
           assert.equal((error.cause as { code: number }).code, 23);
 
           return true;
@@ -384,12 +346,9 @@ test('an install lock lookup failure keeps the install context', async () => {
 test('an install lock open failure keeps its cause and install context', async () => {
   const { root, origin } = await merged();
   const install = join(root, 'install');
-
   await git(root, 'clone', origin, install);
-
   const directory = join(install, '.git');
   const calls: string[][] = [];
-
   await chmod(directory, 0o111);
 
   try {
@@ -423,7 +382,6 @@ test('an install lock open failure keeps its cause and install context', async (
 test("a failed rebuild names the install and keeps tsc's errors", async () => {
   const { root, origin } = await merged();
   const install = join(root, 'install');
-
   await git(root, 'clone', origin, install);
 
   const run = async (_: string, args: string[]) => {
@@ -463,7 +421,6 @@ test("a failed rebuild names the install and keeps tsc's errors", async () => {
       );
 
       assert.match(error.message, /build stderr\nbuild stdout$/);
-
       assert.equal((error.cause as { killed: boolean }).killed, true);
 
       return true;
@@ -488,15 +445,10 @@ test("a failed rebuild names the install and keeps tsc's errors", async () => {
 test("an edit made during the install's fetch keeps it from being pulled and built", async () => {
   const { root, origin, other } = await merged({ 'a.txt': 'a\n' });
   const install = join(root, 'install');
-
   await git(root, 'clone', origin, install);
-
   const head = await git(install, 'rev-parse', 'HEAD');
-
   await git(other, 'commit', '--allow-empty', '-m', 'ahead');
-
   await git(other, 'push');
-
   // runs in the fetch, as an edit from another terminal could
   const pack = join(root, 'upload-pack');
 
@@ -506,9 +458,7 @@ test("an edit made during the install's fetch keeps it from being pulled and bui
   );
 
   await execute('chmod', ['+x', pack]);
-
   await git(install, 'config', 'remote.origin.uploadpack', pack);
-
   const calls: string[][] = [];
 
   const run = async (command: string, args: string[]) => {
@@ -523,24 +473,17 @@ test("an edit made during the install's fetch keeps it from being pulled and bui
   );
 
   assert.deepEqual(calls, []);
-
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
 });
 
 test('a branch switched to during the install fetch is left as it was and skips rebuilding', async () => {
   const { root, origin, other } = await merged();
   const install = join(root, 'install');
-
   await git(root, 'clone', origin, install);
-
   await git(install, 'branch', '--track', 'elsewhere', 'origin/main');
-
   const before = await git(install, 'rev-parse', 'HEAD');
-
   await git(other, 'commit', '--allow-empty', '-m', 'ahead');
-
   await git(other, 'push');
-
   const pack = join(root, 'upload-pack');
 
   await write(
@@ -549,9 +492,7 @@ test('a branch switched to during the install fetch is left as it was and skips 
   );
 
   await chmod(pack, 0o755);
-
   await git(install, 'config', 'remote.origin.uploadpack', pack);
-
   const calls: string[][] = [];
 
   const result = await refreshInstall(
@@ -570,7 +511,6 @@ test('a branch switched to during the install fetch is left as it was and skips 
   );
 
   assert.deepEqual(calls, []);
-
   assert.equal(await git(install, 'branch', '--show-current'), 'elsewhere');
 
   for (const ref of ['HEAD', 'main'])
@@ -580,21 +520,13 @@ test('a branch switched to during the install fetch is left as it was and skips 
 test("an ignored file the install's incoming commits would start tracking stops its rebuild before overwriting it", async () => {
   const { root, origin, other } = await merged({}, ['secret.txt']);
   const install = join(root, 'install');
-
   await git(root, 'clone', origin, install);
-
   const head = await git(install, 'rev-parse', 'HEAD');
-
   await writeFile(join(other, 'secret.txt'), 'theirs');
-
   await git(other, 'add', '-f', 'secret.txt');
-
   await git(other, 'commit', '-m', 'secret');
-
   await git(other, 'push');
-
   await writeFile(join(install, 'secret.txt'), 'mine');
-
   const calls: string[][] = [];
 
   const run = async (command: string, args: string[]) => {
@@ -604,10 +536,7 @@ test("an ignored file the install's incoming commits would start tracking stops 
   };
 
   await assert.rejects(refreshInstall(install, 'main', run));
-
   assert.equal(await readFile(join(install, 'secret.txt'), 'utf8'), 'mine');
-
   assert.deepEqual(calls, []);
-
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
 });

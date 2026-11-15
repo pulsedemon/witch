@@ -51,7 +51,6 @@ function lineage(
       if (listed !== parent) continue;
 
       lines.push({ subagent, depth });
-
       visit(subagent.id, depth + 1);
     }
   };

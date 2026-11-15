@@ -33,14 +33,11 @@ test('the request file carries the messages and native context carries its path 
   );
 
   assert.deepEqual(JSON.parse(await readFile(batch.file, 'utf8')), requests);
-
   const context = requestContext(batch);
-
   assert.ok(context.includes(JSON.stringify(batch.file)));
 
   for (const request of requests) {
     assert.ok(context.includes(request.id));
-
     assert.ok(!context.includes(request.message));
   }
 });
@@ -49,11 +46,8 @@ test('the native Draft 7 validator accepts the generated response contract', () 
   const ajv = new Ajv({ strict: false, validateFormats: false });
   const validate = ajv.compile(peerAnswerOutputSchema);
   const answer = { answers: [{ id: first.id, message: 'one' }] };
-
   assert.equal(validate(answer), true, JSON.stringify(validate.errors));
-
   assert.equal(validate({ answers: [{ id: first.id }] }), false);
-
   assert.equal(validate({ answers: [], unrelated: 'extra' }), false);
 });
 

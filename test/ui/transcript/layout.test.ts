@@ -27,35 +27,22 @@ test('single-line tool titles fit the viewport while expansion retains the full 
   for (const width of [83, 42, 120, 83]) {
     const collapsed = layout.render([item], width, new Map());
     const rows = collapsed.lines.slice().map(stripAnsi).filter(Boolean);
-
     assert.equal(rows.length, 1);
-
     assert.ok(rows[0]!.startsWith('+ ✓ claim task:界review '));
-
     assert.ok(rows[0]!.endsWith('…'));
-
     assert.ok(stringWidth(rows[0]!) <= width);
-
     const anchor = collapsed.anchorAt(0)!;
-
     assert.equal(collapsed.rowOf(anchor), 0);
-
     const expanded = layout.render([item], width, new Map([['control', true]]));
     const text = stripAnsi(expanded.lines.slice().join('\n'));
-
     assert.ok(text.includes("'node' 'witch' --claim"));
-
     assert.match(text, /'original\s+command\s+end'/);
-
     assert.ok(text.includes('CONTROL-OUTPUT'));
-
     assert.ok(!text.includes('…'));
-
     assert.equal(item.expandedTitle, command);
   }
 
   const ordinary = { ...item, singleLine: undefined };
-
   assert.ok(layout.render([ordinary], 83, new Map()).lines.length > 2);
 });
 
@@ -73,7 +60,6 @@ test('an expanded title change invalidates an appended tool output cache', () =>
 
   const layout = new TranscriptLayout();
   const expanded = new Map([['t', true]]);
-
   layout.render(items, 83, expanded);
 
   items = applyDisplayUpdate(items, {
@@ -87,13 +73,9 @@ test('an expanded title change invalidates an appended tool output cache', () =>
   });
 
   const rows = layout.render(items, 83, expanded).lines.slice().map(stripAnsi);
-
   assert.ok(rows.includes('− … second original command'));
-
   assert.ok(!rows.some((row) => row.includes('first original command')));
-
   assert.ok(rows.includes('first output'));
-
   assert.ok(rows.includes('second output'));
 });
 
@@ -198,7 +180,6 @@ test('expanding a tool shows its complete output without losing links', () => {
   );
 
   const expanded = layout.render([item], 60, new Map([['tool', true]]));
-
   assert.match(stripAnsi(expanded.lines.slice().join('\n')), /Done/);
 
   assert.ok(
@@ -294,9 +275,7 @@ test("a tool's linked path reaches the terminal without the escape sequences in 
     .join('\n');
 
   assert.ok(!lines.includes('\u001b]0;'), JSON.stringify(lines));
-
   assert.ok(!lines.includes('\u001b[2J'), JSON.stringify(lines));
-
   assert.equal(stripAnsi(lines).trimEnd(), '+ ✓ Read  /shots/a[2Jb.png');
 });
 
@@ -323,7 +302,6 @@ test('completed output is cached when another message streams', () => {
   );
 
   assert.equal(first.blocks[0], second.blocks[0]);
-
   assert.match(stripAnsi(second.lines.at(-2) ?? ''), /First response/);
 });
 
@@ -350,9 +328,7 @@ test('a reading anchor follows its original log line when a narrower window wrap
 
   const anchor = wide.anchorAt(row)!;
   const narrow = layout.render([item], 30, new Map([['log', true]]));
-
   assert.match(stripAnsi(narrow.lines.at(narrow.rowOf(anchor))!), /^Line 700:/);
-
   assert.doesNotMatch(stripAnsi(narrow.lines.at(row)!), /^Line 700:/);
 });
 
@@ -385,9 +361,7 @@ test('expanded logs exceed the argument limit with complete output and usable an
     );
 
     assert.equal(stripAnsi(output.lines.at(-2)!), wrapped ? 'xx' : 'line');
-
     const anchor = output.anchorAt(150000)!;
-
     assert.equal(anchor.item, 'large');
 
     if (wrapped) assert.equal(anchor.line, 1);
@@ -410,11 +384,8 @@ test('a reading anchor keeps its position within a wrapped line after resize', (
   const expanded = new Map([['log', true]]);
   const original = layout.render([item], 80, expanded);
   const anchor = original.anchorAt(90)!;
-
   assert.equal(original.rowOf(anchor), 90);
-
   assert.equal(layout.render([item], 40, expanded).rowOf(anchor), 179);
-
   assert.equal(layout.render([item], 160, expanded).rowOf(anchor), 45);
 });
 
@@ -439,9 +410,7 @@ test('an anchor on a line that no longer renders falls back to its item start', 
   const expanded = layout.render([notice, item], 80, new Map([['log', true]]));
   const anchor = expanded.anchorAt(expanded.starts.get('log')! + 2)!;
   const collapsed = layout.render([notice, item], 80, new Map());
-
   assert.ok(collapsed.starts.get('log')! > 0);
-
   assert.equal(collapsed.rowOf(anchor), collapsed.starts.get('log'));
 });
 
@@ -461,13 +430,9 @@ test('a reading anchor includes spaces trimmed while wrapping a title', () => {
   const layout = new TranscriptLayout();
   const narrow = layout.render([item], 40, new Map());
   const anchor = narrow.anchorAt(2)!;
-
   assert.match(stripAnsi(narrow.lines.at(2)!), /^word009/);
-
   const wide = layout.render([item], 80, new Map());
-
   assert.equal(wide.rowOf(anchor), 1);
-
   assert.match(stripAnsi(wide.lines.at(wide.rowOf(anchor))!), /^word009/);
 });
 
@@ -548,7 +513,6 @@ test('anchors keep item boundaries and wrapped offsets in their own render frame
   );
 
   assert.equal(first.anchorAt(-1), undefined);
-
   assert.equal(layout.render([], 12, new Map()).anchorAt(0), undefined);
 
   assert.deepEqual(first.anchorAt(first.lines.length), {
@@ -567,7 +531,6 @@ test('anchor lookups stay fast across ten thousand messages', () => {
   }));
 
   const output = new TranscriptLayout().render(items, 58, new Map());
-
   assert.equal(output.lines.length, 30000);
 
   const expected = items.flatMap((item) =>
@@ -577,9 +540,7 @@ test('anchor lookups stay fast across ten thousand messages', () => {
   const started = performance.now();
   const actual = output.lines.slice().map((_, row) => output.anchorAt(row));
   const elapsed = performance.now() - started;
-
   assert.deepEqual(actual, expected);
-
   assert.ok(elapsed < 500, `anchor lookups took ${elapsed} ms`);
 });
 
@@ -612,13 +573,9 @@ test("a shell tool row shows expanded until toggled, and an agent's tool row col
     ).split('\n');
 
   const untoggled = lines(new Map());
-
   assert.ok(untoggled.includes('− ✓ ls'), untoggled.join('\n'));
-
   assert.ok(untoggled.includes('shell-a') && untoggled.includes('shell-b'));
-
   assert.ok(untoggled.includes('+ ✓ Read'));
-
   assert.ok(!untoggled.includes('agent-x'));
 
   const toggled = lines(
@@ -629,11 +586,8 @@ test("a shell tool row shows expanded until toggled, and an agent's tool row col
   );
 
   assert.ok(toggled.includes('+ ✓ ls'), toggled.join('\n'));
-
   assert.ok(!toggled.includes('shell-a'));
-
   assert.ok(toggled.includes('− ✓ Read'));
-
   assert.ok(toggled.includes('agent-x'));
 });
 
@@ -713,15 +667,10 @@ test('a tool that changed a file under its directory shows its diff until toggle
       .map((line) => stripAnsi(line).trimEnd());
 
   const untoggled = lines(items, new Map());
-
   assert.ok(untoggled.includes('− ✓ Edit in'), untoggled.join('\n'));
-
   assert.ok(untoggled.includes('Update ./a.txt +1 -1'));
-
   assert.ok(untoggled.includes('2 +B'));
-
   assert.ok(untoggled.includes('+ ✓ Edit out'));
-
   assert.ok(!untoggled.includes('Update /elsewhere/a.txt +1 -1'));
 
   const toggled = lines(
@@ -733,11 +682,8 @@ test('a tool that changed a file under its directory shows its diff until toggle
   );
 
   assert.ok(toggled.includes('+ ✓ Edit in'), toggled.join('\n'));
-
   assert.ok(toggled.includes('− ✓ Edit out'));
-
   assert.ok(toggled.includes('Update /elsewhere/a.txt +1 -1'));
-
   assert.ok(!toggled.includes('Update ./a.txt +1 -1'));
 
   const growing: DisplayItem = {
@@ -788,11 +734,8 @@ test('a tool in a conversation at / shows the diff of a file anywhere until togg
       .map((line) => stripAnsi(line).trimEnd());
 
   const untoggled = lines(new Map());
-
   assert.ok(untoggled.includes('− ✓ Edit root'), untoggled.join('\n'));
-
   assert.ok(untoggled.includes('Update /Users/me/a.txt +1 -1'));
-
   assert.ok(lines(new Map([['root', false]])).includes('+ ✓ Edit root'));
 });
 
@@ -840,7 +783,6 @@ test('explicit expansion choices survive a project diff arriving', () => {
         .map((line) => stripAnsi(line).trimEnd());
 
     const initial = render(pending);
-
     assert.equal(initial[0], `${before ? '−' : '+'} … Edit`);
 
     assert.equal(
@@ -849,9 +791,7 @@ test('explicit expansion choices survive a project diff arriving', () => {
     );
 
     const result = render(completed);
-
     assert.equal(result[0], `${after ? '−' : '+'} ✓ Edit`);
-
     assert.equal(result.includes('2 +B'), after);
   }
 });
@@ -888,9 +828,7 @@ test('one-column diff rows keep copy breaks and widen prefix anchors onto their 
     assert.equal(narrow.joinBefore(row), '\n');
 
   const prefix = changed.find((row) => narrow.anchorAt(row)!.offset < 0);
-
   assert.notEqual(prefix, undefined);
-
   const wide = layout.render([item], 80, new Map());
 
   assert.match(

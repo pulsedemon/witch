@@ -83,7 +83,6 @@ export function replayWire(
   return {
     launch() {
       const index = children.length;
-
       assert.ok(files[index], `Unexpected native process ${index}`);
 
       const child = spawn(
@@ -98,7 +97,6 @@ export function replayWire(
       ) as ChildProcessWithoutNullStreams;
 
       children.push(child);
-
       let stderr = '';
 
       child.stderr.on('data', (chunk) => {
@@ -121,7 +119,6 @@ export function replayWire(
       });
 
       void completion.catch(() => {});
-
       completions.push(completion);
 
       return child;

@@ -34,7 +34,6 @@ execute('@babel/cli/bin/babel.js', [
 ]);
 
 const cli = join(output, 'cli.js');
-
 chmodSync(cli, statSync(cli).mode | 0o111);
 
 writeFileSync(

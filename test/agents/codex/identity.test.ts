@@ -49,9 +49,7 @@ test('child model observations survive delayed reads and restarts', async () => 
 
   try {
     await f.emit(start('one'));
-
     assert.equal(current().runtime, 'codex');
-
     assert.equal(current().model, undefined);
 
     await f.emit(
@@ -86,23 +84,14 @@ test('child model observations survive delayed reads and restarts', async () => 
     });
 
     assert.equal(f.session.info.model, 'model-a');
-
     await f.emit(start('two'), settings('child-next'), reroute('one', 'stale'));
-
     await f.reply(2, metadata('stale-read'), 'read');
-
     assert.equal(current().model, 'child-next');
-
     assert.equal(current().tools, undefined);
-
     assert.equal(current().report, undefined);
-
     await f.emit(reroute('two', 'second-reroute'), settings('third-model'));
-
     assert.equal(current().model, 'second-reroute');
-
     await f.emit(start('three'));
-
     assert.equal(current().model, 'third-model');
 
     const refreshed = f.events.filter(
@@ -117,25 +106,15 @@ test('child model observations survive delayed reads and restarts', async () => 
     );
 
     await f.emit(start('four'), start('five'));
-
     await f.reply(5, metadata('fifth-model'), 'read');
-
     await f.reply(4, metadata('old-run'), 'read');
-
     assert.equal(current().model, 'fifth-model');
-
     await f.emit(start('six'));
-
     await f.reply(6, metadata(null), 'read');
-
     assert.equal(current().name, 'inspect source');
-
     assert.equal(current().model, 'fifth-model');
-
     await f.emit(start('seven'));
-
     const count = f.events.filter((event) => event.type === 'subagent').length;
-
     await f.session.close();
 
     assert.equal(
@@ -152,10 +131,8 @@ test('child settings cannot settle parent settings', async () => {
 
   try {
     await f.emit(turnFrame('child-run', 'inProgress', 'child'));
-
     const selection = f.session.selectModel('parent-next');
     const done = settled(selection);
-
     await appears(join(f.cwd, 'settings.json'));
 
     await f.emit(
@@ -170,7 +147,6 @@ test('child settings cannot settle parent settings', async () => {
     );
 
     assert.equal(done(), false);
-
     assert.equal(f.session.info.model, 'model-a');
 
     assert.ok(
@@ -192,7 +168,6 @@ test('child settings cannot settle parent settings', async () => {
     });
 
     await within(selection, 2000, 'parent model change');
-
     assert.equal(f.session.info.model, 'parent-next');
   } finally {
     await close(f.session, f.cwd);

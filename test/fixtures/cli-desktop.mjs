@@ -8,7 +8,6 @@ import { performance } from 'node:perf_hooks';
 import { pathToFileURL, URL } from 'node:url';
 
 Object.defineProperty(process.stdin, 'isTTY', { value: true });
-
 process.stdin.setRawMode = () => process.stdin;
 
 Object.defineProperties(process.stdout, {
@@ -21,7 +20,6 @@ let failure;
 
 process.on('message', (message) => {
   failure = message.failure;
-
   process.send({ configured: failure });
 });
 
@@ -85,7 +83,6 @@ Object.defineProperty(childProcess.execFile, promisify.custom, {
 });
 
 syncBuiltinESMExports();
-
 const started = performance.now();
 
 const diagnostic = (event) =>

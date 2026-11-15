@@ -216,7 +216,6 @@ for (const joins of ['later', 'in the read that opens the app']) {
       );
     } finally {
       jobs.close();
-
       environment.mockRestore();
     }
   });
@@ -255,13 +254,9 @@ test('an excluded app keeps an inactive watch reading', async () => {
 
   try {
     await jobs.list();
-
     rows = [app, terminal];
-
     assert.deepEqual(await jobs.list(), []);
-
     jobs.setActive(false);
-
     const count = reads;
 
     // waits on the count, not a fixed window, so a loaded machine cannot fail it
@@ -280,11 +275,8 @@ test.skipIf(process.platform !== 'darwin')(
     const directory = await scratch('witch-jobs-');
     const cwd = await scratch('witch-jobs-');
     const bundle = join(cwd, 'Visual Studio Code.app/Contents/MacOS');
-
     await mkdir(bundle, { recursive: true });
-
     await symlink(process.execPath, join(bundle, 'Code'));
-
     const jobs = new JobWatch({ directory, interval: 60_000 });
 
     /** a node leading its own group that writes its pid into `name` in cwd once it runs, left to launchd by its shell. */
@@ -357,7 +349,6 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
       .spyOn(processes, 'ps')
       .mockImplementation(async (format, pids, options) => {
         assert.equal(format, 'pid=,command=');
-
         assert.equal(options?.environment, true);
 
         return pids!.map((pid) => {
@@ -395,7 +386,6 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
 
     try {
       await jobs.list();
-
       rows = [...services.keys()].map(orphanRow);
 
       assert.deepEqual(
@@ -407,7 +397,6 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
       else process.env.XPC_SERVICE_NAME = original;
 
       jobs.close();
-
       environment.mockRestore();
     }
   });

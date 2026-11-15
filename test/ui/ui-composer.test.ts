@@ -34,9 +34,7 @@ async function launched(snapshot: Partial<Snapshot>, files?: string[]) {
   );
 
   await delay(60);
-
   context.coordinator.publish({ phase: snapshot.phase ?? 'idle' });
-
   await delay(60);
 
   return { ...context, ui };
@@ -47,9 +45,7 @@ test('Down and Enter in one read run the second matching skill', async () => {
 
   try {
     ui.stdin.write(`/x${DOWN}${ENTER}`);
-
     await until('the send', () => calls.length > 0);
-
     assert.deepEqual(calls, [['send', '/x-two', { composer: true }]]);
   } finally {
     ui.unmount();
@@ -61,9 +57,7 @@ test('typing after Down in the same read resets the selection', async () => {
 
   try {
     ui.stdin.write(`/${DOWN}x${ENTER}`);
-
     await until('the send', () => calls.length > 0);
-
     assert.deepEqual(calls, [['send', '/x-one', { composer: true }]]);
   } finally {
     ui.unmount();
@@ -75,9 +69,7 @@ test('a slash command nothing matches is sent as typed', async () => {
 
   try {
     ui.stdin.write(`/zzz${ENTER}`);
-
     await until('the send', () => calls.length > 0);
-
     assert.deepEqual(calls, [['send', '/zzz', { composer: true }]]);
   } finally {
     ui.unmount();
@@ -89,9 +81,7 @@ test('Tab completes a skill and the arguments typed in the same read follow it',
 
   try {
     ui.stdin.write(`/x-o${TAB}arg${ENTER}`);
-
     await until('the send', () => calls.length > 0);
-
     assert.deepEqual(calls, [['send', '/x-one arg', { composer: true }]]);
   } finally {
     ui.unmount();
@@ -104,34 +94,20 @@ test('Escape closes the list during a turn, a new token reopens it, and Escape t
 
   try {
     ui.stdin.write('/x');
-
     await until('the list', open);
-
     ui.stdin.write('\u001b');
-
     await until('the closed list', () => !open());
-
     ui.stdin.write('-');
-
     await until('the reopened list', open);
-
     // back on the dismissed token, the list stays open
     ui.stdin.write('\u007f');
-
     await until('the shorter token', () => ui.text().includes('┃ /x '));
-
     assert.ok(open());
-
     ui.stdin.write('\u001b');
-
     await until('the closed list', () => !open());
-
     assert.deepEqual(calls, []);
-
     ui.stdin.write('\u001b');
-
     await until('the interrupt', () => calls.length > 0);
-
     assert.deepEqual(calls, [['interrupt']]);
   } finally {
     ui.unmount();
@@ -143,9 +119,7 @@ test('Tab inserts a file into the middle of a draft', async () => {
 
   try {
     ui.stdin.write(`see @sr now${LEFT.repeat(4)}`);
-
     await until('the file list', () => ui.text().includes('@src/app.ts'));
-
     ui.stdin.write(TAB);
 
     await until('the inserted path', () =>
@@ -163,9 +137,7 @@ test('Enter inserts a file without sending', async () => {
 
   try {
     ui.stdin.write('see @sr');
-
     await until('the file list', () => ui.text().includes('@src/app.ts'));
-
     ui.stdin.write(ENTER);
 
     await until('the inserted path', () =>
@@ -173,7 +145,6 @@ test('Enter inserts a file without sending', async () => {
     );
 
     await delay(60);
-
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
@@ -193,17 +164,11 @@ test('a paste the coordinator turns into an image marker goes into the draft and
 
   try {
     await delay(60);
-
     ui.stdin.write('session');
-
     await until('the draft', () => ui.text().includes('┃ session'));
-
     ui.stdin.write('\u001b[200~/tmp/shot.png\u001b[201~');
-
     await until('the marker', () => ui.text().includes('┃ session [Image #1]'));
-
     ui.stdin.write(ENTER);
-
     await until('the send', () => calls.some(([name]) => name === 'send'));
 
     assert.deepEqual(calls, [
@@ -220,25 +185,15 @@ test('Up chooses in an open list without moving the cursor, and moves it once a 
 
   try {
     ui.stdin.write('abc');
-
     await delay(30);
-
     ui.stdin.write(SHIFT_ENTER);
-
     await delay(30);
-
     ui.stdin.write('see @sr');
-
     await until('the file list', () => ui.text().includes('@src/apx.ts'));
-
     ui.stdin.write(DOWN);
-
     await delay(30);
-
     ui.stdin.write(UP);
-
     await delay(30);
-
     ui.stdin.write(TAB);
 
     await until('the first file at the token', () =>
@@ -246,7 +201,6 @@ test('Up chooses in an open list without moving the cursor, and moves it once a 
     );
 
     ui.stdin.write(` ${UP}Z`);
-
     await until('typing on the first line', () => ui.text().includes('┃ abcZ'));
   } finally {
     ui.unmount();
@@ -262,29 +216,17 @@ test('tool focus hides a remounted draft list, which shows once focus returns', 
 
   try {
     open('d');
-
     await delay(60);
-
     ui.stdin.write('/x');
-
     await until('the list', () => ui.text().includes('/x-one'));
-
     open('c');
-
     await until('the empty draft', () => !ui.text().includes('/x-one'));
-
     ui.stdin.write(TAB);
-
     await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
-
     open('d');
-
     await delay(100);
-
     assert.ok(!ui.text().includes('/x-one'));
-
     ui.stdin.write(TAB);
-
     await until('the list again', () => ui.text().includes('/x-one'));
   } finally {
     ui.unmount();
@@ -296,17 +238,11 @@ test('Ctrl+P over an open list gives the picker its keys', async () => {
 
   try {
     ui.stdin.write('/x');
-
     await until('the list', () => ui.text().includes('/x-one'));
-
     await commands(ui);
-
     ui.stdin.write('\u001b');
-
     await until('the list again', () => ui.text().includes('/x-one'));
-
     await commands(ui);
-
     ui.stdin.write(`${DOWN}${ENTER}`);
 
     await until('the conversations picker', () =>
@@ -333,28 +269,18 @@ test('the composer grows with its text up to half the body, sizes a ! command be
 
   try {
     await delay(60);
-
     assert.equal(composerRows(), 1);
-
     // 94 columns hold 200 characters and the cursor in 3 rows
     ui.stdin.write('x'.repeat(200));
-
     await until('a grown composer', () => composerRows() === 3);
-
     // 2200 would take 24 rows, and half of the 36-row body is 18
     ui.stdin.write('x'.repeat(2000));
-
     await until('a capped composer', () => composerRows() === 18);
-
     ui.stdin.write(ENTER);
-
     await until('the send', () => calls.length > 0);
-
     await until('an empty composer', () => composerRows() === 1);
-
     // beside its `!`, a command has 92 of the 94 columns, so 92 characters and the cursor take 2 rows
     ui.stdin.write(`!${'x'.repeat(92)}`);
-
     await until('a grown ! command', () => composerRows() === 2);
   } finally {
     ui.unmount();
@@ -378,15 +304,10 @@ test('an open list of 8 or more keeps the newest transcript row and its own last
 
   try {
     ui.stdin.write('/x');
-
     await until('the list', () => ui.text().includes('/x-0'));
-
     const text = ui.text();
-
     assert.ok(text.includes('row 59'));
-
     assert.ok(text.includes('/x-7') && !text.includes('/x-8'));
-
     // the status line takes the final two rows
     assert.match(text.trimEnd().split('\n').at(-3)!, /\/x-7 Skill 7$/);
   } finally {
@@ -401,9 +322,7 @@ test('a skill named like a Witch command is left out, since the command runs ins
 
   try {
     ui.stdin.write('/he');
-
     await until('the list', () => ui.text().includes('/help Keyboard help'));
-
     assert.ok(!ui.text().includes('Native help'));
   } finally {
     ui.unmount();
@@ -418,9 +337,7 @@ test("a skill named like a Witch command's alias is left out too", async () => {
   try {
     // the list matches an alias only when it is typed in full
     ui.stdin.write('/quit');
-
     await until('the list', () => ui.text().includes('/exit Exit'));
-
     assert.ok(!ui.text().includes('Native quit'));
   } finally {
     ui.unmount();
@@ -438,9 +355,7 @@ test("the composer's list leaves out built-in commands", async () => {
 
   try {
     ui.stdin.write('/x');
-
     await until('the list', () => ui.text().includes('/x-review Review'));
-
     assert.ok(!ui.text().includes('x-context'));
   } finally {
     ui.unmount();
@@ -478,7 +393,6 @@ test('a native name the list leaves out sends as typed rather than as a spell ho
     // a built-in's name, its alias and a command Witch sends as text
     for (const [index, prompt] of ['/context', '/cost', '/config'].entries()) {
       ui.stdin.write(`${prompt}${ENTER}`);
-
       await until('the send', () => calls.length > index);
     }
 
@@ -540,15 +454,11 @@ test('list rows drop a link forged in a skill description or a file name', async
     );
 
     assert.ok(!skill.ui.frame().includes('\u001b]8;;https://evil.example'));
-
     file.ui.stdin.write('@a');
-
     await until('the file list', () => file.ui.text().includes('.txt'));
-
     assert.ok(!file.ui.frame().includes('\u001b]8;;https://evil.example'));
   } finally {
     skill.ui.unmount();
-
     file.ui.unmount();
   }
 });
@@ -581,11 +491,8 @@ test('a draft starting with ! draws the border potion green and opens no file li
 
   try {
     ui.stdin.write('cat @sr');
-
     await until('the file list', listed);
-
     assert.ok(ui.frame().includes(VIOLET));
-
     // Home, then `!` at the start, then End, where a file list would open again
     ui.stdin.write('\u001b[H!\u001b[F');
 
@@ -595,20 +502,14 @@ test('a draft starting with ! draws the border potion green and opens no file li
     );
 
     await delay(60);
-
     assert.equal(listed(), false);
-
     // Home stops after the `!`, and Backspace there takes it
     ui.stdin.write('\u001b[H\u007f\u001b[F');
-
     await until('the list back', listed);
-
     assert.ok(ui.frame().includes(VIOLET));
-
     assert.ok(!ui.frame().includes(POTION));
   } finally {
     ui.unmount();
-
     chalk.level = level;
   }
 });
@@ -623,29 +524,17 @@ test('a ! command is sent and recorded with its !, and a lone ! sends nothing an
 
   try {
     await delay(60);
-
     ui.stdin.write('!');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await delay(60);
-
     assert.deepEqual(calls, []);
-
     assert.ok(ui.text().includes('┃ ! '), ui.text());
-
     ui.stdin.write('git status');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the send', () => calls.length > 0);
-
     assert.deepEqual(calls, [['send', '!git status', { composer: true }]]);
-
     assert.deepEqual(added, [['/work', '!git status']]);
   } finally {
     ui.unmount();
@@ -657,11 +546,8 @@ test('a conversation opened with a saved draft shows it in the composer, and typ
 
   try {
     await until('the saved draft', () => ui.text().includes('┃ saved'));
-
     ui.stdin.write('y');
-
     await until('the typed draft', () => ui.text().includes('┃ savedy'));
-
     assert.deepEqual(drafts.at(-1), ['c', 'savedy']);
   } finally {
     ui.unmount();
@@ -678,17 +564,11 @@ test('↑ onto an earlier prompt keeps saving the draft typed before it', async 
 
   try {
     await delay(60);
-
     ui.stdin.write('x');
-
     await until('the draft', () => ui.text().includes('┃ x'));
-
     ui.stdin.write(UP);
-
     await until('the earlier prompt', () => ui.text().includes('┃ earlier'));
-
     assert.deepEqual(drafts.at(-1), ['c', 'x']);
-
     assert.ok(!drafts.some(([, text]) => text === 'earlier'));
   } finally {
     ui.unmount();

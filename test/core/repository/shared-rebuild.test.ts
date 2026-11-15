@@ -41,7 +41,6 @@ function worker(install: string, failing = false) {
   const result = Promise.withResolvers<WorkerResult>();
   const closed = Promise.withResolvers<void>();
   let stderr = '';
-
   child.stderr!.on('data', (data: Buffer) => (stderr += data.toString()));
 
   child.on('message', (message: { kind: string } & WorkerResult) => {
@@ -61,9 +60,7 @@ function worker(install: string, failing = false) {
   });
 
   void result.promise.catch(() => {});
-
   const outcome = within(result.promise, 10_000, 'the shared rebuild result');
-
   void outcome.catch(() => {});
 
   onTestFinished(async () => {
@@ -84,9 +81,7 @@ function worker(install: string, failing = false) {
 async function installation() {
   const fixture = await merged();
   const install = join(fixture.root, 'install');
-
   await git(fixture.root, 'clone', fixture.origin, install);
-
   const head = await git(install, 'rev-parse', 'HEAD');
 
   return {
@@ -100,98 +95,57 @@ async function installation() {
 test('a waiting process retains the failed attempt after a later rebuild succeeds', async () => {
   const { install, rebuilt } = await installation();
   const builder = worker(install, true);
-
   await builder.stage('build');
-
   const waiter = worker(install);
-
   await waiter.stage('waiting');
-
   waiter.child.kill('SIGSTOP');
-
   builder.child.send('finish');
-
   const failed = await builder.result;
-
   assert.match(failed.error!, /build failed\nsrc\/probe.ts: build diagnostic$/);
-
   const later = worker(install);
-
   await later.stage('build');
-
   later.child.send('finish');
-
   assert.equal((await later.result).text, rebuilt);
-
   waiter.child.kill('SIGCONT');
-
   const joined = await waiter.result;
-
   assert.equal(joined.error, failed.error);
-
   assert.deepEqual(joined.calls, []);
-
   assert.deepEqual(failed.calls, [['install', '--frozen-lockfile'], ['build']]);
 });
 
 test('cancelling a waiter leaves the builder running and reports the original reason', async () => {
   const { install, rebuilt } = await installation();
   const builder = worker(install);
-
   await builder.stage('build');
-
   const waiter = worker(install);
-
   await waiter.stage('waiting');
-
   waiter.child.send('cancel');
-
   const cancelled = await waiter.result;
-
   assert.equal(cancelled.error, 'rebuild cancelled');
-
   assert.equal(cancelled.originalReason, true);
-
   assert.deepEqual(cancelled.calls, []);
-
   assert.equal(builder.child.exitCode, null);
-
   const later = worker(install);
-
   await later.stage('waiting');
-
   builder.child.send('finish');
-
   const result = await builder.result;
-
   assert.equal(result.text, rebuilt);
-
   assert.equal((await later.result).text, rebuilt);
-
   assert.deepEqual((await later.result).calls, []);
-
   assert.deepEqual(result.calls, [['install', '--frozen-lockfile'], ['build']]);
 });
 
 test('an interrupted builder publishes interruption to its waiter', async () => {
   const { install } = await installation();
   const builder = worker(install);
-
   await builder.stage('build');
-
   const waiter = worker(install);
-
   await waiter.stage('waiting');
-
   builder.child.send('cancel');
-
   const cancelled = await builder.result;
   const joined = await waiter.result;
-
   assert.equal(cancelled.originalReason, true);
-
   assert.equal(joined.error, "Another Witch's rebuild was interrupted.");
-
   assert.deepEqual(joined.calls, []);
 });
 
@@ -204,21 +158,13 @@ test('a killed builder cannot leave a prior success for its waiter and a later r
   );
 
   const builder = worker(install);
-
   await builder.stage('build');
-
   const waiter = worker(install);
-
   await waiter.stage('waiting');
-
   builder.child.kill('SIGKILL');
-
   await builder.closed;
-
   const joined = await waiter.result;
-
   assert.match(joined.error!, /without reporting a result.*unconfirmed/);
-
   assert.deepEqual(joined.calls, []);
 
   assert.equal(
@@ -230,9 +176,7 @@ test('a killed builder cannot leave a prior success for its waiter and a later r
 test('a completed joined rebuild resumes without fetching or reporting an intervening revision', async () => {
   const { install, other, head, rebuilt } = await installation();
   const builder = worker(install);
-
   await builder.stage('build');
-
   const progress: NonNullable<MergeCleanup['install']> = {};
   const waiting = Promise.withResolvers<void>();
   const calls: string[][] = [];
@@ -249,21 +193,13 @@ test('a completed joined rebuild resumes without fetching or reporting an interv
   });
 
   void joined.catch(() => {});
-
   await within(waiting.promise, 5000, 'joining the builder');
-
   builder.child.send('finish');
-
   assert.equal((await builder.result).text, rebuilt);
-
   assert.equal(await joined, rebuilt);
-
   assert.equal(progress.built, true);
-
   await git(other, 'commit', '--allow-empty', '-m', 'later');
-
   await git(other, 'push');
-
   assert.notEqual(await git(other, 'rev-parse', 'HEAD'), head);
 
   assert.equal(
@@ -272,7 +208,6 @@ test('a completed joined rebuild resumes without fetching or reporting an interv
   );
 
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
-
   assert.deepEqual(calls, []);
 });
 
@@ -283,7 +218,6 @@ for (const outcome of ['rebuilt', 'failed', 'interrupted'])
       const sample = await open(join(root, 'sample'), 'w');
       const prototype = Object.getPrototypeOf(sample) as FileHandle;
       const write = prototype.writeFile;
-
       await sample.close();
 
       const publish = vi
@@ -321,7 +255,6 @@ for (const outcome of ['rebuilt', 'failed', 'interrupted'])
         root,
         async () => {
           entered.resolve();
-
           await release.promise;
 
           if (outcome === 'failed') throw reason;
@@ -334,7 +267,6 @@ for (const outcome of ['rebuilt', 'failed', 'interrupted'])
       );
 
       void builder.catch(() => {});
-
       await entered.promise;
 
       const waiter = sharedRebuild(
@@ -368,7 +300,6 @@ for (const outcome of ['rebuilt', 'failed', 'interrupted'])
         );
 
         publish.mockRestore();
-
         await chmod(join(root, 'witch-rebuild.lock'), 0o600);
 
         assert.deepEqual(
@@ -381,15 +312,10 @@ for (const outcome of ['rebuilt', 'failed', 'interrupted'])
         );
       } finally {
         await chmod(join(root, 'witch-rebuild.lock'), 0o600);
-
         publish.mockRestore();
-
         release.resolve();
-
         abort.abort();
-
         builderAbort.abort();
-
         await Promise.allSettled([builder, waiter]);
       }
     });
@@ -400,7 +326,6 @@ test('failed attempt setup removes its receipt and permits another rebuild', asy
   const prototype = Object.getPrototypeOf(sample) as FileHandle;
   const write = prototype.writeFile;
   const failure = new Error('ENOSPC: state publication failed');
-
   await sample.close();
 
   const publish = vi
@@ -455,7 +380,6 @@ for (const mode of ['state', 'all', 'unpublished', 'all-unpublished'])
     const removalError = new Error('EACCES: state removal failed');
     const publicationError = new Error('ENOSPC: publication failed');
     let blocked = false;
-
     await sample.close();
 
     const removing = vi
@@ -503,7 +427,6 @@ for (const mode of ['state', 'all', 'unpublished', 'all-unpublished'])
       root,
       async () => {
         entered.resolve();
-
         await release.promise;
 
         return { text: 'first rebuild', built: true };
@@ -512,7 +435,6 @@ for (const mode of ['state', 'all', 'unpublished', 'all-unpublished'])
     );
 
     void builder.catch(() => {});
-
     await entered.promise;
 
     const waiter = sharedRebuild(
@@ -522,7 +444,6 @@ for (const mode of ['state', 'all', 'unpublished', 'all-unpublished'])
     );
 
     void waiter.catch(() => {});
-
     let second: typeof waiter | undefined;
     let probe: FileHandle | undefined;
 
@@ -539,12 +460,10 @@ for (const mode of ['state', 'all', 'unpublished', 'all-unpublished'])
         );
 
         void second.catch(() => {});
-
         await within(joined.promise, 5000, 'the second waiter');
       }
 
       blocked = true;
-
       release.resolve();
 
       await assert.rejects(
@@ -610,17 +529,11 @@ for (const mode of ['state', 'all', 'unpublished', 'all-unpublished'])
       ]);
     } finally {
       await probe?.close();
-
       removing.mockRestore();
-
       publishing.mockRestore();
-
       syncBuiltinESMExports();
-
       release.resolve();
-
       abort.abort();
-
       await Promise.allSettled([builder, waiter, second]);
     }
   });
@@ -654,7 +567,6 @@ for (const point of ['initial', 'completion', 'receipt', 'lifetime'])
         if (!path.startsWith(root)) return handle;
 
         handles.push(handle);
-
         const receipt = path.startsWith(join(root, 'witch-rebuild-'));
 
         const label =
@@ -671,7 +583,6 @@ for (const point of ['initial', 'completion', 'receipt', 'lifetime'])
         closing.push(
           vi.spyOn(handle, 'close').mockImplementation(async () => {
             await close();
-
             order.push(label);
 
             const target =
@@ -711,7 +622,6 @@ for (const point of ['initial', 'completion', 'receipt', 'lifetime'])
 
             if (point === 'lifetime') {
               abort.abort(reason);
-
               abort.signal.throwIfAborted();
             }
 
@@ -725,9 +635,7 @@ for (const point of ['initial', 'completion', 'receipt', 'lifetime'])
       );
 
       assert.equal(injected, true);
-
       assert.equal(built, point !== 'initial');
-
       assert.ok(handles.every((handle) => handle.fd === -1));
 
       if (point === 'completion')
@@ -777,11 +685,8 @@ for (const mode of ['acquisition', 'collision'])
           if (mode === 'collision' && args[1] === 'wx+') {
             injected = true;
             collision = path;
-
             const existing = await actual(...args);
-
             await existing.writeFile('must stay');
-
             await existing.close();
           }
         }
@@ -814,7 +719,6 @@ for (const mode of ['acquisition', 'collision'])
       );
 
       assert.equal(injected, true);
-
       assert.ok(handles.every((handle) => handle.fd === -1));
 
       if (mode === 'collision')
@@ -822,7 +726,6 @@ for (const mode of ['acquisition', 'collision'])
       else assert.deepEqual(await readdir(root), ['witch-rebuild.lock']);
     } finally {
       opening.mockRestore();
-
       syncBuiltinESMExports();
     }
 

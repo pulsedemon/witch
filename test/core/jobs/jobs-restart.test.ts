@@ -103,13 +103,10 @@ test('known orphan ownership survives repeated checkpoints', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   let rows = [agent, command, worker, unrelated];
   const original = watcher(cleanup, () => rows);
-
   assert.deepEqual(await groups(original), [100010]);
-
   rows = [{ ...worker, ppid: 1 }, unrelated];
   const saved = await checkpoint(original);
   const restored = watcher(cleanup, () => rows, saved);
-
   assert.deepEqual(await groups(restored), [100010]);
 
   const twiceRestored = watcher(
@@ -119,11 +116,8 @@ test('known orphan ownership survives repeated checkpoints', async (t) => {
   );
 
   assert.deepEqual(await groups(twiceRestored), [100010]);
-
   assert.deepEqual(await groups(watcher(cleanup, () => rows)), []);
-
   rows = [{ ...worker, ppid: 1, pgid: 100030 }, unrelated];
-
   assert.deepEqual(await groups(watcher(cleanup, () => rows, saved)), [100030]);
 });
 
@@ -131,49 +125,34 @@ test('restored jobs stop only their current generation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   let rows = [agent, command, worker, unrelated];
   const original = watcher(cleanup, () => rows);
-
   await original.list();
-
   rows = [{ ...worker, ppid: 1 }, unrelated];
   const saved = await checkpoint(original);
   const restored = watcher(cleanup, () => rows, saved);
   const [job] = await restored.list();
-
   assert.ok(job);
-
   const signals: Parameters<typeof process.kill>[] = [];
 
   vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
     signals.push([pid, signal]);
-
     rows = rows.filter(({ pgid }) => pgid !== -pid);
 
     return true;
   });
 
   await restored.stop(job);
-
   assert.deepEqual(signals, [[-100010, 'SIGTERM']]);
-
   assert.deepEqual(rows, [unrelated]);
-
   rows = [{ ...worker, ppid: 1, identity: '100011 replacement' }, unrelated];
-
   assert.deepEqual(await watcher(cleanup, () => rows, saved).list(), []);
-
   rows = [{ ...worker, ppid: 1 }, unrelated];
   const selected = watcher(cleanup, () => rows, saved);
   const [oldSelection] = await selected.list();
-
   assert.ok(oldSelection);
-
   rows = [{ ...worker, ppid: 1, identity: '100011 replacement' }, unrelated];
   signals.length = 0;
-
   await selected.stop(oldSelection);
-
   assert.deepEqual(signals, []);
-
   assert.equal(rows.length, 2);
 });
 
@@ -181,39 +160,26 @@ test('a checkpoint keeps ordinary members of withheld tmux groups', async (t) =>
   const cleanup = orderedCleanup(t.onTestFinished);
   let rows = [agent, command, worker];
   const original = watcher(cleanup, () => rows);
-
   await original.list();
-
   rows = [{ ...worker, ppid: 1 }, tmux];
-
   assert.deepEqual(await groups(original), []);
-
   const restored = watcher(cleanup, () => rows, await checkpoint(original));
-
   assert.deepEqual(await groups(restored), []);
-
   rows = [{ ...worker, ppid: 1 }];
-
   assert.deepEqual(await groups(restored), [100010]);
-
   const [job] = await restored.list();
-
   assert.ok(job);
-
   const signals: number[] = [];
 
   vi.spyOn(process, 'kill').mockImplementation((pid: number) => {
     signals.push(pid);
-
     rows = rows.filter(({ pgid }) => pgid !== -pid);
 
     return true;
   });
 
   await restored.stop(job);
-
   assert.deepEqual(signals, [-100010]);
-
   assert.deepEqual(rows, []);
 });
 
@@ -221,7 +187,6 @@ test('a checkpoint keeps exclusions after tmux descendants reparent', async (t) 
   const cleanup = orderedCleanup(t.onTestFinished);
   let rows = [agent, command, worker, tmux, pane];
   const original = watcher(cleanup, () => rows);
-
   assert.deepEqual(await groups(original), []);
 
   rows = [
@@ -230,9 +195,7 @@ test('a checkpoint keeps exclusions after tmux descendants reparent', async (t) 
   ];
 
   original.track(100042);
-
   const restored = watcher(cleanup, () => rows, await checkpoint(original));
-
   assert.deepEqual(await groups(restored), [100010]);
 
   rows = [
@@ -248,7 +211,6 @@ test('a checkpoint keeps exclusions after tmux descendants reparent', async (t) 
   ];
 
   restored.track(pane.pgid);
-
   assert.deepEqual(await groups(restored), [100010, 100041]);
 });
 
@@ -256,9 +218,7 @@ test('restoration does not adopt pre-existing marked or foreign workers', async 
   const cleanup = orderedCleanup(t.onTestFinished);
   let rows = [agent, command, worker];
   const original = watcher(cleanup, () => rows);
-
   await original.list();
-
   rows = [{ ...worker, ppid: 1 }];
   const saved = await checkpoint(original);
 
@@ -291,11 +251,8 @@ test('restoration does not adopt pre-existing marked or foreign workers', async 
   });
 
   restored.track(own.pgid);
-
   assert.deepEqual(await groups(restored), [100010]);
-
   assert.deepEqual(await groups(restored), [100010]);
-
   assert.equal(markReads, 0);
 });
 
@@ -331,21 +288,16 @@ test('checkpoint waits for a fresh read after a pending poll', async (t) => {
       if (!ending) watch.track(member.pgid);
 
       const capturing = checkpoint(watch);
-
       old.resolve(ending ? [member] : []);
-
       const saved = await capturing;
-
       await polling;
 
       if (ending) assert.deepEqual(saved.members, []);
 
       const restored = watcher(cleanup, () => rows, saved);
-
       assert.deepEqual(await groups(restored), ending ? [] : [100010]);
     } finally {
       old.resolve([]);
-
       await polling;
     }
   }
@@ -390,11 +342,9 @@ test('checkpoint rejects failed pending and fresh reads', async (t) => {
       else old.resolve([]);
 
       await rejected;
-
       await polled;
     } finally {
       old.resolve([]);
-
       await polled;
     }
   }

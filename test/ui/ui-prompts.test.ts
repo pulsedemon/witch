@@ -24,7 +24,6 @@ import { until, within } from '../fixtures/within.js';
 async function image(directory: string) {
   const bytes = png(16, 16);
   const path = join(directory, 'shot.png');
-
   await writeFile(path, bytes);
 
   return { bytes, paste: `\u001b[200~${path}\u001b[201~` };
@@ -40,15 +39,10 @@ test('Enter during a turn sends the draft and empties the composer', async () =>
 
   try {
     await delay(60);
-
     ui.stdin.write('hello');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the send', () => calls.length > 0);
-
     assert.deepEqual(calls, [['send', 'hello', { composer: true }]]);
 
     await until('the empty composer', () =>
@@ -69,7 +63,6 @@ test('queued prompts show above the command window with a hint, and ↑ on the f
 
   try {
     await until('the queue', () => ui.text().includes('❯ two lines'));
-
     const lines = ui.text().split('\n');
     const window = lines.findIndex((line) => line.trim() === 'TOOLS');
 
@@ -79,25 +72,15 @@ test('queued prompts show above the command window with a hint, and ↑ on the f
     );
 
     assert.ok(ui.text().includes('┃ Press ↑ to edit queued messages'));
-
     ui.stdin.write('first');
-
     ui.stdin.write(SHIFT_ENTER);
-
     ui.stdin.write('second');
-
     await until('the draft', () => ui.text().includes('┃ second'));
-
     ui.stdin.write(UP);
-
     await delay(60);
-
     assert.deepEqual(calls, []);
-
     ui.stdin.write(UP);
-
     await until('the queue taken back', () => !ui.text().includes('❯ one'));
-
     assert.deepEqual(calls, [['unqueue', 'one\ntwo\nlines\nfirst\nsecond']]);
 
     const rows = ['┃ one', '┃ two', '┃ lines', '┃ first', '┃ second'].map(
@@ -124,15 +107,10 @@ test('a queued prompt with an image marker, taken back with ↑ and sent again, 
 
   try {
     await within(gate.entered, 3000, 'the gated turn');
-
     ui.stdin.write('look');
-
     await until('the draft', () => ui.text().includes('┃ look'));
-
     ui.stdin.write(paste);
-
     await until('the marker', () => ui.text().includes('┃ look [Image #1]'));
-
     ui.stdin.write(ENTER);
 
     await until('the queued prompt', () =>
@@ -149,7 +127,6 @@ test('a queued prompt with an image marker, taken back with ↑ and sent again, 
     );
 
     assert.deepEqual(coordinator.snapshot.queue, []);
-
     ui.stdin.write(ENTER);
 
     await until('the prompt queued again', () =>
@@ -157,9 +134,7 @@ test('a queued prompt with an image marker, taken back with ↑ and sent again, 
     );
 
     gate.open();
-
     await within(sending, 5000, 'the queued turn');
-
     await until('the image prompt', () => a.inputs.length === 2);
 
     assert.deepEqual(turns(a), [
@@ -168,15 +143,11 @@ test('a queued prompt with an image marker, taken back with ↑ and sent again, 
     ]);
 
     assert.deepEqual(await delivered(a.inputs[1]!.images), [bytes]);
-
     assert.deepEqual(a.steers, []);
   } finally {
     gate.open();
-
     await sending;
-
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -197,7 +168,6 @@ for (const [command, message] of [
 
     try {
       await within(gate.entered, 3000, 'the gated turn');
-
       await coordinator.send('queued followup');
 
       await until('the queued followup', () =>
@@ -211,11 +181,8 @@ for (const [command, message] of [
       );
 
       ui.stdin.write(ENTER);
-
       await until('the notice', () => ui.text().includes(message));
-
       gate.open();
-
       await within(sending, 5000, 'the queued turns');
 
       assert.deepEqual(turns(a), [
@@ -224,11 +191,8 @@ for (const [command, message] of [
       ]);
 
       assert.deepEqual(coordinator.snapshot.queue, []);
-
       assert.equal(coordinator.snapshot.error, undefined);
-
       assert.deepEqual(a.steers, []);
-
       assert.deepEqual(a.compactions, []);
 
       await until('the empty composer', () =>
@@ -238,11 +202,8 @@ for (const [command, message] of [
       assert.ok(ui.text().includes(message), ui.text());
     } finally {
       gate.open();
-
       await sending;
-
       ui.unmount();
-
       await coordinator.close();
     }
   });
@@ -250,11 +211,8 @@ for (const [command, message] of [
 test('a /sessions choice refused during a turn leaves queued prompts runnable', async () => {
   const { coordinator, a } = await fixture();
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
-
   await coordinator.send('first prompt');
-
   await coordinator.newConversation();
-
   const { id } = coordinator.snapshot.conversation!;
   const gate = new TurnGate();
   a.gate = gate;
@@ -263,7 +221,6 @@ test('a /sessions choice refused during a turn leaves queued prompts runnable', 
 
   try {
     await within(gate.entered, 3000, 'the gated turn');
-
     await coordinator.send('queued followup');
 
     await until('the queued followup', () =>
@@ -283,7 +240,6 @@ test('a /sessions choice refused during a turn leaves queued prompts runnable', 
     );
 
     ui.stdin.write('first prompt');
-
     ui.stdin.write(ENTER);
 
     await until('the notice', () =>
@@ -291,11 +247,8 @@ test('a /sessions choice refused during a turn leaves queued prompts runnable', 
     );
 
     assert.equal(coordinator.snapshot.error, undefined);
-
     gate.open();
-
     await within(sending, 5000, 'the queued turns');
-
     assert.equal(coordinator.snapshot.conversation!.id, id);
 
     assert.deepEqual(turns(a), [
@@ -305,11 +258,8 @@ test('a /sessions choice refused during a turn leaves queued prompts runnable', 
     ]);
   } finally {
     gate.open();
-
     await sending;
-
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -321,24 +271,16 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
 
   try {
     await until('the composer', () => ui.text().includes('┃ Ask the agent'));
-
     a.gate = gate;
     a.failNext = true;
     a.refuseSteer = true;
     const sending = coordinator.send('remember-port');
-
     await within(gate.entered, 3000, 'the gated turn');
-
     await coordinator.send('/audit');
-
     await coordinator.send('queued followup');
-
     ui.stdin.write('unsent draft');
-
     await until('the draft', () => ui.text().includes('┃ unsent draft'));
-
     gate.open();
-
     await sending;
 
     await until('the recovery page', () =>
@@ -346,9 +288,7 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
     );
 
     await delay(550);
-
     ui.stdin.write('a');
-
     const rows = ['┃ /audit', '┃ queued followup', '┃ unsent draft'];
 
     await until('the restored draft', () =>
@@ -363,11 +303,8 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
     );
 
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual(coordinator.snapshot.queue, []);
-
     assert.deepEqual(turns(a), [['remember-port', undefined]]);
-
     ui.stdin.write(ENTER);
 
     await until(
@@ -381,9 +318,7 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
     ]);
   } finally {
     gate.open();
-
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -402,9 +337,7 @@ test('a queue longer than the free rows shows its first prompts and keeps the co
 
   try {
     await until('the queue', () => ui.text().includes('❯ prompt 0'));
-
     assert.ok(ui.text().includes('┃ Press ↑ to edit queued messages'));
-
     assert.ok(!ui.text().includes('❯ prompt 59'));
   } finally {
     ui.unmount();
@@ -417,17 +350,11 @@ test('↑ in an open completion list leaves the queue', async () => {
 
   try {
     await until('the queue', () => ui.text().includes('❯ one'));
-
     ui.stdin.write('/');
-
     await delay(60);
-
     ui.stdin.write(UP);
-
     await delay(60);
-
     assert.deepEqual(calls, []);
-
     assert.ok(ui.text().includes('❯ one'));
   } finally {
     ui.unmount();
@@ -445,15 +372,10 @@ test('Tab and ↑ in one read focus tools and leave the queue', async () => {
 
   try {
     await until('the queue', () => ui.text().includes('❯ one'));
-
     ui.stdin.write(`\t${UP}`);
-
     await until('the focused tools', () => ui.text().includes('TAB COMPOSE'));
-
     await delay(60);
-
     assert.deepEqual(calls, []);
-
     assert.ok(ui.text().includes('❯ one'));
   } finally {
     ui.unmount();
@@ -466,17 +388,11 @@ test('↑ with nothing queued and no earlier prompts leaves the draft as typed',
 
   try {
     await delay(60);
-
     ui.stdin.write('abc');
-
     await delay(30);
-
     ui.stdin.write(UP);
-
     await delay(60);
-
     assert.deepEqual(calls, []);
-
     assert.ok(ui.text().includes('┃ abc'));
   } finally {
     ui.unmount();
@@ -493,37 +409,21 @@ test('↑ on the first line shows older prompts from this directory with the cur
 
   try {
     await delay(60);
-
     ui.stdin.write('draft');
-
     await until('the draft', () => ui.text().includes('┃ draft'));
-
     ui.stdin.write(UP);
-
     await until('the newer prompt', () => ui.text().includes('┃ newer'));
-
     ui.stdin.write(UP);
-
     await delay(60);
-
     assert.ok(!ui.text().includes('┃ older'), ui.text());
-
     ui.stdin.write(UP);
-
     await until('the older prompt', () => ui.text().includes('┃ older'));
-
     ui.stdin.write(DOWN);
-
     await until('the newer prompt again', () => ui.text().includes('┃ newer'));
-
     ui.stdin.write(DOWN);
-
     await delay(60);
-
     assert.ok(!ui.text().includes('┃ draft'), ui.text());
-
     ui.stdin.write(DOWN);
-
     await until('the draft again', () => ui.text().includes('┃ draft'));
   } finally {
     ui.unmount();
@@ -540,35 +440,20 @@ test('an edit to a recalled prompt survives browsing and is sent and recorded, t
 
   try {
     await delay(60);
-
     ui.stdin.write(UP);
-
     await until('the first prompt', () => ui.text().includes('┃ first'));
-
     ui.stdin.write(' edited');
-
     await until('the edit', () => ui.text().includes('┃ first edited'));
-
     ui.stdin.write(UP);
-
     await until('the second prompt', () => ui.text().includes('┃ second'));
-
     ui.stdin.write(DOWN);
-
     await until('the edit kept', () => ui.text().includes('┃ first edited'));
-
     ui.stdin.write(ENTER);
-
     await until('the send', () => calls.length > 0);
-
     assert.deepEqual(calls, [['send', 'first edited', { composer: true }]]);
-
     assert.deepEqual(added, [['/work', 'first edited']]);
-
     ui.stdin.write(UP);
-
     await until('the sent prompt', () => ui.text().includes('┃ first edited'));
-
     ui.stdin.write(UP);
 
     await until('the first prompt as it was', () =>
@@ -586,15 +471,10 @@ test('a prompt with an image marker recalled with ↑ delivers its image again',
 
   try {
     await until('the composer', () => ui.text().includes('┃ Ask the agent'));
-
     ui.stdin.write('look');
-
     await until('the draft', () => ui.text().includes('┃ look'));
-
     ui.stdin.write(paste);
-
     await until('the marker', () => ui.text().includes('┃ look [Image #1]'));
-
     ui.stdin.write(ENTER);
 
     await until(
@@ -609,7 +489,6 @@ test('a prompt with an image marker recalled with ↑ delivers its image again',
     );
 
     ui.stdin.write(ENTER);
-
     await until('the second turn', () => a.inputs.length === 2);
 
     assert.deepEqual(turns(a), [
@@ -618,11 +497,9 @@ test('a prompt with an image marker recalled with ↑ delivers its image again',
     ]);
 
     assert.deepEqual(await delivered(a.inputs[0]!.images), [bytes]);
-
     assert.deepEqual(await delivered(a.inputs[1]!.images), [bytes]);
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -637,23 +514,14 @@ test('a prompt and a Witch command are recorded once each, and neither a blank s
 
   try {
     await delay(60);
-
     ui.stdin.write(ENTER);
-
     await delay(30);
-
     ui.stdin.write('hello');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the send', () => calls.some(([, text]) => text === 'hello'));
-
     ui.stdin.write(UP);
-
     await until('the recalled prompt', () => ui.text().includes('┃ hello'));
-
     ui.stdin.write(ENTER);
 
     await until(
@@ -662,9 +530,7 @@ test('a prompt and a Witch command are recorded once each, and neither a blank s
     );
 
     ui.stdin.write('/model gpt');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
 
     await until('the model', () =>
@@ -690,19 +556,12 @@ test('↑ takes queued prompts back before it shows earlier ones, and ↓ return
 
   try {
     await until('the queue', () => ui.text().includes('❯ queued'));
-
     ui.stdin.write(UP);
-
     await until('the queue taken back', () => ui.text().includes('┃ queued'));
-
     assert.deepEqual(calls, [['unqueue', 'queued']]);
-
     ui.stdin.write(UP);
-
     await until('the earlier prompt', () => ui.text().includes('┃ earlier'));
-
     ui.stdin.write(DOWN);
-
     await until('the queue again', () => ui.text().includes('┃ queued'));
   } finally {
     ui.unmount();
@@ -719,17 +578,11 @@ test('prompts that come back mid-browse end browsing and go ahead of the draft t
 
   try {
     await delay(60);
-
     ui.stdin.write('draft');
-
     await until('the draft', () => ui.text().includes('┃ draft'));
-
     ui.stdin.write(UP);
-
     await until('the recalled prompt', () => ui.text().includes('┃ one'));
-
     coordinator.publish({ queue: ['late'] });
-
     await until('the returned prompt', () => ui.text().includes('┃ late'));
 
     const [late, draft] = ['┃ late', '┃ draft'].map((row) =>
@@ -737,15 +590,10 @@ test('prompts that come back mid-browse end browsing and go ahead of the draft t
     );
 
     assert.ok(late! >= 0 && draft! > late!, ui.text());
-
     assert.ok(!ui.text().includes('┃ one'), ui.text());
-
     ui.stdin.write(DOWN);
-
     ui.stdin.write(DOWN);
-
     await delay(60);
-
     assert.ok(ui.text().includes('┃ late'), ui.text());
   } finally {
     ui.unmount();
@@ -767,11 +615,8 @@ test('an initial prompt sent mid-browse leaves the browsed prompt in place witho
 
   try {
     await delay(60);
-
     ui.stdin.write(UP);
-
     await until('the recalled command', () => ui.text().includes('┃ /mo'));
-
     coordinator.publish({ phase: 'idle' });
 
     await until('the initial prompt sent', () =>
@@ -779,25 +624,15 @@ test('an initial prompt sent mid-browse leaves the browsed prompt in place witho
     );
 
     await delay(60);
-
     assert.ok(ui.text().includes('┃ /mo'), ui.text());
-
     assert.ok(!ui.text().includes('Choose model and reasoning'), ui.text());
-
     ui.stdin.write(UP);
-
     await until('the older prompt', () => ui.text().includes('┃ older'));
-
     ui.stdin.write(DOWN);
-
     await until('the command again', () => ui.text().includes('┃ /mo'));
-
     ui.stdin.write(DOWN);
-
     await until('the initial prompt', () => ui.text().includes('┃ say hello'));
-
     ui.stdin.write(DOWN);
-
     await until('the draft', () => ui.text().includes('┃ Ask the agent'));
   } finally {
     ui.unmount();
@@ -819,15 +654,10 @@ test('an initial prompt sent after browsing back to the draft is the first promp
 
   try {
     await delay(60);
-
     ui.stdin.write(UP);
-
     await until('the newest prompt', () => ui.text().includes('┃ newest'));
-
     ui.stdin.write(DOWN);
-
     await until('the draft', () => ui.text().includes('┃ Ask the agent'));
-
     coordinator.publish({ phase: 'idle' });
 
     await until('the initial prompt sent', () =>
@@ -835,9 +665,7 @@ test('an initial prompt sent after browsing back to the draft is the first promp
     );
 
     ui.stdin.write(UP);
-
     await until('the initial prompt', () => ui.text().includes('┃ say hello'));
-
     ui.stdin.write(UP);
 
     await until('the newest prompt again', () =>
@@ -845,7 +673,6 @@ test('an initial prompt sent after browsing back to the draft is the first promp
     );
 
     ui.stdin.write(UP);
-
     await until('the older prompt', () => ui.text().includes('┃ older'));
   } finally {
     ui.unmount();
@@ -862,33 +689,19 @@ test('a recalled prompt opens no completion list until it is edited, even with t
 
   try {
     await delay(60);
-
     ui.stdin.write(UP);
-
     await until('the prompt naming a file', () => ui.text().includes('┃ next'));
-
     ui.stdin.write(UP);
-
     await delay(60);
-
     assert.doesNotMatch(ui.text(), /^ *@src\/a\.ts *$/m);
-
     ui.stdin.write(UP);
-
     await until('the command', () => ui.text().includes('┃ /mo'));
-
     assert.ok(!ui.text().includes('Choose model and reasoning'), ui.text());
-
     ui.stdin.write(UP);
-
     await until('the older prompt', () => ui.text().includes('┃ older'));
-
     ui.stdin.write(DOWN);
-
     await until('the command again', () => ui.text().includes('┃ /mo'));
-
     ui.stdin.write('\u001b[F');
-
     ui.stdin.write('d');
 
     await until('the list once edited', () =>
@@ -910,23 +723,14 @@ test('a conversation switch starts browsing again at the newest prompt as record
 
   try {
     await delay(60);
-
     ui.stdin.write('draft');
-
     await until('the draft', () => ui.text().includes('┃ draft'));
-
     ui.stdin.write(UP);
-
     await until('the newest prompt', () => ui.text().includes('┃ one'));
-
     ui.stdin.write(' edited');
-
     await until('the edit', () => ui.text().includes('┃ one edited'));
-
     ui.stdin.write(UP);
-
     await until('the older prompt', () => ui.text().includes('┃ two'));
-
     coordinator.publish({ conversation: { ...conversation, id: 'c2' } });
 
     await until('the next conversation', () =>
@@ -934,11 +738,8 @@ test('a conversation switch starts browsing again at the newest prompt as record
     );
 
     ui.stdin.write(DOWN);
-
     await delay(60);
-
     assert.ok(ui.text().includes('┃ Ask the agent'), ui.text());
-
     ui.stdin.write(UP);
 
     await until('the newest prompt as recorded', () =>
@@ -946,7 +747,6 @@ test('a conversation switch starts browsing again at the newest prompt as record
     );
 
     coordinator.publish({ conversation });
-
     await until('the draft back', () => ui.text().includes('┃ draft'));
   } finally {
     ui.unmount();
@@ -960,17 +760,11 @@ test('a draft holding an image marker, left for another conversation and back, d
 
   try {
     const original = coordinator.snapshot.conversation!.id;
-
     await until('the composer', () => ui.text().includes('┃ Ask the agent'));
-
     ui.stdin.write('look');
-
     await until('the draft', () => ui.text().includes('┃ look'));
-
     ui.stdin.write(paste);
-
     await until('the marker', () => ui.text().includes('┃ look [Image #1]'));
-
     await coordinator.newConversation();
 
     await until('the next conversation', () =>
@@ -984,15 +778,11 @@ test('a draft holding an image marker, left for another conversation and back, d
     );
 
     ui.stdin.write(ENTER);
-
     await until('the image prompt', () => a.inputs.length === 1);
-
     assert.deepEqual(turns(a), [['look [Image #1]', undefined]]);
-
     assert.deepEqual(await delivered(a.inputs[0]!.images), [bytes]);
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });

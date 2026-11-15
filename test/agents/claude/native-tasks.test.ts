@@ -69,11 +69,8 @@ test('native familiar model-only frames preserve task state', async () => {
     });
 
     assert.equal(current().runtime, 'claude');
-
     assert.equal(current().model, undefined);
-
     await emit(assistant('child-observed', thinking));
-
     assert.equal(current().model, 'child-observed');
 
     await emit(
@@ -92,11 +89,8 @@ test('native familiar model-only frames preserve task state', async () => {
     );
 
     assert.equal(current().model, 'changed-model');
-
     assert.equal(current().tools, 1);
-
     assert.equal(current().activity, 'Read  ./source.ts');
-
     assert.equal(current().report, 'Read complete.');
 
     await emit(
@@ -111,11 +105,8 @@ test('native familiar model-only frames preserve task state', async () => {
     );
 
     assert.equal(current().model, 'late-model');
-
     assert.equal(current().status, 'completed');
-
     assert.equal(current().report, 'Read complete.');
-
     assert.equal(f.session.info.model, 'parent-model');
 
     await emit({
@@ -128,13 +119,9 @@ test('native familiar model-only frames preserve task state', async () => {
     });
 
     assert.equal(current().model, undefined);
-
     await emit(assistant('resumed-model', thinking));
-
     assert.equal(current().model, 'resumed-model');
-
     assert.equal(current().tools, 0);
-
     assert.equal(current().report, undefined);
   } finally {
     await f.session.close();

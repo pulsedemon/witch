@@ -67,7 +67,6 @@ export class CommandBatches {
 
   close(): void {
     this.closed = true;
-
     this.cancel(false);
   }
 
@@ -98,7 +97,6 @@ export class CommandBatches {
 
         if (batch.next === batch.commands.length) {
           this.batches.shift();
-
           batch.release();
         }
       }

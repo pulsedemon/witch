@@ -8,7 +8,6 @@ import { promisify } from 'node:util';
 const execute = promisify(execFile);
 let parent: Promise<string> | undefined;
 let made: string | undefined;
-
 process.once('exit', cleanScratch);
 
 /** clean at file teardown because Vitest can stop workers without exit handlers. */
@@ -29,7 +28,6 @@ export async function scratch(prefix: string): Promise<string> {
 /** makes this process's parent, `witch-tests/<pid>-XXXXXX`, after removing those whose process is gone. */
 async function open(): Promise<string> {
   const base = join(await realpath(tmpdir()), 'witch-tests');
-
   await mkdir(base, { recursive: true });
 
   for (const name of await readdir(base)) {
@@ -38,11 +36,9 @@ async function open(): Promise<string> {
     if (pid === undefined || running(Number(pid))) continue;
 
     const dead = join(base, name);
-
     // a run killed between a test's chmod and its restore leaves directories rm can't enter.
     // another process may be removing the same tree, so chmod's errors are ignored; rm reports what's left
     await execute('/bin/chmod', ['-R', 'u+rwx', dead]).catch(() => {});
-
     await rm(dead, { recursive: true, force: true });
   }
 

@@ -38,7 +38,6 @@ for (const directory of [project, join(root, 'jobs'), join(root, 'tmp')])
 
 process.env.TMPDIR = join(root, 'tmp');
 process.env.CLAUDE_CODE_TMPDIR = join(root, 'tmp');
-
 await execute('git', ['init', '-b', 'main'], { cwd: project });
 
 await writeFile(
@@ -162,7 +161,6 @@ async function until(
     }
 
     assert.ok(Date.now() < deadline, 'Timeout: ' + label);
-
     await delay(100);
   }
 }
@@ -209,7 +207,6 @@ function command(name: string) {
 
 function send(prompt: string) {
   pending = coordinator.send(prompt);
-
   void pending.catch(() => {});
 }
 
@@ -237,7 +234,6 @@ try {
   });
 
   assert.equal(claim.kind, 'claimed');
-
   const review = command('opus-live');
 
   const server =
@@ -279,11 +275,8 @@ try {
   );
 
   await pending;
-
   const reviewers = coordinator.snapshot.subagents;
-
   assert.equal(reviewers.length, 2);
-
   assert.ok(reviewers.find((s) => s.runtime === 'claude')!.tools! >= 1);
 
   assert.match(
@@ -340,15 +333,12 @@ try {
     );
 
     const childIdentity = await identifyProcess(pid);
-
     assert.ok(childIdentity);
 
     if (mode === 'job-stop') {
       const group = Number((await ps('pgid=', [wrapper]))[0]!.trim());
       const job = (await jobs.list()).find((job) => job.group === group);
-
       assert.ok(job, 'registered review remains owned by jobs');
-
       await jobs.stop(job);
     } else
       process.kill(
@@ -383,16 +373,13 @@ try {
     );
 
     await pending;
-
     await capture(mode);
   }
 
   const serverPid = Number(await readFile(join(project, 'server.pid'), 'utf8'));
   const group = Number((await ps('pgid=', [serverPid]))[0]!.trim());
   const job = (await jobs.list()).find((job) => job.group === group);
-
   assert.ok(job);
-
   await jobs.stop(job);
 
   await until(
@@ -427,13 +414,10 @@ try {
 
   try {
     await pending?.catch(() => {});
-
     await coordinator.close();
   } finally {
     unsubscribe();
-
     jobs.close();
-
     application.unmount();
   }
 }

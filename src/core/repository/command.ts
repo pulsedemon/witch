@@ -80,7 +80,6 @@ async function cancellable(
     options.timeout > 0
       ? setTimeout(() => {
           timedOut = true;
-
           interrupt();
         }, options.timeout)
       : undefined;
@@ -139,9 +138,7 @@ async function cancellable(
     return output;
   } finally {
     clearTimeout(timer);
-
     signal.removeEventListener('abort', interrupt);
-
     child.off('exit', exited);
   }
 }

@@ -23,12 +23,10 @@ try {
 
         await new Promise<void>((resolve, reject) => {
           const stop = () => reject(abort.signal.reason);
-
           abort.signal.addEventListener('abort', stop, { once: true });
 
           void release.promise.then(() => {
             abort.signal.removeEventListener('abort', stop);
-
             resolve();
           });
         });

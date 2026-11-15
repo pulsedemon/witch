@@ -15,21 +15,15 @@ const execute = promisify(execFile);
 export async function fixture() {
   const root = await scratch('witch-memory-');
   const project = join(root, 'project');
-
   await mkdir(project);
-
   const hook = { current: passThrough };
   const memory = await seededMemory(join(root, 'memory.git'), hookedGit(hook));
 
   const open = async (id: string) => {
     const directory = join(root, 'conversations', id);
-
     await mkdir(directory, { recursive: true });
-
     const workspace = memory.workspace(directory, id);
-
     await workspace.ensureWorktree();
-
     const scope = await workspace.scope(project);
 
     return {
@@ -62,7 +56,6 @@ export async function save(
     if (text === null) await rm(file);
     else {
       await mkdir(join(file, '..'), { recursive: true });
-
       await writeFile(file, text);
     }
   }
@@ -80,9 +73,7 @@ export async function repository(
   origin?: string,
 ): Promise<string> {
   const path = join(root, name);
-
   await mkdir(path, { recursive: true });
-
   await git(path, 'init', '--quiet');
 
   if (origin) await git(path, 'remote', 'add', 'origin', origin);
