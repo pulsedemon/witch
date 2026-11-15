@@ -660,6 +660,87 @@ for (const point of ['initial', 'completion', 'receipt', 'lifetime'])
     );
   });
 
+for (const outcome of ['failure', 'cancel', 'success'])
+  test(`a checkout close failure after ${outcome} preserves error priority and releases the lock`, async () => {
+    const { install, rebuilt } = await installation();
+    const actual = files.open;
+    const fault = new Error('checkout close failed');
+
+    const reason = Object.assign(new Error('build failed'), {
+      stdout: 'distinct compiler diagnostic',
+    });
+
+    const abort = new AbortController();
+    let closed = false;
+    let closing: MockInstance | undefined;
+
+    const opening = vi
+      .spyOn(files, 'open')
+      .mockImplementation(async (...args) => {
+        const handle = await actual(...args);
+
+        if (String(args[0]) === join(install, '.git')) {
+          const close = handle.close.bind(handle);
+
+          closing = vi.spyOn(handle, 'close').mockImplementation(async () => {
+            await close();
+            closed = true;
+
+            throw fault;
+          });
+        }
+
+        return handle;
+      });
+
+    syncBuiltinESMExports();
+
+    try {
+      await assert.rejects(
+        refreshInstall(
+          install,
+          'main',
+          async (_, args) => {
+            if (args[0] === 'build') {
+              if (outcome === 'failure') throw reason;
+
+              if (outcome === 'cancel') {
+                abort.abort(reason);
+
+                throw reason;
+              }
+            }
+
+            return { stdout: '' };
+          },
+          { signal: abort.signal },
+        ),
+        (error) => {
+          if (outcome === 'cancel') return error === reason;
+
+          assert.ok(error instanceof Error);
+          assert.equal(error.cause, outcome === 'failure' ? reason : fault);
+
+          if (outcome === 'failure')
+            assert.match(error.message, /distinct compiler diagnostic/);
+
+          return true;
+        },
+      );
+
+      assert.equal(closed, true);
+    } finally {
+      opening.mockRestore();
+      closing?.mockRestore();
+      syncBuiltinESMExports();
+    }
+
+    assert.equal(
+      await refreshInstall(install, 'main', async () => ({ stdout: '' })),
+      rebuilt,
+    );
+  });
+
 for (const mode of ['acquisition', 'collision'])
   test(`receipt ${mode} failure removes only exclusively owned artifacts`, async () => {
     const root = await scratch('witch-rebuild-create-');

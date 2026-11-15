@@ -1370,6 +1370,8 @@ export async function refreshInstall(
         built: false,
       };
 
+    let failed = false;
+
     try {
       progress.root ??= await topLevel(git);
       progress.checkout ??= {};
@@ -1418,6 +1420,8 @@ export async function refreshInstall(
         built: true,
       };
     } catch (error) {
+      failed = true;
+
       if (error === signal?.reason && progress.checkout?.target)
         await reconcilePull(
           gitIn(root, AbortSignal.timeout(1000)),
@@ -1426,7 +1430,9 @@ export async function refreshInstall(
 
       throw error;
     } finally {
-      await lock.close();
+      await lock.close().catch((error: unknown) => {
+        if (!failed) throw error;
+      });
     }
   }
 }
