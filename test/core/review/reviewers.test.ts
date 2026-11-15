@@ -26,7 +26,6 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
   const root = await scratch('witch-reviewers-');
   const bin = join(root, 'bin');
-
   await mkdir(bin);
 
   await copyFile(
@@ -42,7 +41,6 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
   );
 
   await chmod(join(bin, 'codex'), 0o700);
-
   const prefix = coordination.commandPrefixes().familiar;
 
   /** a reviewer that runs in its own directory, so its fixture's `launched.json` names its native pid. */
@@ -52,9 +50,7 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
     mode = 'success',
   ): Promise<Reviewer & { directory: string }> => {
     const directory = join(root, name);
-
     await mkdir(directory);
-
     await writeFile(join(directory, 'brief.md'), 'Review plan.md.\n');
 
     const command = reviewerCommand({
@@ -128,11 +124,8 @@ test('a Witch-launched reviewer registers, reports and exits', async (t) => {
   );
 
   assert.equal(result!.code, 0);
-
   assert.equal(result!.status, 'completed');
-
   assert.equal(result!.model, 'claude-response');
-
   assert.equal(result!.report, 'Full review.\n'.repeat(7000));
 
   const entry = coordinator.snapshot.subagents.find(
@@ -176,7 +169,6 @@ test('an unexpected name falls through to the live session', async (t) => {
   );
 
   assert.equal(outcome.kind, 'familiar-registered');
-
   assert.deepEqual(forwarded, [[action, deadline]]);
 });
 
@@ -195,9 +187,7 @@ test('a familiar request fails the reviewer', async (t) => {
   );
 
   assert.notEqual(result!.code, 0);
-
   assert.equal(result!.status, 'failed');
-
   assert.match(result!.report, /runs read-only and cannot ask for anything/);
 });
 
@@ -217,7 +207,6 @@ test('a reviewer that cannot spawn ends the run with its launch error', async ()
   );
 
   assert.equal(result!.code, null);
-
   assert.match(result!.diagnostics ?? '', /spawn \/bin\/sh ENOENT/);
 });
 
@@ -257,13 +246,9 @@ test('late updates never reopen a finished reviewer', () => {
     });
 
   assert.deepEqual(update(1, 'completed'), { kind: 'familiar-updated' });
-
   assert.deepEqual(update(0, 'running'), { kind: 'familiar-updated' });
-
   assert.throws(() => update(2, 'running'), /already ended/);
-
   assert.deepEqual(events, ['running', 'completed']);
-
   controller.abort();
 
   return running;
@@ -295,19 +280,12 @@ test('a repeated registration is acknowledged again but published once, and anot
     });
 
   assert.deepEqual(register(run), { kind: 'familiar-registered' });
-
   assert.deepEqual(register(run), { kind: 'familiar-registered' });
-
   const other = randomUUID();
-
   assert.throws(() => register(other), /already registered/);
-
   assert.deepEqual(events, [`${run} running`]);
-
   assert.ok(reviewers.owns(`claude-familiar/${run}`));
-
   assert.ok(!reviewers.owns(`claude-familiar/${other}`));
-
   controller.abort();
 
   return running;
@@ -338,7 +316,6 @@ test("a command's stderr and a report read error come back as its diagnostics", 
 test('an aborted signal spawns nothing', async () => {
   const root = await scratch('witch-reviewers-');
   const controller = new AbortController();
-
   controller.abort();
 
   const results = await new Reviewers(() => {}).run({
@@ -354,7 +331,6 @@ test('an aborted signal spawns nothing', async () => {
   });
 
   assert.deepEqual(results, [{ code: null, report: '' }]);
-
   await assert.rejects(readFile(join(root, 'started')), { code: 'ENOENT' });
 });
 
@@ -393,7 +369,6 @@ test('cleanup waits while macOS answers EPERM for an exiting group', async () =>
     });
 
     assert.equal(result!.code, 0);
-
     assert.deepEqual(sent, ['SIGKILL', 0, 0, 0, 0]);
   } finally {
     spy.mockRestore();
@@ -460,7 +435,6 @@ test('a reviewer that outlives the stop deadline ends the run at the deadline', 
 
 test('an aborted reviewer behind a shell redirect gets its SIGTERM grace', async () => {
   const root = await scratch('witch-reviewers-');
-
   await writeFile(join(root, 'brief'), '');
 
   await writeFile(
@@ -498,9 +472,7 @@ setInterval(() => {}, 1000);
   );
 
   controller.abort();
-
   await within(running, 5000, 'the stop');
-
   assert.equal(await readFile(join(root, 'stopped'), 'utf8'), 'yes');
 });
 
@@ -532,7 +504,6 @@ test('an abort after the commands exit ends cleanup at its own deadline and stop
     });
 
     await until('the cleanup wait', () => sent.includes(0));
-
     controller.abort(new NativeStop({ deadline: performance.now() + 500 }));
 
     await assert.rejects(
@@ -542,11 +513,8 @@ test('an abort after the commands exit ends cleanup at its own deadline and stop
 
     // each poll probes once more as it wakes past the deadline
     await delay(300);
-
     const probes = sent.length;
-
     await delay(200);
-
     assert.equal(sent.length, probes);
   } finally {
     spy.mockRestore();
@@ -571,7 +539,6 @@ test('abort stops every reviewer', async (t) => {
   ];
 
   controller.abort();
-
   const results = await within(running, 10_000, 'the stop');
 
   for (const result of results) assert.notEqual(result.code, 0);
@@ -602,11 +569,8 @@ test('abort stops a native reviewer that ignores SIGTERM', async (t) => {
 
   const pid = await nativePid(stubborn.directory);
   const deadline = performance.now() + 1500;
-
   controller.abort(new NativeStop({ deadline }));
-
   await within(running, 3000, 'the deadline stop');
-
   assert.equal(alive(pid), false);
 });
 
@@ -645,11 +609,8 @@ test('a killed reviewer gets a terminal event and no survivor', async (t) => {
     if (member !== pid) process.kill(member, 'SIGKILL');
 
   const [result] = await within(running, 10_000, 'the killed reviewer');
-
   assert.equal(result!.status, 'failed');
-
   assert.match(result!.diagnostics ?? '', /^killed by SIGKILL$/m);
-
   assert.equal(alive(pid), false);
 
   assert.equal(
@@ -683,17 +644,11 @@ test("a native session closing leaves Witch's reviewers running", async (t) => {
     coordinator.snapshot.subagents.find(({ name }) => name === held.name);
 
   await until('registration', () => entry()?.status === 'running', 500);
-
   a.sessions[0]!.options.onEvent({ type: 'closed' });
-
   assert.equal(entry()?.status, 'running');
-
   await writeFile(join(held.directory, 'exit'), '');
-
   const [result] = await within(running, 30_000, 'the held reviewer');
-
   assert.equal(result!.status, 'completed');
-
   assert.equal(entry()?.status, 'completed');
 
   const end = coordinator.snapshot.items.find(

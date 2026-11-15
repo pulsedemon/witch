@@ -67,7 +67,6 @@ export async function startActivity(
   scope?: MemoryScope,
 ): Promise<{ activity: Activity; scope: MemoryScope; notice?: string }> {
   scope ??= await workspace.memory.scopePaths(conversation.cwd);
-
   await workspace.ensureWorktree();
 
   const { ledger, former, notices } = await movedDirectories(

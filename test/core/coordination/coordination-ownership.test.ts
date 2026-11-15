@@ -42,13 +42,9 @@ test('a live legacy owner blocks new work until its lock closes, and a reused id
   const choosing = await selectionTurn(cleanup, a);
   const { ticket } = await choosing.select();
   const legacy = record(randomUUID(), join(root, 'B'));
-
   await (await store.create(legacy)).close();
-
   const lock = await legacyLock(store, legacy.id);
-
   cleanup(() => lock.close());
-
   const snapshot = await a.query();
 
   assert.deepEqual(
@@ -64,13 +60,9 @@ test('a live legacy owner blocks new work until its lock closes, and a reused id
   if (waiting.kind !== 'error') assert.fail(JSON.stringify(waiting));
 
   assert.match(waiting.message, /unregistered/);
-
   const blocked = await a.claim();
-
   assert.equal(blocked.kind, 'error');
-
   assert.deepEqual(await registry.claims(), []);
-
   const own = (await registry.presences())[0]!;
 
   await registry.publish({
@@ -86,9 +78,7 @@ test('a live legacy owner blocks new work until its lock closes, and a reused id
   );
 
   await lock.close();
-
   assert.equal((await a.claim()).kind, 'claimed');
-
   assert.deepEqual((await a.query()).peers, []);
 });
 
@@ -104,13 +94,9 @@ for (const name of ['B', 'C']) {
     const cwd = join(root, name);
     const { project } = await memory.scopePaths(cwd);
     const legacy = record(randomUUID(), cwd);
-
     await (await store.create(legacy)).close();
-
     const lock = await legacyLock(store, legacy.id);
-
     cleanup(() => lock.close());
-
     const reference = 'https://github.com/acme/queue/issues/17';
 
     const held = await registry.claim(
@@ -122,9 +108,7 @@ for (const name of ['B', 'C']) {
     );
 
     await files.rename(cwd, `${cwd}-moved`);
-
     const snapshot = await a.query();
-
     assert.deepEqual(snapshot.unregistered, []);
 
     assert.deepEqual(
@@ -137,7 +121,6 @@ for (const name of ['B', 'C']) {
     if (duplicate.kind !== 'conflict') assert.fail(JSON.stringify(duplicate));
 
     assert.deepEqual(duplicate.claim, held);
-
     const available = await a.claim('task:available');
 
     if (available.kind !== 'claimed') assert.fail(JSON.stringify(available));
@@ -150,15 +133,10 @@ for (const name of ['B', 'C']) {
     });
 
     assert.equal(released.kind, 'released');
-
     const selection = await choosing.select();
-
     assert.equal(selection.position, 1);
-
     assert.deepEqual((await registry.state()).selections, [selection.ticket]);
-
     assert.deepEqual(await registry.claims(), [held]);
-
     assert.equal(await store.isOpen(legacy.id), true);
   });
 }
@@ -177,13 +155,9 @@ for (const failure of [
     const choosing = await selectionTurn(cleanup, a);
     const cwd = join(root, 'B');
     const legacy = record(randomUUID(), cwd);
-
     await (await store.create(legacy)).close();
-
     const lock = await legacyLock(store, legacy.id);
-
     cleanup(() => lock.close());
-
     const scopePaths = memory.scopePaths.bind(memory);
     const error = Object.assign(new Error('Cannot determine project'), failure);
 
@@ -192,7 +166,6 @@ for (const failure of [
     );
 
     const query = await callControl(await a.binding(), { kind: 'peers' });
-
     assert.equal(query.kind, 'error');
 
     if (query.kind === 'error')
@@ -206,7 +179,6 @@ for (const failure of [
     });
 
     assert.equal(selection.kind, 'error');
-
     assert.deepEqual(await registry.state(), { claims: [], selections: [] });
   });
 }
@@ -219,7 +191,6 @@ test('closing a conversation releases its claim even if its stale presence says 
     b = await start('B');
 
   const result = await a.claim();
-
   assert.equal(result.kind, 'claimed');
 
   const stale = (await registry.presences()).find(
@@ -227,15 +198,10 @@ test('closing a conversation releases its claim even if its stale presence says 
   )!;
 
   await a.coordinator.close();
-
   await registry.publish(stale);
-
   const snapshot = await b.query();
-
   assert.deepEqual(snapshot.peers, []);
-
   assert.deepEqual(snapshot.reservations, []);
-
   assert.equal((await b.claim()).kind, 'claimed');
 });
 
@@ -272,7 +238,6 @@ test('a failed presence removal cannot register a later legacy lock owner', asyn
 
   try {
     assert.equal((await b.claim('task:other')).kind, 'error');
-
     const snapshot = await b.query();
 
     assert.deepEqual(
@@ -281,7 +246,6 @@ test('a failed presence removal cannot register a later legacy lock owner', asyn
     );
 
     assert.ok(snapshot.peers.every((p) => p.presence.id !== old.conversation));
-
     assert.deepEqual(await registry.claims(), []);
   } finally {
     await legacy.close();
@@ -348,7 +312,6 @@ for (const window of ['opening', 'closing', 'reconnecting'] as const) {
       });
 
       assert.equal(await store.isOpen(held()), true);
-
       assert.deepEqual((await a.query()).unregistered, []);
 
       const waiting = await callControl(choosing.binding, {
@@ -357,11 +320,9 @@ for (const window of ['opening', 'closing', 'reconnecting'] as const) {
       });
 
       assert.equal(waiting.kind, 'selection', JSON.stringify(waiting));
-
       assert.equal((await a.claim(`task:${window}`)).kind, 'claimed');
     } finally {
       gate.resolve();
-
       await pending;
     }
   });
@@ -369,9 +330,7 @@ for (const window of ['opening', 'closing', 'reconnecting'] as const) {
 
 test('unknown discovery refuses both a successful query and new ownership', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const { start, store, registry } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const id = randomUUID();
@@ -382,9 +341,7 @@ test('unknown discovery refuses both a successful query and new ownership', asyn
   );
 
   cleanup(() => held.close());
-
   await files.writeFile(join(directory, 'state.json'), '{broken');
-
   const bound = await a.binding();
 
   const query = await measureControl(vi.spyOn, () =>
@@ -392,25 +349,15 @@ test('unknown discovery refuses both a successful query and new ownership', asyn
   );
 
   assert.equal(query.value.kind, 'error');
-
   assert.equal(query.discoveries, 1);
-
   const attempt = await measureControl(vi.spyOn, () => a.claim());
-
   assert.equal(attempt.value.kind, 'error');
-
   assert.equal(attempt.discoveries, 1);
-
   assert.deepEqual(await registry.claims(), []);
-
   const context = await a.coordination.context();
-
   assert.match(context.context, /Coordination is unavailable/);
-
   assert.match(context.context, /No selection turn is current/);
-
   assert.doesNotMatch(context.context, /When asked to choose/);
-
   assert.match(context.instructions, /When asked to choose/);
 });
 
@@ -424,7 +371,6 @@ test('an origin change leaves a discoverable reservation in the original project
     b = await start('B');
 
   const result = await a.claim();
-
   assert.equal(result.kind, 'claimed');
 
   if (result.kind !== 'claimed') assert.fail();
@@ -442,11 +388,8 @@ test('an origin change leaves a discoverable reservation in the original project
   );
 
   const refused = await a.claim('task:new', 'New project');
-
   assert.equal(refused.kind, 'error');
-
   assert.equal(await ledger(), before);
-
   assert.deepEqual((await a.query()).ownClaim, result.claim);
 
   // presence republishes on a 100 ms timer after the origin change
@@ -459,7 +402,6 @@ test('an origin change leaves a discoverable reservation in the original project
   );
 
   const observer = await b.query();
-
   assert.deepEqual(observer.peers, []);
 
   assert.deepEqual(observer.reservations, [
@@ -473,7 +415,6 @@ test('an origin change leaves a discoverable reservation in the original project
   );
 
   const next = await a.claim('task:new');
-
   assert.equal(next.kind, 'claimed');
 
   if (next.kind !== 'claimed') assert.fail();
@@ -526,7 +467,6 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
 
   try {
     await within(waiting.promise, 5000, 'request waiting on lock');
-
     // project reads that crawl, as under other suites' spawn load, can't hold a closing session's refusal past the deadline
     const scope = Memory.prototype.scopePaths;
 
@@ -540,21 +480,14 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
     });
 
     closing = a.coordinator.close();
-
     await lock.close();
-
     assert.equal((await attempt).kind, 'error');
-
     reads.resolve();
-
     await within(closing, 5000, 'close');
-
     assert.deepEqual(await registry.claims(), []);
   } finally {
     reads.resolve();
-
     await lock.close();
-
     await Promise.allSettled([attempt, closing]);
   }
 
@@ -569,7 +502,6 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
     async (...args: Parameters<typeof files.rename>) => {
       if (String(args[1]).endsWith('/coordination/claims.json')) {
         entered.resolve();
-
         await finish.promise;
       }
 
@@ -581,7 +513,6 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
 
   cleanup(() => {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   });
 
@@ -590,7 +521,6 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
 
   try {
     await within(entered.promise, 5000, 'commit boundary');
-
     let closed = false;
 
     draining = b.coordinator.close().then(() => {
@@ -598,21 +528,14 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
     });
 
     await delay(50);
-
     assert.equal(closed, false);
-
     finish.resolve();
-
     assert.equal((await committing).kind, 'claimed');
-
     await within(draining, 5000, 'commit drain');
-
     assert.deepEqual(await registry.claims(), []);
-
     assert.deepEqual(await registry.presences(), []);
   } finally {
     finish.resolve();
-
     await Promise.allSettled([committing, draining]);
   }
 });
@@ -636,9 +559,7 @@ test('a delayed presence writer drains before replacement activation publishes',
     ) {
       if (!held && presence.activation === bound.activation) {
         held = true;
-
         entered.resolve();
-
         await finish.promise;
       }
 
@@ -666,19 +587,12 @@ test('a delayed presence writer drains before replacement activation publishes',
     });
 
     await within(entered.promise, 3000, 'delayed presence write');
-
     switching = a.coordinator.newConversation();
-
     await within(deactivating.promise, 5000, 'old activation deactivating');
-
     assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
-
     finish.resolve();
-
     await switching;
-
     const next = await a.binding();
-
     assert.notEqual(next.activation, bound.activation);
 
     assert.deepEqual(
@@ -687,13 +601,10 @@ test('a delayed presence writer drains before replacement activation publishes',
     );
 
     await a.coordinator.close();
-
     await delay(150);
-
     assert.deepEqual(await registry.presences(), []);
   } finally {
     finish.resolve();
-
     await switching?.catch(() => {});
   }
 });
@@ -703,7 +614,6 @@ for (const size of [1, 8])
     'discovery probe counts stay bounded with ' + size + ' owner groups',
     async (t) => {
       const cleanup = orderedCleanup(t.onTestFinished);
-
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
 
       const { root, start, store, registry } =
@@ -732,25 +642,19 @@ for (const size of [1, 8])
 
         cleanup(async () => {
           child.kill();
-
           await ended;
         });
 
         await once(child, 'spawn');
-
         const identity = (await identifyProcess(child.pid!))!;
 
         for (const duplicate of [false, true]) {
           const id = 'peer-' + index + '-' + duplicate;
           const held = await store.create(record(id, join(root, 'B')));
-
           cleanup(() => held.close());
-
           expectedOpenStatePaths.add(join(held.directory, 'state.json'));
-
           const activation = randomUUID();
           const release = await registry.holdActivation(activation);
-
           cleanup(release);
 
           await registry.publish({
@@ -784,9 +688,7 @@ for (const size of [1, 8])
 
         const id = 'legacy-' + index;
         const held = await store.create(record(id, join(root, 'B')));
-
         cleanup(() => held.close());
-
         expectedOpenStatePaths.add(join(held.directory, 'state.json'));
 
         const legacy = {
@@ -798,7 +700,6 @@ for (const size of [1, 8])
         };
 
         claims.push(legacy);
-
         legacyClaims.push(legacy);
 
         tickets.push({
@@ -862,7 +763,6 @@ for (const size of [1, 8])
       const probes = await countProbes(() => a.coordination.context()).finally(
         () => {
           reading.mockRestore();
-
           syncBuiltinESMExports();
         },
       );
@@ -890,11 +790,8 @@ for (const size of [1, 8])
       );
 
       assert.ok(probes.ps <= 3, probes.ps + ' process probes');
-
       assert.ok(probes.perl <= 6, probes.perl + ' lock probes');
-
       assert.deepEqual(new Set(readStatePaths), expectedOpenStatePaths);
-
       assert.equal(readStatePaths.length, expectedOpenStatePaths.size);
     },
   );
@@ -930,7 +827,6 @@ for (const damage of ['JSON', 'EACCES'])
 
           const id = randomUUID();
           const held = await store.create(record(id, join(root, 'B')));
-
           cleanup(() => held.close());
 
           if (!locked) await held.close();
@@ -940,7 +836,6 @@ for (const damage of ['JSON', 'EACCES'])
           if (damage === 'JSON') await files.writeFile(path, '{broken');
           else {
             await files.chmod(path, 0);
-
             cleanup(() => files.chmod(path, 0o600));
           }
 
@@ -972,9 +867,7 @@ for (const damage of ['JSON', 'EACCES'])
             if (result.kind !== 'error') assert.fail(JSON.stringify(result));
 
             assert.match(result.message, /Cannot determine session ownership/);
-
             assert.ok(result.message.includes(id + '/state.json'));
-
             assert.equal(await ledger(), before);
           } else if (action === 'select-next') {
             if (result.kind !== 'selection')
@@ -999,7 +892,6 @@ for (const damage of ['JSON', 'EACCES'])
             );
 
             assert.deepEqual((await registry.state()).claims, [result.claim]);
-
             assert.deepEqual((await registry.state()).selections, []);
           }
         },

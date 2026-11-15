@@ -6,7 +6,6 @@ import { scratch } from './scratch.js';
 
 export const write = async (path: string, text: string) => {
   await mkdir(dirname(path), { recursive: true });
-
   await writeFile(path, text);
 };
 
@@ -29,9 +28,7 @@ export async function merged(
   const checkout = join(root, 'checkout');
   const other = join(root, 'other');
   const main = worktree ? launcher : checkout;
-
   await git(root, 'init', '--bare', origin);
-
   await git(root, 'clone', origin, main);
 
   await write(
@@ -43,9 +40,7 @@ export async function merged(
     await write(join(main, name), text);
 
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'base');
-
   await git(main, 'push', '-u', 'origin', 'main');
 
   if (worktree)
@@ -53,13 +48,9 @@ export async function merged(
   else await git(checkout, 'switch', '-c', 'feat/x');
 
   await write(join(checkout, 'x.txt'), 'x\n');
-
   await git(checkout, 'add', '.');
-
   await git(checkout, 'commit', '-m', 'x');
-
   await git(checkout, 'push', '-u', 'origin', 'feat/x');
-
   await git(root, 'clone', origin, other);
 
   return {

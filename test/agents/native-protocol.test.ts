@@ -71,7 +71,6 @@ for (const runtime of ['codex', 'claude'] as const) {
 
       const launch = () => {
         const child = replay.launch();
-
         captures.push(observeWire(child));
 
         return child;
@@ -131,7 +130,6 @@ for (const runtime of ['codex', 'claude'] as const) {
 
         for (const capture of captures) {
           await capture.finished();
-
           const approvals = new Map<string | number, string>();
 
           for (const frame of capture.frames) {
@@ -146,7 +144,6 @@ for (const runtime of ['codex', 'claude'] as const) {
 
             if (frame.direction === 'client' && message.method) {
               contract.client(frame.message);
-
               requests.push(message);
             } else if (
               frame.direction === 'client' &&
@@ -269,7 +266,6 @@ test('selected skills and child reads send native-shaped requests and consume th
     onClient(message) {
       if (message.method) {
         contract.client(message);
-
         requests.push(message);
       }
     },
@@ -316,7 +312,6 @@ test('images go to Codex as native localImage items after the text and selected 
     onClient(message) {
       if (message.method) {
         contract.client(message);
-
         sent.push(message);
       }
     },
@@ -357,9 +352,7 @@ test('images go to Codex as native localImage items after the text and selected 
     ]);
 
     await writeFile(join(f.cwd, 'release'), 'yes');
-
     await within(f.session.interrupt(), 2000, 'interrupt');
-
     assert.equal((await turn).status, 'interrupted');
   } finally {
     await close(f.session, f.cwd);
@@ -394,7 +387,6 @@ for (const [prompt, method, response] of [
           if (message.method) contract.client(message);
           else if (message.result !== undefined) {
             contract.response(method, message.result);
-
             replies.push(message.result);
           }
         },
@@ -403,13 +395,9 @@ for (const [prompt, method, response] of [
 
     try {
       const sending = f.session.send(prompt);
-
       await until('native request', () => pending !== undefined);
-
       f.session.respond(pending!.id, response);
-
       assert.equal((await sending).status, 'completed');
-
       assert.equal(replies.length, 1);
     } finally {
       await close(f.session, f.cwd);
@@ -425,7 +413,6 @@ test('a restricted Codex fork and its structured reply use the generated native 
     onClient(message) {
       if (message.method) {
         contract.client(message);
-
         requests.push(message);
       }
     },
@@ -484,16 +471,13 @@ test('a compaction window change unsubscribes and resumes through the generated 
       if (!message.method) return;
 
       contract.client(message);
-
       requests.push(message);
-
       sent.push(message.method);
     },
   });
 
   try {
     sent.length = 0;
-
     await f.session.selectModel('model-b');
 
     assert.deepEqual(sent, [
@@ -576,7 +560,6 @@ test('removing an optional native field rejects the production request that send
     .runtimeWorkspaceRoots;
 
   const request = requests.find(({ method }) => method === 'thread/start');
-
   assert.ok(request);
 
   assert.throws(
@@ -585,7 +568,6 @@ test('removing an optional native field rejects the production request that send
   );
 
   const turn = requests.find(({ method }) => method === 'turn/start');
-
   assert.ok(turn);
 
   const input = changed.definitions.v2.UserInput.oneOf.find(
@@ -623,7 +605,6 @@ test('a recorded Claude result stays pending until its recorded native idle arri
   );
 
   assert.ok(idle > 0);
-
   const replay = replayWire(files, cwd, { gates: [[idle]], fragmentBytes: 7 });
   let capture: ReturnType<typeof observeWire>;
 
@@ -703,13 +684,10 @@ test('a recorded Claude result stays pending until its recorded native idle arri
     );
   } finally {
     replay.release(0);
-
     await running.catch(() => {});
   }
 
   await running;
-
   assert.equal(completed, true);
-
   await replay.finished();
 });

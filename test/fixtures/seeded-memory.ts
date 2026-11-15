@@ -12,7 +12,6 @@ export async function seededMemory(
   runner?: GitRunner,
 ): Promise<Memory> {
   template ??= build();
-
   await cp(await template, root, { recursive: true });
 
   return new Memory(root, runner);

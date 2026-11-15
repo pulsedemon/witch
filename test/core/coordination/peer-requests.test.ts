@@ -76,11 +76,8 @@ test('concurrent writers keep every change', async () => {
   );
 
   assert.equal(stored.size, 3);
-
   assert.equal(stored.get('first')!.answer?.message, 'answer one');
-
   assert.equal(stored.get('second')!.answer?.message, 'answer two');
-
   assert.equal(stored.get('third')!.answer, undefined);
 
   for (const request of stored.values()) assert.ok(request.attemptedAt);
@@ -143,9 +140,7 @@ test('batch answers validate every addressee before committing any answer', asyn
   );
 
   assert.equal(stored.get(first.id), 'first answer');
-
   assert.equal(stored.get(second.id), 'second answer');
-
   assert.equal(stored.get(foreign.id), undefined);
 });
 
@@ -217,7 +212,6 @@ test('automatic batches preserve existing replies while validating every pending
   );
 
   assert.deepEqual(stored.get(first.id), manual);
-
   assert.equal(stored.get(second.id)!.answer?.message, 'automatic second');
 
   await assert.rejects(
@@ -247,7 +241,6 @@ test('a repeated ask matches the asker, the claim and the text', async () => {
   );
 
   assert.equal((await ask(a, claimB.id)).id, first.id);
-
   assert.equal(new Set([first.id, toC.id, fromC.id, other.id]).size, 4);
 
   assert.deepEqual(
@@ -298,7 +291,6 @@ test('an attempted request is not admitted again', async () => {
   );
 
   assert.equal(repeated.id, request.id);
-
   assert.equal(repeated.attemptedAt, first.attempted[0]!.attemptedAt);
 
   assert.deepEqual(
@@ -332,7 +324,6 @@ test('answers are single and addressed', async () => {
   );
 
   const [stored] = await store!.peerRequests(project, 'a');
-
   assert.equal(stored!.answer?.message, 'first answer');
 });
 
@@ -349,19 +340,12 @@ test('status follows the claim id', async () => {
   );
 
   const taken = await store!.askPeer(c, owned.id, 'taken', deadline(), verify);
-
   assert.equal(peerRequestStatus(waiting, await store!.claims()), 'pending');
-
   await store!.attemptPeerRequests(project, 'b', deadline(), verify);
-
   const late = await store!.askPeer(a, owned.id, 'late', deadline(), verify);
-
   await store!.release(b, owned.id, deadline(), verify);
-
   const reclaimed = await claim(store!, b, 'b');
-
   assert.notEqual(reclaimed.id, owned.id);
-
   const claims = await store!.claims();
 
   const stored = new Map(
@@ -419,7 +403,6 @@ test('requests are isolated by project and party', async () => {
   );
 
   assert.deepEqual(await store!.peerRequests(project, 'c'), []);
-
   assert.deepEqual(await store!.peerRequests('projects/q', 'a'), []);
 
   assert.deepEqual(
@@ -450,12 +433,8 @@ test('a batch whose requests already have answers writes nothing, even past its 
 
   const before = store.signature();
   const answers = [{ id: request.id, message: 'automatic' }];
-
   assert.deepEqual(await store.answerPeers('b', answers, deadline(), true), []);
-
   assert.equal(store.signature(), before);
-
   expireAfterLock();
-
   assert.deepEqual(await store.answerPeers('b', answers, deadline(), true), []);
 });

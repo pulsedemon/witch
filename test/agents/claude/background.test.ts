@@ -27,9 +27,7 @@ async function commandReply(f: Awaited<ReturnType<typeof background>>) {
   const command = "printf 'once\\n' >> executions; printf 'command-output\\n'";
   const prompt = `!${command}\n\nReply without running it again.`;
   const record = `<bash-input>${command}</bash-input>\n<bash-stdout>command-output\n</bash-stdout><bash-stderr></bash-stderr>`;
-
   assert.equal(await f.session.steer(prompt, { command }), true);
-
   let uuid = '';
 
   await until('command reply input', async () => {
@@ -67,9 +65,7 @@ test('without session state a result finishes the turn and reports missing track
     });
 
     const next = f.session.send('next');
-
     await until('next input', async () => (await f.inputs()).length === 2);
-
     await f.emit(result('Second answer.', [(await f.inputs())[1]!.uuid!]));
 
     assert.deepEqual(await within(next, 2000, 'next result'), {
@@ -94,20 +90,13 @@ test('a session state received between turns makes subsequent results wait for i
 
   try {
     await f.emit(result('First answer.', [f.initial]));
-
     await within(f.turn, 2000, 'first result');
-
     await f.emit(state('running'));
-
     const next = f.session.send('next');
     const isSettled = settled(next);
-
     await until('next input', async () => (await f.inputs()).length === 2);
-
     await f.emit(result('Second answer.', [(await f.inputs())[1]!.uuid!]));
-
     assert.equal(isSettled(), false);
-
     await f.emit(state('idle'));
 
     assert.deepEqual(await within(next, 2000, 'native idle'), {
@@ -127,14 +116,10 @@ test('Claude Code running on its own between turns is reported until it is idle 
 
   try {
     await f.emit(result('First answer.'), state('idle'));
-
     await within(f.turn, 2000, 'first turn');
-
     const before = reported().length;
-
     // as Claude Code does when a brew ends after idle
     await f.emit(state('running'), result('Brewed.'), state('idle'));
-
     assert.deepEqual(reported().slice(before), [true, false]);
   } finally {
     await f.session.close();
@@ -146,21 +131,14 @@ test("a prompt sent while Claude Code runs on its own settles on its own result,
 
   try {
     await f.emit(state('idle'));
-
     await within(f.turn, 2000, 'first turn');
-
     await f.emit(state('running'));
-
     const next = f.session.send('next');
     const isSettled = settled(next);
-
     await until('next input', async () => (await f.inputs()).length === 2);
-
     const uuid = (await f.inputs())[1]!.uuid!;
-
     // as captured, the run's own result names no input
     await f.emit(lifecycle(uuid, 'queued'), result('Brewed.'), state('idle'));
-
     assert.equal(isSettled(), false);
 
     await f.emit(
@@ -197,7 +175,6 @@ for (const task_type of ['local_agent', 'local_workflow'])
         );
 
         assert.equal(f.completions(), 0);
-
         assert.equal(f.session.replied, true);
 
         await f.emit(
@@ -254,11 +231,8 @@ test('without session state a stale workflow notification cannot release the cur
     };
 
     await f.emit({ ...notification, run_id: '1' });
-
     assert.equal(f.completions(), 0);
-
     assert.equal(f.session.replied, true);
-
     await f.emit({ ...notification, run_id: '2' });
 
     assert.deepEqual(await within(f.turn, 2000, 'current workflow'), {
@@ -284,11 +258,8 @@ test('without session state an accepted follow-up with no task needs consumption
     );
 
     assert.equal(f.completions(), 0);
-
     await f.emit(lifecycle(uuid, 'started'));
-
     assert.equal(f.completions(), 0);
-
     await f.emit(result('Follow-up answer.', [uuid]));
 
     assert.deepEqual(await within(f.turn, 2000, 'follow-up result'), {
@@ -321,9 +292,7 @@ test('a workflow can hold a normal turn beyond the shutdown budget', async () =>
     );
 
     await delay(8100);
-
     assert.equal(f.completions(), 0);
-
     assert.equal(f.session.closed, false);
 
     await f.emit({
@@ -364,12 +333,10 @@ for (const commandFirst of [false, true])
         "printf 'once\\n' >> executions; touch command-started; while [ ! -e command-release ]; do sleep 0.02; done; printf output";
 
       assert.equal(await f.session.steer('command reply', { command }), true);
-
       await appears(join(f.cwd, 'command-started'), 'shell start');
 
       if (commandFirst) {
         await writeFile(join(f.cwd, 'command-release'), '');
-
         await until('reply input', async () => (await f.inputs()).length === 2);
       }
 
@@ -386,9 +353,7 @@ for (const commandFirst of [false, true])
 
       if (!commandFirst) {
         assert.equal((await f.inputs()).length, 1);
-
         await writeFile(join(f.cwd, 'command-release'), '');
-
         await until('reply input', async () => (await f.inputs()).length === 2);
       }
 
@@ -400,9 +365,7 @@ for (const commandFirst of [false, true])
       );
 
       await f.emit(lifecycle(input.uuid!, 'started'));
-
       assert.equal(f.completions(), 0);
-
       await f.emit(result('Command answer.', [input.uuid!]));
 
       assert.deepEqual(await within(f.turn, 2000, 'command reply result'), {
@@ -411,7 +374,6 @@ for (const commandFirst of [false, true])
       });
 
       assert.equal((await f.inputs()).length, 2);
-
       assert.equal(await readFile(join(f.cwd, 'executions'), 'utf8'), 'once\n');
     } finally {
       await f.session.close();
@@ -423,13 +385,9 @@ test('a steered command reply waits for consumption and a fresh result', async (
 
   try {
     const { uuid } = await commandReply(f);
-
     await f.emit(state('idle'));
-
     assert.equal(f.completions(), 0, 'idle must retain the command reply');
-
     await f.emit(state('running'), lifecycle(uuid, 'started'), state('idle'));
-
     assert.equal(f.completions(), 0, 'consumption must clear the old result');
 
     await f.emit(
@@ -444,9 +402,7 @@ test('a steered command reply waits for consumption and a fresh result', async (
     });
 
     assert.equal(f.completions(), 1);
-
     assert.equal((await f.inputs()).length, 2);
-
     assert.equal(await readFile(join(f.cwd, 'executions'), 'utf8'), 'once\n');
   } finally {
     await f.session.close();
@@ -459,9 +415,7 @@ for (const singular of [false, true]) {
 
     try {
       const { uuid } = await commandReply(f);
-
       await f.emit(result('Unrelated.', [randomUUID()]), state('idle'));
-
       assert.equal(f.completions(), 0);
 
       await f.emit(
@@ -490,13 +444,9 @@ test('a refused steered command reply fails the Witch turn', async () => {
 
   try {
     const { uuid } = await commandReply(f);
-
     await f.emit(lifecycle(uuid, 'refused'), state('idle'));
-
     const outcome = await within(f.turn, 2000, 'refused command reply');
-
     assert.equal(outcome.status, 'failed');
-
     assert.equal(outcome.error, 'Claude refused a prompt');
   } finally {
     await f.session.close();
@@ -508,21 +458,13 @@ test('an interrupted command reply recovers output without replaying the command
 
   try {
     const { record } = await commandReply(f);
-
     await f.steer('ordinary follow-up');
-
     await within(f.session.interrupt(), 3000, 'interrupt');
-
     const outcome = await within(f.turn, 2000, 'interrupted command reply');
-
     assert.equal(outcome.status, 'interrupted');
-
     assert.deepEqual(outcome.unread, ['ordinary follow-up']);
-
     assert.deepEqual(outcome.unreadContext, [record]);
-
     assert.equal(f.session.closed, true);
-
     assert.equal(await readFile(join(f.cwd, 'executions'), 'utf8'), 'once\n');
   } finally {
     await f.session.close();
@@ -548,9 +490,7 @@ for (const task of [undefined, 'mcp_task', 'remote_agent', 'monitor_mcp']) {
         });
 
       assert.equal(f.session.replied, false);
-
       const uuid = await f.steer('follow-up');
-
       await f.emit(state('idle'), lifecycle(uuid, 'queued'));
 
       assert.equal(
@@ -596,11 +536,8 @@ test('malformed lifecycle frames do not consume a pending prompt', async () => {
 
   try {
     const uuid = await f.steer('follow-up');
-
     await f.emit(lifecycle(uuid, 'invalid-state'), state('idle'));
-
     assert.equal(f.completions(), 0);
-
     assert.equal(f.session.closed, false);
 
     await f.emit(
@@ -642,11 +579,8 @@ test('each steered prompt needs its own main-session consumption evidence', asyn
     );
 
     assert.equal(f.completions(), 0, 'B cannot account for A');
-
     await f.emit(state('running'), lifecycle(a, 'started'), state('idle'));
-
     assert.equal(f.completions(), 0, "A cannot use B's preceding result");
-
     await f.emit(state('running'), result('Answer A.', [a]), state('idle'));
 
     assert.deepEqual(await within(f.turn, 2000, 'both inputs'), {
@@ -668,7 +602,6 @@ test('a steered prompt that starts with / goes client_composed, and a steered co
 
   try {
     await f.steer('  /var/folders/xx/a.png\nwhat is this');
-
     await f.steer('/clear');
 
     assert.equal(
@@ -704,9 +637,7 @@ for (const singular of [false, true]) {
 
     try {
       const uuid = await f.steer('correlated');
-
       await f.emit(result('Unrelated.', [randomUUID()]), state('idle'));
-
       assert.equal(f.completions(), 0);
 
       await f.emit(
@@ -753,11 +684,8 @@ for (const [laterReport, error] of [
         await f.emit(result('Background success.', [randomUUID()]));
 
       await f.emit(state('idle'));
-
       const outcome = await within(f.turn, 2000, 'failed follow-up');
-
       assert.equal(outcome.status, 'failed');
-
       assert.equal(outcome.error, error);
     } finally {
       await f.session.close();
@@ -771,17 +699,11 @@ for (const disposition of ['refused', 'discarded', 'cancelled']) {
 
     try {
       const uuid = await f.steer('rejected follow-up');
-
       await f.emit(state('idle'));
-
       assert.equal(f.completions(), 0);
-
       await f.emit(lifecycle(uuid, disposition));
-
       const outcome = await within(f.turn, 2000, 'input disposition');
-
       assert.equal(outcome.status, 'failed');
-
       assert.match(outcome.error!, new RegExp(disposition));
 
       assert.deepEqual(
@@ -800,9 +722,7 @@ test('context updates retain consumption tracking without returning as unread us
   try {
     const text = 'Witch coordination update: claim checks are required';
     const context = await f.steer(text, { contextOnly: true });
-
     await f.emit(state('idle'));
-
     assert.equal(f.completions(), 0);
 
     await f.emit(
@@ -812,9 +732,7 @@ test('context updates retain consumption tracking without returning as unread us
     );
 
     const user = await f.steer('Real user follow-up');
-
     await f.emit(state('idle'));
-
     assert.equal(f.completions(), 0);
 
     await writeFile(
@@ -823,15 +741,10 @@ test('context updates retain consumption tracking without returning as unread us
     );
 
     await within(f.session.interrupt(), 2000, 'mixed-input interrupt');
-
     const outcome = await f.turn;
-
     assert.equal(outcome.status, 'interrupted');
-
     assert.deepEqual(outcome.unread, ['Real user follow-up']);
-
     assert.deepEqual(outcome.unreadContext ?? [], []);
-
     assert.equal(f.session.closed, true);
   } finally {
     await f.session.close();
@@ -854,7 +767,6 @@ test('a refused context update preserves the completed user result', async () =>
     });
 
     assert.equal(f.completions(), 1);
-
     assert.equal(f.session.closed, false);
   } finally {
     await f.session.close();
@@ -867,9 +779,7 @@ test('an interrupt after the idle gap recovers only native-unread prompts', asyn
   try {
     const a = await f.steer('consumed A');
     const b = await f.steer('unread B');
-
     await f.emit(state('idle'));
-
     assert.equal(f.completions(), 0);
 
     await f.emit(
@@ -881,15 +791,10 @@ test('an interrupt after the idle gap recovers only native-unread prompts', asyn
     );
 
     await within(f.session.interrupt(), 2000, 'idle-gap interrupt');
-
     const outcome = await f.turn;
-
     assert.equal(outcome.status, 'interrupted');
-
     assert.deepEqual(outcome.unread, ['unread B']);
-
     assert.equal(f.session.closed, true);
-
     assert.equal(await f.session.steer('no replay'), false);
 
     assert.deepEqual(
@@ -916,13 +821,9 @@ test('an interrupt after admission cannot overtake accepted input', async () => 
     );
 
     const interruption = f.session.interrupt();
-
     assert.equal(await admission, true);
-
     await within(interruption, 2000, 'dispatch interrupt');
-
     const outcome = await f.turn;
-
     assert.equal(outcome.status, 'interrupted');
 
     assert.deepEqual(outcome.unread, [
@@ -962,7 +863,6 @@ test('an interrupt receipt retains the text of already consumed input', async ()
 
   try {
     const uuid = await f.steer('consumed but receipt-listed');
-
     await f.emit(lifecycle(uuid, 'started'));
 
     await writeFile(
@@ -971,15 +871,10 @@ test('an interrupt receipt retains the text of already consumed input', async ()
     );
 
     await within(f.session.interrupt(), 2000, 'consumed input receipt');
-
     const outcome = await f.turn;
-
     assert.equal(outcome.status, 'interrupted');
-
     assert.deepEqual(outcome.unread, ['consumed but receipt-listed']);
-
     assert.equal(f.session.closed, true);
-
     assert.equal((await f.inputs()).length, 2);
   } finally {
     await f.session.close();
@@ -1000,19 +895,12 @@ test('SDK shutdown releases an interrupt waiting for input dispatch', async () =
 
   try {
     const turn = session.send('wait');
-
     await within(started.seen, 2000, 'initial input');
-
     const admission = session.steer('unwritten follow-up');
-
     controller.abort();
-
     const interruption = session.interrupt();
-
     assert.equal(await admission, true);
-
     await within(interruption, 2000, 'SDK shutdown interrupt');
-
     assert.equal((await turn).status, 'interrupted');
 
     assert.equal(
@@ -1031,9 +919,7 @@ test('native exit settles a turn with unacknowledged input', async () => {
 
   try {
     await f.steer('outstanding');
-
     f.child.kill('SIGTERM');
-
     assert.equal((await within(f.turn, 2000, 'native exit')).status, 'failed');
   } finally {
     await f.session.close();
@@ -1052,15 +938,11 @@ test('successful native results do not rejoin the accumulated turn text', async 
     );
 
     const outcome = await f.turn;
-
     assert.equal(outcome.status, 'completed');
-
     assert.equal(outcome.text, 'Second result');
-
     assert.equal(text.mock.calls.length, 0);
   } finally {
     text.mockRestore();
-
     await f.session.close();
   }
 });

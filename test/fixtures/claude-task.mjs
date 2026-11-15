@@ -22,9 +22,7 @@ writeFileSync('launched.json', JSON.stringify(launch));
 if (mode === 'ignore-term') process.on('SIGTERM', () => {});
 
 const init = `${JSON.stringify({ type: 'system', subtype: 'init', session_id, model: 'claude-observed' })}\r\n`;
-
 process.stdout.write(init.slice(0, 37));
-
 process.stdout.write(init.slice(37));
 
 for (const id of ['read-a', 'read-a', 'read-b'])
@@ -65,7 +63,6 @@ else if (mode === 'held-pipe') {
   });
 
   writeFileSync('descendant.pid', String(child.pid));
-
   child.unref();
 } else if (['gated', 'ignore-term', 'later-turn'].includes(mode)) {
   // exits once stdout drains: on macOS pipe writes are async, so process.exit would drop an unread result

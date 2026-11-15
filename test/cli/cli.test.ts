@@ -79,15 +79,10 @@ for (const [args, expected] of [
 ] as const) {
   test(`witch ${JSON.stringify(args)} exits 1 with a one-line error before opening the store`, async () => {
     const { code, stderr, files } = await run(args);
-
     assert.equal(code, 1);
-
     assert.match(stderr, /^witch: /);
-
     assert.match(stderr, expected);
-
     assert.doesNotMatch(stderr, /\n\s+at /);
-
     assert.deepEqual(files, []);
   });
 }
@@ -95,24 +90,17 @@ for (const [args, expected] of [
 test('witch --help with stdout piped prints the usage and exits 0 before opening the store', async () => {
   for (const entry of [sourceCli, await compiledCli()]) {
     const { code, stdout, files } = await run(['--help'], entry);
-
     assert.equal(code, 0);
-
     assert.match(stdout, /^Usage: witch /);
-
     assert.deepEqual(files, []);
   }
 });
 
 test("witch --spawn outside a repository exits 1 with git's error, without a terminal", async () => {
   const { code, stdout, stderr, files } = await run(['--spawn', '2']);
-
   assert.equal(code, 1);
-
   assert.equal(stdout, '');
-
   assert.match(stderr, /^witch: [^\n]*not a git repository[^\n]*\n$/);
-
   assert.deepEqual(files, []);
 });
 
@@ -122,9 +110,7 @@ test('witch --recover-directory previews, applies and reports a blocked record w
   const destination = join(root, 'destination');
   const bin = join(root, 'bin');
   const launched = join(root, 'launched');
-
   await mkdir(destination);
-
   await mkdir(bin);
 
   for (const agent of ['claude', 'codex'])
@@ -161,19 +147,12 @@ test('witch --recover-directory previews, applies and reports a blocked record w
     ).cwd;
 
   const preview = await recover(false);
-
   assert.equal(preview.code, 0, preview.stderr);
-
   assert.match(preview.stdout, /Would repair/);
-
   assert.match(preview.stdout, /--apply/);
-
   assert.equal(await record(), source);
-
   const applied = await recover(true);
-
   assert.equal(applied.code, 0, applied.stderr);
-
   assert.equal(await record(), destination);
 
   // held open, as another Witch would
@@ -192,7 +171,6 @@ test('witch --recover-directory previews, applies and reports a blocked record w
     );
 
     assert.equal(blocked.code, 1);
-
     assert.match(blocked.stdout, /open in another Witch/);
   } finally {
     await open.close();
@@ -272,9 +250,7 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
 
   try {
     const query = await run(`${prefix} --peers --json`);
-
     assert.equal(query.code, 0);
-
     assert.equal(query.stderr, '');
 
     assert.deepEqual(JSON.parse(query.stdout).snapshot.reservations, [
@@ -289,9 +265,7 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
     ] as const) {
       selection.position = position;
       const text = await run(`${prefix} --peers`);
-
       assert.equal(text.code, 0);
-
       assert.equal(text.stderr, '');
 
       assert.equal(
@@ -305,11 +279,8 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
     );
 
     assert.equal(conflict.code, 2);
-
     assert.equal(conflict.stderr, '');
-
     assert.equal(JSON.parse(conflict.stdout).claim.id, occupied.id);
-
     assert.deepEqual(conflict.files, []);
 
     const own = await run(
@@ -317,9 +288,7 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
     );
 
     assert.equal(own.code, 0);
-
     const claim = JSON.parse(own.stdout).claim;
-
     assert.equal(claim.owner.conversation, 'a');
 
     assert.deepEqual(claim.references, [
@@ -329,9 +298,7 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
     ]);
 
     assert.deepEqual(await store.claims(), [occupied, claim]);
-
     assert.deepEqual(own.files, []);
-
     const message = 'Use a full GitHub issue or pr URL, or task:<name>.';
 
     for (const [args, json] of [
@@ -347,35 +314,24 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
 
       if (json) {
         const error = JSON.parse(result.stdout);
-
         assert.equal(error.kind, 'error');
-
         assert.equal(error.message, message);
-
         assert.equal(result.stderr, '');
       } else {
         assert.equal(result.stdout, '');
-
         assert.equal(result.stderr, `${message}\n`);
       }
 
       assert.deepEqual(await store.claims(), [occupied, claim]);
-
       assert.deepEqual(result.files, []);
     }
 
     const released = await run(`${prefix} --release ${claim.id} --json`);
-
     assert.equal(released.code, 0);
-
     assert.equal(released.stderr, '');
-
     assert.equal(JSON.parse(released.stdout).kind, 'released');
-
     assert.deepEqual(await store.claims(), [occupied]);
-
     assert.deepEqual(released.files, []);
-
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
@@ -418,27 +374,16 @@ test('claim warnings survive the control transport in JSON and plain output with
   try {
     const command = `${controlPrefix(binding, await compiledCli())} --claim https://github.com/acme/widget/issues/42 --summary 'Current work'`;
     const json = await run(`${command} --json`);
-
     assert.equal(json.code, 0);
-
     assert.equal(json.stderr, '');
-
     assert.equal(JSON.parse(json.stdout).warning, warning);
-
     assert.deepEqual(await registry.claims(), [JSON.parse(json.stdout).claim]);
-
     const plain = await run(command);
-
     assert.equal(plain.code, 0);
-
     assert.equal(plain.stderr, '');
-
     assert.match(plain.stdout, /Claimed: Current work/);
-
     assert.ok(plain.stdout.includes(`Warning: ${warning}`));
-
     assert.equal((await registry.claims()).length, 1);
-
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
@@ -460,13 +405,9 @@ test('an unavailable control host reports JSON failure without opening state', a
   ]);
 
   assert.equal(result.code, 1);
-
   assert.equal(result.stderr, '');
-
   assert.equal(JSON.parse(result.stdout).kind, 'error');
-
   assert.match(JSON.parse(result.stdout).message, /unavailable/);
-
   assert.deepEqual(result.files, []);
 });
 
@@ -508,11 +449,8 @@ registerHooks({
   );
 
   const [code] = await once(child, 'close');
-
   assert.equal(code, 1);
-
   const urls = (await readFile(loaded, 'utf8')).split('\n');
-
   assert.ok(urls.some((url) => url.endsWith('/dist/cli/cli-control.js')));
 
   assert.deepEqual(
@@ -545,19 +483,14 @@ for (const extra of [
     ]);
 
     assert.equal(result.code, 1);
-
     assert.equal(JSON.parse(result.stdout).kind, 'error');
-
     assert.deepEqual(result.files, []);
   });
 }
 
 test('witch sessions remains a positional prompt', async () => {
   const result = await run(['sessions']);
-
   assert.equal(result.code, 1);
-
   assert.match(result.stderr, /interactive terminal/);
-
   assert.deepEqual(result.files, []);
 });

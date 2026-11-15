@@ -44,7 +44,6 @@ async function fixture(
 ) {
   const root = await scratch('codex-familiar-');
   const bin = join(root, 'bin');
-
   await mkdir(bin);
 
   for (const name of ['codex.mjs', 'peer-answer.mjs'])
@@ -59,7 +58,6 @@ async function fixture(
   );
 
   await chmod(join(bin, 'codex'), 0o700);
-
   const report = join(root, 'report.txt');
   const preload: string[] = [];
 
@@ -126,7 +124,6 @@ syncBuiltinESMExports();
     binding.directory,
     async (request): Promise<ControlOutcome> => {
       requests.push(request);
-
       await beforeReply?.(request);
 
       switch (request.action.kind) {
@@ -247,9 +244,7 @@ syncBuiltinESMExports();
         child.kill('SIGTERM');
 
       await within(closed, 5000, 'Codex wrapper cleanup');
-
       await host.close();
-
       assert.deepEqual(errors, []);
     },
   };
@@ -275,13 +270,9 @@ test('a Codex familiar reports progress before stdin ends without waiting for a 
     );
 
     assert.match(f.output().stdout, /WITCH_FAMILIAR /);
-
     assert.deepEqual(f.updates()[0], { status: 'running', tools: 0 });
-
     await assert.rejects(f.launch(), { code: 'ENOENT' });
-
     f.child.stdin.end('this');
-
     assert.equal(await within(f.closed, 8000, 'task after stdin ends'), 0);
 
     const delivered = JSON.parse(
@@ -289,7 +280,6 @@ test('a Codex familiar reports progress before stdin ends without waiting for a 
     ) as { params: { input: { text: string }[] } };
 
     assert.equal(delivered.params.input[0]!.text, 'implement this');
-
     assert.equal(f.updates().at(-1)!.status, 'completed');
   } finally {
     await f.close();
@@ -314,12 +304,10 @@ for (const cause of ['signal', 'connection'] as const)
       );
 
       await assert.rejects(f.launch(), { code: 'ENOENT' });
-
       const report = await readFile(f.report, 'utf8');
 
       if (cause === 'signal') {
         assert.equal(f.updates().at(-1)!.status, 'stopped');
-
         assert.equal(f.updates().at(-1)!.report, report);
       } else assert.match(report, /Native connection closed/);
 
@@ -358,23 +346,14 @@ test('a Codex implementation task retains native configuration, approval and its
     ]);
 
     assert.equal(launch.mark, 'owned-mark');
-
     assert.equal(await identifyProcess(launch.pid), undefined);
-
     const final = f.updates().at(-1)!;
-
     assert.equal(final.status, 'completed');
-
     assert.equal(final.model, 'observed-codex');
-
     assert.equal(final.tools, 2);
-
     const expected = 'Completed implementation.\n'.repeat(5000);
-
     assert.equal(await readFile(f.report, 'utf8'), expected);
-
     assert.equal(final.report, expected);
-
     assert.match(f.output().stdout, /Saved report:/);
 
     assert.equal(
@@ -416,7 +395,6 @@ test("a Codex familiar lists its spells before its turn and reports its own and 
 
     const path = await realpath(join(f.root, '.agents/skills/a/SKILL.md'));
     const final = f.updates().at(-1)!;
-
     assert.equal(final.status, 'completed');
 
     assert.deepEqual(final.spells, [
@@ -488,7 +466,6 @@ for (const when of ['after', 'during'] as const)
       );
 
       f.answer({ decision: 'accept', answers: { '0': ['preview'] } });
-
       assert.equal(await within(f.closed, 8000, 'answered task'), 0);
 
       const delivered = JSON.parse(
@@ -506,11 +483,8 @@ for (const when of ['after', 'during'] as const)
       );
 
       const final = f.updates().at(-1)!;
-
       assert.equal(final.status, 'completed');
-
       assert.match(final.report!, /Which target\?[\s]+Implemented preview\./);
-
       assert.equal(await readFile(f.report, 'utf8'), final.report);
 
       assert.equal(
@@ -580,7 +554,6 @@ test('rejected registration and an existing report both prevent Codex from launc
 
     try {
       assert.equal(await within(f.closed, 5000, 'rejected launch'), 1);
-
       await assert.rejects(f.launch(), { code: 'ENOENT' });
 
       if ('existing' in options)
@@ -599,7 +572,6 @@ test('a silent Codex task stops on interruption or loss of its reporting connect
 
     try {
       await f.ready();
-
       const launch = await f.launch();
 
       if (cause === 'signal') f.child.kill('SIGTERM');
@@ -640,27 +612,19 @@ test('a Codex familiar survives an exhausted progress timeout and delivers its p
       request.action.progress.status === 'running'
     ) {
       entered.resolve();
-
       await gate.promise;
     }
   });
 
   try {
     await within(entered.promise, 5000, 'stalled progress after approval');
-
     const launch = await f.launch();
     const native = await identifyProcess(launch.pid);
-
     assert.ok(native);
-
     await delay(11_000);
-
     assert.equal(f.child.exitCode, null);
-
     assert.deepEqual(await identifyProcess(launch.pid), native);
-
     await writeFile(join(f.root, 'release'), 'yes');
-
     const expected = 'Completed implementation.\n'.repeat(5000);
 
     await until(
@@ -669,21 +633,14 @@ test('a Codex familiar survives an exhausted progress timeout and delivers its p
     );
 
     gate.resolve();
-
     assert.equal(await within(f.closed, 5000, 'recovered completion'), 0);
-
     assert.equal(await readFile(f.report, 'utf8'), expected);
-
     assert.equal(f.updates().at(-1)!.status, 'completed');
-
     assert.equal(f.updates().at(-1)!.report, expected);
-
     assert.equal(await identifyProcess(launch.pid), undefined);
   } finally {
     gate.resolve();
-
     await writeFile(join(f.root, 'release'), 'yes');
-
     await f.close();
   }
 });
@@ -693,13 +650,9 @@ test('a nonzero native exit after a result prevents successful terminal reportin
 
   try {
     assert.equal(await within(f.closed, 8000, 'failed close'), 1);
-
     assert.equal(f.updates().at(-1)!.status, 'failed');
-
     const report = await readFile(f.report, 'utf8');
-
     assert.match(report, /^Completed implementation\./);
-
     assert.match(report, /Codex exited \(2\): close exit text/);
   } finally {
     await f.close();
@@ -732,17 +685,11 @@ test('an app-server that exits during startup leaves its stderr tail in the repo
 
   try {
     assert.equal(await within(f.closed, 5000, 'startup exit'), 1);
-
     const final = f.updates().at(-1)!;
-
     assert.equal(final.status, 'failed');
-
     assert.match(final.report!, /init exit text/);
-
     assert.match(await readFile(f.report, 'utf8'), /init exit text/);
-
     assert.match(f.output().stdout, /init exit text/);
-
     assert.doesNotMatch(f.output().stderr, /init exit text/);
   } finally {
     await f.close();
@@ -805,7 +752,6 @@ test('Codex familiar arguments keep configuration but reject a different transpo
   );
 
   assert.throws(() => parseCommand([...claude, '--without-mcp', '--']));
-
   assert.throws(() => parseCommand(['--without-mcp']));
 });
 
@@ -843,11 +789,8 @@ test('a Codex familiar started --without-mcp disables every MCP source and refus
     );
 
     const config = await connect(isolated.root);
-
     assert.equal(config['features.apps'], false);
-
     assert.equal(config['features.plugins'], false);
-
     assert.equal(config['features.skill_mcp_dependency_install'], false);
 
     assert.deepEqual(config.mcp_servers, {
@@ -881,7 +824,6 @@ test('a Codex familiar started --without-mcp disables every MCP source and refus
 
   try {
     assert.equal(await within(exposed.closed, 8000, 'refused start'), 1);
-
     assert.deepEqual((await connect(exposed.root)).mcp_servers, {});
 
     assert.match(

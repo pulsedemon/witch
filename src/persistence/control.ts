@@ -159,7 +159,6 @@ async function openControlFile(
       );
 
       directories.push(handle);
-
       await directory(handle);
     }
 
@@ -242,7 +241,6 @@ export async function callControl(
           throw new Error('Reply id does not match.');
 
         await files.rm(inbox, { force: true });
-
         await files.rm(reply, { force: true });
 
         return result;
@@ -310,7 +308,6 @@ export class ControlHost {
       // Node has already closed an errored watcher
       this.watcher.on('error', () => {
         this.watcher = undefined;
-
         this.poll();
       });
     } catch {
@@ -340,11 +337,8 @@ export class ControlHost {
 
   async close(): Promise<void> {
     this.closed = true;
-
     this.watcher?.close();
-
     clearTimeout(this.timer);
-
     await this.drain();
   }
 
@@ -358,7 +352,6 @@ export class ControlHost {
     }
 
     clearTimeout(this.timer);
-
     this.stale = false;
 
     this.reading = this.read().then(
@@ -370,11 +363,8 @@ export class ControlHost {
       },
       (error: unknown) => {
         this.reading = undefined;
-
         this.failed(error);
-
         this.backoff = true;
-
         this.schedule(Date.now() + interval);
       },
     );
@@ -389,7 +379,6 @@ export class ControlHost {
     this.timer = setTimeout(
       () => {
         this.backoff = false;
-
         this.poll();
       },
       // Node warns on a negative delay and fires one past 2 ** 31 - 1 after 1 ms
@@ -480,7 +469,6 @@ export class ControlHost {
 
         if (!answered) {
           checkDeadline(request.deadline);
-
           outcome = await this.handle(request);
         }
       } catch (error) {
@@ -510,7 +498,6 @@ export class ControlHost {
       try {
         // the final newline marks a complete reply while clients can observe a partial write.
         await file.writeFile(`${JSON.stringify({ ...outcome, id })}\n`);
-
         await file.sync();
       } finally {
         await file.close();

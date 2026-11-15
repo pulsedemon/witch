@@ -71,7 +71,6 @@ export class CopilotReviewController {
 
   activate(): void {
     this.abort.abort();
-
     this.abort = new AbortController();
     this.source = undefined;
     this.sourceOwner = undefined;
@@ -84,7 +83,6 @@ export class CopilotReviewController {
 
   updateRepository(repository: Repository | undefined): void {
     this.repository = repository;
-
     this.checkBinding();
   }
 
@@ -204,12 +202,10 @@ export class CopilotReviewController {
 
         if (state) {
           state.pullRequest = source.pullRequest;
-
           await this.host.save();
 
           if (this.executing) {
             this.revoked = this.executing.id;
-
             await this.host.interrupt();
           }
 
@@ -254,14 +250,10 @@ export class CopilotReviewController {
       if (!this.matches(record, source)) return false;
 
       this.setState(record, state);
-
       this.source = source;
       this.sourceOwner = record.id;
-
       await this.host.save();
-
       this.show(record);
-
       this.host.changed();
 
       return state.items.some(
@@ -360,7 +352,6 @@ export class CopilotReviewController {
         )
       ) {
         item.status = 'pending';
-
         delete item.reason;
       }
 
@@ -461,7 +452,6 @@ export class CopilotReviewController {
           if (this.host.record() !== record) return;
 
           this.resetBatch(this.state(record, batch!.pullRequest.url)!);
-
           await this.host.save();
         });
 
@@ -479,9 +469,7 @@ export class CopilotReviewController {
           if (this.host.record() !== record) return;
 
           this.resetBatch(this.state(record, batch!.pullRequest.url)!);
-
           await this.host.save();
-
           this.show(record);
         });
 
@@ -522,7 +510,6 @@ export class CopilotReviewController {
         if (this.matches(record, after)) this.source = after;
 
         await this.host.save();
-
         this.show(record);
       });
 

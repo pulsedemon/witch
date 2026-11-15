@@ -28,7 +28,6 @@ assert.ok(
 
 for (const cwd of [project, otherProject]) {
   await mkdir(cwd);
-
   await execute('git', ['init', '-b', 'main'], { cwd });
 }
 
@@ -48,7 +47,6 @@ const spellMarker = `spell-${randomUUID().slice(0, 8)}`;
 
 for (const native of ['.claude', '.agents']) {
   const spell = join(project, native, 'skills', 'witch-probe');
-
   await mkdir(spell, { recursive: true });
 
   await writeFile(
@@ -158,7 +156,6 @@ async function duringTool(
   if (done) await running;
 
   await during();
-
   await running;
 
   return coordinator.snapshot.items.slice(before);
@@ -171,10 +168,8 @@ async function steer(prompt: (marker: string) => string): Promise<void> {
 
   const items = await duringTool(async () => {
     await coordinator.send(prompt(marker));
-
     // a prompt the turn refused would wait in the queue, and one sent after the turn ended would run as its own turn
     assert.equal(coordinator.snapshot.phase, 'running');
-
     assert.deepEqual(coordinator.snapshot.queue, []);
   }, marker);
 
@@ -200,11 +195,8 @@ async function steerSpell(): Promise<void> {
 
   const items = await duringTool(async () => {
     await coordinator.send('/witch-probe');
-
     assert.deepEqual(coordinator.snapshot.queue, waiting);
-
     await coordinator.send(`Also include ${marker} in your final reply.`);
-
     assert.deepEqual(coordinator.snapshot.queue, waiting);
 
     console.log(
@@ -224,7 +216,6 @@ async function steerSpell(): Promise<void> {
 async function steerBuiltin(): Promise<void> {
   const items = await duringTool(async () => {
     await coordinator.send('/context');
-
     assert.deepEqual(coordinator.snapshot.queue, []);
   });
 
@@ -244,7 +235,6 @@ const pathFirst = (marker: string) =>
   `/var/folders/witch-live/Screenshot 2026-10-26 at 2.52.19 PM.png also include ${marker} in your final reply.`;
 
 let coordinator = await open(project);
-
 console.log(`Live artifacts: ${root}`);
 
 try {
@@ -260,11 +250,8 @@ try {
   );
 
   await steer(steered);
-
   await steer(pathFirst);
-
   await steerSpell();
-
   const projectFact = `cedar-${randomUUID().slice(0, 8)}`;
 
   await send(
@@ -273,9 +260,7 @@ try {
   );
 
   assert.equal(coordinator.snapshot.recovery, undefined);
-
   await coordinator.newConversation('claude');
-
   // the context goes ahead of a built-in that opens a conversation, which the next turn then relies on
   await send('/context', 'Context Usage');
 
@@ -295,13 +280,9 @@ try {
   );
 
   await steer(steered);
-
   await steer(pathFirst);
-
   await steerSpell();
-
   await steerBuiltin();
-
   const globalFact = `violet-${randomUUID().slice(0, 8)}`;
 
   await send(
@@ -323,9 +304,7 @@ try {
   );
 
   const conversationId = coordinator.snapshot.conversation!.id;
-
   await coordinator.close();
-
   coordinator = await open(otherProject);
 
   await coordinator.selectModel({
@@ -340,13 +319,9 @@ try {
   );
 
   assert.ok(isolated.includes('UNKNOWN'));
-
   assert.ok(!isolated.includes(projectFact));
-
   await coordinator.close();
-
   coordinator = await open(project, { continue: true });
-
   assert.equal(coordinator.snapshot.conversation!.id, conversationId);
 
   await send(
@@ -355,7 +330,6 @@ try {
 
   const sourceId = coordinator.snapshot.conversation!.sessions.codex!.id;
   const codexCompletion = coordinator.snapshot.completedTurn;
-
   assert.ok(codexCompletion);
 
   await assert.rejects(readFile(join(project, 'sum.test.mjs'), 'utf8'), {
@@ -363,17 +337,11 @@ try {
   });
 
   await coordinator.selectModel({ agent: 'claude', id: claudeModel });
-
   assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
-
   assert.equal(coordinator.snapshot.phase, 'idle');
-
   assert.equal(coordinator.snapshot.completedTurn, codexCompletion);
-
   assert.equal(coordinator.snapshot.conversation!.handoff?.to, 'claude');
-
   assert.equal(coordinator.snapshot.conversation!.handoff?.activated, true);
-
   assert.ok(coordinator.snapshot.conversation!.handoff?.summary);
 
   await assert.rejects(readFile(join(project, 'sum.test.mjs'), 'utf8'), {
@@ -385,13 +353,9 @@ try {
   );
 
   const claudeCompletion = coordinator.snapshot.completedTurn;
-
   assert.ok(claudeCompletion);
-
   assert.notEqual(claudeCompletion, codexCompletion);
-
   const completedHandoff = coordinator.snapshot.conversation!.handoff;
-
   assert.equal(completedHandoff, undefined);
 
   assert.ok(
@@ -407,23 +371,14 @@ try {
   );
 
   await coordinator.selectModel({ agent: 'codex', id: codexModel });
-
   assert.equal(coordinator.snapshot.phase, 'idle');
-
   assert.equal(coordinator.snapshot.completedTurn, claudeCompletion);
-
   assert.equal(coordinator.snapshot.conversation!.handoff?.to, 'codex');
-
   assert.equal(coordinator.snapshot.conversation!.handoff?.activated, true);
-
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
-
   const sourceConversation = coordinator.snapshot.conversation!.id;
-
   await coordinator.close();
-
   coordinator = await open(project, { continue: true });
-
   assert.equal(coordinator.snapshot.conversation!.id, sourceConversation);
 
   await send(
@@ -431,11 +386,8 @@ try {
   );
 
   assert.ok(coordinator.snapshot.completedTurn);
-
   assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
-
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
-
   assert.equal(coordinator.snapshot.recovery, undefined);
 
   console.log(

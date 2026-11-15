@@ -67,11 +67,8 @@ function fixture(register: RegisterCleanup) {
       remaining: MergeCleanup = {},
     ) => {
       calls.push([merged, install]);
-
       progress.push(remaining);
-
       publishCoordinator({ phase: 'cleaning' });
-
       pending = Promise.withResolvers<Result>();
 
       return pending.promise;
@@ -94,7 +91,6 @@ function fixture(register: RegisterCleanup) {
 
   const publish = async (update: Partial<Snapshot> = {}) => {
     publishCoordinator(update);
-
     await tick();
   };
 
@@ -108,7 +104,6 @@ function fixture(register: RegisterCleanup) {
   };
 
   const stop = watchMerges(repository, coordinator, '/install');
-
   register(stop);
 
   return { calls, progress, publishRepository, publish, settle, stop };
@@ -122,79 +117,42 @@ test('the watch cleans up after each merged commit once, only on its branch, cle
   );
 
   await publishRepository(status(pr('OPEN', 'c1')));
-
   assert.equal(calls.length, 0, 'an open pull request');
-
   await publishRepository(status(pr('MERGED', 'c1'), { modified: 1 }));
-
   assert.equal(calls.length, 0, 'a modified checkout');
-
   await publishRepository(status(pr('MERGED', 'c1')));
-
   assert.deepEqual(calls, [[pr('MERGED', 'c1'), '/install']], 'a clean one');
-
   await publishRepository();
-
   await publish();
-
   assert.equal(calls.length, 1, 'publishes while the cleanup runs');
-
   await settle(true);
-
   vi.advanceTimersByTime(10_000);
-
   await publishRepository();
-
   await publish();
-
   assert.equal(calls.length, 1, 'publishes after it acted');
-
   await publish({ phase: 'running' });
-
   await publishRepository(status(pr('MERGED', 'c2')));
-
   assert.equal(calls.length, 1, 'a turn running');
-
   await publish({ phase: 'idle', error: 'boom' });
-
   assert.equal(calls.length, 1, 'an error shown');
-
   await publish({ error: undefined, queue: ['queued'] });
-
   assert.equal(calls.length, 1, 'a queued prompt');
-
   await publish({ queue: [] });
-
   assert.equal(calls.length, 2, 'idle, with no error or queue');
-
   await settle(false);
-
   await publish();
-
   assert.equal(calls.length, 2, 'a coordinator publish after nothing was done');
-
   await publishRepository();
-
   assert.equal(calls.length, 3, 'the next status publish');
-
   await settle(new Error('failed'));
-
   vi.advanceTimersByTime(10_000);
-
   await publishRepository();
-
   assert.equal(calls.length, 3, 'a status publish after a failure');
-
   await publishRepository(status(pr('MERGED', 'c3', 'feat/y')));
-
   assert.equal(calls.length, 3, "another branch's pull request");
-
   stop();
-
   await publishRepository(status(pr('MERGED', 'c4')));
-
   await publish();
-
   assert.equal(calls.length, 3, 'after the stop');
 });
 
@@ -209,36 +167,22 @@ test('deferred cleanups retry without repository updates and settle after acting
 
   for (const expected of [2, 3]) {
     await settle(false);
-
     await publish();
-
     vi.advanceTimersByTime(4999);
-
     await tick();
-
     assert.equal(calls.length, expected - 1);
-
     vi.advanceTimersByTime(1);
-
     await tick();
-
     assert.equal(calls.length, expected);
-
     assert.deepEqual(calls.at(-1), [pr('MERGED', 'c1'), '/install']);
-
     vi.advanceTimersByTime(10_000);
-
     await tick();
-
     assert.equal(calls.length, expected, 'a cleanup still running');
   }
 
   await settle(true);
-
   vi.advanceTimersByTime(10_000);
-
   await publish();
-
   assert.equal(calls.length, 3);
 });
 
@@ -250,57 +194,33 @@ test('an expired retry waits for the local turn and queue to finish', async (t) 
   );
 
   await publishRepository(status(pr('MERGED', 'c1')));
-
   await settle(false);
-
   await publish({ phase: 'running' });
-
   vi.advanceTimersByTime(5000);
-
   await tick();
-
   assert.equal(calls.length, 1);
-
   await publish({ phase: 'idle', queue: ['queued'] });
-
   assert.equal(calls.length, 1);
-
   await publish({ queue: [] });
-
   assert.equal(calls.length, 2);
-
   await settle(true);
 });
 
 test('a repository update replaces the pending retry', async (t) => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
   const { calls, publishRepository, settle } = fixture(t.onTestFinished);
-
   await publishRepository(status(pr('MERGED', 'c1')));
-
   await settle(false);
-
   vi.advanceTimersByTime(1000);
-
   await publishRepository();
-
   assert.equal(calls.length, 2);
-
   await settle(false);
-
   vi.advanceTimersByTime(4000);
-
   await tick();
-
   assert.equal(calls.length, 2);
-
   vi.advanceTimersByTime(1000);
-
   await tick();
-
   assert.equal(calls.length, 3);
-
   await settle(true);
 });
 
@@ -312,21 +232,13 @@ test('a cleanup that finds a change the status line missed waits for its next up
   );
 
   await publishRepository(status(pr('MERGED', 'c1')));
-
   await settle('changed');
-
   await publish();
-
   vi.advanceTimersByTime(10_000);
-
   await tick();
-
   assert.equal(calls.length, 1);
-
   await publishRepository();
-
   assert.equal(calls.length, 2);
-
   await settle(true);
 });
 
@@ -349,13 +261,9 @@ for (const pending of ['retry', 'cleanup', 'interrupted'] as const)
     if (pending === 'interrupted') await settle('interrupted');
 
     vi.advanceTimersByTime(10_000);
-
     await tick();
-
     await publishRepository();
-
     await publish();
-
     assert.equal(calls.length, 1);
   });
 
@@ -365,13 +273,9 @@ test('an interrupted cleanup keeps its progress after the repository leaves the 
   );
 
   await publishRepository(status(pr('MERGED', 'c1')));
-
   progress[0]!.moved = true;
-
   await publishRepository(status(undefined, { branch: 'main' }));
-
   await settle('interrupted');
-
   await publish();
 
   assert.deepEqual(calls, [
@@ -380,9 +284,7 @@ test('an interrupted cleanup keeps its progress after the repository leaves the 
   ]);
 
   assert.equal(progress[1], progress[0]);
-
   assert.equal(progress[1]!.moved, true);
-
   await settle(true);
 });
 
@@ -392,7 +294,6 @@ test('changing conversations drops an interrupted cleanup before it resumes', as
   );
 
   await publishRepository(status(pr('MERGED', 'c1')));
-
   await publishRepository(status(undefined, { branch: 'main' }));
 
   await publish({
@@ -407,8 +308,6 @@ test('changing conversations drops an interrupted cleanup before it resumes', as
   });
 
   await settle('interrupted');
-
   await publish();
-
   assert.equal(calls.length, 1);
 });

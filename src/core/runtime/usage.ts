@@ -237,7 +237,6 @@ export class AccountUsage {
       : [];
 
     const reading = kept.length ? [...limits, ...kept] : limits;
-
     this.store(agent, { ...previous, ...account, limits: reading });
   }
 
@@ -254,16 +253,13 @@ export class AccountUsage {
       return;
 
     this.accounts = { ...this.accounts, [agent]: next };
-
     this.publish(this.accounts);
   }
 
   /** a live session's connect read counts as its first attempt; later reads use its method or existing polling. */
   connected(session: AgentSession, cwd: string): void {
     this.session = session;
-
     this.attempts.set(session.info.agent, Date.now());
-
     this.others(session.info.agent, cwd);
   }
 
@@ -318,9 +314,7 @@ export class AccountUsage {
     if (!read) return Promise.resolve();
 
     this.attempts.set(agent, now);
-
     const settled = read.finally(() => this.reads.delete(agent));
-
     this.reads.set(agent, settled);
 
     return settled;
@@ -344,7 +338,6 @@ export class AccountUsage {
 
   resume(runtime: string): void {
     this.attempts.delete(runtime);
-
     this.suspended = false;
   }
 
@@ -363,7 +356,6 @@ export class AccountUsage {
     );
 
     timer.unref();
-
     const previous = this.accounts[agent];
 
     const probe = registration.adapter
@@ -429,7 +421,6 @@ export class AccountUsage {
       .catch(() => {})
       .finally(() => {
         clearTimeout(timer);
-
         this.probes.delete(abort);
       });
 

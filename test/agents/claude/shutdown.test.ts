@@ -70,13 +70,9 @@ for (const phase of ['dispatch', 'response', 'idle', 'late response'])
         );
 
       assert.equal(result.status, 'interrupted');
-
       assert.match(result.text, /Initial reply/);
-
       assert.deepEqual(result.unread ?? [], []);
-
       assert.equal(result.inputUnsent, undefined);
-
       assert.equal(session.closed, true);
 
       assert.ok(
@@ -96,7 +92,6 @@ for (const phase of ['dispatch', 'response', 'idle', 'late response'])
       await within(session.close(), 1000, 'repeated close');
     } finally {
       vi.restoreAllMocks();
-
       await session.close();
     }
   });
@@ -195,9 +190,7 @@ test('Claude closure bounds a missing familiar stop acknowledgment and resolves 
     );
 
     const request = events.find((event) => event.type === 'request');
-
     assert.ok(request?.type === 'request');
-
     await writeFile(join(f.cwd, 'hold-stop'), '');
 
     await within(

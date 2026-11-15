@@ -230,9 +230,7 @@ export class Memory {
     if (await present(this.root)) return;
 
     const parent = dirname(this.root);
-
     await mkdir(parent, { recursive: true, mode: 0o700 });
-
     const building = `${this.root}.${randomUUID()}`;
 
     await this.git(parent, [
@@ -302,7 +300,6 @@ export class Memory {
     );
 
     signal?.throwIfAborted();
-
     const project = projectKey(identity);
     const checkout = projectKey(top);
 

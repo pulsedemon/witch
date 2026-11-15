@@ -54,7 +54,6 @@ async function discovery(
       );
 
       child.kill();
-
       await closing;
     });
 
@@ -65,7 +64,6 @@ async function discovery(
     agent === 'claude'
       ? new ClaudeAdapter((options) => {
           args.push(options.args);
-
           envs.push(options.env);
 
           return start(options.signal);
@@ -124,11 +122,8 @@ test('standalone Claude catalogs preserve settings without prompts or history', 
   ]);
 
   const args = probe.args[0]!;
-
   assert.ok(args.includes('--no-session-persistence'));
-
   assert.ok(args.includes('--strict-mcp-config'));
-
   assert.ok(args.includes('--setting-sources=user,project,local'));
 
   assert.deepEqual(JSON.parse(args[args.indexOf('--settings') + 1]!), {
@@ -183,7 +178,6 @@ test('a Codex limits read keeps each previous window its report leaves out, past
   ]);
 
   assert.ok(limits[0]!.observedAt >= before);
-
   assert.deepEqual(limits[1], weekly);
 });
 
@@ -229,7 +223,6 @@ test('Claude limits a runtime reports unavailable read as none', async (t) => {
 
 test('the latest Claude models ignore native model pins', async (t) => {
   vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', 'claude-opus-5');
-
   vi.stubEnv('ANTHROPIC_MODEL', 'claude-opus-5');
 
   t.onTestFinished(() => {
@@ -238,7 +231,6 @@ test('the latest Claude models ignore native model pins', async (t) => {
 
   const cleanup = orderedCleanup(t.onTestFinished);
   const probe = await discovery(cleanup, 'claude', 'aliases');
-
   assert.ok(probe.adapter instanceof ClaudeAdapter);
 
   assert.deepEqual(await probe.adapter.latest(probe.options), {
@@ -254,11 +246,8 @@ test('the latest Claude models ignore native model pins', async (t) => {
   );
 
   assert.equal(probe.envs[0]!.ANTHROPIC_DEFAULT_OPUS_MODEL, undefined);
-
   assert.equal(probe.envs[0]!.ANTHROPIC_MODEL, undefined);
-
   assert.equal(probe.envs[0]!.PATH, process.env.PATH);
-
   assert.equal(probe.children[0]!.closed, true);
 });
 
@@ -273,9 +262,7 @@ for (const agent of ['claude', 'codex']) {
     );
 
     assert.equal(probe.children[0]!.closed, true);
-
     assert.ok((await probe.read()).length > 0);
-
     assert.equal(probe.children[1]!.closed, true);
   });
 
@@ -296,16 +283,12 @@ for (const agent of ['claude', 'codex']) {
 
       if (!alreadyAborted) {
         await once(probe.children[0]!.child, 'spawn');
-
         abort.abort();
       }
 
       await rejected;
-
       assert.equal(probe.children[0]!.closed, true);
-
       assert.ok((await probe.read()).length > 0);
-
       assert.equal(probe.children[1]!.closed, true);
     });
   }

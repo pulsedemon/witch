@@ -106,13 +106,9 @@ test('Codex command lifecycle events preserve bound titles, original commands an
       );
 
       assert.equal(row?.title, call.title ?? call.command);
-
       assert.equal(row?.expandedTitle, call.title ? call.command : undefined);
-
       assert.equal(row?.singleLine, call.title ? true : undefined);
-
       assert.equal(row?.text, `finished ${call.id}`);
-
       assert.equal(row?.done, true);
     }
   } finally {
@@ -226,9 +222,7 @@ test('Claude Bash results retain bound titles and multiline commands after repla
       );
 
       assert.equal(row?.singleLine, call.title ? true : undefined);
-
       assert.equal(row?.text, `finished ${call.id}`);
-
       assert.equal(row?.done, true);
     }
 

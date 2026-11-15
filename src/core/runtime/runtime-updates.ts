@@ -86,7 +86,6 @@ const operations = {
     signal: AbortSignal,
   ) => {
     await mkdir(directory, { recursive: true, mode: 0o700 });
-
     const adapter = await verificationAdapter(installation.runtime, directory);
 
     await adapter.models({
@@ -178,7 +177,6 @@ export class RuntimeUpdates {
 
   private async record(journal: UpdateJournal): Promise<void> {
     await this.store.write(journal);
-
     const entries = [...this.snapshot.entries];
 
     const index = entries.findIndex(
@@ -418,7 +416,6 @@ export class RuntimeUpdates {
 
         if (installing) {
           const fresh = await this.native.check(current, signal);
-
           await this.store.cache(fresh);
 
           if (
@@ -432,7 +429,6 @@ export class RuntimeUpdates {
             );
 
           await this.record(journal);
-
           recorded = true;
           exclusive = await this.store.exclusive(installed.root, signal);
 
@@ -484,9 +480,7 @@ export class RuntimeUpdates {
         }
 
         const directory = this.store.operation(journal);
-
         await mkdir(directory, { recursive: true, mode: 0o700 });
-
         evidence = directory;
 
         const options = {
@@ -498,20 +492,14 @@ export class RuntimeUpdates {
         };
 
         const prepared = await this.native.prepare(journal.previous, options);
-
         await writeJson(join(directory, 'prepared.json'), prepared);
-
         signal.throwIfAborted();
-
         let candidate = current;
 
         if (installing) {
           journal.phase = 'installing';
-
           await this.record(journal);
-
           changed = true;
-
           this.progress(`Installing ${installed.runtime} ${journal.target}`);
 
           await this.native.install(
@@ -533,7 +521,6 @@ export class RuntimeUpdates {
             );
 
           journal.phase = 'verifying';
-
           await this.record(journal);
         }
 
@@ -555,9 +542,7 @@ export class RuntimeUpdates {
           throw new Error('Witch changed during native qualification.');
 
         journal.phase = 'verified';
-
         await this.record(journal);
-
         qualified = journal;
       } catch (error) {
         if (recorded) {
@@ -569,12 +554,10 @@ export class RuntimeUpdates {
             } catch (recovery) {
               journal.phase = 'failed';
               journal.error += `\nRecovery failed: ${errorMessage(recovery)}`;
-
               await this.record(journal);
             }
           } else {
             journal.phase = 'aborted';
-
             await this.record(journal);
           }
         }
@@ -589,7 +572,6 @@ export class RuntimeUpdates {
         );
       } finally {
         await exclusive?.close();
-
         this.publish({ progress: undefined });
       }
     })
@@ -598,7 +580,6 @@ export class RuntimeUpdates {
         if (qualified && installing) {
           qualified.phase = 'failed';
           qualified.error = `Qualification passed, but reconnect failed: ${errorMessage(error)}`;
-
           await this.record(qualified);
         }
 
@@ -616,7 +597,6 @@ export class RuntimeUpdates {
 
   private async restore(journal: UpdateJournal): Promise<void> {
     journal.phase = 'recovering';
-
     await this.record(journal);
 
     this.progress(
@@ -643,7 +623,6 @@ export class RuntimeUpdates {
 
     if (current?.digest !== journal.previous.digest) {
       journal.selected = undefined;
-
       await this.record(journal);
 
       await this.native.install(
@@ -667,13 +646,9 @@ export class RuntimeUpdates {
       throw new Error('Recovery did not restore the previous native artifact.');
 
     journal.selected = restored;
-
     await this.record(journal);
-
     await this.native.startup(restored, join(directory, 'recovery'), signal);
-
     journal.phase = 'recovered';
-
     await this.record(journal);
 
     this.host.notice(
@@ -709,16 +684,13 @@ export class RuntimeUpdates {
         } catch (error) {
           current.phase = 'failed';
           current.error = errorMessage(error);
-
           await this.record(current);
 
           throw error;
         }
       } finally {
         await exclusive?.close();
-
         await transaction.close();
-
         this.publish({ progress: undefined });
       }
     });
@@ -726,7 +698,6 @@ export class RuntimeUpdates {
 
   close(): void {
     this.closed = true;
-
     this.stopping.abort();
   }
 }

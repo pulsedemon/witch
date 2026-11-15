@@ -42,13 +42,9 @@ test('a prompt Claude Code never read before an interrupt runs next, ahead of th
 
   try {
     await coordinator.initialize(cwd);
-
     void coordinator.send('an ordinary prompt');
-
     await until('the held prompt', async () => (await held()).length > 0);
-
     await coordinator.send('a steer');
-
     await within(coordinator.interrupt(), 5000, 'interrupt');
 
     await until(
@@ -80,7 +76,6 @@ test('a held ! command interrupted before Claude Code read it runs once', async 
 
   try {
     await coordinator.initialize(cwd);
-
     const turn = coordinator.send("!printf 'once\\n' >> executions");
 
     await until('the held command reply', async () =>
@@ -90,15 +85,10 @@ test('a held ! command interrupted before Claude Code read it runs once', async 
     );
 
     await within(coordinator.interrupt(), 5000, 'interrupt');
-
     await within(turn, 5000, 'turn');
-
     await delay(300);
-
     assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
-
     assert.equal(children.length, 1);
-
     assert.deepEqual(coordinator.snapshot.queue, []);
   } finally {
     await coordinator.close();
@@ -160,7 +150,6 @@ for (const [entry, route, failures] of [
             assert.equal(child.kill('SIGTERM'), true);
 
           const result = await send(...input);
-
           results.push(result);
 
           return result;
@@ -171,7 +160,6 @@ for (const [entry, route, failures] of [
 
       try {
         await coordinator.initialize(cwd);
-
         const original = coordinator.snapshot.conversation!.id;
         let native: string | undefined;
         let turn: Promise<void>;
@@ -185,7 +173,6 @@ for (const [entry, route, failures] of [
           );
 
           native = coordinator.snapshot.native!.id;
-
           await coordinator.send(`!${command}`);
         } else turn = coordinator.send(`!${command}`);
 
@@ -197,9 +184,7 @@ for (const [entry, route, failures] of [
         ];
 
         assert.equal(JSON.stringify(frames).includes('<bash-input>'), false);
-
         assert.equal(results[0]!.status, 'failed');
-
         assert.deepEqual(results[0]!.unreadContext, [record]);
 
         assert.equal(
@@ -209,13 +194,9 @@ for (const [entry, route, failures] of [
 
         if (failures === 2) {
           await coordinator.send('first recovery');
-
           assert.equal(results[1]!.status, 'failed');
-
           assert.equal(results[1]!.inputUnsent, true);
-
           assert.equal(results[1]!.unreadContext, undefined);
-
           assert.deepEqual(coordinator.snapshot.queue, ['first recovery']);
         }
 
@@ -231,7 +212,6 @@ for (const [entry, route, failures] of [
 
         if (route === 'switch') {
           await coordinator.newConversation();
-
           await coordinator.send('other');
 
           assert.equal(
@@ -253,9 +233,7 @@ for (const [entry, route, failures] of [
           );
 
         const next = (await content(cwd)) as string;
-
         assert.equal(next.split(record).length - 1, 1);
-
         const request = failures === 2 ? 'first recovery\nnext' : 'next';
 
         assert.ok(
@@ -263,7 +241,6 @@ for (const [entry, route, failures] of [
         );
 
         assert.ok(next.endsWith(`User request:\n${request}`));
-
         assert.deepEqual(coordinator.snapshot.queue, []);
 
         assert.equal(
@@ -281,9 +258,7 @@ for (const [entry, route, failures] of [
         );
 
         await coordinator.send('again');
-
         assert.equal(((await content(cwd)) as string).includes(record), false);
-
         assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
       } finally {
         await coordinator.close();
@@ -329,14 +304,11 @@ for (const dispatch of [true, false])
 
       try {
         await coordinator.initialize(cwd);
-
         assert.equal(coordinator.snapshot.error, undefined);
-
         const turn = coordinator.send('reporting familiar');
 
         if (!dispatch) {
           await until('replied turn', () => session?.replied === true);
-
           await within(coordinator.interrupt(), 4000, 'interrupt');
         }
 
@@ -381,7 +353,6 @@ test('an unread shell result survives reconnect as context without rerunning its
 
   try {
     await coordinator.initialize(cwd);
-
     const turn = coordinator.send('reporting familiar');
 
     await until(
@@ -390,7 +361,6 @@ test('an unread shell result survives reconnect as context without rerunning its
     );
 
     const native = coordinator.snapshot.native!.id;
-
     await coordinator.send(`!${command}`);
 
     await until(
@@ -399,29 +369,17 @@ test('an unread shell result survives reconnect as context without rerunning its
     );
 
     const original = await content(cwd);
-
     await within(coordinator.interrupt(), 4000, 'interrupt');
-
     await within(turn, 4000, 'the interrupted turn');
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual(coordinator.snapshot.queue, []);
-
     assert.equal(args.length, 1);
-
     assert.equal(await content(cwd), original);
-
     assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
-
     await coordinator.send('What did the command print?');
-
     assert.equal(args.length, 2);
-
     assert.ok(args[1]!.includes(`--resume=${native}`));
-
     const received = (await content(cwd)) as string;
-
     assert.equal(received.split(record).length - 1, 1);
 
     assert.ok(
@@ -430,7 +388,6 @@ test('an unread shell result survives reconnect as context without rerunning its
     );
 
     assert.ok(received.endsWith('User request:\nWhat did the command print?'));
-
     assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
 
     assert.equal(
@@ -453,9 +410,7 @@ test('an unread shell result survives reconnect as context without rerunning its
     );
 
     await coordinator.send('again');
-
     assert.equal(((await content(cwd)) as string).includes(record), false);
-
     assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
   } finally {
     await coordinator.close();
@@ -487,7 +442,6 @@ for (const mode of [
 
           session.shell = async (command) => {
             const result = await shell(command);
-
             await coordinator.interrupt();
 
             return result;
@@ -514,7 +468,6 @@ for (const mode of [
 
       try {
         await coordinator.initialize(cwd);
-
         const original = coordinator.snapshot.conversation!.id;
         let turn: Promise<void>;
 
@@ -556,9 +509,7 @@ for (const mode of [
           );
 
           assert.deepEqual(await jsonLines(join(cwd, 'steered.jsonl')), []);
-
           assert.deepEqual(await jsonLines(join(cwd, 'early.jsonl')), []);
-
           await within(coordinator.interrupt(), 5000, 'interrupt');
         } else {
           turn = coordinator.send(`!${command}`);
@@ -576,17 +527,13 @@ for (const mode of [
         }
 
         await within(turn, 5000, 'the interrupted turn');
-
         assert.equal(coordinator.snapshot.phase, 'idle');
-
         assert.deepEqual(coordinator.snapshot.queue, []);
-
         const native = coordinator.snapshot.native!.id;
 
         if (mode === 'native reconnect') await session!.close();
         else {
           await coordinator.newConversation();
-
           await coordinator.send('other');
 
           assert.equal(
@@ -601,12 +548,10 @@ for (const mode of [
 
         if (mode === 'native reconnect') {
           assert.equal(args.length, 2);
-
           assert.ok(args[1]!.includes(`--resume=${native}`));
         }
 
         const received = (await content(cwd)) as string;
-
         assert.equal(received.split(record).length - 1, 1);
 
         assert.ok(
@@ -614,19 +559,13 @@ for (const mode of [
         );
 
         assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
-
         assert.deepEqual(coordinator.snapshot.queue, []);
-
         await coordinator.send('again');
-
         assert.equal(((await content(cwd)) as string).includes(record), false);
-
         assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
       } finally {
         await writeFile(join(cwd, 'go'), '');
-
         await coordinator.close();
-
         assert.ok(children.every((child) => child.exitCode === 0));
       }
     },
@@ -645,14 +584,10 @@ test('a Claude model choice made as a familiar-held turn settles applies once', 
 
   try {
     await coordinator.initialize(cwd);
-
     settlement = holdSettlement(session!);
     const turn = coordinator.send('reporting familiar');
-
     await until('replied turn', () => session?.replied === true);
-
     assert.equal(await coordinator.refreshModels(), true);
-
     await writeFile(join(cwd, 'allow-report'), '');
 
     await until('the familiar completes', () =>
@@ -668,29 +603,18 @@ test('a Claude model choice made as a familiar-held turn settles applies once', 
     );
 
     await writeFile(join(cwd, 'allow-idle'), '');
-
     await within(settlement.entered, 5000, 'the post-turn save');
-
     assert.equal(coordinator.snapshot.phase, 'running');
-
     assert.equal(session!.replied, false);
-
     const choice = coordinator.selectModel({ agent: 'claude', id: 'claude-b' });
-
     settlement.release();
-
     await within(choice, 5000, 'the model choice');
-
     await within(turn, 5000, 'the turn');
-
     assert.equal(session!.info.model, 'claude-b');
-
     const record = await readRecord(cwd, coordinator.snapshot.conversation!.id);
-
     assert.equal(record.sessions.claude!.model, 'claude-b');
   } finally {
     settlement?.restore();
-
     await coordinator.close();
   }
 });
@@ -700,7 +624,6 @@ async function backgroundCoordinator() {
     await claudeCoordinator('background');
 
   await coordinator.initialize(cwd);
-
   const completed: (string | undefined)[] = [];
 
   const unsubscribe = coordinator.subscribe(() => {
@@ -730,7 +653,6 @@ async function backgroundCoordinator() {
 
   const steer = async (prompt: string) => {
     await coordinator.send(prompt);
-
     let uuid = '';
 
     await until('native follow-up', async () => {
@@ -770,9 +692,7 @@ for (const interrupted of [false, true]) {
       try {
         const uuid = await f.steer('memory follow-up');
         const initial = await f.record();
-
         assert.ok(initial.activity);
-
         const activity = initial.activity.id;
         const native = f.coordinator.snapshot.native!.id;
         const priorCompleted = f.coordinator.snapshot.completedTurn;
@@ -810,7 +730,6 @@ for (const interrupted of [false, true]) {
 
         for (const frames of [[idle], [running, lifecycle]]) {
           await f.emit(...frames);
-
           await Promise.race([f.turn, delay(250)]);
 
           assert.equal(
@@ -832,13 +751,9 @@ for (const interrupted of [false, true]) {
           );
 
           assert.equal((await f.record()).activity?.id, activity);
-
           assert.equal(f.coordinator.snapshot.phase, 'running');
-
           assert.equal(f.coordinator.snapshot.completedTurn, priorCompleted);
-
           assert.equal(f.coordinator.snapshot.native!.id, native);
-
           assert.deepEqual(f.coordinator.snapshot.queue, []);
         }
 
@@ -856,9 +771,7 @@ for (const interrupted of [false, true]) {
           );
 
         await within(f.turn, 3000, 'coordinator completion');
-
         assert.deepEqual(f.coordinator.snapshot.queue, []);
-
         assert.equal(f.coordinator.snapshot.native!.id, native);
 
         assert.equal(
@@ -872,11 +785,8 @@ for (const interrupted of [false, true]) {
 
         if (interrupted) {
           assert.equal(f.coordinator.snapshot.phase, 'recovery');
-
           assert.equal(f.coordinator.snapshot.recovery?.kind, 'pending');
-
           assert.equal((await f.record()).activity?.id, activity);
-
           assert.equal(await accepted(), priorMain);
 
           assert.equal(
@@ -885,11 +795,9 @@ for (const interrupted of [false, true]) {
           );
 
           assert.equal(f.coordinator.snapshot.completedTurn, priorCompleted);
-
           assert.deepEqual(f.completed, []);
         } else {
           assert.equal(f.coordinator.snapshot.phase, 'idle');
-
           assert.equal((await f.record()).activity, undefined);
 
           assert.equal(
@@ -898,12 +806,10 @@ for (const interrupted of [false, true]) {
           );
 
           assert.equal(f.coordinator.snapshot.completedTurn, activity);
-
           assert.deepEqual(f.completed, [activity]);
         }
       } finally {
         f.unsubscribe();
-
         await f.coordinator.close();
       }
     },
@@ -922,7 +828,6 @@ test('a refused steered prompt remains in the transcript', async () => {
     );
 
     await within(f.turn, 3000, 'refused input');
-
     assert.deepEqual(f.coordinator.snapshot.queue, []);
 
     assert.equal(
@@ -933,11 +838,9 @@ test('a refused steered prompt remains in the transcript', async () => {
     );
 
     assert.equal((await f.inputs()).length, 2);
-
     assert.deepEqual(f.completed, []);
   } finally {
     f.unsubscribe();
-
     await f.coordinator.close();
   }
 });

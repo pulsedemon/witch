@@ -13,9 +13,7 @@ for (const outcome of ['interrupted', 'failed'] as const) {
       else f.a.failNext = true;
 
       await f.coordinator.send('Attempt task');
-
       assert.match(f.a.inputs.at(-1)!.context!, /You are running inside Witch/);
-
       const id = f.coordinator.snapshot.conversation!.id;
 
       assert.equal(
@@ -25,7 +23,6 @@ for (const outcome of ['interrupted', 'failed'] as const) {
       );
 
       await f.coordinator.send('Retry task');
-
       assert.match(f.a.inputs.at(-1)!.context!, /You are running inside Witch/);
 
       assert.ok(
@@ -34,7 +31,6 @@ for (const outcome of ['interrupted', 'failed'] as const) {
       );
 
       await f.coordinator.send('Continue');
-
       assert.equal(f.a.inputs.at(-1)!.context, undefined);
     } finally {
       await f.coordinator.close();
@@ -47,16 +43,13 @@ test("the fixed instructions use Witch's names for native skills, subagents and 
 
   try {
     await f.coordinator.send('Initial task');
-
     const context = f.a.inputs.at(-1)!.context!;
 
     const mapping =
       'Witch calls native skills spells, subagents familiars and background commands brews';
 
     assert.ok(context.includes(mapping), context);
-
     assert.ok(context.includes('source=<file or spell>'), context);
-
     assert.doesNotMatch(context.replace(mapping, ''), /skill|subagent/i);
   } finally {
     await f.coordinator.close();
@@ -68,7 +61,6 @@ test('the fixed instructions lay out transcript replies for scanning and leave v
 
   try {
     await f.coordinator.send('Initial task');
-
     const context = f.a.inputs.at(-1)!.context!;
 
     const rule = context
@@ -78,7 +70,6 @@ test('the fixed instructions lay out transcript replies for scanning and leave v
       );
 
     assert.ok(rule, context);
-
     assert.match(rule, /Open with the outcome in one sentence/);
 
     assert.match(
@@ -87,9 +78,7 @@ test('the fixed instructions lay out transcript replies for scanning and leave v
     );
 
     assert.match(rule, /don't bold the start of each bullet/);
-
     assert.match(rule, /Keep each bullet to one line/);
-
     assert.match(rule, /Answer a single question or point in prose/);
 
     assert.match(
@@ -113,7 +102,6 @@ test('the fixed instructions take the recommended route past a blocked step and 
 
   try {
     await f.coordinator.send('Initial task');
-
     const context = f.a.inputs.at(-1)!.context!;
 
     const rule = context
@@ -174,9 +162,7 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
 
   try {
     await f.coordinator.send('Initial task');
-
     const context = f.a.inputs.at(-1)!.context!;
-
     const paragraphs = context.split('\n\n');
 
     const rule = paragraphs.find((paragraph) =>
@@ -257,7 +243,6 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
     );
 
     assert.ok(audit, context);
-
     assert.match(audit, /Check recorded deferred work, review findings/);
 
     assert.match(
@@ -285,7 +270,6 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
     );
 
     assert.equal(shared.length, 1, context);
-
     const workflow = shared[0]!;
 
     // both triggers point down at the workflow, so it has to follow them
@@ -306,7 +290,6 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
     );
 
     assert.match(workflow, /Reuse a matching issue\./);
-
     assert.doesNotMatch(workflow, /comment/);
 
     assert.match(
@@ -336,12 +319,9 @@ for (const revision of [undefined, '0'.repeat(64)]) {
 
     try {
       await f.coordinator.send('Initial task');
-
       const id = f.coordinator.snapshot.conversation!.id;
       const native = f.a.inputs.at(-1)!.session;
-
       await f.coordinator.close();
-
       const record = await readRecord(f.root, id);
       record.sessions.a!.deliveredInstructionsRevision = revision;
 
@@ -354,19 +334,12 @@ for (const revision of [undefined, '0'.repeat(64)]) {
 
       try {
         await reopened.send('Continue after upgrade');
-
         const input = f.a.inputs.at(-1)!;
-
         assert.equal(input.prompt, 'Continue after upgrade');
-
         assert.equal(input.session, native);
-
         assert.match(input.context!, /You are running inside Witch/);
-
         assert.doesNotMatch(input.context!, /Accepted shared memory/);
-
         await reopened.send('Again');
-
         assert.equal(f.a.inputs.at(-1)!.context, undefined);
       } finally {
         await reopened.close();

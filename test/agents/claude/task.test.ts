@@ -39,21 +39,13 @@ const read = {
 test('observed init and unique top-level tool uses supply identity and activity until process exit', () => {
   const events: FamiliarProgress[] = [];
   const review = new ClaudeTask('/work', (progress) => events.push(progress));
-
   review.message(init);
-
   review.message(read);
-
   review.message(read);
-
   review.message({ ...read, parent_tool_use_id: 'nested-parent' });
-
   review.message({ ...read, agent_id: 'nested-agent' });
-
   review.message({ ...init, session_id: 'foreign', model: 'wrong-model' });
-
   review.message({ ...init, model: 'refreshed-model' });
-
   review.message(success);
 
   assert.deepEqual(events, [
@@ -83,7 +75,6 @@ test('observed init and unique top-level tool uses supply identity and activity 
 
 test('native permission denials remain in the final report even when the review itself succeeds', () => {
   const review = new ClaudeTask('/work', () => {});
-
   review.message(init);
 
   review.message({
@@ -115,15 +106,10 @@ const skill = (id: string, name: string, nested = {}) => ({
 test("a delegated Claude's spell call and familiar denial show Witch's names, and its spells, its own familiars' included, are reported once each", () => {
   const events: FamiliarProgress[] = [];
   const task = new ClaudeTask('/work', (progress) => events.push(progress));
-
   task.message(init);
-
   assert.equal('spells' in events.at(-1)!, false);
-
   task.message(skill('skill-1', 'review'));
-
   assert.equal(events.at(-1)!.activity, 'Spell  review');
-
   assert.deepEqual(events.at(-1)!.spells, [{ id: 'skill-1', name: 'review' }]);
 
   const nested = skill('nested-1', 'tdd', {
@@ -132,11 +118,8 @@ test("a delegated Claude's spell call and familiar denial show Witch's names, an
   });
 
   task.message(nested);
-
   task.message(nested);
-
   task.message(skill('skill-1', 'review'));
-
   assert.equal(events.length, 3);
 
   assert.deepEqual(events.at(-1), {
@@ -189,13 +172,9 @@ test('delegated Claude observes assistant model changes', () => {
   });
 
   task.message(init);
-
   task.message(read);
-
   task.message(thinking('observed-response'));
-
   task.message(thinking('<synthetic>'));
-
   task.message({ ...thinking('foreign-response'), session_id: 'foreign' });
 
   task.message({
@@ -225,7 +204,6 @@ test('delegated Claude observes assistant model changes', () => {
 test('native session model switches and reversions change displayed identity while local fallback leaves it alone', () => {
   const events: FamiliarProgress[] = [];
   const review = new ClaudeTask('/work', (progress) => events.push(progress));
-
   review.message(init);
 
   const change = {
@@ -239,11 +217,8 @@ test('native session model switches and reversions change displayed identity whi
   };
 
   review.message({ ...change, scope: 'local' });
-
   review.message(change);
-
   review.message({ ...change, direction: 'sticky' });
-
   review.message({ ...change, direction: 'revert' });
 
   assert.deepEqual(
@@ -345,16 +320,10 @@ for (const [name, frames, code, signal, status, report] of [
 
 test('malformed required protocol fails even if a later result claims success', () => {
   const review = new ClaudeTask('/work', () => {});
-
   review.message({ ...init, model: null });
-
   review.message(init);
-
   review.message(success);
-
   const result = review.closed(0, null);
-
   assert.equal(result.status, 'failed');
-
   assert.match(result.report!, /^Reviewed\.\n\nInvalid Claude task stream:/);
 });

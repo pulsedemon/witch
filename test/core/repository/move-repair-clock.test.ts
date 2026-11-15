@@ -33,9 +33,7 @@ vi.mock('../../../src/persistence/directories.js', async (importOriginal) => {
 async function held(moves: LedgerMove[] = []) {
   const root = await scratch('witch-clock-');
   const at = (path: string) => join(root, path);
-
   await mkdir(at('old'));
-
   await mkdir(at('state/conversations/held'), { recursive: true });
 
   await writeFile(
@@ -81,15 +79,10 @@ test('a conversation repaired while the clock reads behind a recorded move still
   ]);
 
   await rename(f.at('old'), f.at('new'));
-
   const repaired = await f.repair('new');
-
   assert.equal(repaired.cwd, f.at('new'));
-
   assert.ok(Date.parse(repaired.cwdSince) >= ahead, repaired.cwdSince);
-
   await rename(f.at('new'), f.at('newer'));
-
   assert.equal((await f.repair('newer')).cwd, f.at('newer'));
 });
 
@@ -98,13 +91,9 @@ test('a conversation repaired before the clock stepped back still follows its ne
 
   try {
     vi.setSystemTime(1_000_000);
-
     const f = await held();
-
     await rename(f.at('old'), f.at('new'));
-
     vi.setSystemTime(1_100_000);
-
     // the clock reads later when repair dates the conversation than when it recorded the move
     let calls = 0;
 
@@ -113,11 +102,8 @@ test('a conversation repaired before the clock stepped back still follows its ne
     };
 
     await f.repair('new').finally(() => (ledgerCalls.before = undefined));
-
     vi.setSystemTime(1_500_000);
-
     await rename(f.at('new'), f.at('newer'));
-
     assert.equal((await f.repair('newer')).cwd, f.at('newer'));
   } finally {
     vi.useRealTimers();
@@ -130,9 +116,7 @@ async function created(
 ) {
   const root = await scratch('witch-clock-');
   const at = (path: string) => join(root, path);
-
   await mkdir(at('old'));
-
   await mkdir(at('state'));
 
   await writeFile(
@@ -147,9 +131,7 @@ async function created(
   const store = await StateStore.open(at('state'));
   const files = await store.create(createConversation(at('old'), 'a'));
   const { id } = files.record;
-
   await files.close();
-
   const memory = await seededMemory(at('state/memory.git'));
 
   const repair = async (cwd: string) => {
@@ -181,7 +163,6 @@ test("a conversation created at a reused path after the clock stepped back follo
   });
 
   await rename(f.at('old'), f.at('new'));
-
   assert.equal(await f.repair('new'), f.at('new'));
 });
 
@@ -190,13 +171,9 @@ test('a conversation created before any move was recorded follows its directory 
 
   try {
     vi.setSystemTime(2_000_000);
-
     const f = await created(async () => []);
-
     vi.setSystemTime(1_000_000);
-
     await rename(f.at('old'), f.at('new'));
-
     assert.equal(await f.repair('new'), f.at('new'));
   } finally {
     vi.useRealTimers();

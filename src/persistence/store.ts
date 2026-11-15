@@ -90,7 +90,6 @@ function moveRows(
     }
 
     parts.push(line);
-
     start = next;
   }
 
@@ -118,7 +117,6 @@ export async function moveHistory(
   if (!moved.changed) return;
 
   await checkpoint?.({ from: source, inode: times.ino });
-
   await replaceFile(file, moved.content, times);
 }
 
@@ -373,7 +371,6 @@ export class StateStore {
       : conversation;
 
     await mkdir(directory, { mode: 0o700 });
-
     const unlock = await hold(directory);
     const files = new ConversationStore(directory, unlock, record);
 
@@ -404,7 +401,6 @@ export class StateStore {
         );
 
         delete record.historyMove;
-
         await files.save(record);
       }
 
@@ -511,7 +507,6 @@ export class ConversationStore {
 
   save(record: ConversationRecord): Promise<void> {
     const captured = JSON.parse(JSON.stringify(record)) as ConversationRecord;
-
     this.drainHistory();
 
     return this.enqueue(() => writeJson(recordPath(this.directory), captured));
@@ -552,7 +547,6 @@ export class ConversationStore {
         release: ready.resolve,
         written: this.enqueue(async () => {
           await ready.promise;
-
           await this.writeHistory(pending.update);
         }),
         timer: setTimeout(() => this.drainHistory(), 100),
@@ -593,7 +587,6 @@ export class ConversationStore {
 
   async flush(): Promise<void> {
     this.drainHistory();
-
     await this.queue;
 
     if (this.failure) throw this.failure;
@@ -608,14 +601,12 @@ export class ConversationStore {
 
     try {
       await Promise.allSettled(this.savingImages);
-
       await this.flush();
     } finally {
       try {
         await this.historyFile?.close();
       } finally {
         this.historyFile = undefined;
-
         await this.unlock();
       }
     }
@@ -627,15 +618,12 @@ export class ConversationStore {
     if (!pending) return;
 
     this.pending = undefined;
-
     clearTimeout(pending.timer);
-
     pending.release();
   }
 
   private async writeHistory(update: DisplayUpdate): Promise<void> {
     const file = await this.openHistory();
-
     await file.writeFile(`${JSON.stringify(update)}\n`);
   }
 

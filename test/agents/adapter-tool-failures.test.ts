@@ -67,9 +67,7 @@ test('a Codex command that exits non-zero, fails or is declined marks its row fa
       );
 
       const row = project(f.events).find((row) => row.id === call.id);
-
       assert.equal(row?.done, true, call.id);
-
       assert.equal(row?.failed, call.failed, call.id);
     }
   } finally {
@@ -151,9 +149,7 @@ test('a Claude tool result with is_error marks its row failed', async () => {
     }
 
     const rows = project(events);
-
     assert.equal(rows.find((row) => row.id === 'broken')?.failed, true);
-
     assert.equal(rows.find((row) => row.id === 'fine')?.failed, undefined);
 
     await emit({

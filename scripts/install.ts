@@ -23,7 +23,6 @@ try {
     throw new Error('Usage: pnpm install:cli [destination]');
 
   const entry = await realpath(resolve('dist/cli.js'));
-
   await access(entry, constants.X_OK);
 
   const destination = resolve(
@@ -47,7 +46,6 @@ try {
     );
 
   await mkdir(dirname(destination), { recursive: true });
-
   const temporary = `${destination}.${randomUUID()}.tmp`;
   const file = await open(temporary, 'wx', 0o755);
 
@@ -72,17 +70,14 @@ exec "$entry" "$@"
 `);
 
     await file.sync();
-
     await rename(temporary, destination);
   } finally {
     await file.close();
-
     await rm(temporary, { force: true });
   }
 
   process.stdout.write(`Installed ${destination}\n`);
 } catch (error) {
   process.stderr.write(`witch: ${errorMessage(error)}\n`);
-
   process.exitCode = 1;
 }

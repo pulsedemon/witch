@@ -103,12 +103,10 @@ export class ConversationEvents {
           );
 
           this.pendingMerges.delete(id);
-
           this.observedMerges.add(id);
         }
 
         this.host.read(['merge-publish'], false);
-
         await this.publication.refresh();
       })
       .catch((error: unknown) => this.host.fail('merge-publish', error))
@@ -208,7 +206,6 @@ export class ConversationEvents {
           const merges = { ...scope, events: events.value };
           changed = JSON.stringify(merges) !== JSON.stringify(this.merges);
           this.merges = merges;
-
           read.push('merge-events');
         } else this.host.fail('merge-events', events.reason);
 
@@ -216,7 +213,6 @@ export class ConversationEvents {
           const asks = { ...scope, requests: requests.value };
           changed ||= JSON.stringify(asks) !== JSON.stringify(this.asks);
           this.asks = asks;
-
           read.push('peer-requests');
         } else this.host.fail('peer-requests', requests.reason);
 
@@ -224,7 +220,6 @@ export class ConversationEvents {
           const halts = { ...scope, pauses: pauses.value };
           changed ||= JSON.stringify(halts) !== JSON.stringify(this.halts);
           this.halts = halts;
-
           read.push('pauses');
         } else this.host.fail('pauses', pauses.reason);
 

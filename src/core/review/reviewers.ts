@@ -129,13 +129,11 @@ export class Reviewers {
 
           child.once('error', (error) => {
             diagnostics[index] = error.message;
-
             resolve(null);
           });
 
           child.once('exit', (code, ended) => {
             killed[index] = ended;
-
             resolve(code);
           });
         }),
@@ -161,7 +159,6 @@ export class Reviewers {
     /** ends a reviewer that never reported its own end, so a failed or stopped run leaves none running. */
     const finish = (name: string) => {
       const run = this.runs.get(this.expected.get(name)?.run ?? '');
-
       run?.end(signal.aborted ? 'stopped' : 'failed');
 
       return run;
@@ -176,7 +173,6 @@ export class Reviewers {
         for (const group of groups) signalGroup(group, 'SIGKILL');
 
         const deadline = stopDeadline();
-
         await beforeDeadline(gone(groups, deadline, signal), deadline);
       }
 
@@ -221,7 +217,6 @@ export class Reviewers {
 
       for (const { name } of reviewers) {
         finish(name);
-
         const run = this.expected.get(name)?.run;
 
         if (run) this.runs.delete(run);

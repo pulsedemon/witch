@@ -4,9 +4,9 @@ import stylistic from '@stylistic/eslint-plugin';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
-const singleLineVariable = {
+const singleLineStatement = {
   selector:
-    ':matches(VariableDeclaration, ExportNamedDeclaration[declaration.type="VariableDeclaration"], ExpressionStatement[expression.type="AssignmentExpression"])',
+    ':matches(VariableDeclaration, ExportNamedDeclaration[declaration.type="VariableDeclaration"], ExpressionStatement)',
   lineMode: 'singleline',
 };
 
@@ -49,9 +49,9 @@ export default defineConfig(
         { blankLine: 'always', prev: '*', next: '*' },
         { blankLine: 'any', prev: 'import', next: 'import' },
         {
-          blankLine: 'any',
-          prev: singleLineVariable,
-          next: singleLineVariable,
+          blankLine: 'never',
+          prev: singleLineStatement,
+          next: singleLineStatement,
         },
         {
           blankLine: 'any',

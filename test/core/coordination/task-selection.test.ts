@@ -32,13 +32,9 @@ for (const failed of [false, true]) {
       second = await selectionTurn(cleanup, b);
 
     await first.select();
-
     const queued = await second.select();
-
     assert.equal(queued.position, 2);
-
     a.a.failNext = failed;
-
     await first.finish();
 
     const next = await callControl(second.binding, {
@@ -89,7 +85,6 @@ test('failed head cleanup retries while idle and old cleanup cannot cancel a lat
   );
 
   await first.finish();
-
   assert.equal(a.coordinator.snapshot.phase, 'idle');
 
   assert.match(
@@ -112,7 +107,6 @@ test('failed head cleanup retries while idle and old cleanup cannot cancel a lat
   if (next.kind !== 'selection') assert.fail(JSON.stringify(next));
 
   assert.equal(next.selection.position, 1);
-
   const later = await selectionTurn(cleanup, a);
   const newer = await later.select();
 
@@ -144,9 +138,7 @@ test('interruption revokes selection before native cancellation resolves', async
 
   native.interrupt = async () => {
     entered.resolve();
-
     await release.promise;
-
     await interrupt();
   };
 
@@ -183,11 +175,8 @@ test('interruption revokes selection before native cancellation resolves', async
     assert.equal(await f.ledger(), before);
   } finally {
     release.resolve();
-
     await stopping;
-
     await first.sending;
-
     native.interrupt = interrupt;
   }
 });
@@ -199,18 +188,12 @@ test('a client-delayed request from an interrupted turn cannot enter a later tur
   const first = await selectionTurn(cleanup, a);
   const old = await first.select();
   const delayed = { kind: 'select-next' as const, turn: first.turn };
-
   await a.coordinator.interrupt();
-
   await first.sending;
-
   const later = await selectionTurn(cleanup, a);
   const current = await later.select();
-
   assert.equal(first.binding.activation, later.binding.activation);
-
   const before = await f.ledger();
-
   assert.equal((await callControl(first.binding, delayed)).kind, 'error');
 
   assert.equal(
@@ -224,7 +207,6 @@ test('a client-delayed request from an interrupted turn cannot enter a later tur
   );
 
   assert.equal(await f.ledger(), before);
-
   assert.deepEqual((await f.registry.state()).selections, [current.ticket]);
 });
 
@@ -287,9 +269,7 @@ test('recommendation keeps the next chooser waiting until a brew ends', async (t
 
   const emit = a.a.sessions.at(-1)!.options.onEvent;
   const command = { id: 'triage', description: 'Inspect candidate tasks' };
-
   emit({ type: 'command', command: { ...command, status: 'running' } });
-
   const before = await f.ledger();
 
   const action = {
@@ -303,7 +283,6 @@ test('recommendation keeps the next chooser waiting until a brew ends', async (t
   if (blocked.kind !== 'error') assert.fail(JSON.stringify(blocked));
 
   assert.match(blocked.message, /familiars and brews/);
-
   assert.equal(await f.ledger(), before);
 
   const queued = await callControl(second.binding, {
@@ -314,9 +293,7 @@ test('recommendation keeps the next chooser waiting until a brew ends', async (t
   if (queued.kind !== 'selection') assert.fail(JSON.stringify(queued));
 
   assert.equal(queued.selection.position, 2);
-
   emit({ type: 'command', command: { ...command, status: 'completed' } });
-
   const recommended = await callControl(first.binding, action);
 
   if (recommended.kind !== 'claimed') assert.fail(JSON.stringify(recommended));
@@ -342,19 +319,12 @@ test('normal exit releases a suggestion while restart and native handoff preserv
     choice = await turn.select();
 
   const suggestion = await turn.recommend(choice.ticket.id);
-
   await turn.finish();
-
   a.a.gate = undefined;
-
   await a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
   assert.notEqual((await a.binding()).activation, turn.binding.activation);
-
   assert.deepEqual(await f.registry.claims(), [suggestion]);
-
   await a.coordinator.close({ restart: true });
-
   assert.deepEqual(await f.registry.claims(), [suggestion]);
 
   const reopened = await f.start('A', {
@@ -362,9 +332,7 @@ test('normal exit releases a suggestion while restart and native handoff preserv
   });
 
   assert.deepEqual((await reopened.query()).ownClaim, suggestion);
-
   await reopened.coordinator.close();
-
   assert.deepEqual(await f.registry.claims(), []);
 });
 
@@ -403,7 +371,6 @@ test('replacing a conversation releases every active alias and preserves another
   );
 
   assert.equal((await f.registry.claims()).length, 2);
-
   await a.coordinator.newConversation();
 
   assert.notEqual(
@@ -412,7 +379,6 @@ test('replacing a conversation releases every active alias and preserves another
   );
 
   assert.deepEqual(await f.registry.claims(), [other.claim]);
-
   await b.coordination.releaseTask();
 
   assert.equal(
@@ -434,27 +400,16 @@ test('active claims survive reconnect and restart but normal close makes them av
   if (first.kind !== 'claimed') assert.fail(JSON.stringify(first));
 
   assert.equal((await b.claim()).kind, 'conflict');
-
   await a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
   assert.notEqual((await a.binding()).activation, binding.activation);
-
   assert.deepEqual(await f.registry.claims(), [first.claim]);
-
   await a.coordinator.close({ restart: true });
-
   assert.deepEqual(await f.registry.claims(), [first.claim]);
-
   assert.equal((await b.claim()).kind, 'conflict');
-
   const reopened = await f.start('A', { conversation: binding.conversation });
-
   assert.equal((await reopened.query()).ownClaim?.id, first.claim.id);
-
   await reopened.coordinator.close();
-
   assert.deepEqual(await f.registry.claims(), []);
-
   assert.equal((await b.claim()).kind, 'claimed');
 });
 
@@ -464,9 +419,7 @@ test('adopting a legacy claim preserves its aliases through restart without bind
   const id = randomUUID();
   const files = await f.store.create(record(id, join(f.root, 'A')));
   const other = await f.store.create(record('older-peer', join(f.root, 'B')));
-
   cleanup(() => other.close());
-
   const { project } = await f.memory.scopePaths(join(f.root, 'A'));
 
   const original = {
@@ -490,37 +443,22 @@ test('adopting a legacy claim preserves its aliases through restart without bind
   );
 
   await files.close();
-
   const a = await f.start('A', { conversation: id });
   const adopted = { ...original, process: await identifyProcess(process.pid) };
   const migrated = JSON.parse(await f.ledger());
-
   assert.equal(migrated.version, 2);
-
   assert.deepEqual(migrated.claims, [adopted, otherClaim]);
-
   await a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
   await other.close();
-
   const b = await f.start('B');
-
   await a.coordinator.close({ restart: true });
-
   assert.equal(await f.store.isOpen(id), false);
-
   const refused = await b.claim('https://github.com/acme/queue/issues/19');
-
   assert.equal(refused.kind, 'conflict');
-
   assert.deepEqual(await f.registry.claims(), [adopted]);
-
   const resumed = await f.start('A', { conversation: id });
-
   assert.deepEqual((await resumed.query()).ownClaim, adopted);
-
   await resumed.coordinator.close();
-
   assert.deepEqual(await f.registry.claims(), []);
 
   assert.equal(
@@ -537,9 +475,7 @@ test('restart recovers a departed claim release while preserving other open conv
     b = await f.start('B');
 
   const binding = await a.binding();
-
   await a.claim();
-
   const other = await b.claim('task:other');
 
   if (other.kind !== 'claimed') assert.fail(JSON.stringify(other));
@@ -561,22 +497,14 @@ test('restart recovers a departed claim release while preserving other open conv
   });
 
   await a.coordinator.newConversation().catch(() => {});
-
   const next = a.coordinator.snapshot.conversation!.id;
-
   assert.notEqual(next, binding.conversation);
-
   await a.coordinator.close({ restart: true }).catch(() => {});
-
   assert.equal((await f.registry.claims()).length, 2);
-
   failing = false;
   const reopened = await f.start('A', { conversation: next });
-
   assert.deepEqual(await f.registry.claims(), [other.claim]);
-
   assert.equal((await reopened.claim()).kind, 'claimed');
-
   assert.equal((await b.query()).ownClaim?.id, other.claim.id);
 });
 
@@ -591,7 +519,6 @@ test('failed target preparation keeps a suggestion and a successful switch relea
     choice = await turn.select();
 
   const suggestion = await turn.recommend(choice.ticket.id);
-
   await turn.finish();
 
   await assert.rejects(
@@ -620,7 +547,6 @@ test('failed target preparation keeps a suggestion and a successful switch relea
   );
 
   items.mockRestore();
-
   await a.coordinator.newConversation();
 
   assert.notEqual(
@@ -640,13 +566,9 @@ test('switching away releases a suggestion even when native close rejects', asyn
     choice = await turn.select();
 
   await turn.recommend(choice.ticket.id);
-
   await turn.finish();
-
   a.a.failClose = true;
-
   await a.coordinator.newConversation();
-
   a.a.failClose = false;
 
   assert.notEqual(
@@ -666,7 +588,6 @@ test('an idle origin change retires a suggestion through ordinary reconnect', as
     choice = await turn.select();
 
   await turn.recommend(choice.ticket.id);
-
   await turn.finish();
 
   await git(
@@ -679,11 +600,8 @@ test('an idle origin change retires a suggestion through ordinary reconnect', as
   );
 
   a.a.gate = undefined;
-
   await a.coordinator.send('Continue');
-
   assert.notEqual((await a.binding()).activation, turn.binding.activation);
-
   assert.deepEqual(await f.registry.claims(), []);
 });
 
@@ -749,7 +667,6 @@ test('cleanup failure is surfaced while shutdown still closes native work and ac
   const f = await unitCoordinationFixture(cleanup);
   const a = await f.start();
   const turn = await selectionTurn(cleanup, a);
-
   await turn.select();
 
   const cancel = vi
@@ -760,7 +677,6 @@ test('cleanup failure is surfaced while shutdown still closes native work and ac
 
   try {
     await assert.rejects(a.coordinator.close(), /Cleanup unavailable/);
-
     assert.equal(a.a.sessions.at(-1)!.session.closed, true);
 
     assert.equal(
@@ -809,11 +725,8 @@ test('legacy peers block selection until closed while other projects select inde
     assert.match(rejected.message, /Restart or close/);
 
   const independent = await selectionTurn(cleanup, other);
-
   assert.equal((await independent.select()).position, 1);
-
   await b.coordinator.close();
-
   assert.equal((await turn.select()).position, 1);
 });
 
@@ -831,9 +744,7 @@ test('a recommendation survives final cleanup failure and advances the next wait
     queued = await second.select();
 
   assert.equal(choice.position, 1);
-
   assert.equal(queued.position, 2);
-
   const recommend = CoordinationStore.prototype.recommend;
   let pending: Promise<void> | undefined;
 
@@ -896,22 +807,16 @@ test('a recommendation survives final cleanup failure and advances the next wait
     });
   } finally {
     recommending.mockRestore();
-
     cancelling.mockRestore();
-
     await pending;
-
     await first.finish();
-
     await second.finish();
   }
 });
 
 test('a lost recommendation reply reconciles after a delayed ledger read to one claim and one advancement', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
 
   const a = await f.start(),
@@ -957,7 +862,6 @@ test('a lost recommendation reply reconciles after a delayed ledger read to one 
   if (failed.kind !== 'error') assert.fail(JSON.stringify(failed));
 
   assert.equal(failed.message, 'Reply unavailable after commit');
-
   const state = CoordinationStore.prototype.state;
 
   vi.spyOn(CoordinationStore.prototype, 'state').mockImplementationOnce(
@@ -976,12 +880,9 @@ test('a lost recommendation reply reconciles after a delayed ledger read to one 
   );
 
   const recorded = (await a.query()).ownClaim;
-
   assert.ok(recorded);
-
   const before = await f.ledger();
   const retried = await callControl(first.binding, action);
-
   assert.equal(retried.kind, 'claimed');
 
   if (retried.kind === 'claimed') assert.deepEqual(retried.claim, recorded);
@@ -996,7 +897,6 @@ test('a lost recommendation reply reconciles after a delayed ledger read to one 
   if (next.kind !== 'selection') assert.fail(JSON.stringify(next));
 
   assert.equal(next.selection.position, 1);
-
   assert.equal((await f.registry.claims()).length, 1);
 });
 
@@ -1010,7 +910,6 @@ for (const active of [false, true])
       choice = await first.select();
 
     let previous = await first.recommend(choice.ticket.id);
-
     await first.finish();
 
     if (active) {
@@ -1049,7 +948,6 @@ for (const active of [false, true])
     );
 
     assert.deepEqual(await f.registry.claims(), [previous]);
-
     failing = false;
 
     await until(
@@ -1063,12 +961,8 @@ for (const active of [false, true])
       next = await later.select();
 
     const current = await later.recommend(next.ticket.id, 18);
-
     await later.finish();
-
     await a.coordination.endTurn(first.turn);
-
     assert.deepEqual((await a.query()).ownClaim, current);
-
     assert.deepEqual(await f.registry.claims(), [current]);
   });

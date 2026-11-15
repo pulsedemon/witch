@@ -18,9 +18,7 @@ test('clear starts a new native session while retaining the conversation, settin
 
   try {
     await c.send('remember-port');
-
     await c.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
-
     const before = structuredClone(c.snapshot);
     const old = f.a.sessions.at(-1)!;
     const workspace = f.workspace();
@@ -31,30 +29,18 @@ test('clear starts a new native session while retaining the conversation, settin
     ]);
 
     const revision = await f.memory.resolve('main');
-
     await c.clear();
-
     const native = f.a.sessions.at(-1)!;
     const record = await readRecord(f.root, before.conversation!.id);
-
     assert.equal(old.session.closed, true);
-
     assert.notEqual(native.session.info.id, old.session.info.id);
-
     assert.equal(native.options.resume, undefined);
-
     assert.equal(native.session.info.model, 'a-big');
-
     assert.equal(native.session.info.effort, 'high');
-
     assert.equal(c.snapshot.conversation!.id, before.conversation!.id);
-
     assert.equal(c.snapshot.conversation!.title, before.conversation!.title);
-
     assert.equal(c.snapshot.conversation!.cwd, before.conversation!.cwd);
-
     assert.equal(c.snapshot.openedAt, before.openedAt);
-
     assert.equal(c.snapshot.completedTurn, undefined);
 
     assert.deepEqual(
@@ -63,7 +49,6 @@ test('clear starts a new native session while retaining the conversation, settin
     );
 
     assert.equal(c.snapshot.items.at(-1)!.contextCleared, true);
-
     assert.equal(f.workspace().root, workspace.root);
 
     assert.equal(
@@ -79,21 +64,13 @@ test('clear starts a new native session while retaining the conversation, settin
     );
 
     assert.equal(record.sessions.a!.deliveredRevision, undefined);
-
     assert.equal(record.sessions.a!.deliveredInstructionsRevision, undefined);
-
     assert.equal(record.sessions.a!.deliveredMerges, undefined);
-
     await c.send('first fresh turn');
-
     assert.equal(f.a.inputs.at(-1)!.session, native.session.info.id);
-
     assert.match(f.a.inputs.at(-1)!.context!, /Use port 4567/);
-
     assert.match(f.a.inputs.at(-1)!.context!, /You are running inside Witch/);
-
     await c.send('second fresh turn');
-
     assert.equal(f.a.inputs.at(-1)!.context, undefined);
   } finally {
     await c.close();
@@ -114,14 +91,11 @@ test('clear reapplies reported default model and effort before the next turn', a
       };
 
       Object.defineProperty(session, 'info', { get: () => info });
-
       const select = session.selectModel;
 
       session.selectModel = async (model, effort) => {
         await select(model, effort);
-
         info = { ...info, model, nativeEffort: effort ?? info.nativeEffort };
-
         options.onEvent({ type: 'info', info });
       };
 
@@ -133,13 +107,9 @@ test('clear reapplies reported default model and effort before the next turn', a
 
   try {
     assert.equal(f.coordinator.snapshot.native!.nativeEffort, 'high');
-
     await f.coordinator.clear();
-
     assert.equal(f.coordinator.snapshot.native!.model, 'a-big');
-
     assert.equal(f.coordinator.snapshot.native!.nativeEffort, 'high');
-
     assert.equal(f.a.inputs.length, 0);
   } finally {
     await f.coordinator.close();
@@ -158,16 +128,11 @@ test("clear preserves the resolved model, even one the agent wouldn't offer, wit
 
     const native = f.a.sessions.at(-1)!;
     const resolved = { ...native.session.info, model: 'a-big' };
-
     Object.defineProperty(native.session, 'info', { get: () => resolved });
-
     native.options.onEvent({ type: 'info', info: resolved });
-
     // as a Codex reroute reports a model its catalog lacks
     f.a.invalidModel = 'a-big';
-
     await f.coordinator.clear();
-
     assert.equal(f.coordinator.snapshot.native!.model, 'a-big');
 
     const saved = await readRecord(
@@ -176,7 +141,6 @@ test("clear preserves the resolved model, even one the agent wouldn't offer, wit
     );
 
     assert.equal(saved.sessions.a!.requestedModel, 'a-alias');
-
     assert.equal(f.a.sessions.at(-1)!.options.model, 'a-alias');
   } finally {
     await f.coordinator.close();
@@ -189,17 +153,11 @@ test('clear survives reopening and discards both runtime histories and unfinishe
 
   try {
     await c.send('old a history');
-
     await c.selectModel({ agent: 'b', id: 'b-big', effort: 'high' });
-
     await c.send('old b history');
-
     await c.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
-
     const id = c.snapshot.conversation!.id;
-
     await c.close();
-
     const stored = await readRecord(f.root, id);
     stored.lastTurn = { id: 'failed-before-clear', status: 'failed' };
 
@@ -216,35 +174,20 @@ test('clear survives reopening and discards both runtime histories and unfinishe
     );
 
     c = await f.reopen();
-
     await c.clear();
-
     const cleared = await readRecord(f.root, id);
-
     assert.equal(cleared.sessions.b, undefined);
-
     assert.equal(cleared.handoff, undefined);
-
     assert.equal(cleared.lastTurn, undefined);
-
     const items = c.snapshot.items;
-
     await c.close();
-
     c = await f.reopen();
-
     assert.deepEqual(c.snapshot.items, items);
-
     const counts = [f.a.inputs.length, f.b.inputs.length];
-
     await c.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.deepEqual([f.a.inputs.length, f.b.inputs.length], counts);
-
     assert.equal(f.b.sessions.at(-1)!.options.resume, undefined);
-
     assert.notEqual(c.snapshot.native!.id, stored.sessions.b!.id);
-
     await c.send('new b history');
 
     assert.doesNotMatch(
@@ -253,13 +196,9 @@ test('clear survives reopening and discards both runtime histories and unfinishe
     );
 
     const newSession = c.snapshot.native!.id;
-
     await c.selectModel({ agent: 'a', id: 'a-model' });
-
     assert.match(f.b.inputs.at(-1)!.prompt, /handoff summary/);
-
     assert.equal(f.b.inputs.at(-1)!.session, newSession);
-
     assert.equal(f.a.inputs.length, counts[0]);
   } finally {
     await c.close();
@@ -300,7 +239,6 @@ test('clear drops recovered and close-time output only for its own conversation'
     );
 
     await c.newConversation();
-
     const other = c.snapshot.conversation!.id;
 
     await recoverOutput(
@@ -316,7 +254,6 @@ test('clear drops recovered and close-time output only for its own conversation'
     ];
 
     await c.clear();
-
     await c.send('fresh original');
 
     assert.doesNotMatch(
@@ -325,9 +262,7 @@ test('clear drops recovered and close-time output only for its own conversation'
     );
 
     await c.selectConversation(other);
-
     await c.send('other continues');
-
     assert.match(f.a.inputs.at(-1)!.context!, /other-recovered-output/);
   } finally {
     await c.close();
@@ -344,9 +279,7 @@ for (const replied of [false, true]) {
       f.a.gate = gate;
       f.a.replied = replied;
       sending = f.coordinator.send('held');
-
       await within(gate.entered, 3000, 'the held turn');
-
       const id = f.coordinator.snapshot.native!.id;
 
       await assert.rejects(
@@ -364,9 +297,7 @@ for (const replied of [false, true]) {
       assert.equal(f.a.sessions.length, 1);
     } finally {
       gate.open();
-
       await sending;
-
       await f.coordinator.close();
     }
   });
@@ -377,17 +308,11 @@ test('clear refuses pending memory recovery without dropping its queued input', 
 
   try {
     f.a.interruptNext = true;
-
     await f.coordinator.send('remember-port');
-
     assert.equal(f.coordinator.snapshot.phase, 'recovery');
-
     await assert.rejects(f.coordinator.clear(), /Resolve pending memory/);
-
     await f.coordinator.send('retained input');
-
     await assert.rejects(f.coordinator.clear(), /Resolve pending memory/);
-
     assert.deepEqual(f.coordinator.snapshot.queue, ['retained input']);
 
     assert.equal(
@@ -409,19 +334,12 @@ test('clear refuses already queued input after a failed turn', async () => {
     f.a.failNext = true;
     f.a.refuseSteer = true;
     sending = f.coordinator.send('fail');
-
     await within(gate.entered, 3000, 'the failing turn');
-
     await f.coordinator.send('retained input');
-
     gate.open();
-
     await sending;
-
     assert.equal(f.coordinator.snapshot.phase, 'idle');
-
     await assert.rejects(f.coordinator.clear(), /Prompts are still queued/);
-
     assert.deepEqual(f.coordinator.snapshot.queue, ['retained input']);
 
     assert.equal(
@@ -430,9 +348,7 @@ test('clear refuses already queued input after a failed turn', async () => {
     );
   } finally {
     gate.open();
-
     await sending;
-
     await f.coordinator.close();
   }
 });
@@ -447,15 +363,10 @@ test('input sent during a clear reconnect runs once in the new session', async (
     const previous = f.coordinator.snapshot.native!.id;
     f.a.beforeConnect = holdConnect(entered, release);
     clearing = f.coordinator.clear();
-
     await within(entered.promise, 3000, 'the clear reconnect');
-
     await f.coordinator.send('during reconnect');
-
     assert.equal(f.a.inputs.length, 0);
-
     release.resolve();
-
     await clearing;
 
     await until(
@@ -464,15 +375,11 @@ test('input sent during a clear reconnect runs once in the new session', async (
     );
 
     assert.equal(f.a.inputs[0]!.prompt, 'during reconnect');
-
     assert.notEqual(f.a.inputs[0]!.session, previous);
-
     assert.deepEqual(f.coordinator.snapshot.queue, []);
   } finally {
     release.resolve();
-
     await clearing;
-
     await f.coordinator.close();
   }
 });
@@ -484,7 +391,6 @@ for (const stage of ['close', 'connect'] as const) {
 
     try {
       await c.send('old history');
-
       const old = c.snapshot.native!.id;
       const id = c.snapshot.conversation!.id;
 
@@ -501,7 +407,6 @@ for (const stage of ['close', 'connect'] as const) {
       );
 
       const saved = await readRecord(f.root, id);
-
       assert.equal(saved.sessions.a!.id, stage === 'close' ? old : '');
 
       assert.equal(
@@ -511,7 +416,6 @@ for (const stage of ['close', 'connect'] as const) {
 
       f.a.failClose = false;
       f.a.failConnect = false;
-
       await c.send('retry');
 
       assert.equal(
@@ -526,7 +430,6 @@ for (const stage of ['close', 'connect'] as const) {
     } finally {
       f.a.failClose = false;
       f.a.failConnect = false;
-
       await c.close();
     }
   });

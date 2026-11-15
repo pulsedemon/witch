@@ -25,9 +25,7 @@ for (const restart of [false, true])
 
       try {
         const turn = coordinator.send('hold');
-
         await within(a.gate.entered, 2000, 'active turn');
-
         const before = performance.now();
         const closing = coordinator.close({ restart });
 
@@ -45,15 +43,10 @@ for (const restart of [false, true])
         )?.options;
 
         assert.ok(interrupt?.deadline !== undefined);
-
         assert.ok(interrupt.deadline > before);
-
         assert.equal(closed?.deadline, interrupt.deadline);
-
         assert.equal(interrupt.restart, restart);
-
         assert.equal(closed?.restart, restart);
-
         assert.equal(a.sessions.at(-1)!.session.closed, true);
       } finally {
         await coordinator.close();
@@ -64,9 +57,7 @@ for (const discovery of [false, true])
   test(`restart preserves the SIGTERM policy during Codex ${discovery ? 'model discovery' : 'connection'}`, async () => {
     const root = await scratch('witch-restart-startup-');
     const project = join(root, 'project');
-
     await mkdir(project);
-
     const store = await StateStore.open(join(root, 'state'));
     const memory = await seededMemory(join(root, 'state', 'memory.git'));
     let child: ChildProcessWithoutNullStreams | undefined;
@@ -97,23 +88,17 @@ for (const discovery of [false, true])
 
     try {
       await appears(join(project, 'initializing.json'));
-
       closing = coordinator.close({ restart: true });
       const closed = settled(closing);
-
       await delay(2500);
-
       assert.equal(child!.signalCode, null);
-
       assert.equal(child!.exitCode, null);
-
       assert.equal(closed(), false);
     } finally {
       if (child && child.exitCode === null && child.signalCode === null)
         child.kill('SIGKILL');
 
       await within(initializing, 2000, 'initialization cleanup');
-
       await within(closing ?? coordinator.close(), 2000, 'restart cleanup');
     }
   });

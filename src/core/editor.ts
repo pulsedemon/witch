@@ -7,7 +7,6 @@ const execute = promisify(execFile);
 /** as VS Code's own launcher does: Electron runs cli.js as Node, and Witch's Node options pass under VS Code's names. */
 export function editorEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const { NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE, ...environment } = env;
-
   // VS Code can outlive the scratch directory TMPDIR names
   delete environment.TMPDIR;
 

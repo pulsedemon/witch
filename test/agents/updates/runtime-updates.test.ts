@@ -48,11 +48,8 @@ test('release checks use the selected channel and compare numeric versions', asy
   );
 
   assert.equal(result.source, requested);
-
   assert.equal(result.target, '2.1.10');
-
   assert.equal(result.available, true);
-
   assert.equal(result.blocked, undefined);
 });
 
@@ -64,7 +61,6 @@ test('native version limits prevent offering an otherwise available update', asy
   );
 
   assert.equal(result.available, true);
-
   assert.equal(result.blocked, 'Native maximum version is 2.1.10.');
 });
 
@@ -101,9 +97,7 @@ test('Codex checks parse the native release source and preserve unsupported-inst
   );
 
   assert.equal(result.target, '3.0.0');
-
   assert.equal(result.available, true);
-
   assert.equal(result.blocked, 'Use the native installer.');
 });
 
@@ -120,7 +114,6 @@ test('inventory follows the selected launcher and changes artifact identity afte
     for (const version of ['1.2.3', '1.2.4']) {
       const release = join(releases, `${version}-aarch64-apple-darwin`);
       const executable = join(release, 'bin', 'codex');
-
       await mkdir(dirname(executable), { recursive: true });
 
       await writeFile(
@@ -134,31 +127,20 @@ test('inventory follows the selected launcher and changes artifact identity afte
       );
 
       await chmod(executable, 0o755);
-
       executables.push(executable);
     }
 
     await symlink(executables[0]!, launcher);
-
     const registration = { adapter: new CodexAdapter(), executable: launcher };
     const before = await inspectRuntime(registration);
-
     await unlink(launcher);
-
     await symlink(executables[1]!, launcher);
-
     const after = await inspectRuntime(registration);
-
     assert.equal(before.version, '1.2.3');
-
     assert.equal(after.version, '1.2.4');
-
     assert.equal(after.executable, executables[1]);
-
     assert.equal(after.root, before.root);
-
     assert.notEqual(after.digest, before.digest);
-
     assert.equal(after.blocked, undefined);
 
     await writeFile(
@@ -167,18 +149,12 @@ test('inventory follows the selected launcher and changes artifact identity afte
     );
 
     const automatic = await inspectRuntime(registration);
-
     assert.equal(automatic.automatic, true);
-
     assert.match(automatic.blocked!, /would disable them/);
-
     process.env.CODEX_HOME = join(root, 'another-home');
     const foreign = await inspectRuntime(registration);
-
     assert.equal(foreign.root, after.root);
-
     assert.equal(foreign.executable, after.executable);
-
     assert.match(foreign.blocked!, /native Codex installer/);
   } finally {
     if (previous === undefined) delete process.env.CODEX_HOME;
@@ -246,7 +222,6 @@ test('the earlier artifact is the newest older sibling in either native layout',
   });
 
   assert.equal(await earlierArtifact(codex('1.2.3')), undefined);
-
   const unversioned = join(releases, 'notes', 'bin', 'codex');
 
   await assert.rejects(
@@ -265,7 +240,6 @@ test('the earlier artifact is the newest older sibling in either native layout',
   );
 
   const versions = join(root, 'claude', 'versions');
-
   await mkdir(versions, { recursive: true });
 
   for (const name of [

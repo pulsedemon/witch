@@ -4,7 +4,6 @@ export async function resume(
   args: [number?, ...unknown[]],
 ) {
   const paused = Date.now();
-
   await gate;
 
   if (args[0] !== undefined) args[0] += Date.now() - paused;

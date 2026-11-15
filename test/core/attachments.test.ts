@@ -33,7 +33,6 @@ function sips(
 
   t.onTestFinished(() => {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   });
 
@@ -46,7 +45,6 @@ function sips(
     ];
 
     const out = args.indexOf('--out');
-
     calls.push({ args, input: readFileSync(args.at(out === -1 ? -1 : -3)!) });
 
     if (failing-- > 0) callback(new Error('sips failed'), '');
@@ -57,7 +55,6 @@ function sips(
       );
     else {
       writeFileSync(args[out + 1]!, converted);
-
       callback(null, '');
     }
 
@@ -73,7 +70,6 @@ function sips(
 async function conversationStore(t: TestContext, id = 'images') {
   const store = await StateStore.open(await scratch('witch-attachments-'));
   const files = await store.create(record(id, '/project'));
-
   t.onTestFinished(() => files.close());
 
   return files;
@@ -123,7 +119,6 @@ test('a paste that lists only readable images gives their absolute paths, in ord
 test('a paste is text when anything in it is not a readable image named by an absolute path', async () => {
   const directory = await scratch('witch-paste-');
   const shot = join(directory, 'shot.png');
-
   await writeFile(shot, png(1, 1));
 
   for (const name of ['notes.md', 'doc.pdf'])
@@ -145,19 +140,12 @@ test('a paste is text when anything in it is not a readable image named by an ab
 test('attached images are numbered from 1 and keep the bytes pasted, though the file is then removed', async (t) => {
   const directory = await scratch('witch-attach-');
   const [first, second] = [png(2, 2), png(3, 3)];
-
   await writeFile(join(directory, 'first.png'), first);
-
   await writeFile(join(directory, 'second.png'), second);
-
   const attachments = new Attachments();
-
   assert.equal(attachments.attach(join(directory, 'first.png')), '[Image #1]');
-
   assert.equal(attachments.attach(join(directory, 'second.png')), '[Image #2]');
-
   await rm(directory, { recursive: true });
-
   const saved = await attachments.prepare([2, 1], await conversationStore(t));
 
   assert.deepEqual(await Promise.all(saved.map((path) => readFile(path))), [
@@ -168,9 +156,7 @@ test('attached images are numbered from 1 and keep the bytes pasted, though the 
 
 test('a prompt resolves the registered markers it names in order, each once, and leaves unregistered and broken ones as text', async () => {
   const directory = await scratch('witch-attach-');
-
   await writeFile(join(directory, 'shot.png'), png(1, 1));
-
   const attachments = new Attachments();
 
   for (let index = 0; index < 3; index++)
@@ -188,17 +174,11 @@ test('a small PNG is saved byte for byte without sips, once per conversation, an
   const calls = sips(t, [1, 1]);
   const directory = await scratch('witch-attach-');
   const [first, second] = [png(4, 4), png(5, 5)];
-
   await writeFile(join(directory, 'first.png'), first);
-
   await writeFile(join(directory, 'second.png'), second);
-
   const attachments = new Attachments();
-
   attachments.attach(join(directory, 'first.png'));
-
   attachments.attach(join(directory, 'second.png'));
-
   const one = await conversationStore(t, 'one');
   const other = await conversationStore(t, 'other');
 
@@ -209,11 +189,8 @@ test('a small PNG is saved byte for byte without sips, once per conversation, an
   ]);
 
   assert.deepEqual(shared, [saved[1]]);
-
   assert.deepEqual(await attachments.prepare([2, 1], one), saved.toReversed());
-
   const elsewhere = await attachments.prepare([1], other);
-
   assert.equal(dirname(elsewhere[0]!), join(other.directory, 'images'));
 
   for (const path of saved)
@@ -227,47 +204,32 @@ test('a small PNG is saved byte for byte without sips, once per conversation, an
   );
 
   assert.ok(saved.every((path) => path.endsWith('.png')));
-
   assert.equal(calls.length, 0);
 });
 
 test('an image whose conversion failed is converted again on its next delivery', async (t) => {
   const calls = sips(t, [64, 64], { failures: 1 });
   const directory = await scratch('witch-attach-');
-
   await writeFile(join(directory, 'photo.jpg'), 'jpeg bytes');
-
   const attachments = new Attachments();
-
   attachments.attach(join(directory, 'photo.jpg'));
-
   const store = await conversationStore(t);
-
   await assert.rejects(attachments.prepare([1], store), /sips failed/);
-
   const [saved] = await attachments.prepare([1], store);
-
   assert.equal(calls.length, 3);
-
   assert.ok(saved!.endsWith('.jpg'));
-
   assert.equal(await readFile(saved!, 'utf8'), 'converted jpeg');
 });
 
 test('cancel stops a running conversion, and the next delivery converts again', async (t) => {
   const directory = await scratch('witch-attach-');
-
   await writeFile(join(directory, 'photo.jpg'), 'jpeg bytes');
-
   const attachments = new Attachments();
-
   attachments.attach(join(directory, 'photo.jpg'));
-
   const store = await conversationStore(t);
 
   t.onTestFinished(() => {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   });
 
@@ -283,18 +245,14 @@ test('cancel stops a running conversion, and the next delivery converts again', 
 
     // a sips that never finishes on its own
     signal.addEventListener('abort', () => callback(new Error('aborted'), ''));
-
     started.resolve();
 
     return new childProcess.ChildProcess();
   });
 
   syncBuiltinESMExports();
-
   const preparing = attachments.prepare([1], store);
-
   await started.promise;
-
   attachments.cancel();
 
   await assert.rejects(
@@ -303,12 +261,9 @@ test('cancel stops a running conversion, and the next delivery converts again', 
   );
 
   vi.restoreAllMocks();
-
   const calls = sips(t, [64, 64]);
   const [saved] = await attachments.prepare([1], store);
-
   assert.equal(calls.length, 2);
-
   assert.equal(await readFile(saved!, 'utf8'), 'converted jpeg');
 });
 
@@ -319,7 +274,6 @@ for (const [name, data, sides, fit] of [
 ] as const)
   test(`${name} is converted to a JPEG, fitted to 2,000 px only when a side is over it, through a directory removed after`, async (t) => {
     const isPng = data.subarray(0, 8).equals(pngSignature);
-
     assert.equal(isPng, name !== 'a JPEG');
 
     if (isPng) {
@@ -333,16 +287,11 @@ for (const [name, data, sides, fit] of [
 
     const calls = sips(t, [...sides]);
     const directory = await scratch('witch-attach-');
-
     await writeFile(join(directory, 'image'), data);
-
     const attachments = new Attachments();
-
     attachments.attach(join(directory, 'image'));
-
     const [saved] = await attachments.prepare([1], await conversationStore(t));
     const [probe, convert] = calls;
-
     assert.equal(calls.length, 2);
 
     assert.deepEqual(probe!.args.slice(0, -1), [
@@ -360,13 +309,9 @@ for (const [name, data, sides, fit] of [
     ]);
 
     assert.equal(convert!.args.at(-3), probe!.args.at(-1));
-
     assert.ok(probe!.input.equals(data));
-
     assert.equal(existsSync(dirname(probe!.args.at(-1)!)), false);
-
     assert.ok(saved!.endsWith('.jpg'));
-
     assert.equal(await readFile(saved!, 'utf8'), 'converted jpeg');
   });
 
@@ -374,9 +319,7 @@ test.runIf(process.platform === 'darwin')(
   'sips fits a 3,000 px PNG to a 2,000 px JPEG and leaves a 64 px JPEG at 64 px',
   async (t) => {
     const directory = await scratch('witch-attach-');
-
     await writeFile(join(directory, 'wide.png'), png(3000, 30));
-
     await writeFile(join(directory, 'small.png'), png(64, 64));
 
     execFileSync('/usr/bin/sips', [
@@ -390,13 +333,9 @@ test.runIf(process.platform === 'darwin')(
     );
 
     const attachments = new Attachments();
-
     attachments.attach(join(directory, 'wide.png'));
-
     attachments.attach(join(directory, 'small.jpg'));
-
     const saved = await attachments.prepare([1, 2], await conversationStore(t));
-
     assert.ok(saved.every((path) => path.endsWith('.jpg')));
 
     assert.deepEqual(
@@ -416,13 +355,9 @@ test('a pasted image becomes its marker, spaced from a word before it, and a fil
 
   try {
     const [shot, photo] = [join(root, 'shot.png'), join(root, 'photo.jpg')];
-
     await writeFile(shot, png(1, 1));
-
     await writeFile(photo, 'jpeg bytes');
-
     assert.equal(coordinator.paste(shot, 'session'), ' [Image #1]');
-
     assert.equal(coordinator.paste(shot, 'session '), '[Image #2]');
 
     assert.equal(
@@ -434,7 +369,6 @@ test('a pasted image becomes its marker, spaced from a word before it, and a fil
 
     t.onTestFinished(() => {
       vi.restoreAllMocks();
-
       syncBuiltinESMExports();
     });
 
@@ -444,14 +378,12 @@ test('a pasted image becomes its marker, spaced from a word before it, and a fil
       ...args: Parameters<typeof fs.statSync>
     ) => {
       const stats = stat(...args);
-
       rmSync(shot, { force: true });
 
       return stats;
     }) as typeof fs.statSync);
 
     syncBuiltinESMExports();
-
     assert.equal(coordinator.paste(shot, 'session'), undefined);
   } finally {
     await coordinator.close();

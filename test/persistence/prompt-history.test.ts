@@ -99,9 +99,7 @@ test('prompt history maps a long move chain once per directory, not once per pro
   );
 
   counts.maps = 0;
-
   assert.equal((await f.store.prompts(paths[50]!)).length, 1000);
-
   // every prompt was sent from one directory before every move, so one mapping serves them all
   assert.equal(counts.maps, 1);
 });
@@ -139,7 +137,6 @@ test('prompt history from every stop of a long move chain maps each stop once', 
   );
 
   assert.equal((await f.store.prompts(paths[800]!)).length, 801);
-
   // replaying the rest of the chain for every stop reads moves quadratically
   assert.ok(counts.reads < 24_000, String(counts.reads));
 });
@@ -175,7 +172,6 @@ test("prompt history from many directories under a long-moved parent looks up ea
   );
 
   assert.deepEqual(await f.store.prompts(`${parents[200]}/sub-7`), ['7']);
-
   // scanning every move at every hop multiplies each hop by the ledger's length
   assert.ok(counts.reads < 101_000, String(counts.reads));
 });
@@ -222,7 +218,6 @@ test("prompt history under a parent moved back and forth finds each hop's move w
   );
 
   assert.deepEqual(await filtering(() => f.store.prompts(`${z}/sub-7`)), ['7']);
-
   // filtering a source's every move at every hop multiplies each hop by the swings
   assert.ok(counts.filtered < 1000, String(counts.filtered));
 });
@@ -231,7 +226,6 @@ test('prompt history past many unrelated moves never refilters the move boundari
   const f = await state();
   const line = `${JSON.stringify({ cwd: f.at('here'), text: 'p' })}\n`;
   const content = line.repeat(20_000);
-
   await writeFile(f.at('state/prompts.jsonl'), content);
 
   await writeFile(

@@ -196,7 +196,6 @@ export function admitFamiliar(
     if (!(created instanceof FamiliarRun)) return created;
 
     slot.familiar = created;
-
     registered(created);
 
     return { kind: 'familiar-registered' };

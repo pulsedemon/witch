@@ -13,7 +13,6 @@ const { values } = parseArgs({
 });
 
 assert.ok(values.out, '--out is required');
-
 // prompts per packet before and after the compaction, as docs/compaction-check.md describes
 const before = 8;
 const after = 4;
@@ -137,7 +136,6 @@ async function* lines(file: string): AsyncGenerator<Row> {
       end = text.indexOf('\n', start)
     ) {
       pieces.push(text.slice(start, end));
-
       const row = parsed.parse(pieces.join(''));
       pieces = [];
 
@@ -254,7 +252,6 @@ async function codexCompactions(): Promise<NativeCompaction[]> {
         };
 
         turn.push(compaction);
-
         found.push(compaction);
       }
     }
@@ -388,7 +385,6 @@ for (const entry of await readdir(conversations, { withFileTypes: true })) {
   ) as { sessions?: Record<string, { id?: string } | undefined> };
 
   const entries = await transcript(join(conversations, id, 'history.jsonl'));
-
   read.push({ id, sessions, entries });
 }
 
@@ -500,13 +496,11 @@ for (const own of [true, false]) {
   for (const { notice, candidate } of pairs)
     if (!notice.native && !matched.has(candidate)) {
       notice.native = candidate;
-
       matched.add(candidate);
     }
 }
 
 const cases = [];
-
 await mkdir(join(out, 'packets'), { recursive: true });
 
 for (const { id, entries, index, cleared, end, current, native } of notices) {

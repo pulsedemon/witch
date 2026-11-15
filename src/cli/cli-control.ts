@@ -141,7 +141,6 @@ export function parseCommand(args = process.argv.slice(2)) {
       );
 
     const binding = bindingOf(values);
-
     (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
 
     return {
@@ -453,7 +452,6 @@ export function writeControl(outcome: ControlOutcome, json: boolean): number {
     outcome.kind === 'conflict' ? 2 : outcome.kind === 'error' ? 1 : 0;
 
   const stream = json || code === 0 ? process.stdout : process.stderr;
-
   stream.write(`${json ? JSON.stringify(outcome) : describe(outcome)}\n`);
 
   return code;
@@ -468,7 +466,6 @@ export async function runControl(
 
   if (waiting) {
     process.once('SIGINT', stop);
-
     process.once('SIGTERM', stop);
   }
 
@@ -485,7 +482,6 @@ export async function runControl(
 
       if (position !== outcome.selection.position) {
         position = outcome.selection.position;
-
         process.stderr.write(`Selection ${ticket.id}: queued #${position}\n`);
       }
 
@@ -526,7 +522,6 @@ export async function runControl(
   } finally {
     if (waiting) {
       process.off('SIGINT', stop);
-
       process.off('SIGTERM', stop);
     }
   }

@@ -79,20 +79,14 @@ for (const [columns, rows] of [
         );
 
         assert.equal(windowTop(ui), top);
-
         assert.equal(composerRow(ui), composer);
-
         assert.equal(lines(ui).length, rows);
-
         assert.equal(lines(ui)[top + 4]!.slice(0, mainWidth).trim(), '');
-
         assert.match(lines(ui)[top + 5]!, /[A-Z]+ \| \d+S/);
 
         if (count === 6) {
           assert.match(windowText(ui), /3 OLDER/);
-
           assert.match(lines(ui)[top + 1]!, /command 4/);
-
           assert.match(lines(ui)[top + 3]!, /command 6/);
         }
       }
@@ -117,9 +111,7 @@ test('instant completion keeps its title through idle, context clear and newer c
     );
 
     publish(call('quick'));
-
     publish({ ...call('quick', true), title: '', text: 'hidden output' });
-
     publish(call('second', true));
 
     await until('completed quick call', () =>
@@ -127,13 +119,9 @@ test('instant completion keeps its title through idle, context clear and newer c
     );
 
     assert.match(ui.text(), /\+ ✓ 2 tools/);
-
     assert.ok(!ui.text().includes('hidden output'));
-
     coordinator.publish({ phase: 'idle' });
-
     await until('idle', () => ui.text().startsWith('IDLE'));
-
     assert.match(windowText(ui), /✓ quick/);
 
     publish({
@@ -145,19 +133,12 @@ test('instant completion keeps its title through idle, context clear and newer c
     });
 
     coordinator.publish({ phase: 'running' });
-
     publish(call('third', true));
-
     await until('third call', () => windowText(ui).includes('✓ third'));
-
     assert.match(windowText(ui), /✓ quick/);
-
     publish(call('fourth', true));
-
     await until('fourth call', () => windowText(ui).includes('✓ fourth'));
-
     assert.ok(!windowText(ui).includes('quick'));
-
     assert.match(windowText(ui), /second[\s\S]*third[\s\S]*fourth/);
 
     coordinator.publish({
@@ -166,7 +147,6 @@ test('instant completion keeps its title through idle, context clear and newer c
     });
 
     await until('destination', () => windowText(ui).includes('destination'));
-
     assert.ok(!windowText(ui).includes('fourth'));
 
     coordinator.publish({
@@ -214,13 +194,9 @@ test('the window excludes lifecycle and user shell rows and sanitizes long faile
     );
 
     const top = windowTop(ui);
-
     assert.ok(!windowText(ui).includes('output secret'));
-
     assert.ok(!/user shell|familiar|brew|forged/.test(windowText(ui)));
-
     assert.equal(lines(ui).length, 24);
-
     assert.equal(lines(ui)[top + 2]!.trim(), '');
 
     coordinator.publish({
@@ -228,7 +204,6 @@ test('the window excludes lifecycle and user shell rows and sanitizes long faile
     });
 
     await until('latest call', () => windowText(ui).includes('✓ latest'));
-
     assert.equal(windowTop(ui), top);
   } finally {
     ui.unmount();
@@ -252,7 +227,6 @@ test('grouping tools above a reading anchor and the first new-message button lea
     );
 
     ui.stdin.write('keep this draft');
-
     ui.stdin.write('\u001b[5~\u001b[5~');
 
     await until('reading earlier', () =>
@@ -274,9 +248,7 @@ test('grouping tools above a reading anchor and the first new-message button lea
     );
 
     assert.equal(lines(ui)[1], source);
-
     assert.equal(windowTop(ui), top);
-
     assert.equal(composerRow(ui), composer);
 
     coordinator.publish({
@@ -284,13 +256,9 @@ test('grouping tools above a reading anchor and the first new-message button lea
     });
 
     await until('instant call', () => windowText(ui).includes('✓ instant'));
-
     assert.equal(lines(ui)[1], source);
-
     assert.equal(windowTop(ui), top);
-
     assert.equal(composerRow(ui), composer);
-
     assert.match(ui.text(), /keep this draft/);
   } finally {
     ui.unmount();
@@ -318,9 +286,7 @@ test('shrinking preserves editing, the reading anchor and Ctrl+C interrupt', asy
 
   try {
     await until('reading', () => ui.text().includes('source line 160'));
-
     ui.stdin.write('retained draft');
-
     ui.stdin.write('\u001b[5~');
 
     await until('reading earlier', () =>
@@ -334,13 +300,9 @@ test('shrinking preserves editing, the reading anchor and Ctrl+C interrupt', asy
       [29, 24],
     ]) {
       ui.resize(columns!, rows!);
-
       await until('small composer', () => ui.text().includes('retained draft'));
-
       assert.ok(!ui.text().includes('Resize terminal'));
-
       assert.equal(lines(ui).length, rows);
-
       ui.stdin.write('+');
 
       await until('edited small composer', () =>
@@ -348,38 +310,23 @@ test('shrinking preserves editing, the reading anchor and Ctrl+C interrupt', asy
       );
 
       ui.stdin.write('\u007f');
-
       await delay(60);
-
       assert.deepEqual(calls, []);
-
       ui.stdin.write('\u0003');
-
       await until('interrupt', () => calls.length === 1);
-
       assert.deepEqual(calls.splice(0), [['interrupt']]);
-
       ui.resize(100, 40);
-
       await until('draft restored', () => ui.text().includes('retained draft'));
-
       assert.equal(lines(ui)[1], source);
     }
 
     coordinator.publish({ phase: 'idle' });
-
     await until('idle', () => ui.text().startsWith('IDLE'));
-
     ui.resize(30, 23);
-
     await until('small idle', () => ui.text().includes('retained draft'));
-
     ui.stdin.write('\u0003');
-
     await until('draft cleared', () => !ui.text().includes('retained draft'));
-
     ui.stdin.write('\u0003\u0003');
-
     await until('exit', () => exits === 1);
   } finally {
     ui.unmount();
@@ -407,9 +354,7 @@ test('small approval and recovery views keep visible decisions and preserved scr
 
   try {
     await delay(550);
-
     ui.stdin.write('\u001b[B\u001b[6~');
-
     await until('decline selected', () => ui.text().includes('› Decline'));
 
     const firstDetail = lines(ui).find((line) =>
@@ -417,13 +362,9 @@ test('small approval and recovery views keep visible decisions and preserved scr
     );
 
     ui.resize(30, 23);
-
     await until('small approval', () => ui.text().includes('› Decline'));
-
     assert.equal(lines(ui).length, 23);
-
     ui.resize(100, 40);
-
     await until('decline retained', () => ui.text().includes('› Decline'));
 
     assert.equal(
@@ -438,7 +379,6 @@ test('small approval and recovery views keep visible decisions and preserved scr
     );
 
     ui.stdin.write(ENTER);
-
     await until('declined while small', () => calls.length === 1);
 
     assert.deepEqual(calls.splice(0), [
@@ -458,15 +398,10 @@ test('small approval and recovery views keep visible decisions and preserved scr
     );
 
     await delay(550);
-
     ui.resize(30, 23);
-
     await until('small recovery', () => ui.text().includes('a ACCEPT'));
-
     ui.stdin.write('a');
-
     await until('accepted recovery', () => calls.length === 1);
-
     assert.deepEqual(calls, [['recoverMemory', 'accept']]);
   } finally {
     ui.unmount();
@@ -503,11 +438,8 @@ test('wrapped tool hints and completions preserve the composer, reading line and
 
   const intact = (draft: string) => {
     assert.equal(lines(ui).length, 24);
-
     const composer = composerRow(ui);
-
     assert.ok(lines(ui)[composer + 1]!.trim().startsWith(`┃ ${draft}`));
-
     assert.match(lines(ui)[composer + 2]!, /┗━+┛/);
 
     assert.match(
@@ -516,19 +448,14 @@ test('wrapped tool hints and completions preserve the composer, reading line and
     );
 
     assert.match(ui.text(), /Pending: \/compact/);
-
     assert.match(ui.text(), /[A-Z]+ \| \d+S/);
-
     assert.match(windowText(ui), /current/);
-
     assert.match(ui.text(), /source line \d+/);
   };
 
   try {
     await until('tool window', () => windowText(ui).includes('current'));
-
     ui.stdin.write('\u001b[5~');
-
     ui.stdin.write('draft');
 
     await until(
@@ -541,9 +468,7 @@ test('wrapped tool hints and completions preserve the composer, reading line and
     });
 
     await until('new messages', () => ui.text().includes('↓ New messages'));
-
     intact('draft');
-
     ui.stdin.write('\t');
 
     await until('wrapped tool hints', () =>
@@ -551,21 +476,13 @@ test('wrapped tool hints and completions preserve the composer, reading line and
     );
 
     intact('draft');
-
     ui.stdin.write('\t');
-
     await until('composer focus', () => !ui.text().includes('ESC LEAVE TOOLS'));
-
     ui.stdin.write('\u007f'.repeat(5) + '/');
-
     await until('first completion', () => ui.text().includes('/new'));
-
     intact('/');
-
     ui.stdin.write('\u001b[B');
-
     await until('next completion', () => ui.text().includes('/sessions'));
-
     intact('/');
   } finally {
     ui.unmount();
@@ -578,11 +495,8 @@ test('a picker keeps its filter editable through a small window', async () => {
 
   try {
     await until('chat', () => windowText(ui).includes('No recent tools'));
-
     ui.stdin.write('\u0010');
-
     await until('picker', () => ui.text().includes('Commands'));
-
     ui.stdin.write('memory');
 
     await until('filter', () =>
@@ -590,15 +504,10 @@ test('a picker keeps its filter editable through a small window', async () => {
     );
 
     ui.resize(100, 23);
-
     await until('small picker', () => ui.text().includes('memory'));
-
     ui.stdin.write('x');
-
     await until('small filter edit', () => ui.text().includes('memoryx'));
-
     ui.stdin.write('\u007f');
-
     ui.resize(100, 40);
 
     await until('filter restored', () =>
@@ -606,9 +515,7 @@ test('a picker keeps its filter editable through a small window', async () => {
     );
 
     assert.match(ui.text(), /Browse shared memory/);
-
     assert.ok(!ui.text().includes('New conversation'));
-
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
@@ -635,19 +542,12 @@ test('a partly answered request retains answers and edits its input while small'
 
   try {
     await delay(550);
-
     ui.stdin.write('first answer' + ENTER);
-
     await until('second question', () => ui.text().includes('Question 2/2'));
-
     ui.stdin.write('second answer');
-
     await until('draft answer', () => ui.text().includes('second answer'));
-
     ui.resize(100, 23);
-
     await until('small question', () => ui.text().includes('Question 2/2'));
-
     ui.stdin.write(' continued');
 
     await until('small answer edit', () =>
@@ -655,17 +555,11 @@ test('a partly answered request retains answers and edits its input while small'
     );
 
     ui.resize(100, 40);
-
     await until('question restored', () => ui.text().includes('Question 2/2'));
-
     assert.match(ui.text(), /second answer continued/);
-
     ui.resize(20, 8);
-
     await delay(60);
-
     ui.stdin.write(ENTER);
-
     await until('answers submitted', () => calls.length === 1);
 
     assert.deepEqual(calls, [

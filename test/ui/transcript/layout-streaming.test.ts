@@ -26,7 +26,6 @@ function sameAsFull(frames: Frame[]) {
     const expanded = new Map(frame.expanded.map((id) => [id, true]));
     const incremental = layout.render(items, frame.width, expanded);
     const full = new TranscriptLayout().render(items, frame.width, expanded);
-
     assert.deepEqual(incremental.lines.slice(), full.lines.slice());
 
     for (let row = 0; row < full.lines.length; row++)
@@ -68,9 +67,7 @@ test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail
 
     for (const row of frame.lines.slice(-3, -1)) {
       assert.ok(row.includes('\u001b]8;;https://x.test/\u0007'));
-
       assert.ok(row.includes('\u001b[4m'));
-
       assert.ok(!row.includes('https://x.test/one'));
     }
 
@@ -82,7 +79,6 @@ test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail
       });
 
     const fresh = new TranscriptLayout().render(items, 100, expanded);
-
     assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
 
     for (let row = 0; row < frame.lines.length; row++)
@@ -113,12 +109,9 @@ for (const [name, prefix, suffix, body, target] of [
     let items = applyDisplayUpdate([], tool(prefix));
     const layout = new TranscriptLayout();
     const expanded = new Map([['tool', true]]);
-
     layout.render(items, 2200, expanded);
-
     items = applyDisplayUpdate(items, tool(suffix));
     const frame = layout.render(items, 2200, expanded);
-
     assert.deepEqual(frame.lines.slice(1, -1).map(stripAnsi), body);
 
     if (target)
@@ -127,7 +120,6 @@ for (const [name, prefix, suffix, body, target] of [
       );
 
     const fresh = new TranscriptLayout().render(items, 2200, expanded);
-
     assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
   });
 
@@ -370,15 +362,11 @@ test('a warm append to a 20k-line tool costs under a tenth of a full render', ()
 
   const expanded = new Map([['tool', true]]);
   let start = performance.now();
-
   new TranscriptLayout().render([tool(text)], 118, expanded);
-
   const full = performance.now() - start;
   const layout = new TranscriptLayout();
   let items = applyDisplayUpdate([], tool(text));
-
   layout.render(items, 118, expanded);
-
   const appends: number[] = [];
 
   for (let index = 0; index < 3; index++) {
@@ -388,9 +376,7 @@ test('a warm append to a 20k-line tool costs under a tenth of a full render', ()
     );
 
     start = performance.now();
-
     layout.render(items, 118, expanded);
-
     appends.push(performance.now() - start);
   }
 
@@ -428,7 +414,6 @@ test('layout receives every skipped append and rebuilds after replacements or un
     });
 
     assert.deepEqual(body(), ['first', 'partial', 'second', 'third replaced']);
-
     items = applyDisplayUpdate(items, tool('\nlast'));
 
     assert.deepEqual(body(), [
@@ -450,7 +435,6 @@ test('layout receives every skipped append and rebuilds after replacements or un
     ]);
 
     items = applyDisplayUpdate(base, tool(' sibling'));
-
     assert.deepEqual(body(), ['first', 'part sibling']);
 
     items = applyDisplayUpdate(
@@ -459,13 +443,9 @@ test('layout receives every skipped append and rebuilds after replacements or un
     );
 
     assert.deepEqual(body(), ['first', 'part other branch']);
-
     items = base;
-
     assert.deepEqual(body(), ['first', 'part']);
-
     items = [tool('independent')];
-
     assert.deepEqual(body(), ['independent']);
   }
 });
@@ -487,7 +467,6 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
   const anchors = lines.map((_, row) => before.anchorAt(row)!);
   const positions = anchors.map((anchor) => before.rowOf(anchor));
   const starts = [...before.starts];
-
   assert.equal(before.starts.get('after'), 4);
 
   for (const [delta, width] of [
@@ -496,7 +475,6 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
     ['third', 30],
   ] as const) {
     items = applyDisplayUpdate(items, tool(delta));
-
     layout.render(items, width, expanded);
   }
 
@@ -510,9 +488,7 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
   ]);
 
   assert.equal(after.starts.get('after'), 6);
-
   assert.deepEqual(before.lines.slice(), lines);
-
   assert.deepEqual([...before.starts], starts);
 
   assert.deepEqual(
@@ -527,11 +503,8 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
 
   const page = after.lines.slice(0, 2);
   page[0] = 'highlighted';
-
   assert.notEqual(after.lines.at(0), 'highlighted');
-
   assert.equal(stripAnsi(after.lines.at(-2)!), 'after');
-
   assert.deepEqual(after.lines.slice(-2).map(stripAnsi), ['after', '']);
 });
 
@@ -546,15 +519,12 @@ test('warm tool appends and a fixed page do not scale with completed prefix rows
     );
 
     const layout = new TranscriptLayout();
-
     layout.render(items, 100, expanded);
 
     const append = () => {
       items = applyDisplayUpdate(items, tool('appended row\n'));
       const frame = layout.render(items, 100, expanded);
-
       assert.equal(frame.lines.slice(-30).length, 30);
-
       assert.equal(frame.lines.at(-3), 'appended row');
     };
 
@@ -568,7 +538,6 @@ test('warm tool appends and a fixed page do not scale with completed prefix rows
       for (let index = 0; index < 50; index++) append();
 
       const used = process.cpuUsage(started);
-
       samples.push((used.user + used.system) / 50000);
     }
 
@@ -633,7 +602,6 @@ test('assistant layout follows batched ancestry and rebuilds for replacements or
     const check = (expected: string, width = 80) => {
       const frame = layout.render(items, width, new Map());
       const fresh = new TranscriptLayout().render(items, width, new Map());
-
       assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
 
       for (let row = 0; row < frame.lines.length; row++)
@@ -660,14 +628,12 @@ test('assistant layout follows batched ancestry and rebuilds for replacements or
     });
 
     check('First.\n\nSecond.\n\npartial replaced');
-
     items = applyDisplayUpdate(items, assistant('\n\nNew.'));
 
     for (const width of [80, 31, 80])
       check('First.\n\nSecond.\n\npartial replaced\n\nNew.', width);
 
     items = applyDisplayUpdate(base, assistant(' sibling'));
-
     check('First.\n\nSecond.\n\npart sibling');
 
     items = applyDisplayUpdate(
@@ -676,13 +642,9 @@ test('assistant layout follows batched ancestry and rebuilds for replacements or
     );
 
     check('First.\n\nSecond.\n\npart other branch');
-
     items = base;
-
     check('First.\n\nSecond.\n\npart');
-
     items = [assistant('independent')];
-
     check('independent');
 
     items = applyDisplayUpdate(items, {
@@ -693,7 +655,6 @@ test('assistant layout follows batched ancestry and rebuilds for replacements or
     });
 
     const moved = check('src/changed.ts:7');
-
     assert.equal(stripAnsi(moved.lines.at(0)!), 'New title');
 
     assert.ok(
@@ -740,13 +701,9 @@ test('earlier assistant frames survive appends and a reference that changes comp
     items = applyDisplayUpdate(items, assistant(text));
     const frame = layout.render(items, width, new Map());
     const fresh = new TranscriptLayout().render(items, width, new Map());
-
     assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
-
     assert.ok(frame.starts.get('following')! > before.starts.get('following')!);
-
     assert.deepEqual(before.lines.slice(), lines);
-
     assert.deepEqual([...before.starts], starts);
 
     assert.deepEqual(
@@ -761,9 +718,7 @@ test('earlier assistant frames survive appends and a reference that changes comp
   }
 
   const final = layout.render(items, 40, new Map());
-
   assert.ok(final.lines.at(1)!.includes('vscode://file/work/src/guide.ts'));
-
   assert.equal(stripAnsi(final.lines.at(-2)!), 'following notice');
 });
 
@@ -820,7 +775,6 @@ test('completed assistant blocks have bounded parsing and wrapping work', () => 
     items = applyDisplayUpdate(items, { ...assistant(text), replace: true });
     const final = layout.render(items, 80, new Map());
     measure = false;
-
     assert.ok(parsed <= 4 * size, `parsed ${parsed} characters for ${size}`);
 
     assert.ok(
@@ -829,9 +783,7 @@ test('completed assistant blocks have bounded parsing and wrapping work', () => 
     );
 
     counts.push({ parsed, wrapped });
-
     const fresh = new TranscriptLayout().render(items, 80, new Map());
-
     assert.deepEqual(final.lines.slice(), fresh.lines.slice());
 
     for (let row = 0; row < final.lines.length; row++)
@@ -843,7 +795,6 @@ test('completed assistant blocks have bounded parsing and wrapping work', () => 
     );
 
     assert.ok(final.lines.at(1)!.includes('vscode://file/work/src/main.ts:9'));
-
     console.info(JSON.stringify({ size, parsed, wrapped }));
   }
 
@@ -873,7 +824,6 @@ test('a late setext underline reinterprets every preceding thematic line', () =>
     ];
 
     assert.deepEqual(frame.lines.slice(1, -1), expected);
-
     assert.equal(frame.lines.length, expected.length + 2);
 
     for (let row = 0; row < frame.lines.length; row++) {

@@ -268,7 +268,6 @@ export class JobWatch {
   /** tracks a group Witch started itself from the next read, even once its leader has exited. */
   track(group: number): void {
     this.handed.add(group);
-
     this.paused = false;
   }
 
@@ -277,9 +276,7 @@ export class JobWatch {
     if (active === this.active) return;
 
     this.active = active;
-
     this.activityChanges++;
-
     this.busyAt = performance.now();
 
     if (active) this.paused = false;
@@ -380,7 +377,6 @@ export class JobWatch {
     // would be lost when its shell still runs now and exits before the next read
     for (const pid of await this.reports()) {
       handed.push(pid);
-
       this.handed.add(pid);
     }
 
@@ -418,7 +414,6 @@ export class JobWatch {
       if (row.pid === process.pid || excluded.has(row.identity)) continue;
 
       excluded.add(row.identity);
-
       boundaries.push(...(children.get(row.pid) ?? []));
     }
 
@@ -466,7 +461,6 @@ export class JobWatch {
     };
 
     walk();
-
     // the first read only records identities so pre-existing processes cannot be adopted by their marks
     const { directory } = this.options;
     const { seen } = this;
@@ -525,14 +519,12 @@ export class JobWatch {
           // excluded like a multiplexer tree, so a process that joins the app's group later can't bring the app back
           for (const row of below(candidate)) {
             excluded.add(row.identity);
-
             excludedGroups.add(row.pgid);
           }
         }
 
         // an unmarked root can sit above a command's session in a group that isn't the command's
         pending.push(...candidates.filter(({ pid }) => marked.has(pid)));
-
         walk();
       }
     }

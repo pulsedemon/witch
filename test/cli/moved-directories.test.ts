@@ -44,21 +44,14 @@ for (const caseOnly of [false, true])
     const root = await scratch('witch-moved-');
     const at = (path: string) => join(root, path);
     const origin = at('origin.git');
-
     await git(root, 'init', '--bare', '-q', '-b', 'main', origin);
-
     await git(root, 'init', '-q', '-b', 'main', at('w/main'));
-
     await git(at('w/main'), 'commit', '-q', '--allow-empty', '-m', 'first');
-
     await git(at('w/main'), 'remote', 'add', 'origin', origin);
-
     await git(at('w/main'), 'push', '-q', '-u', 'origin', 'main');
-
     const state = at('state');
     const store = await StateStore.open(state);
     const memory = await seededMemory(join(state, 'memory.git'));
-
     await quietly(() => runSpawn(at('w/main'), 1, state, run));
 
     for (const [id, date] of [
@@ -85,18 +78,12 @@ for (const caseOnly of [false, true])
     }
 
     await mkdir(at('w/gone'));
-
     await (await store.create(record('lost', at('w/gone')))).close();
-
     await store.addPrompt(at('w/main'), 'first prompt');
-
     const scope = await memory.scopePaths(at('w/main'));
     const helper = memory.workspace(at('helper'), 'helper');
-
     await helper.ensureWorktree();
-
     await helper.begin(scope);
-
     const notes = [`${scope.global}/links.md`, `${scope.project}/links.md`];
 
     for (const note of notes)
@@ -106,9 +93,7 @@ for (const caseOnly of [false, true])
       );
 
     await helper.commit('save');
-
     await helper.publish();
-
     const agent = new FixtureAgent('a');
 
     const first = new Coordinator(store, memory, [
@@ -116,13 +101,9 @@ for (const caseOnly of [false, true])
     ]);
 
     await first.initialize(at('w/main'));
-
     await first.close();
-
     const head = await memory.resolve(accepted);
-
     await rm(at('w/gone'), { recursive: true });
-
     await rename(at(caseOnly ? 'w/main' : 'w'), at(caseOnly ? 'w/Main' : 'c'));
 
     if (caseOnly && !(await identify(at('w/main'))))
@@ -134,7 +115,6 @@ for (const caseOnly of [false, true])
 
     try {
       await coordinator.initialize(at(main), { continue: true });
-
       assert.equal(coordinator.snapshot.conversation!.id, 'newer');
 
       assert.deepEqual(
@@ -155,11 +135,8 @@ for (const caseOnly of [false, true])
       );
 
       assert.deepEqual(await store.prompts(at(main)), ['first prompt']);
-
       await git(at(main), 'status');
-
       await git(at(worktree), 'status');
-
       await coordinator.send('after the move');
 
       await until(
@@ -200,8 +177,6 @@ for (const caseOnly of [false, true])
 
     const refs = await git(join(state, 'memory.git'), 'for-each-ref');
     const output = await quietly(() => runSpawn(at(main), 1, state, run));
-
     assert.ok(output.includes(`${at(worktree)}: exists`), output);
-
     assert.equal(await git(join(state, 'memory.git'), 'for-each-ref'), refs);
   });

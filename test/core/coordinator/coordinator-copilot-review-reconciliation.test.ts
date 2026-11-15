@@ -24,40 +24,23 @@ test('a missing result after restart stays blocked until a user prompt reconcile
   const x = await setup(t);
   const gate = new TurnGate();
   x.a.a.gate = gate;
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await within(gate.entered, 5000, 'review dispatch');
-
   const id = x.c.snapshot.conversation!.id;
   const oldBatch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
-
   await unlink(oldBatch.result);
-
   const replies = structuredClone(x.source.threads[0]!.comments);
-
   await x.c.close({ restart: true });
-
   const reopened = await x.f.start('A', { conversation: id });
-
   reopened.coordination.updateRepository(x.repository);
-
   reopened.coordinator.copilot.updateRepository(x.repository);
-
   await reopened.coordinator.copilot.observe(structuredClone(x.source));
-
   const blocked = (await record(x.f, reopened)).copilotReviews![0]!;
-
   assert.equal(blocked.batch!.id, oldBatch.id);
-
   assert.ok(blocked.items.every(({ status }) => status === 'blocked'));
-
   assert.equal(reopened.a.inputs.length, 0);
-
   autoReply(x.f, reopened, x.source);
-
   await reopened.coordinator.send('reconcile the interrupted review');
 
   await until(
@@ -90,7 +73,6 @@ for (const change of ['edit', 'addition']) {
 
     vi.spyOn(x.c.copilot, 'run').mockImplementationOnce(async () => {
       const result = await run();
-
       settled.resolve(result);
 
       return result;
@@ -147,7 +129,6 @@ for (const change of ['edit', 'addition']) {
     });
 
     await x.observe();
-
     await x.handled();
 
     const packet = JSON.parse(await readFile(admitted!.packet, 'utf8')) as {
@@ -159,7 +140,6 @@ for (const change of ['edit', 'addition']) {
       assert.equal(packet.source.reviews[0]!.body, 'The corrected overview.');
     else {
       assert.equal(packet.source.reviews[1]!.id, 'review-2');
-
       assert.ok(packet.batch.items.some(({ id }) => id === 'review-2'));
     }
 
@@ -214,25 +194,15 @@ for (const outcome of ['handled', 'uncertain']) {
     };
 
     x.a.coordination.updateRepository(repository);
-
     x.c.copilot.updateRepository(repository);
-
     await x.c.copilot.observe(other);
-
     hold();
-
     await x.c.send('work on this second PR');
-
     await git('-C', x.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/reviews');
-
     x.a.coordination.updateRepository(x.repository);
-
     x.c.copilot.updateRepository(x.repository);
-
     await x.observe();
-
     assert.equal(x.c.copilot.ready(), false);
-
     assert.equal(x.reviews().length, 1);
 
     const restored = (await record(x.f, x.a)).copilotReviews!.find(
@@ -247,19 +217,12 @@ for (const outcome of ['handled', 'uncertain']) {
     );
 
     assert.equal(x.c.copilot.context()!.state.batch?.id, original.batch?.id);
-
     const id = x.c.snapshot.conversation!.id;
-
     await x.c.close({ restart: true });
-
     const reopened = await x.f.start('A', { conversation: id });
-
     reopened.coordination.updateRepository(x.repository);
-
     reopened.coordinator.copilot.updateRepository(x.repository);
-
     await reopened.coordinator.copilot.observe(structuredClone(x.source));
-
     const history = (await record(x.f, reopened)).copilotReviews!;
 
     assert.deepEqual(
@@ -268,9 +231,7 @@ for (const outcome of ['handled', 'uncertain']) {
     );
 
     assert.deepEqual(history[0]!.items, original.items);
-
     assert.equal(history[0]!.batch?.id, original.batch?.id);
-
     assert.equal(reopened.a.inputs.length, 0);
   });
 }
@@ -278,14 +239,10 @@ for (const outcome of ['handled', 'uncertain']) {
 test('absent feedback retains pending history without entering a packet until it returns', async (t) => {
   const x = await setup(t);
   const hold = x.c.holdPromptDelivery();
-
   await x.observe();
-
   const body = x.source.reviews[0]!.body;
   x.source.reviews[0]!.body = '';
-
   await x.observe();
-
   let admitted: ReviewBatch | undefined;
 
   autoReply(x.f, x.a, x.source, () => {
@@ -311,7 +268,6 @@ test('absent feedback retains pending history without entering a packet until it
   );
 
   assert.equal(x.reviews().length, 1);
-
   assert.equal(x.c.copilot.ready(), false);
 
   const absent = x.c.copilot
@@ -319,15 +275,10 @@ test('absent feedback retains pending history without entering a packet until it
     .state.items.find(({ id }) => id === 'review-1')!;
 
   assert.equal(absent.present, false);
-
   assert.equal(absent.status, 'pending');
-
   x.source.reviews[0]!.body = body;
-
   await x.observe();
-
   await x.handled();
-
   assert.equal(x.reviews().length, 2);
 
   assert.deepEqual(
@@ -345,21 +296,13 @@ test('absent feedback retains pending history without entering a packet until it
 
 test('a delayed review receives the destination runtime handoff and preserves it for the next user turn', async (t) => {
   const x = await setup(t);
-
   await x.c.send('implement the approved task');
-
   await x.c.selectModel({ agent: 'b', id: 'b-model' });
-
   const handoff = (await record(x.f, x.a)).handoff;
-
   assert.equal(x.a.b.inputs.length, 0);
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await x.handled();
-
   assert.equal(x.a.b.inputs[0]!.author, 'witch');
 
   assert.match(
@@ -368,7 +311,6 @@ test('a delayed review receives the destination runtime handoff and preserves it
   );
 
   assert.deepEqual((await record(x.f, x.a)).handoff, handoff);
-
   await x.c.send('continue the user task');
 
   await until(
@@ -386,13 +328,9 @@ test('a delayed review receives the destination runtime handoff and preserves it
 
 test('review turns on a second PR settle its own receipts without changing the first PR', async (t) => {
   const x = await setup(t);
-
   autoReply(x.f, x.a, x.source);
-
   await x.observe();
-
   await x.handled();
-
   const first = structuredClone(x.source);
   const original = (await record(x.f, x.a)).copilotReviews![0]!;
   const second = reviewSource();
@@ -424,7 +362,6 @@ test('review turns on a second PR settle its own receipts without changing the f
   };
 
   Object.assign(x.source, second);
-
   await git('-C', x.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/second-pr');
 
   const repository = {
@@ -434,9 +371,7 @@ test('review turns on a second PR settle its own receipts without changing the f
   };
 
   x.a.coordination.updateRepository(repository);
-
   x.c.copilot.updateRepository(repository);
-
   await x.observe();
 
   await until(
@@ -471,19 +406,12 @@ test('review turns on a second PR settle its own receipts without changing the f
   );
 
   assert.equal(x.reviews().length, 2);
-
   Object.assign(x.source, first);
-
   await git('-C', x.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/reviews');
-
   x.a.coordination.updateRepository(x.repository);
-
   x.c.copilot.updateRepository(x.repository);
-
   await x.observe();
-
   assert.equal(x.c.copilot.ready(), false);
-
   assert.equal(x.reviews().length, 2);
 });
 
@@ -491,14 +419,10 @@ for (const revoke of ['branch', 'CLOSED', 'MERGED'] as const) {
   test(`${revoke} review revocation preserves automatic peer answers`, async (t) => {
     const x = await setup(t);
     const b = await x.f.start('B');
-
     await b.claim('task:asker');
-
     const gate = new TurnGate();
     x.a.a.gate = gate;
-
     await x.observe();
-
     await within(gate.entered, 5000, 'review dispatch');
 
     const asked = await callControl(await b.binding(), {
@@ -508,9 +432,7 @@ for (const revoke of ['branch', 'CLOSED', 'MERGED'] as const) {
     });
 
     assert.ok(asked.kind === 'peer-request');
-
     await x.a.coordination.context();
-
     x.a.a.gate = undefined;
 
     if (revoke === 'branch') {
@@ -523,7 +445,6 @@ for (const revoke of ['branch', 'CLOSED', 'MERGED'] as const) {
       });
     } else {
       x.source.pullRequest.state = revoke;
-
       await x.observe();
     }
 
@@ -542,9 +463,7 @@ for (const revoke of ['branch', 'CLOSED', 'MERGED'] as const) {
     });
 
     const result = await answer();
-
     assert.ok(result.kind === 'peer-request');
-
     assert.equal(result.request.answer?.message, 'Done.');
 
     assert.equal(
@@ -565,15 +484,10 @@ for (const revoke of ['branch', 'CLOSED', 'MERGED'] as const) {
 
 test('ordinary prompts show present review counts only while the PR is bound', async (t) => {
   const x = await setup(t);
-
   autoReply(x.f, x.a, x.source);
-
   await x.c.interrupt();
-
   await x.observe();
-
   await x.c.send('pending review status');
-
   await x.handled();
 
   const pending = x.a.a.inputs.find(
@@ -597,9 +511,7 @@ test('ordinary prompts show present review counts only while the PR is bound', a
   );
 
   x.source.threads = [];
-
   await x.observe();
-
   await x.c.send('present review status');
 
   assert.ok(
@@ -619,7 +531,6 @@ test('ordinary prompts show present review counts only while the PR is bound', a
   });
 
   await x.c.send('other branch status');
-
   assert.ok(!x.a.a.inputs.at(-1)!.context?.includes('Copilot review watch:'));
 });
 
@@ -634,9 +545,7 @@ test('a head GitHub never asks Copilot to review reports that no review is pendi
     x.c.snapshot.items.filter(({ text }) => text.includes(missing)).length;
 
   await x.observe();
-
   assert.equal(x.c.copilot.context()!.unrequested, false);
-
   vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
 
   t.onTestFinished(() => {
@@ -644,27 +553,17 @@ test('a head GitHub never asks Copilot to review reports that no review is pendi
   });
 
   x.source.draft = true;
-
   await x.observe();
-
   assert.equal(x.c.copilot.context()!.unrequested, false);
-
   x.source.draft = false;
   const rules = x.source.copilotRules;
   x.source.copilotRules = [];
-
   await x.observe();
-
   assert.equal(x.c.copilot.context()!.unrequested, false);
-
   x.source.copilotRules = rules;
-
   await x.observe();
-
   assert.equal(x.c.copilot.context()!.unrequested, true);
-
   assert.equal(noticed(), 1);
-
   await x.c.send('unreviewed status');
 
   assert.ok(
@@ -676,17 +575,13 @@ test('a head GitHub never asks Copilot to review reports that no review is pendi
   );
 
   x.source.reviews = review;
-
   assert.equal(await x.observe(), true);
-
   assert.equal(x.c.copilot.context()!.unrequested, false);
-
   assert.equal(noticed(), 1);
 });
 
 test('a failed post-turn GitHub read retains the result and recovers without another native attempt', async (t) => {
   const x = await setup(t);
-
   autoReply(x.f, x.a, x.source);
 
   vi.mocked(github.readGitHubReviews)
@@ -704,7 +599,6 @@ test('a failed post-turn GitHub read retains the result and recovers without ano
   );
 
   const failed = (await record(x.f, x.a)).copilotReviews![0]!;
-
   assert.ok(failed.items.every(({ status }) => status === 'blocked'));
 
   await until('post-turn GitHub failure notice', () =>
@@ -714,11 +608,8 @@ test('a failed post-turn GitHub read retains the result and recovers without ano
   );
 
   await x.observe();
-
   await x.handled();
-
   assert.equal((await record(x.f, x.a)).copilotReviews![0]!.batch, undefined);
-
   assert.equal(x.reviews().length, 1);
 });
 
@@ -730,7 +621,6 @@ test('an ordinary turn can reconcile a missing reply receipt before later feedba
   session.send = async (...args) => {
     if (args[1]?.purpose === 'pr-review') {
       await reply(x.f, x.a, x.source);
-
       x.source.threads[0]!.comments.pop();
     }
 
@@ -774,17 +664,11 @@ test('an ordinary turn can reconcile a missing reply receipt before later feedba
   };
 
   await x.c.send('reconcile the previous review result');
-
   await x.observe();
-
   const reconciled = (await record(x.f, x.a)).copilotReviews![0]!;
-
   assert.equal(reconciled.batch, undefined);
-
   assert.ok(reconciled.items.every(({ status }) => status === 'blocked'));
-
   assert.equal(x.reviews().length, 1);
-
   const original = x.source.threads[0]!;
 
   x.source.threads.push({
@@ -812,6 +696,5 @@ test('an ordinary turn can reconcile a missing reply receipt before later feedba
   );
 
   assert.equal(x.reviews().length, 2);
-
   assert.equal(x.source.threads[0]!.comments.length, 1);
 });

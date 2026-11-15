@@ -27,9 +27,7 @@ export async function exhaustion(
 ) {
   const root = await scratch('witch-exhaustion-');
   const project = join(root, 'project');
-
   await mkdir(project);
-
   const store = await StateStore.open(join(root, 'state'));
   const hook = { current: passThrough };
 
@@ -60,7 +58,6 @@ export async function exhaustion(
 
   claude.accountRead = reading(10);
   codex.accountRead = reading(40);
-
   prepare?.(claude, codex);
 
   const agents = [claude, codex].map((adapter) => ({
@@ -69,9 +66,7 @@ export async function exhaustion(
   }));
 
   const coordinator = new Coordinator(store, memory, agents);
-
   await coordinator.initialize(project);
-
   await coordinator.selectModel({ agent: 'claude', id: 'claude-opus-5-5' });
 
   await until('the connect read of codex', () =>
@@ -80,7 +75,6 @@ export async function exhaustion(
 
   const reopen = async () => {
     const reopened = new Coordinator(store, memory, agents);
-
     await reopened.initialize(project, { continue: true });
 
     return reopened;

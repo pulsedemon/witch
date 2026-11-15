@@ -26,11 +26,8 @@ const window = (percent: number, observedAt = Date.now()): Limit => ({
 async function start(register: Parameters<typeof orderedCleanup>[0]) {
   const { start } = await unitCoordinationFixture(orderedCleanup(register));
   const session = await start('A');
-
   session.a.catalog.splice(0, 2, { id: 'a-2-model', label: 'A2', efforts: [] });
-
   session.b.catalog.splice(0, 2, { id: 'b-3-model', label: 'B3', efforts: [] });
-
   await session.coordinator.refreshModels();
 
   session.coordination.router = router(session.coordinator, {
@@ -52,7 +49,6 @@ test('a route answers during a running turn with no selection turn, and shows it
   const gate = new TurnGate();
   f.a.gate = gate;
   const sending = f.coordinator.send('Work');
-
   await gate.entered;
 
   try {
@@ -83,7 +79,6 @@ test('a route answers during a running turn with no selection turn, and shows it
     );
   } finally {
     gate.open();
-
     await sending;
   }
 });
@@ -118,12 +113,9 @@ test('a review with no rule answers a route for each runtime and shows each in t
 
 test('a runtime over the level shifts work to one with room, and a stale reading is read again first', async (t) => {
   const f = await start(t.onTestFinished);
-
   await until('the connect read of b', () => f.b.accountReads.length === 1);
-
   // past the connect read's back-off
   const now = Date.now() + USAGE_CURRENT_MS + 1;
-
   vi.spyOn(Date, 'now').mockReturnValue(now);
 
   t.onTestFinished(() => {
@@ -138,11 +130,8 @@ test('a runtime over the level shifts work to one with room, and a stale reading
 
   f.b.accountReading = { limits: [window(40, now)] };
   const reply = await f.route();
-
   vi.restoreAllMocks();
-
   assert.equal(f.b.accountReads.length, 2);
-
   assert.equal(reply.kind, 'route');
 
   if (reply.kind !== 'route') return;
@@ -167,9 +156,7 @@ test('a runtime over the level shifts work to one with room, and a stale reading
 
 test('a review that loses a runtime to usage routes once and says on its own line which runtime it passed over', async (t) => {
   const f = await start(t.onTestFinished);
-
   f.coordinator.accountUsage.report('a', { limits: [window(95)] });
-
   f.coordinator.accountUsage.report('b', { limits: [window(40)] });
 
   const reply = await f.route({
@@ -214,15 +201,10 @@ test('a review that loses a runtime to usage routes once and says on its own lin
 
 test('a route after an empty read starts no new one, and says the reading is missing', async (t) => {
   const f = await start(t.onTestFinished);
-
   await until('the connect read of b', () => f.b.accountReads.length === 1);
-
   f.coordinator.accountUsage.report('a', { limits: [window(95)] });
-
   const reply = await f.route();
-
   assert.equal(f.b.accountReads.length, 1);
-
   assert.equal(reply.kind, 'route');
 
   if (reply.kind === 'route')
@@ -242,7 +224,6 @@ for (const missing of ['stale credits', 'missing credit access'] as const)
     );
 
     const now = Date.now() + USAGE_CURRENT_MS + 1;
-
     vi.spyOn(Date, 'now').mockReturnValue(now);
 
     try {
@@ -274,7 +255,6 @@ for (const missing of ['stale credits', 'missing credit access'] as const)
       };
 
       const result = await f.route();
-
       assert.equal(result.kind, 'route');
 
       if (result.kind !== 'route') assert.fail(JSON.stringify(result));
@@ -302,11 +282,8 @@ for (const missing of ['stale credits', 'missing credit access'] as const)
 
 test('a read slower than the wait still gets a reply, routed on what is current', async (t) => {
   const f = await start(t.onTestFinished);
-
   await until('the connect read of b', () => f.b.accountReads.length === 1);
-
   const now = Date.now() + USAGE_CURRENT_MS + 1;
-
   vi.spyOn(Date, 'now').mockReturnValue(now);
 
   t.onTestFinished(() => {
@@ -327,18 +304,13 @@ test('a read slower than the wait still gets a reply, routed on what is current'
 
   const started = performance.now();
   const reply = await f.route();
-
   vi.restoreAllMocks();
-
   assert.equal(f.b.accountReads.length, 2);
-
   assert.ok(performance.now() - started >= 2900);
-
   assert.equal(reply.kind, 'route');
 
   if (reply.kind === 'route') {
     assert.equal(reply.routes[0]!.runtime, 'a');
-
     assert.match(reply.routes[0]!.reason, /b's 7D reading is not current$/);
   }
 });

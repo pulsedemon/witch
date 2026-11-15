@@ -90,9 +90,7 @@ test('a pushed fix and its thread reply cover a summary without another response
   );
 
   assert.equal(result.batch, undefined);
-
   assert.equal(f.state.items[0]!.status, 'attempted');
-
   assert.equal(result.items[1]!.receipts[0]!.disposition, 'fixed');
 });
 
@@ -183,11 +181,8 @@ test.each(['edit', 'new comment'])(
       });
 
     const observed = observeReviews(handled, f.source);
-
     assert.equal(observed.items[1]!.status, 'pending');
-
     assert.notEqual(observed.items[1]!.version, handled.items[1]!.version);
-
     assert.equal(observed.items[1]!.receipts[0]!.disposition, 'fixed');
   },
 );
@@ -233,14 +228,10 @@ test.each([
 
     f.source.threads[0]!.comments[0]!.body = 'A revised finding.';
     const edited = observeReviews(settled, f.source);
-
     assert.equal(edited.items[1]!.status, 'pending');
-
     f.source.threads[0]!.comments[0]!.body = 'The retry crosses the deadline.';
     const repeated = observeReviews(edited, f.source);
-
     assert.equal(repeated.items[1]!.status, expected);
-
     assert.equal(repeated.items[1]!.receipts.length, 1);
 
     if (!pushed) assert.match(repeated.items[1]!.reason!, /not on the remote/);
@@ -262,13 +253,11 @@ test.each([
 
   if (kind === 'wrong thread') {
     f.source.threads[0]!.comments.pop();
-
     f.source.comments.push(f.response);
   }
 
   if (kind === 'review response') {
     f.source.threads[0]!.comments.pop();
-
     f.response.url = `${f.source.pullRequest.url}#pullrequestreview-2`;
 
     f.result.items[1] = {
@@ -318,7 +307,6 @@ test('an existing thread response can be acknowledged without another post', asy
   );
 
   assert.equal(result.items[1]!.status, 'handled');
-
   assert.equal(result.items[1]!.receipts[0]!.disposition, 'already-addressed');
 });
 
@@ -349,7 +337,6 @@ test('a summary response must link its own source, even when the reply is on the
   );
 
   assert.equal(result.items[0]!.status, 'blocked');
-
   top.body = `declined: ${f.source.reviews[0]!.url} is already guarded`;
 
   result = await reconcileReviews(
@@ -445,13 +432,10 @@ test('partial results retain missing findings as visible blockers', async () => 
   );
 
   assert.match(result.items[0]!.reason!, /did not return/);
-
   assert.equal(result.items[0]!.receipts[0]!.disposition, 'blocked');
-
   f.source.reviews[0]!.body = 'A revised summary.';
   const edited = observeReviews(result, f.source);
   f.source.reviews[0]!.body = reviewSource().reviews[0]!.body;
-
   assert.equal(observeReviews(edited, f.source).items[0]!.status, 'blocked');
 });
 
@@ -477,12 +461,9 @@ test('an omitted disposition retains its admitted version when the finding chang
   );
 
   assert.equal(settled.items[1]!.receipts[0]!.disposition, 'blocked');
-
   f.source.threads[0]!.comments[0]!.body = original;
   const restored = observeReviews(settled, f.source);
-
   assert.equal(restored.items[1]!.status, 'blocked');
-
   assert.match(restored.items[1]!.reason!, /did not return/);
 });
 
@@ -527,9 +508,7 @@ test('reopen and context clear retain receipts from legacy single-PR records', a
   });
 
   assert.equal(record.copilotReviews, undefined);
-
   const files = await store.create(record);
-
   t.onTestFinished(() => files.close());
 
   record.copilotReviews = [
@@ -543,9 +522,7 @@ test('reopen and context clear retain receipts from legacy single-PR records', a
   ];
 
   clearConversationContext(record);
-
   await files.save(record);
-
   await files.close();
 
   await writeFile(
@@ -557,7 +534,6 @@ test('reopen and context clear retain receipts from legacy single-PR records', a
   );
 
   const reopened = await store.claim(record.id);
-
   t.onTestFinished(() => reopened.close());
 
   assert.deepEqual(
@@ -592,23 +568,14 @@ test('blocked receipts with blank errors survive save and reopen', async (t) => 
     });
 
     const files = await store.create(record);
-
     t.onTestFinished(() => files.close());
-
     record.copilotReviews = [blockReviewBatch(f.state, error)];
-
     await files.save(record);
-
     await files.close();
-
     const reopened = await store.claim(id);
-
     t.onTestFinished(() => reopened.close());
-
     const saved = reopened.record.copilotReviews![0]!;
-
     assert.ok(saved.batch!.reason!.trim());
-
     assert.equal(saved.items.length, 2);
 
     assert.ok(
@@ -628,7 +595,6 @@ test('blocked receipts with blank errors survive save and reopen', async (t) => 
 
 test('the result schema and instruction keep source bodies out of native input', () => {
   const f = fixture();
-
   assert.ok(reviewResultSchema.safeParse(f.result).success);
 
   assert.equal(
@@ -642,13 +608,9 @@ test('the result schema and instruction keep source bodies out of native input',
   );
 
   const prompt = reviewInstruction(f.batch);
-
   assert.ok(prompt.includes(f.batch.packet));
-
   assert.ok(prompt.includes(f.batch.result));
-
   assert.ok(!prompt.includes(f.source.reviews[0]!.body));
-
   assert.ok(!prompt.includes(f.source.threads[0]!.comments[0]!.body));
 });
 
@@ -702,13 +664,9 @@ test('an omitted thread retains its attempted version and batch for reconciliati
   f.source.threads = [];
   const absent = observeReviews(f.state, f.source);
   const item = absent.items.find(({ id }) => id === 'thread-1')!;
-
   assert.equal(item.present, false);
-
   assert.equal(item.status, 'attempted');
-
   assert.equal(absent.batch!.id, f.batch.id);
-
   f.source.threads = threads;
   const restored = observeReviews(absent, f.source);
 

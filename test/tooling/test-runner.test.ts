@@ -48,22 +48,17 @@ async function fixture(sharedTmp?: string) {
     'test/fixtures/cleanup.ts',
   ]) {
     const target = join(root, file);
-
     await mkdir(dirname(target), { recursive: true });
-
     await copyFile(join(repository, file), target);
   }
 
   await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
-
   const tmp = sharedTmp ?? join(root, 'tmp');
-
   await mkdir(tmp, { recursive: true });
 
   for (const file of suiteFiles) await writeFile(join(root, file), suite(file));
 
   const markers = join(root, 'markers');
-
   await writeFile(markers, '');
 
   async function start(args: string[]) {
@@ -121,7 +116,6 @@ async function fixture(sharedTmp?: string) {
         );
 
         const output = running.output();
-
         assert.equal(signal, null, output);
 
         return {
@@ -144,16 +138,12 @@ test('the test command executes each file once and discovers newly added nested 
   for (const added of [false, true]) {
     if (added) {
       const nested = join(f.root, 'test/core/nested');
-
       await mkdir(nested, { recursive: true });
-
       await writeFile(join(nested, 'added.test.ts'), suite('added'));
     }
 
     const result = await f.run();
-
     assert.equal(result.code, 0, result.output);
-
     const labels = added ? [...suiteFiles, 'added'] : suiteFiles;
 
     assert.deepEqual(
@@ -172,13 +162,9 @@ test('an assertion fails the test command without hiding its diagnostic', async 
   );
 
   const result = await f.run();
-
   assert.equal(result.code, 1, result.output);
-
   assert.ok(result.output.includes('assertion sentinel'), result.output);
-
   assert.equal(result.markers.includes('failing:start'), true);
-
   assert.equal(result.markers.includes('failing:end'), false);
 });
 
@@ -188,11 +174,8 @@ test('an empty discovered suite fails the test command', async () => {
   for (const file of suiteFiles) await rm(join(f.root, file));
 
   const result = await f.run();
-
   assert.equal(result.code, 1, result.output);
-
   assert.ok(result.output.includes('No test files found'), result.output);
-
   assert.deepEqual(result.markers, []);
 });
 
@@ -205,7 +188,6 @@ test('suite discovery excludes child fixtures', async () => {
   );
 
   const result = await f.run();
-
   assert.equal(result.code, 0, result.output);
 
   assert.deepEqual(
@@ -240,7 +222,6 @@ test('later case retains earlier scratch', async () => {
     );
 
     const result = await f.run();
-
     assert.equal(result.code, failure ? 1 : 0, result.output);
 
     if (failure) assert.ok(result.output.includes('scratch failure sentinel'));
@@ -250,11 +231,8 @@ test('later case retains earlier scratch', async () => {
       .map((line) => line.slice('scratch:'.length));
 
     assert.equal(paths.length, 3, result.output);
-
     assert.equal(new Set(paths).size, 3);
-
     assert.equal(new Set(paths.map((path) => dirname(path))).size, 1);
-
     assert.equal(existsSync(dirname(paths[0]!)), false);
   });
 
@@ -277,7 +255,6 @@ test('holds scratch until released', async () => {
   // a sibling suite's setup would sweep the killed worker's scratch before the run checks it
   for (const f of [killed, live]) {
     await writeFile(join(f.root, suiteFiles[0]!), held);
-
     await rm(join(f.root, suiteFiles[1]!));
   }
 
@@ -320,15 +297,10 @@ test('holds scratch until released', async () => {
     const dead = await owner(killed, dying);
     surviving = live.run();
     const survivor = await owner(live, surviving);
-
     process.kill(dead.pid, 'SIGKILL');
-
     const failed = await dying;
-
     assert.equal(failed.code, 1, failed.output);
-
     assert.equal(existsSync(dead.directory), true);
-
     assert.equal(existsSync(survivor.directory), true);
 
     await writeFile(
@@ -340,19 +312,12 @@ test('recovers a dead worker', async () => { await scratch('next-'); });
     );
 
     const recovered = await recovery.run();
-
     assert.equal(recovered.code, 0, recovered.output);
-
     assert.equal(existsSync(dirname(dead.directory)), false);
-
     assert.equal(existsSync(survivor.directory), true);
-
     await writeFile(join(live.root, 'release'), 'release');
-
     const finished = await surviving;
-
     assert.equal(finished.code, 0, finished.output);
-
     assert.equal(existsSync(dirname(survivor.directory)), false);
   } finally {
     for (const f of [killed, live])
@@ -386,7 +351,6 @@ test('the following case sees restored state', () => report({phase:'next', value
     );
 
     const result = await f.run();
-
     assert.equal(result.code, failure ? 1 : 0, result.output);
 
     if (failure) assert.ok(result.output.includes('setup failure sentinel'));
@@ -449,7 +413,6 @@ test('the following case sees restored globals', () => {
       );
 
       const result = await f.run();
-
       assert.equal(result.code, failure ? 1 : 0, result.output);
 
       if (failure)
@@ -471,7 +434,6 @@ test('a child-only fixture edit reruns the selected watch suite', async () => {
   const f = await fixture();
   const child = join(f.root, 'test/fixtures/child.mjs');
   const ready = "process.stdout.write('ready');\n";
-
   await writeFile(child, ready);
 
   await writeFile(
@@ -514,7 +476,6 @@ test('observes the child result', () => {
     });
 
     const output = watching.output().slice(offset);
-
     assert.ok(output.includes(expected), output);
 
     if (expected === 'FAIL')
@@ -525,13 +486,9 @@ test('observes the child result', () => {
 
   try {
     await completed('PASS');
-
     await writeFile(child, "process.stdout.write('changed');\n");
-
     await completed('FAIL');
-
     await writeFile(child, ready);
-
     await completed('PASS');
 
     assert.deepEqual((await readFile(f.markers, 'utf8')).trim().split('\n'), [

@@ -183,7 +183,6 @@ export class SessionCoordination {
       failed: (error) => this.fail('presence', error),
       written: () => {
         this.failures.delete('presence');
-
         this.publish(this.snapshot);
       },
       failure: () => this.failures.has('presence'),
@@ -287,7 +286,6 @@ export class SessionCoordination {
         join(directory, 'familiars'),
         async (request) => {
           coordination.admit(request);
-
           const { action } = request;
 
           if (!isFamiliarAction(action))
@@ -313,7 +311,6 @@ export class SessionCoordination {
     }
 
     coordination.timer = setInterval(() => coordination.tick(), 2000);
-
     coordination.timer.unref();
 
     return coordination;
@@ -381,7 +378,6 @@ export class SessionCoordination {
     this.active = active;
     this.view = undefined;
     this.ledger = undefined;
-
     this.publish(emptySnapshot);
 
     try {
@@ -407,18 +403,14 @@ export class SessionCoordination {
       }
 
       await this.retireProject(active);
-
       await this.presence.publish(active);
 
       if (this.ending || this.closed)
         throw new Error('Coordination is closing.');
 
       active.accepting = true;
-
       this.failures.delete('project');
-
       this.updateRepository(this.repository);
-
       await this.inspect();
 
       return active.binding;
@@ -437,9 +429,7 @@ export class SessionCoordination {
     if (active) active.accepting = false;
 
     await this.operations;
-
     await this.host.drain();
-
     await this.familiarHost.drain();
 
     return () => {
@@ -455,18 +445,13 @@ export class SessionCoordination {
 
     const quiescing = Promise.all([this.endTurn(), this.quiesce()]);
     active.publishing = false;
-
     this.presence.cancel();
-
     let failure: unknown;
 
     try {
       await quiescing;
-
       await this.flushPauseWrites();
-
       await this.presence.idle();
-
       const error = this.failures.get('presence');
 
       if (error) failure = new Error(error);
@@ -489,7 +474,6 @@ export class SessionCoordination {
       if (this.active === active) this.active = undefined;
 
       this.events.forgetPauses();
-
       this.presence.reset();
     }
 
@@ -610,7 +594,6 @@ export class SessionCoordination {
 
   private queuePauseWrite(write: SessionCoordination['pauseWrites'][number]) {
     this.pauseWrites.push(write);
-
     void this.flushPauseWrites();
   }
 
@@ -633,7 +616,6 @@ export class SessionCoordination {
       }
 
       this.failures.delete('pause-writes');
-
       this.publish(this.snapshot);
     })
       .catch((error: unknown) => this.fail('pause-writes', error))
@@ -663,7 +645,6 @@ export class SessionCoordination {
   private revokeTurn(turn?: string): void {
     if (this.turn && (turn === undefined || this.turn.turn === turn)) {
       this.cancellations.set(this.turn.turn, this.turn);
-
       this.turn = undefined;
     }
   }
@@ -747,7 +728,6 @@ export class SessionCoordination {
 
     if (claim) {
       this.claimReleases.add(claim.owner.conversation);
-
       await this.finishCleanup(state);
     }
   }
@@ -767,7 +747,6 @@ export class SessionCoordination {
           await this.refreshProject(active);
 
         const state: RequestState = {};
-
         await this.retireProject(active, state);
 
         moved = movedNotices(
@@ -780,9 +759,7 @@ export class SessionCoordination {
     }
 
     const snapshot = await this.inspect();
-
     this.admit();
-
     const context = coordinationContext(snapshot, moved, this.turn?.turn);
 
     const instructions = coordinationInstructions(
@@ -795,9 +772,7 @@ export class SessionCoordination {
 
   async releaseTask(): Promise<void> {
     const active = this.admit();
-
     checkTaskRelease(this.state, true);
-
     this.failures.delete('control');
 
     await this.serialize(async () => {
@@ -854,7 +829,6 @@ export class SessionCoordination {
   async close(options: { restart?: boolean } = {}): Promise<void> {
     this.ending = true;
     this.closed = true;
-
     clearInterval(this.timer);
 
     try {
@@ -963,11 +937,8 @@ export class SessionCoordination {
       const result = await work(async (value) => {
         // ledger reads after this revision wait for the transaction to release its lock.
         this.mutationRevision = this.ledgerObservation = ++this.revision;
-
         this.failures.delete('ledger');
-
         committed = { revision: this.mutationRevision, ledger: value };
-
         await verify(value);
       });
 
@@ -1132,7 +1103,6 @@ export class SessionCoordination {
       .catch((error: unknown) => {
         // the request stays pending, so the next tick rereads and answers again
         active.observed = undefined;
-
         this.handover(active, error);
       })
       .finally(() => {
@@ -1161,7 +1131,6 @@ export class SessionCoordination {
 
     const cancel = () => {
       previous?.cancel();
-
       controller.abort();
     };
 
@@ -1212,7 +1181,6 @@ export class SessionCoordination {
 
       if (changed) {
         void this.refresh();
-
         void this.refreshEvents();
       }
     } catch (error) {
@@ -1226,19 +1194,14 @@ export class SessionCoordination {
   /** starts its refreshes synchronously, so a caller can read `refreshing` as soon as it returns. */
   private tick(): void {
     void this.maintain();
-
     void this.flushPauseWrites();
-
     void this.presence.retry();
-
     void this.events.publishMerges();
-
     const active = this.active;
 
     if (!active?.publishing || this.closed) return;
 
     this.rescope(active);
-
     this.reread(active);
   }
 
@@ -1312,7 +1275,6 @@ export class SessionCoordination {
 
   private async inspect(): Promise<CoordinationSnapshot> {
     await Promise.all([this.refreshing?.promise, this.events.pending]);
-
     await Promise.all([this.refresh(), this.refreshEvents()]);
 
     return this.snapshot;
@@ -1410,7 +1372,6 @@ export class SessionCoordination {
 
   private fail(source: string, error: unknown): void {
     this.failures.set(source, errorMessage(error));
-
     this.publish(this.snapshot);
   }
 
@@ -1422,7 +1383,6 @@ export class SessionCoordination {
       return;
 
     this.discoveryFailure = revision;
-
     this.fail('discovery', error);
   }
 

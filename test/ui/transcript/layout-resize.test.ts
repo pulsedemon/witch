@@ -106,7 +106,6 @@ test('unchanged resizes reuse text and diff preparation', async () => {
 
   const layout = new TranscriptLayout();
   const inspector = new Session();
-
   inspector.connect();
 
   try {
@@ -123,7 +122,6 @@ test('unchanged resizes reuse text and diff preparation', async () => {
     ]);
 
     layout.render(items, 80, expanded);
-
     const warm = counts(await inspector.post('Profiler.takePreciseCoverage'));
 
     for (const name of names) assert.ok(warm[name]! > 0, `warm ${name}`);
@@ -135,12 +133,10 @@ test('unchanged resizes reuse text and diff preparation', async () => {
       ]);
 
       const full = new Set(expansion === 'full' ? ['diff'] : []);
-
       layout.render(items, 80, choices, full);
 
       for (const width of [40, 120, 80]) {
         await inspector.post('Profiler.takePreciseCoverage');
-
         const frame = layout.render(items, width, choices, full);
 
         const calls = counts(
@@ -158,14 +154,11 @@ test('unchanged resizes reuse text and diff preparation', async () => {
         );
 
         assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
-
         assert.deepEqual([...frame.starts], [...fresh.starts]);
 
         for (let row = 0; row < frame.lines.length; row++) {
           const anchor = frame.anchorAt(row)!;
-
           assert.deepEqual(anchor, fresh.anchorAt(row));
-
           assert.equal(frame.rowOf(anchor), fresh.rowOf(anchor));
         }
 
@@ -180,7 +173,6 @@ test('unchanged resizes reuse text and diff preparation', async () => {
           assert.ok(text.includes(`\u001b]8;;${target}\u0007`), target);
 
         assert.ok(text.includes('\u001b[4m'));
-
         assert.match(stripAnsi(text), /First\./);
 
         assert.equal(
@@ -195,16 +187,13 @@ test('unchanged resizes reuse text and diff preparation', async () => {
 
         if (expansion !== 'closed') {
           assert.match(stripAnsi(text), /Finished/);
-
           assert.match(stripAnsi(text), /1 -const before = 1;/);
-
           assert.match(stripAnsi(text), /1 \+const after = 2;/);
         }
       }
     }
 
     await inspector.post('Profiler.takePreciseCoverage');
-
     new TranscriptLayout().render(items, 40, expanded);
 
     const control = counts(
@@ -214,9 +203,7 @@ test('unchanged resizes reuse text and diff preparation', async () => {
     for (const name of names) assert.ok(control[name]! > 0, `cold ${name}`);
   } finally {
     await inspector.post('Profiler.stopPreciseCoverage');
-
     await inspector.post('Profiler.disable');
-
     inspector.disconnect();
   }
 });
@@ -229,7 +216,6 @@ test('a cached image variant restores its placement after intervening widths', a
   });
 
   t.onTestFinished(() => graphics.release());
-
   const layout = new TranscriptLayout(graphics);
 
   const item: DisplayItem = {
@@ -254,7 +240,6 @@ test('a cached image variant restores its placement after intervening widths', a
   };
 
   layout.render([item], 80, new Map([['tool', true]]), new Set(['tool']));
-
   await loaded(graphics);
 
   for (const [width, mode] of [
@@ -272,7 +257,6 @@ test('a cached image variant restores its placement after intervening widths', a
     );
 
   assert.match(placements.at(-1)!, /c=40,r=5/);
-
   const placed = placements.length;
 
   const frame = layout.render(
@@ -283,15 +267,10 @@ test('a cached image variant restores its placement after intervening widths', a
   );
 
   const rows = frame.lines.slice().filter((row) => row.includes(placeholder));
-
   assert.equal(rows.length, 10);
-
   assert.ok(rows.every((row) => row.split(placeholder).length - 1 === 80));
-
   assert.match(placements.at(-1)!, /c=80,r=10/);
-
   assert.equal(placements.length, placed + 1);
-
   assert.ok(stripAnsi(frame.lines.slice().join('\n')).includes('12 +line_12'));
 });
 
@@ -334,7 +313,6 @@ test('cached expansion variants use the current width and item', () => {
     const full = new Set(expansion === 'full' ? ['tool'] : []);
     const frame = layout.render(items, width, choices, full);
     const fresh = new TranscriptLayout().render(items, width, choices, full);
-
     assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
 
     assert.equal(
@@ -359,13 +337,9 @@ test('cached expansion variants use the current width and item', () => {
   for (const full of [new Set(['tool']), new Set<string>()]) {
     const frame = layout.render(items, 80, new Map(), full);
     const text = frame.lines.slice().join('\n');
-
     assert.match(stripAnsi(text), /replacement/);
-
     assert.doesNotMatch(stripAnsi(text), /original|line_12/);
-
     assert.equal(stripAnsi(text).includes('new_12'), full.has('tool'));
-
     assert.ok(text.includes('vscode://file/work/new.ts'));
 
     assert.deepEqual(
@@ -377,12 +351,9 @@ test('cached expansion variants use the current width and item', () => {
 
 test('a resize after the retry delay retries a missing image without reparsing its text', async (t) => {
   vi.useFakeTimers({ toFake: ['Date'] });
-
   const directory = await scratch('witch-resize-image-');
   const graphics = new Graphics(() => {});
-
   t.onTestFinished(() => graphics.release());
-
   const layout = new TranscriptLayout(graphics);
 
   const item: DisplayItem = {
@@ -406,25 +377,15 @@ test('a resize after the retry delay retries a missing image without reparsing i
   });
 
   const before = layout.render([item], 80, new Map());
-
   assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
-
   assert.ok(parsed > 0);
-
   const warm = parsed;
-
   await loaded(graphics);
-
   await writeFile(join(directory, 'shot.png'), png(800, 200));
-
   vi.setSystemTime(Date.now() + 2_000);
-
   layout.render([item], 40, new Map());
-
   await loaded(graphics);
-
   const after = layout.render([item], 40, new Map());
-
   assert.equal(parsed, warm);
 
   assert.equal(
@@ -433,10 +394,7 @@ test('a resize after the retry delay retries a missing image without reparsing i
   );
 
   assert.deepEqual(after.anchorAt(2), { item: 'image', line: 2, offset: 0 });
-
   assert.deepEqual(after.anchorAt(7), { item: 'image', line: 3, offset: 0 });
-
   assert.equal(after.lines.at(7), '');
-
   assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
 });

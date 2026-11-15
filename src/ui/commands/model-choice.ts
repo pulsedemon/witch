@@ -67,7 +67,6 @@ export function chooseModel(
     }
 
     toChat(selection.agent !== active);
-
     await coordinator.selectModel({ ...selection, effort });
 
     // a handoff can run a continuation before it resolves, so a window choice there would come too late

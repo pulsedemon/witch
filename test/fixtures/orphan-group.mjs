@@ -15,5 +15,4 @@ const command = spawn(
 );
 
 process.stdout.write(`${command.pid}\n`);
-
 setInterval(() => {}, 60_000);

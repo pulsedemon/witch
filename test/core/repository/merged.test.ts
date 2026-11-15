@@ -28,23 +28,17 @@ import {
 } from '../../fixtures/merged-environment.js';
 
 configureGitEnvironment();
-
 const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
 
 test("a merged branch's checkout switches to the base, and loses the branch, its ignored plan and ledger, and the merged branches whose remote branch is gone", async () => {
   const { root, checkout, other, tip } = await merged();
-
   await git(checkout, 'switch', 'main');
 
   for (const name of ['feat/old', 'feat/live', 'feat/wt', 'feat/unmerged']) {
     await git(checkout, 'switch', '-c', name, 'main');
-
     await write(join(checkout, `${name.slice(5)}.txt`), name);
-
     await git(checkout, 'add', '.');
-
     await git(checkout, 'commit', '-m', name);
-
     await git(checkout, 'push', '-u', 'origin', name);
 
     if (name === 'feat/unmerged')
@@ -72,25 +66,15 @@ test("a merged branch's checkout switches to the base, and loses the branch, its
   );
 
   await git(checkout, 'switch', '-c', 'feat/new', 'origin/main');
-
   await git(checkout, 'switch', 'main');
-
   await git(checkout, 'worktree', 'add', join(root, 'wt'), 'feat/wt');
-
   await git(checkout, 'pull');
-
   await write(join(plans(checkout), 'tracked.md'), '`git switch -c feat/x`.\n');
-
   await git(checkout, 'add', '-f', 'docs/superpowers/plans/tracked.md');
-
   await git(checkout, 'commit', '-m', 'tracked plan');
-
   await git(checkout, 'push', 'origin', 'main');
-
   await git(checkout, 'switch', 'feat/x');
-
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
-
   await write(join(plans(checkout), 'x2.md'), '`git switch -c feat/x-2`.\n');
 
   await write(
@@ -127,11 +111,8 @@ test("a merged branch's checkout switches to the base, and loses the branch, its
 
   // a stray file among the ledgers has no plan-path to read
   await write(join(checkout, '.superpowers/sdd/.DS_Store'), '');
-
   await merge(other, 'feat/x');
-
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
-
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 
   assert.equal(
@@ -223,9 +204,7 @@ test('a plan that also creates another branch stays whichever git command create
   );
 
   await merge(other, 'feat/x');
-
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
-
   assert.ok(typeof result === 'object');
 
   assert.deepEqual((await readdir(plans(checkout))).sort(), [
@@ -266,11 +245,8 @@ test('a plan that also creates another branch stays whichever git command create
 test("a dangling plan link stays quietly, a plan that can't be read or go with its ledgers stays with them and is named, and so are plans that can't be listed, even when the base can't fast-forward", async () => {
   {
     const { checkout, other, tip } = await merged();
-
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
-
     await symlink('missing.md', join(plans(checkout), 'dangling.md'));
-
     await merge(other, 'feat/x');
 
     assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
@@ -289,15 +265,10 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
     ['docs/superpowers/plans/x.md', 0o000, 0o600],
   ] as const) {
     const { checkout, other, tip } = await merged();
-
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
-
     const ledgers = join(checkout, '.superpowers/sdd');
-
     await write(join(ledgers, 'x/plan-path'), 'docs/superpowers/plans/x.md\n');
-
     await merge(other, 'feat/x');
-
     await chmod(join(checkout, locked), mode);
 
     const result = await cleanUpMerge(checkout, pullRequest(tip), idle).finally(
@@ -314,7 +285,6 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
     );
 
     assert.deepEqual(await readdir(plans(checkout)), ['x.md']);
-
     assert.deepEqual(await readdir(ledgers), ['x']);
 
     assert.equal(
@@ -329,11 +299,8 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
     [0o000, 'plans'],
   ] as const) {
     const { checkout, other, tip } = await merged();
-
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
-
     await merge(other, 'feat/x');
-
     await chmod(plans(checkout), mode);
 
     const result = await cleanUpMerge(checkout, pullRequest(tip), idle).finally(
@@ -370,7 +337,6 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
       );
 
     await merge(other, 'feat/x');
-
     await chmod(ledgers, 0o500);
 
     const result = await cleanUpMerge(checkout, pullRequest(tip), idle).finally(
@@ -389,22 +355,14 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
 
   {
     const { checkout, other, tip } = await merged();
-
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
-
     const ledgers = join(checkout, '.superpowers/sdd');
-
     await write(join(ledgers, 'x/plan-path'), 'docs/superpowers/plans/x.md\n');
-
     // a commit only the checkout's main has, so main can't fast-forward
     await git(checkout, 'switch', 'main');
-
     await git(checkout, 'commit', '--allow-empty', '-m', 'local');
-
     await git(checkout, 'switch', 'feat/x');
-
     await merge(other, 'feat/x');
-
     await chmod(ledgers, 0o500);
 
     await assert.rejects(
@@ -436,17 +394,11 @@ test('a plan whose ignore check fails stays, and is named', async () => {
   const { root, checkout, other, tip } = await merged();
   // git won't check a path beyond a symbolic link
   const outside = join(root, 'outside');
-
   await write(join(outside, 'x.md'), '`git switch -c feat/x`\n');
-
   await mkdir(join(checkout, 'docs/superpowers'), { recursive: true });
-
   await symlink(outside, plans(checkout));
-
   await merge(other, 'feat/x');
-
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
-
   assert.ok(typeof result === 'object');
 
   assert.match(
@@ -464,7 +416,6 @@ test('a ledger the repository tracks stays when its plan goes', async () => {
   });
 
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
-
   await merge(other, 'feat/x');
 
   assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
@@ -473,14 +424,12 @@ test('a ledger the repository tracks stays when its plan goes', async () => {
   });
 
   assert.ok(await exists(join(checkout, '.superpowers/sdd/x/plan-path')));
-
   assert.equal(await git(checkout, 'status', '--porcelain'), '');
 });
 
 test('a plan in docs/plans goes with its branch and its ledger', async () => {
   const { checkout, other, tip } = await merged({}, ['docs/plans/']);
   const docsPlans = join(checkout, 'docs/plans');
-
   await write(join(docsPlans, 'x.md'), '`git switch -c feat/x`\n');
 
   await write(
@@ -496,20 +445,15 @@ test('a plan in docs/plans goes with its branch and its ledger', async () => {
   });
 
   assert.deepEqual(await readdir(docsPlans), []);
-
   assert.deepEqual(await readdir(join(checkout, '.superpowers/sdd')), []);
 });
 
 test("a plan directory that can't be listed leaves the other's plans to go with their branch, and is reported apart from them", async () => {
   const { checkout, other, tip } = await merged({}, ['docs/plans/']);
   const docsPlans = join(checkout, 'docs/plans');
-
   await write(join(docsPlans, 'x.md'), '`git switch -c feat/x`\n');
-
   await mkdir(plans(checkout), { recursive: true });
-
   await merge(other, 'feat/x');
-
   await chmod(plans(checkout), 0o000);
 
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle).finally(
@@ -542,27 +486,18 @@ test('plans of the same name in both plan directories both go', async () => {
   });
 
   assert.deepEqual(await readdir(plans(checkout)), []);
-
   assert.deepEqual(await readdir(join(checkout, 'docs/plans')), []);
 });
 
 test("a squash merge's branch goes too", async () => {
   const { checkout, other, tip } = await merged();
-
   await git(other, 'pull');
-
   await git(other, 'merge', '--squash', 'origin/feat/x');
-
   await git(other, 'commit', '-m', 'squash');
-
   await git(other, 'push', 'origin', 'main');
-
   await git(other, 'push', 'origin', '--delete', 'feat/x');
-
   await cleanUpMerge(checkout, pullRequest(tip), idle);
-
   assert.deepEqual(await branches(checkout), ['main']);
-
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 
   assert.equal(
@@ -573,11 +508,8 @@ test("a squash merge's branch goes too", async () => {
 
 test("a branch whose last commit isn't the merged one stays, and so does everything else", async () => {
   const { checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
-
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
-
   await git(checkout, 'commit', '--allow-empty', '-m', 'after');
 
   assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
@@ -586,68 +518,44 @@ test("a branch whose last commit isn't the merged one stays, and so does everyth
   });
 
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
 test('a checkout that changed since the watch looked is left alone', async () => {
   const { checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
-
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
-
   await writeFile(join(checkout, 'x.txt'), 'changed\n');
-
   assert.equal(await cleanUpMerge(checkout, pullRequest(tip), idle), 'changed');
-
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-
   assert.equal(await readFile(join(checkout, 'x.txt'), 'utf8'), 'changed\n');
-
   assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
-
   assert.ok(await exists(join(plans(checkout), 'x.md')));
-
   await git(checkout, 'checkout', '--', 'x.txt');
-
   await git(checkout, 'switch', 'main');
-
   assert.equal(await cleanUpMerge(checkout, pullRequest(tip), idle), 'changed');
-
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
-
   assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
-
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
 test('a checkout with a staged or conflicted change is left alone, and one with only an untracked file is not', async () => {
   for (const change of ['staged', 'conflicted'] as const) {
     const { checkout, other, tip } = await merged();
-
     await merge(other, 'feat/x');
-
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
 
     if (change === 'staged') {
       await writeFile(join(checkout, 's.txt'), 's\n');
-
       await git(checkout, 'add', 's.txt');
     } else {
       // a commit that adds x.txt too, so merging it conflicts while the branch stays at the merged commit
       await git(checkout, 'switch', '--detach', 'main');
-
       await writeFile(join(checkout, 'x.txt'), 'side\n');
-
       await git(checkout, 'add', 'x.txt');
-
       await git(checkout, 'commit', '-m', 'side');
-
       const side = await git(checkout, 'rev-parse', 'HEAD');
-
       await git(checkout, 'switch', 'feat/x');
-
       await assert.rejects(git(checkout, 'merge', side));
     }
 
@@ -658,26 +566,17 @@ test('a checkout with a staged or conflicted change is left alone, and one with 
     );
 
     assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-
     assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
-
     assert.ok(await exists(join(plans(checkout), 'x.md')));
   }
 
   const { checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
-
   await writeFile(join(checkout, 'notes.txt'), 'notes\n');
-
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
-
   assert.ok(typeof result === 'object');
-
   assert.equal(result.cleaned, true);
-
   assert.deepEqual(await branches(checkout), ['main']);
-
   assert.equal(await readFile(join(checkout, 'notes.txt'), 'utf8'), 'notes\n');
 });
 
@@ -685,7 +584,6 @@ test('an ignored file the base or the merge would start tracking stops the clean
   {
     const { checkout, other } = await merged({ 'config.local': 'base\n' });
     const first = await git(checkout, 'rev-parse', 'HEAD');
-
     await git(checkout, 'rm', '--cached', '-q', 'config.local');
 
     await writeFile(
@@ -694,21 +592,13 @@ test('an ignored file the base or the merge would start tracking stops the clean
     );
 
     await git(checkout, 'add', '.gitignore');
-
     await git(checkout, 'commit', '-m', 'untrack');
-
     const tip = await git(checkout, 'rev-parse', 'HEAD');
-
     await git(other, 'pull');
-
     await git(other, 'merge', '--no-ff', '-m', 'merge', first);
-
     await git(other, 'push', 'origin', 'main');
-
     await git(other, 'push', 'origin', '--delete', 'feat/x');
-
     await writeFile(join(checkout, 'config.local'), 'mine');
-
     await assert.rejects(cleanUpMerge(checkout, pullRequest(tip), idle));
 
     assert.equal(
@@ -721,17 +611,11 @@ test('an ignored file the base or the merge would start tracking stops the clean
 
   {
     const { checkout, other, tip } = await merged({}, ['secret.txt']);
-
     await merge(other, 'feat/x');
-
     await writeFile(join(other, 'secret.txt'), 'theirs');
-
     await git(other, 'add', '-f', 'secret.txt');
-
     await git(other, 'commit', '-m', 'secret');
-
     await git(other, 'push', 'origin', 'main');
-
     await writeFile(join(checkout, 'secret.txt'), 'mine');
 
     await assert.rejects(
@@ -753,14 +637,12 @@ test('an ignored file the base or the merge would start tracking stops the clean
     );
 
     assert.equal(await readFile(join(checkout, 'secret.txt'), 'utf8'), 'mine');
-
     assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
   }
 });
 
 test('of two cleanups in one checkout at once, one cleans up and the other does nothing', async () => {
   const { checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
 
   const results = await Promise.all([
@@ -783,9 +665,7 @@ test('of two cleanups in one checkout at once, one cleans up and the other does 
 
 test('a cleanup that fails before deleting the branch says which merge it was for', async () => {
   const { root, checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
-
   const bin = join(root, 'bin');
   const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
   const previousPath = process.env.PATH;
@@ -842,9 +722,7 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     }
 
     assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-
     assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
-
     assert.equal(await git(checkout, 'rev-parse', 'HEAD'), tip);
   }
 
@@ -861,7 +739,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
   );
 
   await reacquired.close();
-
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
@@ -872,9 +749,7 @@ test('a cleanup failure after branch deletion reports the completed work', async
   for (const mode of ['plans', 'siblings']) {
     const { root, checkout, other, tip } = await merged();
     const before = await git(checkout, 'rev-parse', 'main');
-
     await merge(other, 'feat/x');
-
     const after = await git(other, 'rev-parse', 'main');
     const unreadable = join(plans(checkout), 'unreadable.md');
 
@@ -882,9 +757,7 @@ test('a cleanup failure after branch deletion reports the completed work', async
       await writeFile(join(checkout, '.git/config.lock'), '');
     else {
       await write(join(plans(checkout), 'removed.md'), 'git switch -c feat/x');
-
       await write(unreadable, 'git switch -c feat/x');
-
       await chmod(unreadable, 0o000);
     }
 
@@ -904,7 +777,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     );
 
     await chmod(join(bin, 'git'), 0o755);
-
     process.env.PATH = `${bin}:${previousPath}`;
 
     try {
@@ -912,7 +784,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
         cleanUpMerge(checkout, pullRequest(tip), idle),
         (error: unknown) => {
           assert.ok(error instanceof Error);
-
           assert.match(error.message, /injected .* failure/);
 
           if (mode === 'plans') {
@@ -928,7 +799,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
             );
 
             assert.match(error.message, /but could not locate its plans:/);
-
             assert.doesNotMatch(error.message, /and pulled/);
           } else {
             assert.ok(
@@ -958,7 +828,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     }
 
     assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
-
     assert.deepEqual(await branches(checkout), ['main']);
 
     assert.equal(
@@ -978,14 +847,10 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
 
 test('a branch committed to after the tip check stays, and so does its plan', async () => {
   const { checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
-
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
-
   // runs after the cleanup's switch, as a commit from another terminal could
   const hooks = join(checkout, '.git/hooks');
-
   await git(checkout, 'config', 'core.hooksPath', hooks);
 
   await write(
@@ -1012,22 +877,16 @@ test('a branch committed to after the tip check stays, and so does its plan', as
   );
 
   assert.equal(await git(checkout, 'rev-parse', 'feat/x^'), tip);
-
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
 test("a merged branch's config section that can't be removed is named, and the rest of the cleanup goes on", async () => {
   const { checkout, other, tip } = await merged();
-
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
-
   await merge(other, 'feat/x');
-
   // as another git command holding the config's lock leaves it
   await writeFile(join(checkout, '.git/config.lock'), '');
-
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
-
   assert.ok(typeof result === 'object');
 
   assert.match(
@@ -1050,17 +909,11 @@ test("a merged branch's config section that can't be removed is named, and the r
 
 test('a switch whose post-checkout hook fails after moving the checkout still finishes the cleanup', async () => {
   const { checkout, other, tip } = await merged();
-
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
-
   await merge(other, 'feat/x');
-
   const hooks = join(checkout, '.git/hooks');
-
   await git(checkout, 'config', 'core.hooksPath', hooks);
-
   await write(join(hooks, 'post-checkout'), '#!/bin/sh\nexit 1\n');
-
   await execute('chmod', ['+x', join(hooks, 'post-checkout')]);
 
   assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
@@ -1073,21 +926,15 @@ test('a switch whose post-checkout hook fails after moving the checkout still fi
 
 test('a base and a merged branch named like options are switched to and deleted', async () => {
   const { checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
-
   await git(other, 'push', 'origin', 'main:refs/heads/-base');
-
   await git(checkout, 'fetch');
-
   // git's porcelain won't name a branch this way, but update-ref will
   await git(checkout, 'update-ref', 'refs/heads/-base', 'origin/-base');
-
   await git(checkout, 'update-ref', 'refs/heads/-old', 'main');
 
   for (const name of ['-base', '-old']) {
     await git(checkout, 'config', `branch.${name}.remote`, 'origin');
-
     await git(checkout, 'config', `branch.${name}.merge`, `refs/heads/${name}`);
   }
 
@@ -1100,28 +947,19 @@ test('a base and a merged branch named like options are switched to and deleted'
   );
 
   assert.equal(await git(checkout, 'branch', '--show-current'), '-base');
-
   assert.deepEqual(await branches(checkout), ['-base', 'main']);
 });
 
 test("another merged branch's config section that branch -d leaves is named", async () => {
   const { checkout, other, tip } = await merged();
-
   await git(checkout, 'switch', '-c', 'feat/old', 'main');
-
   await git(checkout, 'commit', '--allow-empty', '-m', 'old');
-
   await git(checkout, 'push', '-u', 'origin', 'feat/old');
-
   await merge(other, 'feat/old');
-
   await git(checkout, 'switch', 'feat/x');
-
   await merge(other, 'feat/x');
-
   // runs after the fast-forward, so only the other branches meet the locked config
   const hooks = join(checkout, '.git/hooks');
-
   await git(checkout, 'config', 'core.hooksPath', hooks);
 
   await write(
@@ -1144,26 +982,17 @@ test('a merged branch that cannot be deleted stays named with its error while ot
 
   for (const name of ['feat/blocked', 'feat/later']) {
     await git(checkout, 'switch', '-c', name, 'main');
-
     await git(checkout, 'commit', '--allow-empty', '-m', name);
-
     await git(checkout, 'push', '-u', 'origin', name);
-
     await merge(other, name);
   }
 
   await git(checkout, 'switch', 'feat/x');
-
   await merge(other, 'feat/x');
-
   await write(join(checkout, '.git/refs/heads/feat/blocked.lock'), '');
-
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
-
   assert.ok(typeof result === 'object');
-
   assert.deepEqual(await branches(checkout), ['feat/blocked', 'main']);
-
   assert.equal(result?.cleaned, true);
 
   assert.match(
@@ -1178,23 +1007,14 @@ test('a base that tracks another remote is brought up to date from it', async ()
   const { root, origin, checkout, tip } = await merged();
   const upstream = join(root, 'upstream.git');
   const fork = join(root, 'fork');
-
   await git(root, 'clone', '--bare', origin, upstream);
-
   await git(checkout, 'remote', 'add', 'upstream', upstream);
-
   await git(checkout, 'fetch', 'upstream');
-
   await git(checkout, 'branch', '--set-upstream-to=upstream/main', 'main');
-
   await git(root, 'clone', upstream, fork);
-
   await git(fork, 'merge', '--no-ff', '-m', 'merge feat/x', 'origin/feat/x');
-
   await git(fork, 'push', 'origin', 'main');
-
   await git(checkout, 'push', 'origin', '--delete', 'feat/x');
-
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
 
   assert.equal(
@@ -1211,11 +1031,8 @@ test('a base that tracks another remote is brought up to date from it', async ()
 test("the cleanup fetches through the user's own ssh command, from git's config or GIT_SSH, and through ssh in batch mode otherwise", async () => {
   for (const own of ['config', 'environment', undefined] as const) {
     const { root, origin, checkout, other, tip } = await merged();
-
     await merge(other, 'feat/x');
-
     await git(checkout, 'remote', 'set-url', 'origin', `ssh://x.test${origin}`);
-
     // stands in for ssh: logs its arguments and runs the remote command here
     const log = join(root, 'ssh.log');
     const ssh = join(root, 'bin', own ? 'own-ssh' : 'ssh');
@@ -1226,7 +1043,6 @@ test("the cleanup fetches through the user's own ssh command, from git's config 
     );
 
     await execute('chmod', ['+x', ssh]);
-
     const path = process.env.PATH;
 
     // simple, or git would first probe the stand-in with -G
@@ -1238,18 +1054,14 @@ test("the cleanup fetches through the user's own ssh command, from git's config 
 
     try {
       const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
-
       assert.ok(typeof result === 'object');
-
       assert.equal(result.cleaned, true);
     } finally {
       process.env.PATH = path;
-
       delete process.env.GIT_SSH;
     }
 
     const calls = (await readFile(log, 'utf8')).trim().split('\n');
-
     assert.equal(calls.length, 2);
 
     for (const call of calls)
@@ -1259,9 +1071,7 @@ test("the cleanup fetches through the user's own ssh command, from git's config 
 
 test('an ssh command lookup that fails for a reason other than being unset stops the cleanup before it moves anything', async () => {
   const { root, checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
-
   const bin = join(root, 'bin');
   const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
   const previousPath = process.env.PATH;
@@ -1281,7 +1091,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
   );
 
   await chmod(join(bin, 'git'), 0o755);
-
   process.env.PATH = `${bin}:${previousPath}`;
 
   try {
@@ -1294,33 +1103,21 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
   }
 
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-
   assert.equal(await git(checkout, 'rev-parse', 'feat/x'), tip);
 });
 
 test('a branch switched to during the base fetch is left as it was, and the cleanup stops', async () => {
   const { root, checkout, other, tip } = await merged();
-
   await git(checkout, 'switch', '-c', 'feat/y', 'main');
-
   await git(checkout, 'push', '-u', 'origin', 'feat/y');
-
   const before = await git(checkout, 'rev-parse', 'HEAD');
-
   await git(other, 'fetch');
-
   await git(other, 'switch', 'feat/y');
-
   await git(other, 'commit', '--allow-empty', '-m', 'y');
-
   await git(other, 'push');
-
   await git(other, 'switch', 'main');
-
   await git(checkout, 'switch', 'feat/x');
-
   await merge(other, 'feat/x');
-
   // runs in each fetch, and switches once the cleanup is on the base, as another terminal could
   const pack = join(root, 'upload-pack');
 
@@ -1330,7 +1127,6 @@ test('a branch switched to during the base fetch is left as it was, and the clea
   );
 
   await execute('chmod', ['+x', pack]);
-
   await git(checkout, 'config', 'remote.origin.uploadpack', pack);
 
   await assert.rejects(cleanUpMerge(checkout, pullRequest(tip), idle), {
@@ -1344,9 +1140,7 @@ test('a branch switched to during the base fetch is left as it was, and the clea
 test('an edit made during the base fetch stops the cleanup before the fast-forward', async () => {
   const { root, checkout, other, tip } = await merged({ 'a.txt': 'a\n' });
   const before = await git(checkout, 'rev-parse', 'main');
-
   await merge(other, 'feat/x');
-
   // runs in each fetch, and edits once the cleanup is on the base, as another terminal could
   const pack = join(root, 'upload-pack');
 
@@ -1356,7 +1150,6 @@ test('an edit made during the base fetch stops the cleanup before the fast-forwa
   );
 
   await execute('chmod', ['+x', pack]);
-
   await git(checkout, 'config', 'remote.origin.uploadpack', pack);
 
   await assert.rejects(cleanUpMerge(checkout, pullRequest(tip), idle), {
@@ -1365,6 +1158,5 @@ test('an edit made during the base fetch stops the cleanup before the fast-forwa
   });
 
   assert.equal(await git(checkout, 'rev-parse', 'HEAD'), before);
-
   assert.equal(await readFile(join(checkout, 'a.txt'), 'utf8'), 'edited\n');
 });

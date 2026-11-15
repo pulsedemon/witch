@@ -29,9 +29,7 @@ import { until } from '../fixtures/within.js';
 async function conversation() {
   const root = await scratch('witch-ui-memory-');
   const cwd = join(root, 'project');
-
   await mkdir(cwd);
-
   const store = await StateStore.open(join(root, 'state'));
   const memory = await seededMemory(join(root, 'state', 'memory.git'));
 
@@ -40,7 +38,6 @@ async function conversation() {
   ]);
 
   await coordinator.initialize(cwd);
-
   const id = randomUUID();
 
   const files = await store.create({
@@ -53,9 +50,7 @@ async function conversation() {
   });
 
   const workspace = memory.workspace(files.directory, id);
-
   await workspace.ensureWorktree();
-
   const scope = await workspace.scope(cwd);
 
   return { coordinator, id, files, workspace, scope };
@@ -64,17 +59,11 @@ async function conversation() {
 test('a deleted note remains discoverable and can be restored through its history picker', async () => {
   const { coordinator, id, files, workspace, scope } = await conversation();
   const reference = join(workspace.root, scope.project, 'decisions.md');
-
   await writeFile(reference, 'Accepted project decision.');
-
   await workspace.commit('save reference');
-
   const originalRevision = await workspace.revision();
-
   await unlink(reference);
-
   await workspace.commit('delete reference');
-
   await files.close();
 
   // the conversation opens even though its agent can't connect
@@ -87,11 +76,8 @@ test('a deleted note remains discoverable and can be restored through its histor
 
   try {
     await delay(40);
-
     ui.stdin.write('/memory');
-
     await delay(30);
-
     ui.stdin.write('\r');
 
     await until(
@@ -100,15 +86,10 @@ test('a deleted note remains discoverable and can be restored through its histor
     );
 
     assert.match(stripAnsi(ui.lastFrame()!), /decisions.md \(deleted\)/);
-
     assert.ok(ui.lastFrame()!.includes(`vscode://file${reference}`));
-
     await delay(30);
-
     ui.stdin.write('decisions.md');
-
     await delay(30);
-
     ui.stdin.write('\r');
 
     await until(
@@ -117,9 +98,7 @@ test('a deleted note remains discoverable and can be restored through its histor
     );
 
     assert.ok(!ui.lastFrame()!.includes('delete reference'));
-
     await delay(30);
-
     ui.stdin.write('\r');
 
     await until(
@@ -131,11 +110,9 @@ test('a deleted note remains discoverable and can be restored through its histor
     );
 
     assert.notEqual(await workspace.revision(), originalRevision);
-
     assert.equal(await workspace.isDirty(), false);
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -161,9 +138,7 @@ test('the conflict view resolves with k and d, ignores a and Option+K, and links
     );
 
     assert.match(ui.text(), /Commit that could not be published:/);
-
     assert.match(ui.text(), /\+mine in global\/one\.md/);
-
     assert.match(ui.text(), /Keep mine merges your current changes/);
 
     assert.ok(
@@ -173,13 +148,11 @@ test('the conflict view resolves with k and d, ignores a and Option+K, and links
     );
 
     assert.ok(!ui.frame().includes('memory.git'));
-
     // past the 500 ms recovery guard, so the view, not the guard, ignores a and Option+K
     await delay(600);
 
     for (const key of ['a', '\u001b[107;3u', 'k', 'd']) {
       ui.stdin.write(key);
-
       await delay(30);
     }
 
@@ -229,7 +202,6 @@ test('an error naming a note drops a link forged in the name', async () => {
 
   try {
     await until('the error', () => ui.text().includes('regular files'));
-
     assert.ok(!ui.frame().includes('vscode://file/:1'));
   } finally {
     ui.unmount();
@@ -254,7 +226,6 @@ test('the pending view ignores k and letters typed with Ctrl, Option or Cmd', as
     // Cmd+← as Ghostty sends it, Option+D and Cmd+D come between k and a
     for (const key of ['k', '\u0001', '\u001b[100;3u', '\u001b[100;9u', 'a']) {
       ui.stdin.write(key);
-
       await delay(30);
     }
 
@@ -280,30 +251,20 @@ test('a recovery that appears while typing ignores keys for its first 500 ms', a
 
     // a key in the instant the view appears beats even a 0 ms guard
     await delay(150);
-
     ui.stdin.write('d');
-
     await delay(100);
-
     assert.equal(calls.length, count - 1);
-
     await delay(500);
-
     ui.stdin.write('d');
-
     await until('the discard', () => calls.length === count);
   };
 
   try {
     // past 500 ms from mount, so a guard counted from mount has already lifted
     await delay(700);
-
     await discardOnce(1);
-
     coordinator.publish({ phase: 'running' });
-
     await until('the composer', () => !ui.text().includes('d DISCARD'));
-
     await discardOnce(2);
 
     assert.deepEqual(calls, [
@@ -337,13 +298,9 @@ test('PageDown in the recovery view starts at the first row it hid', async () =>
 
   try {
     await until('the pending diff', () => shown()[0] === 1);
-
     const rows = shown().length;
-
     ui.stdin.write('\u001b[6~');
-
     await until('the second page', () => shown()[0] !== 1);
-
     assert.equal(shown()[0], rows + 1);
   } finally {
     ui.unmount();
@@ -376,15 +333,10 @@ test('entering a later recovery resets its page to the first row', async () => {
 
   try {
     await until('the first recovery page', () => shown('old')[0] === 1);
-
     ui.stdin.write('\u001b[6~');
-
     await until('the scrolled recovery', () => (shown('old')[0] ?? 0) > 1);
-
     coordinator.publish({ phase: 'idle', recovery: undefined });
-
     await until('the composer', () => !ui.text().includes('d DISCARD'));
-
     coordinator.publish({ phase: 'recovery', recovery: recovery('new') });
 
     await until(
@@ -452,9 +404,7 @@ test('a launch report shows every line, and a taller message ends with a row cou
       .map((row) => row.trim());
 
     assert.ok(rows.includes('row 12'));
-
     assert.ok(!rows.includes('row 13'));
-
     assert.ok(rows.includes('+8 more rows'));
   } finally {
     ui.unmount();
@@ -469,9 +419,7 @@ async function memoryApp(
 ) {
   const root = await scratch('witch-ui-memory-');
   const cwd = join(root, 'project');
-
   await mkdir(cwd);
-
   const hook = { current: passThrough };
   const store = await StateStore.open(join(root, 'state'));
 
@@ -481,17 +429,11 @@ async function memoryApp(
   );
 
   const directory = join(root, 'state', 'conversations', 'seed');
-
   await mkdir(directory, { recursive: true });
-
   const seed = memory.workspace(directory, 'seed');
-
   await seed.ensureWorktree();
-
   await writeFile(join(seed.root, 'global', 'other.md'), 'Another note.');
-
   await seed.commit('chore(memory): save seed notes');
-
   await seed.publish();
 
   const coordinator = new Coordinator(
@@ -516,11 +458,8 @@ test('/memory reads one commit even when main moves during the action', async ()
 
     if (command[0] === 'log' && command.includes('--name-only')) {
       hook.current = passThrough;
-
       await rm(join(seed.root, 'global', 'other.md'));
-
       await seed.commit('chore(memory): delete other');
-
       await seed.publish();
     }
 
@@ -531,7 +470,6 @@ test('/memory reads one commit even when main moves during the action', async ()
 
   try {
     await delay(60);
-
     await openCommand(ui, '/memory', 'global/other.md');
 
     // only the launch's connect report, no error from reading memory
@@ -541,7 +479,6 @@ test('/memory reads one commit even when main moves during the action', async ()
     );
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -555,61 +492,41 @@ test('/memory shows a long note whose name holds a line break on one row, linked
   );
 
   await seed.commit('chore(memory): save a note');
-
   await seed.publish();
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   // the 20 cells before the x's leave room for 77 in the picker's 98
   const row = `global/first second${'x'.repeat(77)}…`;
 
   try {
     await delay(60);
-
     await openCommand(ui, '/memory', row);
-
     ui.stdin.write('\u001b');
-
     await until('the chat', () => !ui.text().includes(row));
-
     // a worktree at main links the rows, so they render through linkify
     await coordinator.editMemory('global/other.md');
-
     await openCommand(ui, '/memory', row);
-
     assert.ok(ui.frame().includes('/memory/global/other.md\u0007'));
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
 
 test('a note page shows a name that holds a line break on its title row', async () => {
   const { seed, coordinator } = await memoryApp();
-
   await writeFile(join(seed.root, 'global', 'first\nsecond.md'), 'A note.');
-
   await seed.commit('chore(memory): save a note');
-
   await seed.publish();
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
   try {
     await delay(60);
-
     await openCommand(ui, '/memory', 'global/first second.md');
-
     await delay(30);
-
     ui.stdin.write('second');
-
     await delay(30);
-
     ui.stdin.write(ENTER);
-
     await until('the note page', () => ui.text().includes('A note.'));
-
     const rows = ui.text().split('\n');
 
     assert.equal(
@@ -618,7 +535,6 @@ test('a note page shows a name that holds a line break on its title row', async 
     );
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -635,17 +551,11 @@ test('memory without a worktree shows no links, builds no worktree, and keeps hi
 
   try {
     await delay(60);
-
     await openCommand(ui, '/memory', 'global/MEMORY.md');
-
     assert.ok(!row('global/MEMORY.md').includes('\u001b]8;'));
-
     await delay(30);
-
     ui.stdin.write('global/mem');
-
     await delay(30);
-
     ui.stdin.write('\r');
 
     await until('the note page', () =>
@@ -653,7 +563,6 @@ test('memory without a worktree shows no links, builds no worktree, and keeps hi
     );
 
     assert.ok(!row('global/MEMORY.md').includes('\u001b]8;'));
-
     ui.stdin.write('h');
 
     await until('the history picker', () =>
@@ -673,7 +582,6 @@ test('memory without a worktree shows no links, builds no worktree, and keeps hi
     );
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -687,7 +595,6 @@ test('a note page scrolls by rows and full pages and stops at its last row', asy
   );
 
   await seed.commit('chore(memory): save long note');
-
   await seed.publish();
 
   const ui = show(
@@ -703,51 +610,32 @@ test('a note page scrolls by rows and full pages and stops at its last row', asy
 
   try {
     await delay(60);
-
     await openCommand(ui, '/memory', 'long.md');
-
     await delay(30);
-
     ui.stdin.write('long.md');
-
     await delay(30);
-
     ui.stdin.write('\r');
-
     await until('the note page', () => shown()[0] === 1);
-
     const rows = shown().length;
-
     ui.stdin.write(pageDown);
-
     await until('the second page', () => shown()[0] !== 1);
-
     assert.equal(shown()[0], rows + 1);
 
     for (let page = 0; page < 60 / rows + 1; page++) {
       await delay(30);
-
       ui.stdin.write(pageDown);
     }
 
     await until('the last row', () => shown().at(-1) === 60);
-
     await delay(30);
-
     ui.stdin.write('\u001b[A');
-
     await until('one row up', () => shown().at(-1) === 59);
-
     ui.stdin.write('\u001b[B');
-
     await until('one row down', () => shown().at(-1) === 60);
-
     ui.stdin.write('\u001b[5~');
-
     await until('a page up', () => shown()[0] === 61 - 2 * rows);
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -763,17 +651,11 @@ test('e on a note page edits that note, letters typed with Ctrl, Option or Cmd l
 
   try {
     await delay(60);
-
     await openCommand(ui, '/memory', 'other.md');
-
     await delay(30);
-
     ui.stdin.write('other.md');
-
     await delay(30);
-
     ui.stdin.write('\r');
-
     await until('the note page', () => ui.text().includes('e EDIT'));
 
     // Cmd+→ as Ghostty sends it, Option+E, Cmd+E and Option+H leave the page where it is
@@ -784,78 +666,51 @@ test('e on a note page edits that note, letters typed with Ctrl, Option or Cmd l
       '\u001b[104;3u',
     ]) {
       ui.stdin.write(key);
-
       await delay(60);
-
       assert.ok(ui.text().includes('e EDIT'), JSON.stringify(key));
     }
 
     ui.stdin.write('e');
-
     await until('the edit', () => edited.length === 1);
-
     assert.match(edited[0]!, /\/global\/other\.md$/);
-
     await until('idle', () => coordinator.snapshot.phase === 'idle');
-
     // the edit's notice already names other.md
     await openCommand(ui, '/memory', 'Edit project essentials');
-
     await delay(30);
-
     ui.stdin.write('\r');
-
     await until('the second edit', () => edited.length === 2);
-
     assert.match(edited[1]!, /\/MEMORY\.md$/);
-
     assert.doesNotMatch(edited[1]!, /\/global\//);
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
 
 test('a note page links its relative Markdown targets beside the note once its worktree holds the revision', async () => {
   const { root, seed, coordinator } = await memoryApp();
-
   await writeFile(join(seed.root, 'global', 'index.md'), '- [Other](other.md)');
-
   await seed.commit('chore(memory): add index');
-
   await seed.publish();
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
   const open = async () => {
     // the edit's notice already names index.md
     await openCommand(ui, '/memory', 'Edit project essentials');
-
     await delay(30);
-
     ui.stdin.write('index.md');
-
     await delay(30);
-
     ui.stdin.write('\r');
-
     await until('the note page', () => ui.text().includes('e EDIT'));
   };
 
   try {
     await delay(60);
-
     await open();
-
     assert.ok(!ui.frame().includes('other.md'));
-
     ui.stdin.write('\u001b');
-
     await until('the chat', () => !ui.text().includes('e EDIT'));
-
     await coordinator.editMemory('global/index.md');
-
     await open();
 
     const worktree = join(
@@ -871,7 +726,6 @@ test('a note page links its relative Markdown targets beside the note once its w
     );
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -890,34 +744,23 @@ test('a note file name carrying a link sequence shows as plain text in the picke
   );
 
   await seed.commit('chore(memory): save forged note');
-
   await seed.publish();
-
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
 
   const choose = async () => {
     await delay(30);
-
     ui.stdin.write('Forged note');
-
     await delay(30);
-
     ui.stdin.write('\r');
-
     await until('the note page', () => ui.text().includes('e EDIT'));
   };
 
   try {
     await delay(60);
-
     await openCommand(ui, '/memory', 'global/forged');
-
     assert.ok(!ui.frame().includes('\u001b]8;;..:1'));
-
     ui.stdin.write('\u001b');
-
     await until('the chat', () => !ui.text().includes('global/forged'));
-
     // a worktree at main links the picker's rows
     await coordinator.editMemory('global/other.md');
 
@@ -929,7 +772,6 @@ test('a note file name carrying a link sequence shows as plain text in the picke
     );
 
     const forged = `vscode://file${conversation}:1\u0007`;
-
     await openCommand(ui, '/memory', 'global/forged');
 
     assert.ok(
@@ -939,13 +781,9 @@ test('a note file name carrying a link sequence shows as plain text in the picke
     );
 
     assert.ok(!ui.frame().includes(forged));
-
     await choose();
-
     assert.ok(!ui.frame().includes(forged));
-
     assert.ok(!ui.frame().includes('\u001b]8;;..:1'));
-
     ui.stdin.write('e');
 
     await until(
@@ -954,13 +792,9 @@ test('a note file name carrying a link sequence shows as plain text in the picke
     );
 
     assert.ok(!ui.frame().includes(forged));
-
     await until('idle', () => coordinator.snapshot.phase === 'idle');
-
     await openCommand(ui, '/memory', 'global/forged');
-
     await choose();
-
     ui.stdin.write('h');
 
     await until('the history picker', () =>
@@ -968,7 +802,6 @@ test('a note file name carrying a link sequence shows as plain text in the picke
     );
 
     await delay(30);
-
     ui.stdin.write('\r');
 
     await until('the restore notice', () =>
@@ -978,7 +811,6 @@ test('a note file name carrying a link sequence shows as plain text in the picke
     assert.ok(!ui.frame().includes(forged));
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });

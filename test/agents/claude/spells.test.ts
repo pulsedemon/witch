@@ -61,7 +61,6 @@ async function background(initial = 'initial', initialSkill?: SkillCall) {
 
   const emit = frameWriter(f.cwd, received, f.children[0]!);
   const turn = session.send(initial, { skill: initialSkill });
-
   await until('initial reply', () => received('result-1'));
 
   const inputs = async () =>
@@ -133,11 +132,8 @@ test('a steered spell is announced once Claude Code starts it, not while it is q
 
   try {
     assert.equal(await f.session.steer('/probe later', { skill: probe }), true);
-
     const uuid = await f.pushed(2);
-
     await f.emit(lifecycle(uuid, 'queued'));
-
     assert.deepEqual(spells(f.events), []);
 
     await f.emit(lifecycle(uuid, 'started'), {
@@ -157,7 +153,6 @@ test('a steered spell Claude Code cancels is not announced, and sending it again
 
   try {
     assert.equal(await f.session.steer('/probe later', { skill: probe }), true);
-
     const cancelled = await f.pushed(2);
 
     await f.emit(lifecycle(cancelled, 'cancelled'), {
@@ -172,13 +167,9 @@ test('a steered spell Claude Code cancels is not announced, and sending it again
     );
 
     assert.deepEqual(spells(f.events), []);
-
     void f.session.send('/probe later', { skill: probe });
-
     const resent = await f.pushed(3);
-
     await f.emit(lifecycle(resent, 'started'));
-
     assert.deepEqual(spells(f.events), [{ id: resent, name: 'probe' }]);
   } finally {
     await f.session.close();
@@ -190,17 +181,11 @@ test('a steered spell an interrupt reports still queued comes back unread unanno
 
   try {
     assert.equal(await f.session.steer('/probe later', { skill: probe }), true);
-
     await f.pushed(2);
-
     await within(f.session.interrupt(), 2000, 'interrupt receipt');
-
     const outcome = await f.turn;
-
     assert.equal(outcome.status, 'interrupted');
-
     assert.deepEqual(outcome.unread, ['/probe later']);
-
     assert.deepEqual(spells(f.events), []);
   } finally {
     await f.session.close();
@@ -219,7 +204,6 @@ test('a steered spell an interrupt reports still queued comes back unread unanno
     );
 
     assert.deepEqual(spells(rerun), [{ id: await f.pushed(3), name: 'probe' }]);
-
     assert.deepEqual(spells(f.events), []);
   } finally {
     await session.close();

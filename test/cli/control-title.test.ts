@@ -56,7 +56,6 @@ for (const extension of ['ts', 'tsx'])
     );
 
     assert.ok(source.control.includes('--import'));
-
     const command = `${source.control} --claim ${quote("task:reviewer's notes")} --summary inspect`;
     const doubleQuoted = `"${command.replace(/[\\"$`]/g, '\\$&')}"`;
 

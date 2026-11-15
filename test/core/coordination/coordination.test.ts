@@ -18,9 +18,7 @@ import { orderedCleanup } from '../../fixtures/cleanup.js';
 
 test('discovery batches conversation ownership and keeps only open peers', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-
   const { root, start, store } = await unitCoordinationFixture(cleanup);
 
   cleanup(() => {
@@ -37,14 +35,12 @@ test('discovery batches conversation ownership and keeps only open peers', async
   const peer = b.coordinator.snapshot.conversation!.id;
   const batch = vi.spyOn(store, 'openConversations');
   const reading = vi.spyOn(files, 'readFile');
-
   syncBuiltinESMExports();
 
   try {
     await a.coordination.context();
   } finally {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   }
 
@@ -54,7 +50,6 @@ test('discovery batches conversation ownership and keeps only open peers', async
   );
 
   assert.equal(lookups.length, 1);
-
   const call = lookups[0]!;
 
   assert.deepEqual(
@@ -87,9 +82,7 @@ test('discovery batches conversation ownership and keeps only open peers', async
 
 test('idle discovery without peers probes only conversation ownership', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-
   const { start } = await unitCoordinationFixture(cleanup);
 
   cleanup(() => {
@@ -98,7 +91,6 @@ test('idle discovery without peers probes only conversation ownership', async (t
 
   const a = await start('A');
   const { ps, perl } = await countProbes(() => a.coordination.context());
-
   assert.deepEqual({ ps, perl }, { ps: 0, perl: 1 });
 });
 
@@ -107,12 +99,9 @@ test('clones expose current task metadata without themselves or another project,
   const { root, start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const b = await start('B');
-
   await start('C');
-
   const title = a.coordinator.snapshot.conversation!.title;
   const first = await a.claim();
-
   assert.equal(first.kind, 'claimed');
 
   assert.equal(
@@ -138,7 +127,6 @@ test('clones expose current task metadata without themselves or another project,
   );
 
   await delay(150);
-
   const before = await registry.presences();
 
   a.a.sessions
@@ -146,15 +134,10 @@ test('clones expose current task metadata without themselves or another project,
     .options.onEvent({ type: 'usage', usage: { context: 42 } });
 
   await delay(150);
-
   assert.deepEqual(await registry.presences(), before);
-
   const peerText = JSON.stringify(before);
-
   assert.ok(!peerText.includes('Changed summary'));
-
   assert.ok(!peerText.includes('"sessions"'));
-
   a.coordination.updateRepository(parseStatus('# branch.head feature-one'));
 
   await until('branch published', async () =>
@@ -181,7 +164,6 @@ test('in-place title, cwd and agent changes publish without a phase change', asy
     ['agent', 'b'],
   ] as const) {
     conversation[field] = value;
-
     coordination.update(snapshot);
 
     await until(`published ${field}`, async () =>
@@ -192,11 +174,8 @@ test('in-place title, cwd and agent changes publish without a phase change', asy
     );
 
     const presence = (await registry.presences())[0]!;
-
     assert.equal(presence.phase, snapshot.phase);
-
     assert.ok(!('sessions' in presence));
-
     assert.ok(!('createdAt' in presence));
   }
 });
@@ -239,7 +218,6 @@ for (const assignmentFails of [false, true]) {
       if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
 
       assert.deepEqual(await registry.claims(), [result.claim]);
-
       assert.deepEqual(owner.coordination.snapshot.ownClaim, result.claim);
 
       assert.equal(
@@ -249,7 +227,6 @@ for (const assignmentFails of [false, true]) {
 
       if (assignmentFails) {
         assert.match(result.warning ?? '', /GitHub assignment failed/);
-
         assert.match(result.warning ?? '', /Injected assignment failure/);
       } else assert.equal(result.warning, undefined);
 
@@ -258,23 +235,15 @@ for (const assignmentFails of [false, true]) {
       if (duplicate.kind !== 'conflict') assert.fail(JSON.stringify(duplicate));
 
       assert.deepEqual(duplicate.claim, result.claim);
-
       cancelling.mockRestore();
-
       await pending;
-
       await owner.coordination.context();
-
       assert.equal(owner.coordination.snapshot.error, undefined);
-
       assert.deepEqual(owner.coordination.snapshot.ownClaim, result.claim);
-
       assert.deepEqual(await registry.claims(), [result.claim]);
     } finally {
       cancelling.mockRestore();
-
       await pending;
-
       await turn.finish();
     }
   });
@@ -304,19 +273,15 @@ test('pre-claim cleanup failure still refuses new ownership', async (t) => {
 
   try {
     await assert.rejects(owner.coordination.endTurn(), /cleanup failure/);
-
     const result = await owner.claim('https://github.com/acme/queue/issues/17');
 
     if (result.kind !== 'error') assert.fail(JSON.stringify(result));
 
     assert.equal(result.message, 'Injected selection cleanup failure');
-
     assert.deepEqual(await registry.claims(), []);
-
     assert.equal(assignments, 0);
   } finally {
     cancelling.mockRestore();
-
     await turn.finish();
   }
 });
@@ -368,11 +333,8 @@ for (const failures of [1, 2]) {
       });
 
       await within(failed.promise, 3000, 'presence write failure');
-
       await within(recovered.promise, 7000, 'automatic presence recovery');
-
       assert.equal(a.coordination.snapshot.error, undefined);
-
       assert.equal(attempts, failures + 1);
 
       const peer = (await b.query()).peers.find(
@@ -380,13 +342,11 @@ for (const failures of [1, 2]) {
       );
 
       assert.equal(peer?.presence.requests, 1);
-
       const result = await a.claim();
 
       if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
 
       assert.deepEqual(await registry.claims(), [result.claim]);
-
       const before = await registry.presences();
 
       a.a.sessions
@@ -394,13 +354,10 @@ for (const failures of [1, 2]) {
         .options.onEvent({ type: 'usage', usage: { context: 42 } });
 
       await delay(2100);
-
       assert.equal(attempts, failures + 1);
-
       assert.deepEqual(await registry.presences(), before);
     } finally {
       unsubscribe();
-
       publication.mockRestore();
 
       if (a.coordination.snapshot.error) {
@@ -459,7 +416,6 @@ test('a slow presence retry preserves newer state without accumulating retries',
       try {
         if (requests.length === 2) {
           entered.resolve();
-
           await release.promise;
         }
 
@@ -480,9 +436,7 @@ test('a slow presence retry preserves newer state without accumulating retries',
     });
 
     await within(entered.promise, 5000, 'presence retry');
-
     await delay(4100);
-
     assert.deepEqual(requests, [1, 1]);
 
     const query = await within(
@@ -499,11 +453,8 @@ test('a slow presence retry preserves newer state without accumulating retries',
     });
 
     await delay(150);
-
     release.resolve();
-
     await within(latest.promise, 3000, 'newer presence write');
-
     await delay(2100);
 
     const peer = (await b.query()).peers.find(
@@ -520,13 +471,10 @@ test('a slow presence retry preserves newer state without accumulating retries',
     );
 
     assert.equal(peak, 1);
-
     assert.deepEqual(requests, [1, 1, 2]);
-
     assert.equal(a.coordination.snapshot.error, undefined);
   } finally {
     release.resolve();
-
     publication.mockRestore();
 
     if (a.coordination.snapshot.error) {
@@ -573,7 +521,6 @@ for (const action of ['switch', 'close'] as const) {
 
           if (attempts === 2) {
             entered.resolve();
-
             await release.promise;
           }
         }
@@ -590,7 +537,6 @@ for (const action of ['switch', 'close'] as const) {
       });
 
       await within(entered.promise, 5000, 'presence retry');
-
       let finished = false;
 
       transitioning = (
@@ -602,18 +548,12 @@ for (const action of ['switch', 'close'] as const) {
       });
 
       assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
-
       assert.equal(finished, false);
-
       release.resolve();
-
       await within(transitioning, 5000, 'activation retirement');
-
       const retiredAttempts = attempts;
       const next = action === 'switch' ? await a.binding() : undefined;
-
       await delay(2100);
-
       assert.equal(attempts, retiredAttempts);
 
       assert.equal(
@@ -631,9 +571,7 @@ for (const action of ['switch', 'close'] as const) {
       if (next) assert.notEqual(next.activation, bound.activation);
     } finally {
       release.resolve();
-
       publication.mockRestore();
-
       await transitioning?.catch(() => {});
 
       if (
@@ -659,7 +597,6 @@ test('waiting and idle background work stay visible and retain ownership through
     b = await start('B');
 
   await a.claim();
-
   const before = await ledger();
   const emit = a.a.sessions.at(-1)!.options.onEvent;
 
@@ -680,7 +617,6 @@ test('waiting and idle background work stay visible and retain ownership through
   );
 
   assert.equal((await b.query()).peers[0]!.presence.requests, 1);
-
   emit({ type: 'request-resolved', id: 'q' });
 
   emit({
@@ -695,7 +631,6 @@ test('waiting and idle background work stay visible and retain ownership through
   );
 
   assert.equal((await b.query()).peers[0]!.presence.brews, 1);
-
   await assert.rejects(a.coordinator.releaseTask(), /familiars and brews/);
 
   emit({
@@ -726,7 +661,6 @@ test('waiting and idle background work stay visible and retain ownership through
   });
 
   a.a.failNext = true;
-
   await a.coordinator.send('failed turn');
 
   assert.match(
@@ -738,11 +672,8 @@ test('waiting and idle background work stay visible and retain ownership through
   );
 
   assert.equal(await ledger(), before);
-
   a.a.interruptNext = true;
-
   await a.coordinator.send('interrupted turn');
-
   assert.equal(await ledger(), before);
 });
 
@@ -754,7 +685,6 @@ test('task counts, pentacle and release follow running work', async (t) => {
     b = await start('B');
 
   assert.equal((await a.claim()).kind, 'claimed');
-
   const claims = await registry.claims();
   const emit = a.a.sessions.at(-1)!.options.onEvent;
 
@@ -771,12 +701,10 @@ test('task counts, pentacle and release follow running work', async (t) => {
     });
 
   familiar('first', 'running');
-
   familiar('second', 'running');
 
   for (const status of ['completed', 'failed', 'stopped'] as const) {
     familiar(status, 'running');
-
     familiar(status, status);
   }
 
@@ -789,13 +717,9 @@ test('task counts, pentacle and release follow running work', async (t) => {
   });
 
   assert.equal(a.coordinator.pentacle.active, true);
-
   await assert.rejects(a.coordinator.releaseTask(), /familiars and brews/);
-
   assert.deepEqual(await registry.claims(), claims);
-
   familiar('first', 'completed');
-
   familiar('second', 'stopped');
 
   for (const id of ['one', 'two', 'three']) brew(id, 'completed');
@@ -812,14 +736,9 @@ test('task counts, pentacle and release follow running work', async (t) => {
   );
 
   assert.equal(a.coordinator.pentacle.active, false);
-
   emit({ type: 'running', running: true });
-
   await assert.rejects(a.coordinator.releaseTask(), /Wait for idle/);
-
   emit({ type: 'running', running: false });
-
   await a.coordinator.releaseTask();
-
   assert.deepEqual(await registry.claims(), []);
 });

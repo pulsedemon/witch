@@ -54,15 +54,10 @@ test('snapshot updates reuse composer wrapping while edits and resize update it'
 
   try {
     await until('composer', () => ui.text().includes('Ask the agent'));
-
     ui.stdin.write(`\u001b[200~${value}\u001b[201~`);
-
     await until('pasted composer', () => ui.text().includes('last row'));
-
     assert.ok(wraps > 0);
-
     const before = wraps;
-
     coordinator.publish({ error: 'snapshot changed' });
 
     await until('snapshot render', () =>
@@ -70,21 +65,13 @@ test('snapshot updates reuse composer wrapping while edits and resize update it'
     );
 
     assert.equal(wraps, before);
-
     assert.ok(ui.text().includes('last row'));
-
     ui.stdin.write('X');
-
     await until('edited composer', () => ui.text().includes('last rowX'));
-
     assert.ok(wraps > before);
-
     const beforeResize = wraps;
-
     ui.resize(45);
-
     await until('resized composer', () => wraps > beforeResize);
-
     assert.ok(ui.text().includes('last rowX'));
   } finally {
     ui.unmount();
@@ -142,11 +129,8 @@ test('recovery snapshots and scrolling reuse wrapping while changed diffs and wi
 
   try {
     await until('recovery page', () => ui.text().includes('recovery-line 0'));
-
     assert.ok(wraps > 0);
-
     const before = wraps;
-
     coordinator.publish({ error: 'snapshot changed' });
 
     await until('snapshot render', () =>
@@ -154,35 +138,20 @@ test('recovery snapshots and scrolling reuse wrapping while changed diffs and wi
     );
 
     assert.equal(wraps, before);
-
     const beforePeer = commits;
-
     updatePeers('peer update');
-
     await until('peer render', () => commits > beforePeer);
-
     assert.equal(wraps, before);
-
     ui.stdin.write('\u001b[6~');
-
     await until('scrolled page', () => !ui.text().includes('recovery-line 0'));
-
     assert.equal(wraps, before);
-
     assert.ok(ui.text().includes('recovery-line 15'));
-
     coordinator.publish({ recovery: { ...recovery, diff: changed } });
-
     await until('updated page', () => ui.text().includes('updated-line 15'));
-
     assert.ok(wraps > before);
-
     const beforeResize = wraps;
-
     ui.resize(60);
-
     await until('resized page', () => wraps > beforeResize);
-
     assert.ok(ui.text().includes('updated-line 15'));
   } finally {
     ui.unmount();
@@ -215,23 +184,14 @@ test('page movement starts from the visible top after content shrinks', async ()
 
   try {
     await until('initial recovery', () => first('long') === 1);
-
     ui.stdin.write('\u001b[6~'.repeat(4));
-
     await until('last page', () => first('long') === 45);
-
     coordinator.publish({ recovery: recovery('short', 25) });
-
     await until('clamped short page', () => first('short') === 10);
-
     ui.stdin.write('\u001b[<64;10;10M'.repeat(2));
-
     await until('two rows up', () => first('short') === 8);
-
     ui.stdin.write('\u001b[A');
-
     await until('one row up', () => first('short') === 7);
-
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
@@ -259,19 +219,12 @@ test('page key releases do not scroll', async () => {
 
   try {
     await until('initial page', () => first() === 1);
-
     ui.stdin.write('\u001b[6;1:1~\u001b[6;1:3~');
-
     await until('page press', () => first() !== 1);
-
     await delay(60);
-
     assert.equal(first(), 17);
-
     ui.stdin.write('\u001b[1;1:3A');
-
     await delay(60);
-
     assert.equal(first(), 17);
   } finally {
     ui.unmount();
@@ -296,14 +249,12 @@ function memoryPicker() {
   const memory: Pick<Memory, 'catalog' | 'read'> = {
     async catalog(revision, scope) {
       assert.equal(revision, view.revision);
-
       assert.deepEqual(scope, view.scope);
 
       return Object.keys(notes).map((path) => ({ path, deleted: false }));
     },
     async read(revision, path) {
       assert.equal(revision, view.revision);
-
       assert.ok(Object.hasOwn(notes, path));
 
       return notes[path as keyof typeof notes];
@@ -311,7 +262,6 @@ function memoryPicker() {
   };
 
   Object.assign(context.coordinator, { memoryView: async () => view });
-
   Object.assign(context.coordinator.memory, memory);
 
   return context;
@@ -335,15 +285,10 @@ test('memory picker snapshots reuse searchable text while a changed query update
 
   try {
     await until('composer', () => ui.text().includes('Ask the agent'));
-
     await openCommand(ui, '/memory', 'global/first.md');
-
     assert.ok(ui.text().includes('global/second.md'));
-
     assert.ok(searches > 0);
-
     const before = searches;
-
     coordinator.publish({ error: 'snapshot changed' });
 
     await until('snapshot render', () =>
@@ -351,7 +296,6 @@ test('memory picker snapshots reuse searchable text while a changed query update
     );
 
     assert.equal(searches, before);
-
     ui.stdin.write('needle');
 
     await until(
@@ -362,9 +306,7 @@ test('memory picker snapshots reuse searchable text while a changed query update
     );
 
     assert.ok(searches > before);
-
     ui.stdin.write(ENTER);
-
     await until('selected note', () => ui.text().includes('COMPILER-NOTE'));
   } finally {
     ui.unmount();
@@ -405,17 +347,11 @@ test('note snapshots and scrolling reuse Markdown while opening another note upd
 
   try {
     await until('composer', () => ui.text().includes('Ask the agent'));
-
     await openCommand(ui, '/memory', 'global/first.md');
-
     ui.stdin.write(`first${ENTER}`);
-
     await until('first note', () => ui.text().includes('COMPILER-NOTE'));
-
     assert.ok(renders > 0);
-
     const before = renders;
-
     coordinator.publish({ error: 'snapshot changed' });
 
     await until('snapshot render', () =>
@@ -423,47 +359,26 @@ test('note snapshots and scrolling reuse Markdown while opening another note upd
     );
 
     assert.equal(renders, before);
-
     const beforePeer = commits;
-
     updatePeers('peer update');
-
     await until('peer render', () => commits > beforePeer);
-
     assert.equal(renders, before);
-
     coordinator.publish({ phase: 'running', error: 'phase changed' });
-
     await until('phase render', () => ui.text().includes('phase changed'));
-
     assert.equal(renders, before);
-
     coordinator.publish({ phase: 'idle', error: 'snapshot changed' });
-
     await until('idle render', () => ui.text().includes('snapshot changed'));
-
     assert.equal(renders, before);
-
     ui.stdin.write('\u001b[6~');
-
     await until('scrolled note', () => !ui.text().includes('COMPILER-NOTE'));
-
     assert.ok(ui.text().includes('needle page content'));
-
     assert.equal(renders, before);
-
     ui.stdin.write('\u001b');
-
     await until('composer', () => ui.text().includes('Ask the agent'));
-
     await openCommand(ui, '/memory', 'global/second.md');
-
     ui.stdin.write(`second${ENTER}`);
-
     await until('second note', () => ui.text().includes('Other content.'));
-
     assert.ok(renders > before);
-
     assert.ok(!ui.text().includes('needle page content'));
   } finally {
     ui.unmount();

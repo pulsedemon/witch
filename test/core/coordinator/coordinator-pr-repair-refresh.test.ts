@@ -25,7 +25,6 @@ test('fresh resolution or an uncertain read skips the cached conflict without re
 
     s.c.repair.setRefresh(async () => {
       reads++;
-
       s.observe(fresh);
     });
 
@@ -47,20 +46,14 @@ test('fresh resolution or an uncertain read skips the cached conflict without re
     );
 
     await s.idle();
-
     assert.equal(s.repairs().length, 0);
-
     assert.equal((await s.record()).conflictRepairs, undefined);
-
     assert.equal(reads, before + 1, 'no admission retry loop');
   }
 
   s.c.repair.setRefresh(async () => {});
-
   s.observe(s.read({ commit: head(2) }));
-
   await until('recovered conflict', () => s.repairs().length === 1);
-
   await s.idle();
 
   assert.deepEqual((await s.record()).conflictRepairs, [
@@ -82,21 +75,13 @@ test('fresh conflict admission uses the refreshed base tip and starts once', asy
   });
 
   s.observe(s.read());
-
   await until('repair', () => s.repairs().length === 1);
-
   await s.idle();
-
   assert.match(s.repairs()[0]!.prompt, /whose tip was new-tip/);
-
   s.observe(s.read());
-
   await s.c.send('continue');
-
   await s.idle();
-
   assert.equal(s.repairs().length, 1);
-
   assert.equal(reads, 1);
 });
 
@@ -104,33 +89,22 @@ test('a user turn queued during the freshness read runs before a new admission',
   const s = await setup(t);
   const entered = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
-
   t.onTestFinished(() => released.resolve());
-
   let reads = 0;
 
   s.c.repair.setRefresh(async () => {
     reads++;
-
     entered.resolve();
-
     await released.promise;
   });
 
   s.observe(s.read());
-
   await within(entered.promise, 5000, 'fresh read');
-
   await s.c.send('queued during read');
-
   released.resolve();
-
   await until('repair', () => s.repairs().length === 1);
-
   await s.idle();
-
   assert.equal(s.x.a.inputs[0]!.prompt, 'queued during read');
-
   assert.equal(reads, 2, 'a new admission after the user turn reads again');
 });
 
@@ -146,27 +120,21 @@ test('unbinding the conflict watch during its refresh prevents admission', async
     pullRequestReadAt: 0,
     readPullRequest: async () => {
       entered.resolve();
-
       await released.promise;
     },
   };
 
   s.x.coordination.updateRepository(repository.snapshot);
-
   const stop = watchConflicts(repository, s.c);
 
   t.onTestFinished(() => {
     stop();
-
     released.resolve();
   });
 
   await within(entered.promise, 5000, 'fresh read');
-
   stop();
-
   released.resolve();
-
   await s.c.send('after disposal');
 
   await until('user input', () =>
@@ -174,9 +142,7 @@ test('unbinding the conflict watch during its refresh prevents admission', async
   );
 
   assert.equal(s.c.repair.ready(), false);
-
   assert.equal(s.repairs().length, 0);
-
   assert.equal((await s.record()).conflictRepairs, undefined);
 });
 
@@ -192,7 +158,6 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
     const c = x.coordinator;
     const cwd = c.snapshot.conversation!.cwd;
     const project = (await f.memory.scopePaths(cwd)).project;
-
     await git('-C', cwd, 'checkout', '-b', 'feat/x');
 
     const commit = async (message: string) => {
@@ -214,13 +179,9 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
 
     const a = await commit('A');
     const url = 'https://github.com/o/r/pull/7';
-
     await x.claim(url, 'repair test');
-
     const release = c.holdPromptDelivery();
-
     register(release);
-
     let current = a;
 
     const watch = new RepositoryWatch(
@@ -253,7 +214,6 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
     );
 
     register(watchConflicts(watch, c));
-
     await until('cached conflict', () => !!c.conflict);
 
     assert.match(
@@ -265,7 +225,6 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
     );
 
     current = await commit('B');
-
     release();
 
     const repairs = () =>
@@ -273,7 +232,6 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
 
     if (mergeable === 'CONFLICTING') {
       await until('fresh repair', () => repairs().length === 1);
-
       await until('idle', () => c.snapshot.phase === 'idle');
 
       assert.match(
@@ -286,7 +244,6 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
       ]);
     } else {
       await until('resolution', () => c.conflict === undefined);
-
       await c.send('continue');
 
       await until(
@@ -297,7 +254,6 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
       );
 
       assert.equal(repairs().length, 0);
-
       assert.equal((await savedRecord(f, x)).conflictRepairs, undefined);
 
       assert.doesNotMatch(
@@ -318,9 +274,7 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
 
 test('a status failure during the fresh GitHub read cannot restore cached conflict admission', async (t) => {
   const s = await setup(t);
-
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-
   const entered = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
 
@@ -341,7 +295,6 @@ test('a status failure during the fresh GitHub read cannot restore cached confli
 
       if (++reads === 2) {
         entered.resolve();
-
         await released.promise;
       }
 
@@ -369,15 +322,10 @@ test('a status failure during the fresh GitHub read cannot restore cached confli
 
   try {
     await within(entered.promise, 5000, 'fresh read');
-
     failStatus = true;
-
     vi.advanceTimersByTime(5000);
-
     await until('status loss', () => watch.snapshot === undefined);
-
     failStatus = false;
-
     released.resolve();
 
     await until(
@@ -395,9 +343,7 @@ test('a status failure during the fresh GitHub read cannot restore cached confli
     );
 
     assert.equal(s.repairs().length, 0);
-
     assert.equal((await s.record()).conflictRepairs, undefined);
-
     vi.advanceTimersByTime(5000);
 
     await until(
@@ -416,11 +362,8 @@ test('a status failure during the fresh GitHub read cannot restore cached confli
     assert.equal(s.repairs().length, 0);
   } finally {
     released.resolve();
-
     stopConflicts();
-
     stopRepository();
-
     watch.close();
   }
 });

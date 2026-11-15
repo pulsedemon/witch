@@ -159,11 +159,8 @@ export class ClaudeRequests {
     signal?: AbortSignal,
   ): Promise<UserResponse> {
     const response = Promise.withResolvers<UserResponse>();
-
     this.requests.set(request.id, response);
-
     const cancel = () => response.resolve({ decision: 'cancel' });
-
     signal?.addEventListener('abort', cancel, { once: true });
 
     if (signal?.aborted) cancel();
@@ -173,9 +170,7 @@ export class ClaudeRequests {
       return await response.promise;
     } finally {
       signal?.removeEventListener('abort', cancel);
-
       this.requests.delete(request.id);
-
       this.options.onEvent({ type: 'request-resolved', id: request.id });
     }
   }

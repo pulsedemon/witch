@@ -21,7 +21,6 @@ const sessionState = !process.argv.includes('--no-session-state');
 
 if (mode === 'ignore-term') {
   process.on('SIGTERM', () => {});
-
   setInterval(() => {}, 1000);
 }
 
@@ -69,7 +68,6 @@ const once = (file, then) => {
     if (!existsSync(join(process.cwd(), file))) return;
 
     clearInterval(poll);
-
     then();
   }, 5);
 
@@ -265,7 +263,6 @@ const finish = () => {
       if (!existsSync(join(process.cwd(), `allow-${next}`))) return;
 
       states.shift();
-
       state(next);
 
       if (next === 'idle') clearInterval(interval);
@@ -280,7 +277,6 @@ const finish = () => {
 
 const finishPeerAnswer = () => {
   assistant('Reading requests.');
-
   const output = JSON.parse(peerAnswer(lastPrompt));
 
   assistant('', [
@@ -293,9 +289,7 @@ const finishPeerAnswer = () => {
   ]);
 
   toolResult('answer-output', 'Valid output.');
-
   result({ structured_output: output });
-
   state('idle');
 };
 
@@ -563,15 +557,10 @@ for await (const line of lines) {
             });
 
             result();
-
             state('idle');
-
             result();
-
             state('idle');
-
             writeFileSync(join(process.cwd(), 'late-response.json'), 'true');
-
             process.stdout.end(() => process.exit(0));
           });
         }
@@ -622,7 +611,6 @@ for await (const line of lines) {
         setTimeout(() => state('idle'));
       } else {
         result();
-
         state('idle');
       }
     }
@@ -637,7 +625,6 @@ for await (const line of lines) {
     });
   } else if (message.type === 'user') {
     appendFileSync(join(process.cwd(), 'inputs.jsonl'), `${line}\n`);
-
     lastInput = message.uuid;
 
     if (mode === 'background') {
@@ -665,7 +652,6 @@ for await (const line of lines) {
 
     if (mode === 'hold-initial') {
       held.push(message.uuid);
-
       writeFileSync(join(process.cwd(), 'held.json'), JSON.stringify(message));
 
       continue;
@@ -699,7 +685,6 @@ for await (const line of lines) {
       );
 
       assistant('Answered.');
-
       result();
 
       task('task_notification', {
@@ -710,9 +695,7 @@ for await (const line of lines) {
       });
 
       assistant('Reported.');
-
       result();
-
       once('allow-idle', () => state('idle'));
 
       continue;
@@ -729,7 +712,6 @@ for await (const line of lines) {
 
       if (message.message.content === 'wrap up') {
         lastPrompt = '';
-
         finish();
       }
 
@@ -904,7 +886,6 @@ for await (const line of lines) {
       });
 
       send({ type: 'control_cancel_request', request_id: 'permit-2' });
-
       finish();
     } else if (lastPrompt === 'elicit')
       send({
@@ -984,7 +965,6 @@ for await (const line of lines) {
       ]);
 
       assistant('Done.');
-
       finish();
     } else if (lastPrompt === 'edits' || lastPrompt === 'home-edits') {
       const call = (id, name, input) =>
@@ -1027,7 +1007,6 @@ for await (const line of lines) {
       );
 
       const b = lastPrompt === 'home-edits' ? '~/issue69-write.txt' : 'b.txt';
-
       call('write-1', 'Write', { file_path: b, content: 'one\ntwo' });
 
       toolResult('write-1', `File created successfully at: ${b}`, null, {
@@ -1050,9 +1029,7 @@ for await (const line of lines) {
       });
 
       toolResult('edit-2', missing, null, { tool_use_result: missing });
-
       const c = join(process.cwd(), 'c.txt');
-
       call('write-2', 'Write', { file_path: c, content: 'same' });
 
       toolResult(
@@ -1072,7 +1049,6 @@ for await (const line of lines) {
       );
 
       const settings = join(process.cwd(), '.claude', 'settings.json');
-
       call('write-3', 'Write', { file_path: settings, content: '{}' });
 
       toolResult('write-3', 'Staged for review.', null, {
@@ -1088,7 +1064,6 @@ for await (const line of lines) {
       });
 
       assistant('Done.');
-
       finish();
     } else if (lastPrompt === 'created-edits') {
       const content = Array.from({ length: 12 }, (_, index) => `l${index + 1}`);
@@ -1174,7 +1149,6 @@ for await (const line of lines) {
       }
 
       assistant('Done.');
-
       finish();
     } else if (lastPrompt === 'familiar-work') {
       send({
@@ -1188,7 +1162,6 @@ for await (const line of lines) {
       });
 
       const tool = (id, name, input) => ({ type: 'tool_use', id, name, input });
-
       assistant('Reading the tests.', undefined, 'agent-tool', 'reader');
 
       assistant(
@@ -1218,9 +1191,7 @@ for await (const line of lines) {
       );
 
       const report = randomUUID();
-
       assistant('All tests pass.', undefined, 'agent-tool', 'reader', report);
-
       assistant('See a.test.ts.', undefined, 'agent-tool', 'reader', report);
 
       // an agent Witch never listed, such as an ambient worker
@@ -1336,11 +1307,8 @@ for await (const line of lines) {
         });
 
       level([outer]);
-
       task('task_started', outer);
-
       level([outer, serve]);
-
       task('task_started', { ...serve, is_backgrounded: true });
 
       // a foreground shell gets task frames but never joins the live set
@@ -1352,10 +1320,8 @@ for await (const line of lines) {
       });
 
       end('build', 'completed');
-
       // a foreground shell moved to the background joins the live set before its update
       task('task_started', { ...moved, is_backgrounded: false });
-
       level([outer, serve, moved]);
 
       task('task_updated', {
@@ -1364,19 +1330,12 @@ for await (const line of lines) {
       });
 
       task('task_updated', { task_id: 'serve', patch: { status: 'failed' } });
-
       end('serve', 'failed');
-
       level([outer, moved]);
-
       end('moved', 'stopped');
-
       level([outer]);
-
       end('outer', 'completed');
-
       level([]);
-
       finish();
     } else if (lastPrompt === 'reporting familiar') {
       // reports and may start another familiar, then idles, then dies or runs again on its own and idles, each once the
@@ -1388,9 +1347,7 @@ for await (const line of lines) {
       });
 
       assistant('Started.');
-
       result();
-
       reporting = 'before';
 
       once('allow-report', () => {
@@ -1404,7 +1361,6 @@ for await (const line of lines) {
         });
 
         assistant('Reported.');
-
         result();
 
         once('allow-second', () =>
@@ -1417,7 +1373,6 @@ for await (const line of lines) {
 
         once('allow-idle', () => {
           reporting = 'idle';
-
           state('idle');
 
           task('commands_changed', {
@@ -1435,16 +1390,12 @@ for await (const line of lines) {
           // as Claude Code does when a brew ends
           once('allow-run', () => {
             reporting = 'running';
-
             state('running');
-
             assistant('Brewed.');
-
             result();
 
             once('allow-rest', () => {
               reporting = 'idle';
-
               state('idle');
             });
           });
@@ -1458,7 +1409,6 @@ for await (const line of lines) {
       });
 
       assistant('Started.');
-
       // no idle until the familiar reports
       result();
     } else if (lastPrompt === 'background workflow') {
@@ -1469,7 +1419,6 @@ for await (const line of lines) {
       });
 
       assistant('Started.');
-
       // no idle until the workflow reports
       result();
     } else if (lastPrompt === 'dropped tasks') {
@@ -1500,13 +1449,9 @@ for await (const line of lines) {
       });
 
       level([helper]);
-
       task('task_started', { ...helper, is_backgrounded: true });
-
       level([helper, workflow]);
-
       task('task_started', workflow);
-
       level([helper, workflow, serve]);
 
       task('task_notification', {
@@ -1517,30 +1462,24 @@ for await (const line of lines) {
       });
 
       assistant('Started.');
-
       result();
 
       once('allow-drop', () => {
         level([]);
-
         once('allow-idle', () => state('idle'));
       });
     } else if (['wait', 'still queued', 'steerable'].includes(lastPrompt))
       assistant('Working.');
     else if (lastPrompt === 'crash') {
       assistant('Working.');
-
       exitBeforeGrandchild(1);
     } else if (lastPrompt === 'die') {
       assistant('Working.');
-
       // holds stdout, so the SDK's read loop outlives the exit
       spawn('/bin/sleep', ['1'], { stdio: ['ignore', 'inherit', 'ignore'] });
-
       process.exit(1);
     } else if (lastPrompt === 'text error') {
       assistant('alpha draft', undefined, null, undefined, 'message-z');
-
       assistant('bravo', undefined, null, undefined, 'message-a');
 
       streamEvent(
@@ -1553,7 +1492,6 @@ for await (const line of lines) {
       );
 
       assistant('alpha final', undefined, null, undefined, 'message-z');
-
       assistant('', [], null, undefined, 'message-a');
 
       result({
@@ -1575,7 +1513,6 @@ for await (const line of lines) {
       state('idle');
     } else if (lastPrompt === 'api error') {
       result({ is_error: true, result: 'API Error: 500' });
-
       state('idle');
     } else if (lastPrompt === 'quit early')
       process.stderr.write('quitting early\n', () => process.exit(0));

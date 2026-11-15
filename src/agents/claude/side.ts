@@ -55,7 +55,6 @@ export function promptlessQuery(
       ...overrides,
       spawnClaudeCodeProcess: (settings) => {
         const child = start(settings);
-
         onSpawn(child);
 
         return child;
@@ -91,7 +90,6 @@ export async function sideQuery<T>(
   const input = new InputQueue<SDKUserMessage>();
   const abort = new AbortController();
   const cancel = () => abort.abort();
-
   options.signal?.addEventListener('abort', cancel, { once: true });
 
   if (options.signal?.aborted) cancel();
@@ -123,13 +121,9 @@ export async function sideQuery<T>(
     throw await startupFailure(error, child);
   } finally {
     input.close();
-
     side?.close();
-
     await reading;
-
     await child?.closed;
-
     options.signal?.removeEventListener('abort', cancel);
   }
 }

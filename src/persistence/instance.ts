@@ -17,9 +17,7 @@ export function instanceDirectory(parent: string): string {
       removeDirectory(join(parent, name));
 
   const directory = join(parent, String(process.pid));
-
   mkdirSync(directory, { recursive: true });
-
   process.once('exit', () => removeDirectory(directory));
 
   return directory;
