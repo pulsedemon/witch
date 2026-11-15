@@ -77,6 +77,7 @@ const refusedWhileAnswering = new Set<CoordinationAction['kind']>([
   'ask',
   'claim',
   'release',
+  'release-references',
   'pause',
   'resume',
 ]);

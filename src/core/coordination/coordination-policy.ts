@@ -54,6 +54,7 @@ export function coordinationInstructions(
     ...(required || snapshot.ownClaim
       ? [
           'Use --release <claim-id> to release owned work. Keep its summary current, pass its ownership context to delegated workers, and release only after the task and its delegated work have ended. A recorded suggestion is owned work too; --cancel-selection removes only its selection ticket.',
+          'For finished side work in a bundled claim, inspect its current references and use --release <claim-id> --reference <full GitHub issue/pr URL or task:name>, repeating --reference for every reference belonging solely to that work. Do not infer task associations from the repository name alone. This preserves the continuing task and stops automatic handling of the released PR. Update the remaining summary with --claim <retained reference> --summary <continuing work>. Running familiars or brews and pending transfers block selective release; report the pending release and complete it when they clear. A whole finished task or a suggestion uses full --release. After a failed or uncertain result, query peers before proceeding.',
         ]
       : []),
     'When asked to choose the next task, run --select-next <selection-turn-id> --json before triage, using the current Selection turn value. If no selection turn is current, do not reuse an earlier value. It waits automatically for your place. Do not claim a generic triage task, end the request because another session is choosing, or ask the user to repeat it.',

@@ -69,7 +69,14 @@ export function bindingChanged(
       !scope.error &&
       (scope.ownClaim?.id !== binding.claim ||
         (!!scope.ownClaim &&
-          scope.ownClaim.owner.project !== coordination.reviews.owner.project)))
+          (scope.ownClaim.owner.project !==
+            coordination.reviews.owner.project ||
+            !scope.ownClaim.references.includes(
+              taskReference(
+                binding.pullRequest.url,
+                scope.ownClaim.owner.project,
+              ),
+            )))))
   );
 }
 
@@ -201,6 +208,8 @@ export class ReviewOwnership {
           );
       },
     );
+
+    await this.port.context(scope.owner.project);
 
     if (!this.matches(scope, pr)) return;
 

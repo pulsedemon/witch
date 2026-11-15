@@ -48,6 +48,105 @@ const release = (
   id: string,
 ) => store.release(givenOwner, id, Date.now() + 5000, verify);
 
+test('reference release normalizes and deduplicates selections while preserving the continuing claim and assignments', async () => {
+  const store = await CoordinationStore.open(
+    await StateStore.open(await scratch('witch-release-references-')),
+  );
+
+  const side = 'https://github.com/team/side/pull/12';
+
+  const original = await claim(store, owner, {
+    ...input,
+    aliases: [side, 'task:side'],
+  });
+
+  const assigned = (await store.recordAssignment(
+    original.id,
+    ['github:team/side#12'],
+    Date.now() + 5000,
+    verify,
+  ))!;
+
+  const expected = { ...assigned, references: ['task:project-p:shared'] };
+
+  assert.deepEqual(
+    await store.releaseReferences(
+      owner,
+      original.id,
+      ['https://github.com/TEAM/SIDE/issues/12/', side, 'task: SIDE '],
+      Date.now() + 5000,
+      verify,
+    ),
+    {
+      references: ['github:team/side#12', 'task:project-p:side'],
+      claim: expected,
+    },
+  );
+
+  assert.deepEqual(await store.claims(), [expected]);
+
+  assert.deepEqual(
+    await store.releaseReferences(
+      owner,
+      original.id,
+      ['task:shared'],
+      Date.now() + 5000,
+      verify,
+    ),
+    { references: ['task:project-p:shared'] },
+  );
+
+  assert.deepEqual(await store.claims(), []);
+
+  await assert.rejects(
+    store.releaseReferences(
+      owner,
+      original.id,
+      ['task:shared'],
+      Date.now() + 5000,
+      verify,
+    ),
+    /no longer exists/,
+  );
+});
+
+test('reference release refuses foreign owners and mixed valid/unknown selections without partial mutation', async () => {
+  const store = await CoordinationStore.open(
+    await StateStore.open(await scratch('witch-release-refusal-')),
+  );
+
+  const original = await claim(store, owner, {
+    ...input,
+    aliases: ['task:side'],
+  });
+
+  await assert.rejects(
+    store.releaseReferences(
+      { ...owner, conversation: 'other' },
+      original.id,
+      ['task:side'],
+      Date.now() + 5000,
+      verify,
+    ),
+    /Only the owning conversation/,
+  );
+
+  assert.deepEqual(await store.claims(), [original]);
+
+  await assert.rejects(
+    store.releaseReferences(
+      owner,
+      original.id,
+      ['task:side', 'task:unknown'],
+      Date.now() + 5000,
+      verify,
+    ),
+    /Every released reference must belong/,
+  );
+
+  assert.deepEqual(await store.claims(), [original]);
+});
+
 for (const size of [1, 8])
   test(`reconciliation batches ${size} groups and retains the exact live owners`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
@@ -598,6 +697,7 @@ async function transferFixture(
           ? { field, reference: 'task:shared' }
           : {
               field,
+              input,
               claim: (await store.claims()).find(
                 (entry) => entry.owner.conversation === owner.conversation,
               )!,
@@ -615,6 +715,136 @@ async function transferFixture(
 
 const taker = { conversation: 'b', project: 'project-p' };
 
+test('a captured automatic conflict cannot take a retained main claim after its side references are released', async (t) => {
+  const f = await transferFixture(
+    orderedCleanup(t.onTestFinished),
+    'automaticTransfer',
+  );
+
+  const original = await claim(f.store, owner, {
+    ...input,
+    aliases: ['task:side'],
+  });
+
+  const request = {
+    reference: 'task:new',
+    aliases: ['task:side'],
+    summary: 'Side work',
+  };
+
+  await assert.rejects(claim(f.store, taker, request), ClaimConflict);
+
+  const released = await f.store.releaseReferences(
+    owner,
+    original.id,
+    ['task:side'],
+    Date.now() + 5000,
+    verify,
+  );
+
+  await assert.rejects(
+    f.store.requestTransfer(
+      taker,
+      { field: 'automaticTransfer', claim: original, input: request },
+      {
+        activation: (await f.hold()).activation,
+        process: f.requester,
+        expires: Date.now() + 5000,
+      },
+      Date.now() + 5000,
+      verify,
+    ),
+    /conflicting references were released/,
+  );
+
+  assert.deepEqual(await f.store.claims(), [released.claim]);
+  const side = await claim(f.store, taker, request);
+  assert.equal(side.owner.conversation, taker.conversation);
+  assert.deepEqual(await f.store.claims(), [released.claim, side]);
+});
+
+test('an automatic transfer still follows a conflict caused only by a requested alias', async (t) => {
+  const f = await transferFixture(
+    orderedCleanup(t.onTestFinished),
+    'automaticTransfer',
+  );
+
+  const original = await claim(f.store);
+
+  const request = {
+    reference: 'task:new',
+    aliases: ['task:shared'],
+    summary: 'Related work',
+  };
+
+  await f.store.requestTransfer(
+    taker,
+    { field: 'automaticTransfer', claim: original, input: request },
+    {
+      activation: (await f.hold()).activation,
+      process: f.requester,
+      expires: Date.now() + 5000,
+    },
+    Date.now() + 5000,
+    verify,
+  );
+
+  const moved = await f.handOver(original.id);
+  assert.equal(moved!.id, original.id);
+  assert.deepEqual(moved!.references, original.references);
+  assert.deepEqual(moved!.owner, taker);
+});
+
+for (const field of ['transfer', 'automaticTransfer'] as const)
+  test(`reference release preserves a pending ${field}, including its refusal`, async (t) => {
+    const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
+
+    const original = await claim(f.store, owner, {
+      ...input,
+      aliases: ['task:side'],
+    });
+
+    const { activation } = await f.hold();
+    await f.request(taker, activation);
+
+    for (const refused of [false, true]) {
+      if (refused) await f.handOver(original.id, () => 'Still working');
+
+      const before = await f.store.claims();
+
+      await assert.rejects(
+        f.store.releaseReferences(
+          owner,
+          original.id,
+          ['task:side'],
+          Date.now() + 5000,
+          verify,
+        ),
+        /pending task transfer/,
+      );
+
+      assert.deepEqual(await f.store.claims(), before);
+    }
+
+    await f.store.withdrawTransfer(
+      activation,
+      original.id,
+      Date.now() + 5000,
+      verify,
+      field,
+    );
+
+    const released = await f.store.releaseReferences(
+      owner,
+      original.id,
+      ['task:side'],
+      Date.now() + 5000,
+      verify,
+    );
+
+    assert.deepEqual(released.claim!.references, ['task:project-p:shared']);
+  });
+
 test('automatic transfer never follows a released reference onto a replacement claim', async (t) => {
   const f = await transferFixture(
     orderedCleanup(t.onTestFinished),
@@ -629,7 +859,7 @@ test('automatic transfer never follows a released reference onto a replacement c
   await assert.rejects(
     f.store.requestTransfer(
       taker,
-      { field: 'automaticTransfer', claim: original },
+      { field: 'automaticTransfer', claim: original, input },
       { activation, process: f.requester, expires: Date.now() + 5000 },
       Date.now() + 5000,
       verify,
@@ -650,7 +880,7 @@ test('automatic transfer refuses a claim that moved since the conflict', async (
   await assert.rejects(
     f.store.requestTransfer(
       third,
-      { field: 'automaticTransfer', claim: original },
+      { field: 'automaticTransfer', claim: original, input },
       {
         activation: (await f.hold()).activation,
         process: identity,
@@ -676,7 +906,7 @@ for (const field of ['transfer', 'automaticTransfer'] as const)
       f.store.requestTransfer(
         { conversation: 'c', project: 'project-p' },
         field === 'transfer'
-          ? { field: 'automaticTransfer', claim: original }
+          ? { field: 'automaticTransfer', claim: original, input }
           : { field: 'transfer', reference: 'task:shared' },
         {
           activation: (await f.hold()).activation,

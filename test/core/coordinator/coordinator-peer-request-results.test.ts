@@ -166,11 +166,17 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
   assert.equal(read.kind, 'peer-request', JSON.stringify(read));
   await answer(b, request, 'Mid-turn');
   assert.equal((await stored(f, request)).answer?.message, 'Mid-turn');
+  const before = await f.registry.claims();
 
   for (const action of [
     { kind: 'ask', claim: other.id, message: 'Back to you?' },
     { kind: 'claim', input: { reference: 'task:other', summary: 'Other' } },
     { kind: 'release', claim: claim.id },
+    {
+      kind: 'release-references',
+      claim: claim.id,
+      references: ['task:b-work'] as string[],
+    },
     { kind: 'pause' },
     { kind: 'resume', pause: randomUUID() },
   ] as const) {
@@ -182,6 +188,8 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
         result.message,
         'Answer the current peer requests without asking or pausing other sessions or changing claims.',
       );
+
+    assert.deepEqual(await f.registry.claims(), before);
   }
 
   gate.open();

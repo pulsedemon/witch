@@ -32,6 +32,7 @@ Agent control (use the prefix supplied in the current Witch context):
   --summary <text>    describe the claimed work
   --alias <ref>       add a related reference to the claim
   --release <id>      release this conversation's exact claim
+  --reference <ref>   release only this reference with --release; repeatable
   --select-next <turn> wait for this turn's next-task selection slot
   --recommend <ref>   reserve a recommendation and advance the queue
   --selection <id>    identify the selection for --recommend

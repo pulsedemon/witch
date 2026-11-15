@@ -126,30 +126,45 @@ export async function dispatchControl(
         'Only the user can request an unconditional transfer. Use --claim to request a transfer when the owner is out of usage.',
       );
 
-    if (action.kind === 'release') {
+    if (action.kind === 'release' || action.kind === 'release-references') {
       const claim = (await host.readLedger(state)).ledger.claims.find(
         (entry) => entry.id === action.claim,
       );
 
-      await host.change(
+      const owner = {
+        conversation: active.conversation.id,
+        project: claim?.owner.project ?? active.project,
+      };
+
+      return await host.change(
         state,
-        (verify) =>
-          host.registry.release(
-            {
-              conversation: active.conversation.id,
-              project: claim?.owner.project ?? active.project,
-            },
+        async (verify): Promise<ControlOutcome> => {
+          if (action.kind === 'release-references')
+            return {
+              kind: 'references-released',
+              ...(await host.registry.releaseReferences(
+                owner,
+                action.claim,
+                action.references,
+                request.deadline,
+                verify,
+              )),
+            };
+
+          await host.registry.release(
+            owner,
             action.claim,
             request.deadline,
             verify,
-          ),
+          );
+
+          return { kind: 'released' };
+        },
         async () => {
           host.admit(request);
           checkTaskRelease(host.state(), human);
         },
       );
-
-      return { kind: 'released' };
     }
 
     await host.refreshProject(active, request.deadline);
@@ -314,6 +329,7 @@ export async function dispatchControl(
         return await transfer({
           field: 'automaticTransfer',
           claim: error.claim,
+          input: action.input,
         });
       }
 

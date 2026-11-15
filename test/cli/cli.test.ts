@@ -230,6 +230,24 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
         return { kind: 'released' };
       }
 
+      if (action.kind === 'release-references') {
+        assert.deepEqual(action.references, [
+          'https://github.com/acme/widget/issues/42',
+          'task:related',
+        ]);
+
+        return {
+          kind: 'references-released',
+          ...(await store.releaseReferences(
+            { conversation, project: 'project-p' },
+            action.claim,
+            action.references,
+            deadline,
+            async () => {},
+          )),
+        };
+      }
+
       if (action.kind !== 'claim') throw new Error('Unexpected test action');
 
       return {
@@ -326,6 +344,24 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
       assert.deepEqual(result.files, []);
     }
 
+    const partial = await run(
+      `${prefix} --release ${claim.id} --reference https://github.com/acme/widget/issues/42 --reference task:related`,
+    );
+
+    assert.equal(partial.code, 0);
+    assert.equal(partial.stderr, '');
+
+    assert.equal(
+      partial.stdout,
+      `Released references: github:acme/widget#42, task:project-p:related\nRemaining references: task:project-p:ours\nClaim id: ${claim.id}\n`,
+    );
+
+    assert.deepEqual(await store.claims(), [
+      occupied,
+      { ...claim, references: ['task:project-p:ours'] },
+    ]);
+
+    assert.deepEqual(partial.files, []);
     const released = await run(`${prefix} --release ${claim.id} --json`);
     assert.equal(released.code, 0);
     assert.equal(released.stderr, '');
@@ -468,6 +504,7 @@ for (const extra of [
   ['--state-dir', '/unused'],
   ['--continue'],
   ['--summary', 'Extra'],
+  ['--reference', 'task:side'],
 ]) {
   test(`headless controls reject ${JSON.stringify(extra)} before startup`, async () => {
     const result = await run([
@@ -492,5 +529,12 @@ test('witch sessions remains a positional prompt', async () => {
   const result = await run(['sessions']);
   assert.equal(result.code, 1);
   assert.match(result.stderr, /interactive terminal/);
+  assert.deepEqual(result.files, []);
+});
+
+test('--reference alone refuses before normal startup', async () => {
+  const result = await run(['--reference', 'task:side']);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /--reference requires --release/);
   assert.deepEqual(result.files, []);
 });
