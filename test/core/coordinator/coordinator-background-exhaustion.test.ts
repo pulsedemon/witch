@@ -31,9 +31,7 @@ for (const timing of ['queued', 'waiting', 'late', 'exit'] as const)
     const waiting = timing !== 'queued';
     const root = await scratch('witch-background-exhaustion-');
     const project = join(root, 'project');
-
     await mkdir(project);
-
     const store = await StateStore.open(join(root, 'state'));
     const memory = await seededMemory(join(root, 'memory.git'));
     const source = await launcher('background');
@@ -45,7 +43,6 @@ for (const timing of ['queued', 'waiting', 'late', 'exit'] as const)
         ...options,
         onEvent: (event) => {
           events.push(event);
-
           options.onEvent(event);
         },
       }),
@@ -149,9 +146,7 @@ for (const timing of ['queued', 'waiting', 'late', 'exit'] as const)
 
       if (timing === 'exit') {
         source.children[0]!.kill();
-
         await within(sent!, 5000, 'native exit with uncertain input');
-
         assert.equal(codex.inputs.length, 0);
 
         assert.ok(
@@ -200,7 +195,6 @@ for (const timing of ['queued', 'waiting', 'late', 'exit'] as const)
       );
 
       assert.ok(!codex.inputs[0]!.context!.includes('User: Queued follow-up'));
-
       assert.equal(codex.inputs[1]!.prompt, 'Queued follow-up');
 
       assert.equal(
@@ -223,7 +217,6 @@ for (const [stage, writesMemory, finishes] of [
 ] as const)
   test(`${finishes ? 'completed' : 'running'} background work during ${stage} retains its context and continuation`, async (t) => {
     pauseDiscovery(vi.spyOn);
-
     const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
     const claude = new FixtureAgent('claude');
     const codex = new FixtureAgent('codex');
@@ -253,9 +246,7 @@ for (const [stage, writesMemory, finishes] of [
     );
 
     await coordinator.selectModel({ agent: 'claude', id: 'claude-fable-5-2' });
-
     await coordinator.send('Review migration');
-
     const source = claude.sessions.at(-1)!;
     const emit = source.options.onEvent;
     const binding = coordination.familiarBinding();
@@ -277,7 +268,6 @@ for (const [stage, writesMemory, finishes] of [
       if (restarted) return;
 
       restarted = true;
-
       emit({ type: 'running', running: true });
 
       emit({
@@ -298,7 +288,6 @@ for (const [stage, writesMemory, finishes] of [
 
       if (finishes) {
         report();
-
         emit({ type: 'running', running: false });
       }
     };
@@ -354,11 +343,8 @@ for (const [stage, writesMemory, finishes] of [
     }
 
     emit({ type: 'running', running: true });
-
     emit({ type: 'exhausted' });
-
     await coordinator.send('Queued after report');
-
     emit({ type: 'running', running: false });
 
     if (writesMemory || !finishes) {
@@ -370,11 +356,8 @@ for (const [stage, writesMemory, finishes] of [
       );
 
       assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
-
       assert.equal(source.session.closed, false);
-
       assert.equal(codex.inputs.length, 0);
-
       assert.deepEqual(coordination.familiarBinding(), binding);
 
       if (writesMemory) {
@@ -386,7 +369,6 @@ for (const [stage, writesMemory, finishes] of [
         await coordinator.recoverMemory('discard');
       } else {
         emit({ type: 'running', running: false });
-
         report();
       }
     }
@@ -397,11 +379,8 @@ for (const [stage, writesMemory, finishes] of [
     );
 
     assert.match(codex.inputs[0]!.prompt, /^Continue the task/);
-
     assert.match(codex.inputs[0]!.context!, /Retain the migration lock/);
-
     assert.equal(codex.inputs[1]!.prompt, 'Queued after report');
-
     assert.equal(claude.inputs.length, 1);
   });
 
@@ -414,7 +393,6 @@ for (const mode of [
 ] as const)
   test(`background exhaustion with ${mode} compaction preserves delivery holds`, async (t) => {
     pauseDiscovery(vi.spyOn);
-
     const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
     const claude = new FixtureAgent('claude');
     const codex = new FixtureAgent('codex');
@@ -449,19 +427,14 @@ for (const mode of [
     );
 
     await coordinator.selectModel({ agent: 'claude', id: 'claude-fable-5-2' });
-
     await coordinator.send('Review migration');
-
     const emit = claude.sessions.at(-1)!.options.onEvent;
     const batches = new CommandBatches(coordinator);
 
     try {
       emit({ type: 'running', running: true });
-
       emit({ type: 'exhausted' });
-
       await coordinator.send('Queued after compact');
-
       const finished = Promise.withResolvers<boolean>();
       let compacting: Promise<boolean>;
 
@@ -478,7 +451,6 @@ for (const mode of [
             if (command.name !== 'compact') return true;
 
             const result = await coordinator.compact();
-
             finished.resolve(result);
 
             return result;
@@ -492,9 +464,7 @@ for (const mode of [
       }
 
       emit({ type: 'running', running: false });
-
       const success = await within(compacting, 5000, 'background compaction');
-
       assert.equal(success, mode === 'command');
 
       await until(
@@ -506,20 +476,15 @@ for (const mode of [
       );
 
       assert.equal(claude.compactions.length, 0);
-
       assert.equal(claude.inputs.length, 1);
 
       if (success) {
         assert.equal(codex.compactions.length, 1);
-
         assert.match(codex.inputs[0]!.prompt, /^Continue the task/);
-
         assert.equal(codex.inputs[1]!.prompt, 'Queued after compact');
       } else {
         assert.equal(codex.inputs.length, 0);
-
         assert.equal(codex.compactions.length, 0);
-
         assert.deepEqual(coordinator.snapshot.queue, ['Queued after compact']);
 
         if (mode === 'mixed' || mode === 'queued')

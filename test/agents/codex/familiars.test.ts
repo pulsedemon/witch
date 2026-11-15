@@ -127,17 +127,11 @@ test('a missing familiar cleanup acknowledgment cannot hold Codex close open', a
     );
 
     assert.equal((await f.register()).kind, 'familiar-registered');
-
     await writeFile(join(f.cwd, 'hold-termination'), '');
-
     const closing = f.session.close({ deadline: performance.now() + 3200 });
-
     await within(closing, 2500, 'bounded familiar cleanup');
-
     assert.equal(f.session.closed, true);
-
     assert.ok(f.child.exitCode !== null || f.child.signalCode !== null);
-
     assert.equal(f.familiarEvents().at(-1)!.status, 'stopped');
 
     assert.equal(
@@ -168,7 +162,6 @@ test('a split registration marker and a live native handle are both required bef
     );
 
     assert.equal((await f.register()).kind, 'familiar-pending');
-
     assert.deepEqual(f.familiarEvents(), []);
 
     await f.emit(
@@ -183,13 +176,9 @@ test('a split registration marker and a live native handle are both required bef
     );
 
     assert.equal(f.familiarEvents().length, 1);
-
     const start = f.familiarEvents()[0]!;
-
     assert.equal(start.name, 'plan review');
-
     assert.equal(start.runtime, 'claude');
-
     assert.equal(start.model, undefined);
 
     await f.session.familiar!.report(
@@ -218,9 +207,7 @@ test('a split registration marker and a live native handle are both required bef
     );
 
     assert.equal(f.familiarEvents().length, 2);
-
     assert.equal(f.familiarEvents().at(-1)!.tools, 2);
-
     assert.equal(start.model, undefined);
 
     await f.session.familiar!.report(
@@ -277,7 +264,6 @@ test('a split registration marker and a live native handle are both required bef
     );
 
     assert.equal(f.familiarEvents().at(-1)!.report, 'Verified review.');
-
     assert.equal(f.familiarEvents().length, 3);
   } finally {
     await f.session.close();
@@ -361,7 +347,6 @@ test('stale markers and expired admission cannot register, and another command c
     );
 
     assert.equal((await f.register()).kind, 'familiar-pending');
-
     await f.emit(f.output(`${'x'.repeat(5000)}\n${f.marker}`));
 
     await assert.rejects(
@@ -378,7 +363,6 @@ test('stale markers and expired admission cannot register, and another command c
     );
 
     assert.deepEqual(f.familiarEvents(), []);
-
     assert.equal((await f.register()).kind, 'familiar-registered');
 
     await f.emit(
@@ -396,7 +380,6 @@ test('stale markers and expired admission cannot register, and another command c
     );
 
     await assert.rejects(f.register(), /more than one command/);
-
     assert.equal(f.familiarEvents().length, 1);
   } finally {
     await f.session.close();
@@ -429,7 +412,6 @@ test('registration requires a live native process handle and cannot adopt an end
     });
 
     await assert.rejects(f.register(), /already ended/);
-
     assert.deepEqual(f.familiarEvents(), []);
   } finally {
     await f.session.close();
@@ -485,7 +467,6 @@ test('an approval-first start resolves only its own native handle before admitti
     );
 
     assert.equal((await f.register()).kind, 'familiar-pending');
-
     assert.deepEqual(f.familiarEvents(), []);
 
     await writeJson(join(f.cwd, 'list-reply-1.json'), {
@@ -559,9 +540,7 @@ test('native handle discovery cannot register after the command ended while its 
     });
 
     await f.session.models();
-
     await assert.rejects(f.register(), /already ended/);
-
     assert.deepEqual(f.familiarEvents(), []);
   } finally {
     await f.session.close();
@@ -612,9 +591,7 @@ test('closing a native connection reports stopped even when command completion a
     );
 
     await f.register();
-
     await writeFile(join(f.cwd, 'hold-termination'), 'yes');
-
     closing = f.session.close();
 
     await until('cleanup request', () =>
@@ -632,7 +609,6 @@ test('closing a native connection reports stopped even when command completion a
     assert.equal(f.familiarEvents().at(-1)!.status, 'stopped');
   } finally {
     await writeFile(join(f.cwd, 'release-termination'), 'yes');
-
     await (closing ?? f.session.close());
   }
 });
@@ -674,7 +650,6 @@ test('a familiar command that exited 0 leaves no cleanup notice when Codex alrea
     );
 
     await f.emit();
-
     assert.deepEqual(cleanupNotices(f.events), []);
 
     assert.deepEqual(await terminateRequests(f.cwd), [
@@ -695,7 +670,6 @@ test('a familiar command that ended without a clean exit keeps the cleanup notic
     );
 
     assert.equal((await f.register()).kind, 'familiar-registered');
-
     await writeFile(join(f.cwd, 'terminal-gone'), '');
 
     // an evicted terminal whose exit Codex never saw ends this way
@@ -713,7 +687,6 @@ test('a familiar command that ended without a clean exit keeps the cleanup notic
     );
 
     await f.emit();
-
     assert.equal(f.familiarEvents().at(-1)!.status, 'failed');
 
     assert.deepEqual(cleanupNotices(f.events), [
@@ -735,11 +708,8 @@ test('a familiar command that exits 0 while close is cleaning it up keeps the cl
     );
 
     assert.equal((await f.register()).kind, 'familiar-registered');
-
     await writeFile(join(f.cwd, 'terminal-gone'), '');
-
     await writeFile(join(f.cwd, 'hold-termination'), '');
-
     closing = f.session.close();
 
     await until(
@@ -756,9 +726,7 @@ test('a familiar command that exits 0 while close is cleaning it up keeps the cl
     });
 
     await writeFile(join(f.cwd, 'release-termination'), '');
-
     await closing;
-
     assert.equal((await terminateRequests(f.cwd)).length, 1);
 
     assert.deepEqual(cleanupNotices(f.events), [
@@ -766,7 +734,6 @@ test('a familiar command that exits 0 while close is cleaning it up keeps the cl
     ]);
   } finally {
     await writeFile(join(f.cwd, 'release-termination'), '');
-
     await (closing ?? f.session.close());
   }
 });
@@ -816,7 +783,6 @@ test('registration transfers an existing brew and leaves an unrelated background
     );
 
     await f.emit(f.output(f.marker));
-
     await f.register();
 
     assert.deepEqual(
@@ -991,7 +957,6 @@ test("a Codex session's Codex familiar forwards its requests, which an answer or
     );
 
     assert.equal(f.familiarEvents()[0]!.id, `codex-familiar/${f.run}`);
-
     assert.equal(f.familiarEvents()[0]!.runtime, 'codex');
 
     assert.deepEqual(

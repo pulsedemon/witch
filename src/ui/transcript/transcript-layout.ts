@@ -134,7 +134,6 @@ function section(
       if (source !== undefined) offset = source.indexOf(plain, offset);
 
       rows.push({ text: row, anchor: { line: sourceLine, offset } });
-
       offset += plain.length;
     }
 
@@ -472,7 +471,6 @@ export class TranscriptLayout {
 
       if (end - index < 2) {
         shown.push(items[index]!);
-
         index++;
 
         continue;
@@ -481,7 +479,6 @@ export class TranscriptLayout {
       const members = items.slice(index, end);
       const first = members[0]!;
       const id = `tools:${first.id}`;
-
       groups.set(id, members);
 
       shown.push({
@@ -540,15 +537,10 @@ export class TranscriptLayout {
       if (current !== previous) current.loads = loads;
 
       variants.set(expansion, current);
-
       cache.set(item.id, variants);
-
       starts.set(item.id, length);
-
       length += current.lines.length;
-
       blocks.push(current.lines);
-
       rendered.set(item.id, current);
     }
 

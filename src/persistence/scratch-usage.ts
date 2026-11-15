@@ -89,9 +89,7 @@ function files(output: string): {
         if (!/^p\d+$/.test(value)) throw new Error('Invalid process field.');
 
         pid = Number(value.slice(1));
-
         pids.add(pid);
-
         reference = undefined;
 
         break;
@@ -101,7 +99,6 @@ function files(output: string): {
           throw new Error('File observation has no owner.');
 
         reference = { pid, fd: value.slice(1), type: '', name: '' };
-
         references.push(reference);
 
         break;

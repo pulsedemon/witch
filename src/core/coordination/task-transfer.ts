@@ -137,7 +137,6 @@ async function poll<View extends { ledger: Ledger }>(
 
   while (Date.now() < end) {
     await delay(250);
-
     request.admit();
 
     // a read whose deadline already passed would record a ledger failure

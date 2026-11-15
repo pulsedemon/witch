@@ -70,11 +70,8 @@ test("jobs are the groups an agent's commands start, one stays listed after its 
   try {
     // only the background poll sees the stuck command under the agent, since its member is orphaned before the first list
     await delay(500);
-
     process.kill(stuck, 'SIGKILL');
-
     await until('the stuck command to be gone', () => gone(stuck));
-
     const list = await listed(jobs, (found) => found.length >= 3);
 
     const commands = new Map(
@@ -82,7 +79,6 @@ test("jobs are the groups an agent's commands start, one stays listed after its 
     );
 
     assert.equal(commands.get(stuck), 'sleep 60.5');
-
     assert.equal(commands.get(running), 'sleep 61.5');
 
     // the MCP server and its helper are not jobs
@@ -111,20 +107,17 @@ test("jobs are the groups an agent's commands start, one stays listed after its 
         });
 
         assert.ok(starts.length > 0);
-
         assert.equal(startedAt, Math.min(...starts));
       }
     } else {
       for (const { startedAt } of list) {
         // lstart has whole seconds
         assert.ok(startedAt >= spawnedAt - 1000);
-
         assert.ok(startedAt < spawnedAt + 1000);
       }
     }
 
     await jobs.stop({ group: server, generation: 1 });
-
     assert.doesNotThrow(() => process.kill(-server, 0));
 
     for (const job of list) await jobs.stop(job);
@@ -184,9 +177,7 @@ test('the process-tree fixture and its MCP helpers exit after their test parent 
     )) as [[number, number, number, number]];
 
     const [fixture, , , server] = ids;
-
     owned.add(fixture);
-
     let helper: number | undefined;
 
     await until('the complete fixture tree', async () => {
@@ -206,15 +197,10 @@ test('the process-tree fixture and its MCP helpers exit after their test parent 
     });
 
     await delay(1500);
-
     assert.equal((await ps('pid=', [...owned])).length, owned.size);
-
     assert.equal(parent.exitCode, null);
-
     assert.equal(parent.signalCode, null);
-
     parent.kill('SIGKILL');
-
     await exited;
 
     for (const pid of [fixture, server, helper!])
@@ -224,7 +210,6 @@ test('the process-tree fixture and its MCP helpers exit after their test parent 
       );
   } finally {
     parent.kill('SIGKILL');
-
     await exited;
 
     for (const pid of [...owned].reverse())
@@ -255,7 +240,6 @@ test("a group that a process its command's shell left behind starts or moves to 
 
   try {
     const list = await listed(jobs, (found) => found.length >= 3);
-
     // the groups formed after the shell exited, so only the processes it left lead to them
     assert.ok(gone(command));
 
@@ -387,10 +371,8 @@ test("a job listed while a read gives its id to the agent's next command can't s
 
   try {
     const listing = jobs.list();
-
     // the listing has read and waits on ps for the details
     await new Promise(setImmediate);
-
     rows = commandRows(group, `${group} b`);
 
     assert.deepEqual(
@@ -399,15 +381,11 @@ test("a job listed while a read gives its id to the agent's next command can't s
     );
 
     const [job] = await listing;
-
     assert.equal(job?.group, group);
-
     await jobs.stop(job);
-
     assert.doesNotThrow(() => process.kill(-group, 0));
   } finally {
     sleep.kill('SIGKILL');
-
     jobs.close();
   }
 });
@@ -499,7 +477,6 @@ test('a time zone change keeps a job and its generation', async () => {
     // as a laptop's automatic time zone does mid-session
     process.env.TZ = 'Pacific/Kiritimati';
     const after = (await jobs.list()).find(({ group }) => group === running);
-
     assert.deepEqual(after, { ...before, cpu: after?.cpu });
   } finally {
     if (zone === undefined) delete process.env.TZ;
@@ -551,7 +528,6 @@ test('a job lists with its command intact under any locale', async () => {
       else process.env[name] = value;
 
     sleep.kill('SIGKILL');
-
     jobs.close();
   }
 });
@@ -644,7 +620,6 @@ test('a failed background read keeps the jobs it had', async () => {
   try {
     const before = await jobs.list();
     rows = undefined;
-
     // the timer reads again after a failed read
     await until('a second failed read', () => failures > 1);
 
@@ -689,19 +664,13 @@ test('a job whose processes exit after a read lists as nothing and stops without
 
   try {
     const [job] = await jobs.list();
-
     assert.equal(job?.group, group);
-
     sleep.kill('SIGKILL');
-
     await once(sleep, 'exit');
-
     // ps describes none of the read's processes
     assert.deepEqual(await jobs.list(), []);
-
     // the signal finds the group empty, and the read after it no longer shows the command
     stale = 1;
-
     await jobs.stop(job!);
   } finally {
     jobs.close();
@@ -726,17 +695,12 @@ test('a job whose processes exited is gone before they are reaped', async () => 
 
   try {
     const [job] = await listed(jobs, (found) => found.length > 0);
-
     assert.equal(job?.group, command);
-
     process.kill(command, 'SIGKILL');
-
     await listed(jobs, (found) => !found.length);
-
     await jobs.stop(job!);
   } finally {
     agent.kill('SIGKILL');
-
     jobs.close();
   }
 });
@@ -763,11 +727,8 @@ test('stop sends SIGTERM before SIGKILL', async () => {
   try {
     // a signal before the trap is set would kill the shell outright
     await until('the trap', () => existsSync(join(cwd, 'ready')));
-
     const [job] = await jobs.list();
-
     await jobs.stop(job!);
-
     assert.ok(existsSync(join(cwd, 'term')));
   } finally {
     try {
@@ -792,7 +753,6 @@ test('stop rejects while reads still show a job it signalled', async () => {
   );
 
   await once(sleep.stdout, 'data');
-
   const group = sleep.pid!;
 
   const jobs = new JobWatch({
@@ -812,7 +772,6 @@ test('stop rejects while reads still show a job it signalled', async () => {
     await assert.rejects(jobs.stop(job!), { code: 'ESRCH' });
   } finally {
     sleep.kill('SIGKILL');
-
     jobs.close();
   }
 });
@@ -836,12 +795,10 @@ test("a ! command's group handed to track is a job from the first read, though i
     );
 
     await jobs.stop(list[0]!);
-
     assert.deepEqual(await jobs.list(), []);
   } finally {
     // pkill exits 1 once stop has killed the sleep
     await promisify(execFile)('pkill', ['-f', 'sleep 60.271']).catch(() => {});
-
     jobs.close();
   }
 });
@@ -895,11 +852,8 @@ test('a group handed to track while a read runs is a job at the next read and af
 
   try {
     const listing = jobs.list();
-
     jobs.track(100000);
-
     first.resolve([]);
-
     await listing;
 
     assert.deepEqual(
@@ -929,7 +883,6 @@ test('a handed group stays a job while any process holds its id, and once a read
 
   try {
     jobs.track(100000);
-
     await jobs.list();
 
     assert.deepEqual(
@@ -938,7 +891,6 @@ test('a handed group stays a job while any process holds its id, and once a read
     );
 
     await jobs.list();
-
     assert.deepEqual(await jobs.list(), []);
   } finally {
     jobs.close();
@@ -978,9 +930,7 @@ test('a shell that reports its pid makes its group a job after it exits, and its
     );
 
     assert.deepEqual(await readdir(directory), ['env']);
-
     await jobs.stop(list[0]!);
-
     assert.deepEqual(await jobs.list(), []);
   } finally {
     try {
@@ -1020,7 +970,6 @@ test("the report script, run ahead of a command by zsh or bash, reports that she
       );
 
       assert.equal(stdout, `${pid}|${directory}|unset`, shell);
-
       assert.ok(existsSync(join(directory, String(pid))), shell);
     }
 
@@ -1068,7 +1017,6 @@ test('a report from a pid that leads no group adds no job, though the group it s
 
   try {
     await writeFile(join(directory, '100005'), '');
-
     assert.deepEqual(await jobs.list(), []);
   } finally {
     jobs.close();
@@ -1231,7 +1179,6 @@ test("a marked process orphaned in Witch's own group doesn't make that group a j
 
   try {
     await jobs.list();
-
     assert.deepEqual(await jobs.list(), []);
   } finally {
     jobs.close();
@@ -1313,7 +1260,6 @@ test('a failed mark check fails the read, and the next read checks the same proc
 
   try {
     await jobs.list();
-
     await assert.rejects(jobs.list(), { message: 'ps failed' });
 
     assert.deepEqual(

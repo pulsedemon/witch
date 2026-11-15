@@ -74,7 +74,6 @@ function spyWatch(): WatchSpy {
       }
 
       spy.delivered++;
-
       listener(event, name);
     });
 
@@ -82,7 +81,6 @@ function spyWatch(): WatchSpy {
 
     watcher.close = () => {
       spy.closes++;
-
       close();
     };
 
@@ -95,7 +93,6 @@ function spyWatch(): WatchSpy {
 
   onTestFinished(() => {
     vi.restoreAllMocks();
-
     syncBuiltinESMExports();
   });
 
@@ -148,7 +145,6 @@ test('a mutation that expires while waiting for the ledger lock stores no claim'
 
 test('expiry after asynchronous authority verification removes the exchange without committing the claim', async () => {
   vi.useFakeTimers({ toFake: ['Date'], now: 1000 });
-
   const bound = await binding();
 
   const store = await CoordinationStore.open(
@@ -173,7 +169,6 @@ test('expiry after asynchronous authority verification removes the exchange with
           request.deadline,
           async () => {
             verified.resolve();
-
             await proceed.promise;
           },
         ),
@@ -192,9 +187,7 @@ test('expiry after asynchronous authority verification removes the exchange with
 
   try {
     await host.drain();
-
     await watching(bound.directory);
-
     const created = replyCreations(request.id);
 
     await writeJson(
@@ -203,25 +196,16 @@ test('expiry after asynchronous authority verification removes the exchange with
     );
 
     await within(verified.promise, 3000, 'authority verification');
-
     vi.advanceTimersByTime(5001);
-
     proceed.resolve();
-
     await host.drain();
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
-
     assert.deepEqual(await store.claims(), []);
-
     assert.equal(created(), 0);
-
     assert.deepEqual(failures, []);
   } finally {
     proceed.resolve();
-
     await host.close();
   }
 });
@@ -232,7 +216,6 @@ test('invalid envelopes never reach the action handler', async () => {
 
   try {
     await host.drain();
-
     await watching(bound.directory);
 
     for (const fields of [
@@ -242,13 +225,9 @@ test('invalid envelopes never reach the action handler', async () => {
     ]) {
       const id = randomUUID();
       const request = { ...envelope(bound), id, ...fields };
-
       await writeJson(join(bound.directory, 'inbox', `${id}.json`), request);
-
       const reply = join(bound.directory, 'replies', `${id}.json`);
-
       await until('error reply', () => exists(reply));
-
       await host.drain();
 
       const result = JSON.parse(await files.readFile(reply, 'utf8')) as {
@@ -257,12 +236,10 @@ test('invalid envelopes never reach the action handler', async () => {
       };
 
       assert.equal(result.id, id);
-
       assert.equal(result.kind, 'error');
     }
 
     assert.equal(calls(), 0);
-
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
@@ -271,7 +248,6 @@ test('invalid envelopes never reach the action handler', async () => {
 
 test('an unread successful reply expires without undoing its claim', async () => {
   clock();
-
   const spy = spyWatch();
   const bound = await binding();
 
@@ -302,7 +278,6 @@ test('an unread successful reply expires without undoing its claim', async () =>
 
   try {
     await host.drain();
-
     await watching(bound.directory);
 
     const request = {
@@ -317,44 +292,25 @@ test('an unread successful reply expires without undoing its claim', async () =>
     const name = `${request.id}.json`;
     const inbox = join(bound.directory, 'inbox');
     const replies = join(bound.directory, 'replies');
-
     // the answering read is the only read, so it alone has to set the expiry wake
     spy.only = request.id;
-
     await writeJson(join(inbox, name), request);
-
     await until('reply', () => exists(join(replies, name)));
-
     await host.drain();
-
     const claims = await store.claims();
-
     assert.equal(claims.length, 1);
-
     assert.deepEqual(claims[0]!.references, ['task:project-p:expiry']);
-
     assert.deepEqual(await files.readdir(inbox), [name]);
-
     assert.deepEqual(await files.readdir(replies), [name]);
-
     vi.advanceTimersByTime(999);
-
     await host.drain();
-
     assert.deepEqual(await files.readdir(inbox), [name]);
-
     assert.deepEqual(await files.readdir(replies), [name]);
-
     vi.advanceTimersByTime(1);
-
     await host.drain();
-
     assert.deepEqual(await files.readdir(inbox), []);
-
     assert.deepEqual(await files.readdir(replies), []);
-
     assert.deepEqual(await store.claims(), claims);
-
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
@@ -363,13 +319,11 @@ test('an unread successful reply expires without undoing its claim', async () =>
 
 test('an expired unanswered request is removed without dispatch', async () => {
   clock();
-
   const bound = await binding();
   const { host, failures, calls } = await countingHost(bound);
 
   try {
     await host.drain();
-
     await watching(bound.directory);
 
     const request = {
@@ -392,13 +346,9 @@ test('an expired unanswered request is removed without dispatch', async () => {
     );
 
     await host.drain();
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
-
     assert.equal(calls(), 0);
-
     assert.equal(created(), 0);
-
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
@@ -407,7 +357,6 @@ test('an expired unanswered request is removed without dispatch', async () => {
 
 test('a handler finishing after expiry leaves no late reply', async () => {
   clock();
-
   const bound = await binding();
   let entered = false;
   const proceed = Promise.withResolvers<void>();
@@ -418,9 +367,7 @@ test('a handler finishing after expiry leaves no late reply', async () => {
     bound.directory,
     async () => {
       entered = true;
-
       await proceed.promise;
-
       await files.appendFile(work, 'handled\n');
 
       return { kind: 'released' };
@@ -430,7 +377,6 @@ test('a handler finishing after expiry leaves no late reply', async () => {
 
   try {
     await host.drain();
-
     await watching(bound.directory);
 
     const request = {
@@ -447,32 +393,22 @@ test('a handler finishing after expiry leaves no late reply', async () => {
     );
 
     await until('handler entry', () => entered);
-
     vi.advanceTimersByTime(500);
-
     proceed.resolve();
-
     await host.drain();
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
-
     assert.equal(await files.readFile(work, 'utf8'), 'handled\n');
-
     assert.equal(created(), 0);
-
     assert.deepEqual(failures, []);
   } finally {
     proceed.resolve();
-
     await host.close();
   }
 });
 
 test('expiry cleanup tolerates concurrent acknowledgement', async () => {
   clock();
-
   const bound = await binding();
   const inbox = join(bound.directory, 'inbox');
   const replies = join(bound.directory, 'replies');
@@ -488,7 +424,6 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
 
       if (String(args[0]).startsWith(replies) && !clientWaiting) {
         clientWaiting = true;
-
         await acknowledge.promise;
       } else if (
         typeof args[0] === 'object' &&
@@ -497,7 +432,6 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
         !hostWaiting
       ) {
         hostWaiting = true;
-
         await resumeHost.promise;
       }
 
@@ -519,7 +453,6 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
   );
 
   await host.drain();
-
   const calling = callControl(bound, { kind: 'release', claim: randomUUID() });
 
   try {
@@ -532,31 +465,19 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
     );
 
     vi.advanceTimersByTime(10_000);
-
     await until('host request read', () => hostWaiting);
-
     acknowledge.resolve();
-
     assert.equal((await calling).kind, 'released');
-
     resumeHost.resolve();
-
     await host.drain();
-
     assert.equal(await originalRead(work, 'utf8'), 'handled\n');
-
     assert.deepEqual(await files.readdir(inbox), []);
-
     assert.deepEqual(await files.readdir(replies), []);
-
     assert.deepEqual(failures, []);
   } finally {
     acknowledge.resolve();
-
     resumeHost.resolve();
-
     await calling.catch(() => {});
-
     await host.close();
   }
 });
@@ -564,7 +485,6 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
 for (const redirect of ['inbox', 'replies', 'reply'] as const)
   test(`expiry cleanup cannot delete through a redirected ${redirect}`, async () => {
     clock();
-
     const bound = await binding();
     const target = await scratch('witch-control-expiry-target-');
     const request = { ...envelope(bound), deadline: 1000 };
@@ -575,12 +495,10 @@ for (const redirect of ['inbox', 'replies', 'reply'] as const)
       redirect === 'inbox' ? JSON.stringify(request) : 'untouched';
 
     await files.writeFile(outside, contents);
-
     const { host, failures, calls } = await countingHost(bound);
 
     try {
       await host.drain();
-
       await watching(bound.directory);
 
       // the redirect comes first, so the write's event, or for the inbox the rename's, starts the read
@@ -588,9 +506,7 @@ for (const redirect of ['inbox', 'replies', 'reply'] as const)
         await files.symlink(outside, join(bound.directory, 'replies', name));
       else {
         const directory = join(bound.directory, redirect);
-
         await files.rename(directory, `${directory}-original`);
-
         await files.symlink(target, directory);
       }
 
@@ -616,9 +532,7 @@ for (const redirect of ['inbox', 'replies', 'reply'] as const)
         );
 
       await host.drain();
-
       assert.equal(await files.readFile(outside, 'utf8'), contents);
-
       assert.equal(calls(), 0);
 
       if (redirect === 'reply') {
@@ -641,7 +555,6 @@ for (const redirect of ['inbox', 'replies', 'reply'] as const)
 
 test('a failed expiry deletion leaves the request available for retry', async () => {
   clock();
-
   const spy = spyWatch();
   const bound = await binding();
   const request = { ...envelope(bound), deadline: 1000 };
@@ -650,35 +563,21 @@ test('a failed expiry deletion leaves the request available for retry', async ()
 
   try {
     await host.drain();
-
     await watching(bound.directory);
-
     const inbox = join(bound.directory, 'inbox');
     const replies = join(bound.directory, 'replies');
-
     await files.mkdir(join(replies, name));
-
     await writeJson(join(inbox, name), request);
-
     await until('a failure', () => failures.length > 0);
-
     await host.drain();
-
     // a change during the backoff starts no read
     const delivered = spy.delivered;
-
     await files.lutimes(join(inbox, name), new Date(), new Date());
-
     await until('the touch event', () => spy.delivered > delivered);
-
     await host.drain();
-
     assert.equal(failures.length, 1);
-
     vi.advanceTimersByTime(249);
-
     await host.drain();
-
     assert.equal(failures.length, 1);
 
     assert.deepEqual(
@@ -687,19 +586,12 @@ test('a failed expiry deletion leaves the request available for retry', async ()
     );
 
     assert.deepEqual(await files.readdir(replies), [name]);
-
     await files.rmdir(join(replies, name));
-
     vi.advanceTimersByTime(1);
-
     await host.drain();
-
     assert.deepEqual(await files.readdir(inbox), []);
-
     assert.deepEqual(await files.readdir(replies), []);
-
     assert.equal(calls(), 0);
-
     assert.equal(failures.length, 1);
   } finally {
     await host.close();
@@ -708,7 +600,6 @@ test('a failed expiry deletion leaves the request available for retry', async ()
 
 test('an idle host reads its inbox only after a change', async () => {
   vi.useFakeTimers({ toFake: [...timers] });
-
   const bound = await binding();
 
   const host = await ControlHost.open(
@@ -719,12 +610,9 @@ test('an idle host reads its inbox only after a change', async () => {
 
   try {
     await host.drain();
-
     const readdir = vi.spyOn(files, 'readdir');
-
     // synchronous, so only a timer could start a read here
     vi.advanceTimersByTime(60_000);
-
     assert.equal(readdir.mock.calls.length, 0);
   } finally {
     await host.close();
@@ -733,7 +621,6 @@ test('an idle host reads its inbox only after a change', async () => {
 
 test('a request written during a read is answered after it', async () => {
   vi.useFakeTimers({ toFake: [...timers] });
-
   const spy = spyWatch();
   const bound = await binding();
 
@@ -755,7 +642,6 @@ test('a request written during a read is answered after it', async () => {
 
       if (action.kind === 'release') {
         blocked = true;
-
         await release.promise;
       }
 
@@ -766,25 +652,15 @@ test('a request written during a read is answered after it', async () => {
 
   try {
     await host.drain();
-
     await watching(bound.directory);
-
     const inbox = join(bound.directory, 'inbox');
-
     await writeJson(join(inbox, `${first.id}.json`), first);
-
     await until('first request handled', () => blocked);
-
     const delivered = spy.delivered;
-
     await writeJson(join(inbox, `${second.id}.json`), second);
-
     await until('an event during the read', () => spy.delivered > delivered);
-
     spy.dropping = true;
-
     release.resolve();
-
     // no until: drain must cover the re-read
     await host.drain();
 
@@ -794,11 +670,9 @@ test('a request written during a read is answered after it', async () => {
       );
 
     assert.deepEqual(actions, [first.action, second.action]);
-
     assert.deepEqual(failures, []);
   } finally {
     release.resolve();
-
     await host.close();
   }
 });
@@ -828,7 +702,6 @@ test('a client re-notifies a request whose change event was lost', async () => {
 
   try {
     await host.drain();
-
     spy.dropping = true;
 
     const result = await callControl(
@@ -838,7 +711,6 @@ test('a client re-notifies a request whose change event was lost', async () => {
     );
 
     assert.equal(result.kind, 'released');
-
     // the cadence that keeps a lost event's pickup under 250 ms
     assert.ok(touches[1]! - touches[0]! < 200);
   } finally {
@@ -849,7 +721,6 @@ test('a client re-notifies a request whose change event was lost', async () => {
 for (const failure of ['open', 'error'] as const)
   test(`a host whose watch fails at ${failure} falls back to the 250 ms poll`, async () => {
     vi.useFakeTimers({ toFake: [...timers] });
-
     const spy = spyWatch();
     spy.failing = failure === 'open';
     const bound = await binding();
@@ -867,18 +738,14 @@ for (const failure of ['open', 'error'] as const)
       if (failure === 'error') {
         // Node closes an errored watcher before it emits
         spy.watcher!.close();
-
         spy.watcher!.emit('error', new Error('watch failed'));
-
         await host.drain();
       }
 
       // the first reply stays unacknowledged, with its deadline 5 s away
       for (const request of [envelope(bound), envelope(bound)]) {
         const name = `${request.id}.json`;
-
         await writeJson(join(bound.directory, 'inbox', name), request);
-
         vi.advanceTimersByTime(250);
 
         await until('its reply', () =>
@@ -896,15 +763,12 @@ for (const failure of ['open', 'error'] as const)
 
 test('a request answered before the host reads it expires at its deadline', async () => {
   clock();
-
   const bound = await binding();
   const { host, failures, calls } = await countingHost(bound);
 
   try {
     await host.drain();
-
     await watching(bound.directory);
-
     const access = vi.spyOn(files, 'access');
     const inbox = join(bound.directory, 'inbox');
     const replies = join(bound.directory, 'replies');
@@ -935,7 +799,6 @@ test('a request answered before the host reads it expires at its deadline', asyn
       requests.map(({ id }) => `${id}.json`).toSorted();
 
     vi.advanceTimersByTime(999);
-
     await host.drain();
 
     assert.deepEqual(
@@ -944,15 +807,10 @@ test('a request answered before the host reads it expires at its deadline', asyn
     );
 
     vi.advanceTimersByTime(1);
-
     await host.drain();
-
     assert.deepEqual(await files.readdir(inbox), names([later]));
-
     assert.deepEqual(await files.readdir(replies), names([later]));
-
     assert.equal(calls(), 0);
-
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
@@ -961,7 +819,6 @@ test('a request answered before the host reads it expires at its deadline', asyn
 
 test('a closed host keeps no timer or watch', async () => {
   vi.useFakeTimers({ toFake: [...timers] });
-
   const spy = spyWatch();
   const bound = await binding();
 
@@ -975,13 +832,10 @@ test('a closed host keeps no timer or watch', async () => {
 
   try {
     await host.drain();
-
     await watching(bound.directory);
-
     const request = envelope(bound);
     const name = `${request.id}.json`;
     const inbox = join(bound.directory, 'inbox');
-
     await writeJson(join(inbox, name), request);
 
     await until('its reply', () =>
@@ -989,24 +843,15 @@ test('a closed host keeps no timer or watch', async () => {
     );
 
     await host.drain();
-
     const delivered = spy.delivered;
-
     await files.lutimes(join(inbox, name), new Date(), new Date());
-
     await until('the touch event', () => spy.delivered > delivered);
-
     await host.drain();
-
     // the re-read replaced the expiry timer rather than adding one
     assert.equal(vi.getTimerCount(), 1);
-
     await host.close();
-
     closed = true;
-
     assert.equal(vi.getTimerCount(), 0);
-
     assert.equal(spy.closes, 1);
   } finally {
     if (!closed) await host.close();
@@ -1016,7 +861,6 @@ test('a closed host keeps no timer or watch', async () => {
 test('a far deadline sets no 1 ms timer', async () => {
   // fake timers, like Node, fire a delay past 2 ** 31 - 1 after 1 ms
   vi.useFakeTimers({ toFake: [...timers] });
-
   const bound = await binding();
 
   const host = await ControlHost.open(
@@ -1027,12 +871,9 @@ test('a far deadline sets no 1 ms timer', async () => {
 
   try {
     await host.drain();
-
     await watching(bound.directory);
-
     const request = { ...envelope(bound), deadline: Date.now() + 2 ** 32 };
     const name = `${request.id}.json`;
-
     await writeJson(join(bound.directory, 'inbox', name), request);
 
     await until('its reply', () =>
@@ -1040,12 +881,9 @@ test('a far deadline sets no 1 ms timer', async () => {
     );
 
     await host.drain();
-
     const readdir = vi.spyOn(files, 'readdir');
-
     // synchronous, so only a timer could start a read here
     vi.advanceTimersByTime(60_000);
-
     assert.equal(readdir.mock.calls.length, 0);
   } finally {
     await host.close();

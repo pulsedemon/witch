@@ -14,11 +14,8 @@ const casts = (coordinator: Coordinator) =>
 /** closes the session and selects another model, so the next events come from a new connection. */
 async function reconnect(f: Awaited<ReturnType<typeof unitFixture>>) {
   const sessions = f.a.sessions.length;
-
   await f.a.sessions.at(-1)!.session.close();
-
   await f.coordinator.selectModel({ agent: 'a', id: 'a-big' });
-
   assert.equal(f.a.sessions.length, sessions + 1);
 
   return f.a.sessions.at(-1)!.options.onEvent;
@@ -30,7 +27,6 @@ test('a spell event shows one cast row, which reopening keeps', async () => {
 
   try {
     a.sessions[0]!.options.onEvent({ type: 'spell', cast: tdd });
-
     const rows = casts(coordinator);
 
     assert.deepEqual(
@@ -53,15 +49,11 @@ test('a spell event shows one cast row, which reopening keeps', async () => {
     );
 
     assert.ok(rows[0]!.at);
-
     await coordinator.close();
-
     reopened = await reopen();
-
     assert.deepEqual(casts(reopened), rows);
   } finally {
     await coordinator.close();
-
     await reopened?.close();
   }
 });
@@ -71,19 +63,12 @@ test('a repeated cast keeps its one row and first time, before and after a recon
 
   try {
     const emit = f.a.sessions[0]!.options.onEvent;
-
     emit({ type: 'spell', cast: tdd });
-
     const [row] = casts(f.coordinator);
-
     await delay(5);
-
     emit({ type: 'spell', cast: tdd });
-
     assert.deepEqual(casts(f.coordinator), [row]);
-
     (await reconnect(f))({ type: 'spell', cast: tdd });
-
     assert.deepEqual(casts(f.coordinator), [row]);
   } finally {
     await f.coordinator.close();

@@ -35,11 +35,8 @@ assert.ok(
 );
 
 const root = resolve(values.out);
-
 await mkdir(root);
-
 const cwd = join(root, 'project');
-
 await mkdir(cwd);
 
 const instructions = `This is a synthetic protocol check. ${
@@ -49,7 +46,6 @@ const instructions = `This is a synthetic protocol check. ${
 }\n`;
 
 await writeFile(join(cwd, 'AGENTS.md'), instructions);
-
 await writeFile(join(cwd, 'CLAUDE.md'), instructions);
 
 if (values.scenario === 'spell') {
@@ -84,9 +80,7 @@ const start = (
   });
 
   launches.push({ command, args });
-
   captures.push(observeWire(child));
-
   child.stderr.on('data', (chunk) => process.stderr.write(chunk));
 
   return child;
@@ -168,7 +162,6 @@ try {
   passed = true;
 } finally {
   clearTimeout(timeout);
-
   await Promise.all(captures.map((capture) => capture.finished()));
 
   for (const [index, capture] of captures.entries()) {
@@ -199,7 +192,6 @@ try {
 
   if (passed) {
     const normalized = join(root, 'normalized');
-
     await mkdir(normalized);
 
     for (const [index, capture] of captures.entries()) {

@@ -19,7 +19,6 @@ let ticket: string;
 // keep the activation lock reachable until the child exits.
 setTimeout(() => {
   void release();
-
   process.exit(1);
 }, 30_000);
 

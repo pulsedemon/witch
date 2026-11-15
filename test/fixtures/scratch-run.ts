@@ -13,17 +13,11 @@ const report = (directory: string) =>
 
 if (mode === 'hang') {
   const directory = await scratch('witch-killed-');
-
   await mkdir(join(directory, 'locked', 'inner'), { recursive: true });
-
   await writeFile(join(directory, 'locked', 'inner', 'f'), '');
-
   await chmod(join(directory, 'locked'), 0o000);
-
   await symlink(outside!, join(directory, 'link'));
-
   report(directory);
-
   setInterval(() => {}, 1000);
 } else {
   let first = '';

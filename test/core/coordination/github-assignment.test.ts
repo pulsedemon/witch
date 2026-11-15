@@ -17,11 +17,8 @@ async function fixture(register: RegisterCleanup, assign = assignGitHubTask) {
   const policy = join(f.root, 'github-policy.json');
   const calls = join(f.root, 'github-calls.jsonl');
   const release = join(f.root, 'github-release');
-
   await mkdir(bin);
-
   await writeFile(policy, '{}');
-
   await writeFile(calls, '');
 
   await writeFile(
@@ -103,9 +100,7 @@ test('a successful claim assigns its distinct GitHub references, and a conflicti
   if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
 
   assert.equal(claimed.warning, undefined);
-
   assert.deepEqual(await f.registry.claims(), [claimed.claim]);
-
   const calls = await f.calls();
 
   assert.deepEqual(
@@ -128,15 +123,10 @@ test('a successful claim assigns its distinct GitHub references, and a conflicti
   );
 
   assert.equal((await b.claim(input.reference)).kind, 'conflict');
-
   assert.deepEqual(await f.calls(), calls);
-
   await a.coordination.releaseTask();
-
   assert.deepEqual(await f.registry.claims(), []);
-
   assert.equal((await a.claim('task:local-only')).kind, 'claimed');
-
   assert.deepEqual(await f.calls(), calls);
 });
 
@@ -147,17 +137,13 @@ test('a recommendation assigns only when promoted to an active claim', async (t)
   const turn = await selectionTurn(cleanup, a);
   const selection = await turn.select();
   const suggested = await turn.recommend(selection.ticket.id);
-
   assert.deepEqual(await f.calls(), []);
-
   const promoted = await a.claim('https://github.com/acme/queue/issues/17');
 
   if (promoted.kind !== 'claimed') assert.fail(JSON.stringify(promoted));
 
   assert.equal(promoted.claim.id, suggested.id);
-
   assert.equal(promoted.claim.suggestion, undefined);
-
   assert.equal(promoted.warning, undefined);
 
   assert.deepEqual(
@@ -199,25 +185,17 @@ for (const scenario of [
     const f = await fixture(cleanup);
     const a = await f.start();
     const binding = await a.binding();
-
     await f.configure(scenario.policy);
-
     const claimed = await callControl(binding, { kind: 'claim', input });
 
     if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
 
     assert.match(claimed.warning ?? '', scenario.message);
-
     assert.deepEqual(claimed.claim.assigned, scenario.confirmed);
-
     assert.deepEqual(await f.registry.claims(), [claimed.claim]);
-
     const snapshot = await a.query();
-
     assert.equal(snapshot.ownClaim?.id, claimed.claim.id);
-
     assert.equal(snapshot.error, undefined);
-
     const calls = await f.calls();
 
     assert.deepEqual(
@@ -226,13 +204,11 @@ for (const scenario of [
     );
 
     await f.configure({});
-
     const retried = await callControl(binding, { kind: 'claim', input });
 
     if (retried.kind !== 'claimed') assert.fail(JSON.stringify(retried));
 
     assert.equal(retried.claim.id, claimed.claim.id);
-
     assert.equal(retried.warning, undefined);
 
     assert.deepEqual(
@@ -241,7 +217,6 @@ for (const scenario of [
     );
 
     assert.deepEqual(retried.claim.assigned, scenario.assigned);
-
     assert.deepEqual(await f.registry.claims(), [retried.claim]);
   });
 }
@@ -255,9 +230,7 @@ test('a refreshed claim calls GitHub only for references it has not confirmed', 
   if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
 
   assert.deepEqual(claimed.claim.assigned, [issueReference, pullReference]);
-
   const calls = await f.calls();
-
   assert.equal(calls.length, 3);
 
   const refreshed = await callControl(binding, {
@@ -268,13 +241,9 @@ test('a refreshed claim calls GitHub only for references it has not confirmed', 
   if (refreshed.kind !== 'claimed') assert.fail(JSON.stringify(refreshed));
 
   assert.equal(refreshed.claim.id, claimed.claim.id);
-
   assert.equal(refreshed.claim.summary, 'Refreshed summary');
-
   assert.equal(refreshed.warning, undefined);
-
   assert.deepEqual(await f.calls(), calls);
-
   assert.deepEqual(await f.registry.claims(), [refreshed.claim]);
 
   const extended = await callControl(binding, {
@@ -324,13 +293,9 @@ test('a confirmed assignment the ledger cannot record warns and keeps the claim,
   );
 
   assert.equal(claimed.claim.assigned, undefined);
-
   assert.deepEqual(await f.registry.claims(), [claimed.claim]);
-
   const calls = await f.calls();
-
   assert.equal(calls.length, 3);
-
   const retried = await callControl(binding, { kind: 'claim', input });
 
   if (retried.kind !== 'claimed') assert.fail(JSON.stringify(retried));
@@ -343,7 +308,6 @@ test('a confirmed assignment the ledger cannot record warns and keeps the claim,
   );
 
   assert.deepEqual(retried.claim.assigned, [issueReference, pullReference]);
-
   assert.deepEqual(await f.registry.claims(), [retried.claim]);
 });
 
@@ -359,9 +323,7 @@ for (const [name, endpoint, expected] of [
     );
 
     const a = await f.start();
-
     await f.configure({ hold: endpoint });
-
     cleanup(f.release);
 
     const claiming = callControl(await a.binding(), {
@@ -383,13 +345,9 @@ for (const [name, endpoint, expected] of [
         assert.ok(claimed.warning?.includes(`${issue}: Timed out after `));
 
       assert.deepEqual(await f.registry.claims(), [claimed.claim]);
-
       const snapshot = await a.query();
-
       assert.equal(snapshot.ownClaim?.id, claimed.claim.id);
-
       assert.equal(snapshot.error, undefined);
-
       const calls = await f.calls();
 
       assert.deepEqual(
@@ -402,7 +360,6 @@ for (const [name, endpoint, expected] of [
       });
     } finally {
       await f.release();
-
       await claiming;
     }
   });
@@ -416,9 +373,7 @@ test('a pending GitHub assignment leaves the shared ledger available and drains 
     b = await f.start('B');
 
   await f.configure({ hold: issue });
-
   cleanup(f.release);
-
   const claiming = a.claim(input.reference);
 
   try {
@@ -436,19 +391,14 @@ test('a pending GitHub assignment leaves the shared ledger available and drains 
     if (other.kind !== 'claimed') assert.fail(JSON.stringify(other));
 
     const closing = a.coordinator.close();
-
     assert.equal((await f.registry.claims()).length, 2);
-
     await f.release();
-
     const claimed = await claiming;
 
     if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
 
     assert.equal(claimed.warning, undefined);
-
     await closing;
-
     assert.deepEqual(await f.registry.claims(), [other.claim]);
 
     assert.deepEqual(
@@ -457,7 +407,6 @@ test('a pending GitHub assignment leaves the shared ledger available and drains 
     );
   } finally {
     await f.release();
-
     await claiming;
   }
 });
@@ -472,9 +421,7 @@ test('an expired assignment starts no command and a stalled GitHub command is re
   );
 
   assert.deepEqual(await f.calls(), []);
-
   await f.configure({ hold: issue });
-
   cleanup(f.release);
 
   const stalled = await within(

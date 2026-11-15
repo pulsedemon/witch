@@ -47,21 +47,14 @@ function launch(cwd: string, tmp: string, ...args: string[]) {
 test("a file's scratch directories share one parent named for its process and outlive each of its tests, then go when it ends, a failed test included", async () => {
   const root = await scratch('witch-scratch-');
   const tmp = join(root, 'tmp');
-
   await mkdir(tmp);
-
   const run = launch(root, tmp, 'fail');
   const [code] = await within(run.closed, 10_000, 'the run');
   const [a, b, c] = run.paths;
-
   assert.equal(code, 1);
-
   assert.equal(run.paths.length, 3);
-
   assert.equal(dirname(a!), dirname(b!));
-
   assert.equal(dirname(a!), dirname(c!));
-
   assert.equal(dirname(dirname(a!)), join(tmp, 'witch-tests'));
 
   assert.match(
@@ -70,7 +63,6 @@ test("a file's scratch directories share one parent named for its process and ou
   );
 
   assert.ok(basename(a!).startsWith('witch-a-'));
-
   assert.equal(existsSync(dirname(a!)), false);
 });
 
@@ -84,14 +76,11 @@ test("the next run removes a killed run's scratch directories, locked ones inclu
 
   for (const directory of [outside, live, rooted, rest]) {
     await mkdir(directory, { recursive: true });
-
     await writeFile(join(directory, 'keep'), '');
   }
 
   await chmod(outside, 0o500);
-
   await chmod(live, 0o500);
-
   const hang = launch(root, tmp, 'hang', outside);
 
   try {
@@ -102,31 +91,22 @@ test("the next run removes a killed run's scratch directories, locked ones inclu
     );
 
     hang.child.kill('SIGKILL');
-
     await within(hang.closed, 10_000, 'the killed run');
-
     assert.ok(existsSync(killed));
-
     const next = launch(root, tmp, 'fail');
     const [code] = await within(next.closed, 10_000, 'the next run');
-
     assert.equal(code, 1);
-
     assert.equal(next.paths.length, 3);
-
     assert.equal(existsSync(dirname(killed)), false);
 
     for (const directory of [outside, live, rooted, rest])
       assert.ok(existsSync(join(directory, 'keep')), directory);
 
     assert.equal((await stat(outside)).mode & 0o777, 0o500);
-
     assert.equal((await stat(live)).mode & 0o777, 0o500);
   } finally {
     hang.child.kill('SIGKILL');
-
     await chmod(outside, 0o700);
-
     // gone if the sweep wrongly removed it, which the assertion above reports
     await chmod(live, 0o700).catch(() => {});
   }

@@ -150,7 +150,6 @@ export async function delegation(
     }
 
     await policy.write(changed);
-
     current = changed;
   }
 

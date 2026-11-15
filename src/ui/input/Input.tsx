@@ -46,7 +46,6 @@ function rowStops(
   for (const row of wrap(line, width, end === value.length)) {
     const text = stripAnsi(row);
     const from = rows.at(-1)?.to ?? 0;
-
     rows.push({ from, to: from + text.length, text });
   }
 
@@ -191,7 +190,6 @@ export function Input({
 
   const replace = (next: InputBuffer) => {
     setState(next);
-
     onChange?.(next.value, next.cursor);
   };
 
@@ -202,7 +200,6 @@ export function Input({
     if (mark && !text.cursor && backward.has(action.type)) return replace(text);
 
     const next = editInput(text, action);
-
     replace({ value: mark + next.value, cursor: mark.length + next.cursor });
   };
 
@@ -223,7 +220,6 @@ export function Input({
     (text) => {
       const { mark, text: buffer } = split(current.current, width, shell);
       const before = buffer.value.slice(0, buffer.cursor);
-
       insert((!mark && onPaste?.(text, before)) || text);
     },
     { isActive: active },

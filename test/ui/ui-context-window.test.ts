@@ -12,11 +12,8 @@ async function openModels(ui: ReturnType<typeof show>, command = '/model') {
   );
 
   ui.stdin.write(command);
-
   await until('command rendered', () => ui.text().includes(command));
-
   ui.stdin.write(ENTER);
-
   await until('model picker', () => ui.text().includes('Model M'));
 }
 
@@ -50,7 +47,6 @@ for (const [saved, choice, keys] of [
 
     try {
       await openModels(ui);
-
       ui.stdin.write(ENTER);
 
       await until('effort picker', () =>
@@ -64,13 +60,9 @@ for (const [saved, choice, keys] of [
       );
 
       assert.match(ui.text(), /Default \(258\.4K\)/);
-
       assert.match(ui.text(), /Maximum \(828\.4K\)/);
-
       assert.deepEqual(calls, [['refreshModels']]);
-
       ui.stdin.write(keys);
-
       await until('complete model selection', () => calls.length === 2);
 
       assert.deepEqual(calls[1], [
@@ -99,7 +91,6 @@ test('Escape from the Codex window picker changes no selection and completes dis
 
   try {
     await openModels(ui, '/model /clear');
-
     ui.stdin.write(ENTER);
 
     await until('context picker', () =>
@@ -144,7 +135,6 @@ test('a Codex choice on another runtime collects its window before a single hand
       coordinator: app,
       picker: async (title, choices, choose) => {
         assert.equal(title, 'Context window for m');
-
         assert.deepEqual(calls, []);
 
         assert.deepEqual(
@@ -255,7 +245,6 @@ test('a refused Codex window choice stops the remaining command batch', async ()
 
   try {
     await openModels(ui, '/model /clear');
-
     ui.stdin.write(ENTER);
 
     await until('window picker', () =>

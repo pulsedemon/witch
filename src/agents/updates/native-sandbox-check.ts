@@ -15,7 +15,6 @@ export async function checkCodexAnswerSandbox(
   signal: AbortSignal,
 ): Promise<void> {
   await checkProfile(executable, join(directory, 'builtin'), signal, false);
-
   await checkProfile(executable, join(directory, 'checkout'), signal, true);
 }
 
@@ -36,16 +35,11 @@ async function checkProfile(
   );
 
   const requestFile = join(directory, 'request.json');
-
   await writeFile(requestFile, '{"marker":"REQUEST_TOKEN"}');
-
   const sibling = join(directory, 'private-sibling');
   const denied = join(cwd, 'denied');
-
   await writeFile(sibling, 'PRIVATE_TOKEN');
-
   await writeFile(denied, 'DENIED_TOKEN');
-
   let phase: 'ordinary' | 'answer' | 'after' = 'ordinary';
   let failure: unknown;
   let session: AgentSession | undefined;
@@ -115,7 +109,6 @@ async function checkProfile(
         };
       } else {
         assert.equal(typeof output.output, 'string');
-
         outputs[phase] = output.output!;
 
         if (phase === 'answer') {
@@ -199,9 +192,7 @@ async function checkProfile(
       );
     })().catch((error) => {
       failure ??= error;
-
       response.writeHead(500);
-
       response.end('Native verification failed');
     });
   });
@@ -209,12 +200,10 @@ async function checkProfile(
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-
       server.listen(0, '127.0.0.1', resolve);
     });
 
     const address = server.address();
-
     assert.ok(address && typeof address !== 'string');
 
     await writeFile(
@@ -275,7 +264,6 @@ request_max_retries=0
       onEvent: (event) => {
         if (event.type === 'request') {
           failure = new Error('Native sandbox verification asked for approval');
-
           session!.respond(event.request.id, { decision: 'decline' });
         }
       },
@@ -315,7 +303,6 @@ request_max_retries=0
       if (failure) throw failure;
 
       assert.equal(result.status, 'completed', result.error);
-
       assert.ok(phase in outputs, `No native ${phase} tool result`);
     }
   } catch (error) {
@@ -328,7 +315,6 @@ request_max_retries=0
     }
 
     server.closeAllConnections();
-
     await new Promise<void>((resolve) => server.close(() => resolve()));
 
     await writeJson(join(directory, 'sandbox-evidence.json'), {

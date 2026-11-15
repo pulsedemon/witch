@@ -226,7 +226,6 @@ export function clearConversationContext(
   };
 
   delete record.handoff;
-
   delete record.lastTurn;
 }
 
@@ -259,7 +258,6 @@ export function appendedDisplayText(
 
   while (after.sequence > before.sequence) {
     chunks.push(after.text);
-
     after = after.previous!;
   }
 
@@ -305,11 +303,8 @@ export function recordDelivery(
 /** a native session that compacted or was replaced has seen neither the memory snapshot, the fixed instructions nor the delivered events. */
 export function clearDelivery(reference: NativeSession): void {
   delete reference.deliveredRevision;
-
   delete reference.deliveredInstructionsRevision;
-
   delete reference.deliveredMerges;
-
   delete reference.deliveredAnswers;
 }
 
@@ -406,7 +401,6 @@ export function foldDisplayUpdates(
 
     if (index === undefined) {
       indexes.set(update.id, items.length);
-
       items.push(merge(undefined, update));
     } else items[index] = merge(items[index], update);
   }

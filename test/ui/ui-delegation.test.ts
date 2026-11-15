@@ -32,7 +32,6 @@ test('each /delegation change round-trips through the policy file', async () => 
   );
 
   assert.deepEqual(await store.read(), defaultPolicy);
-
   let policy = defaultPolicy;
 
   for (const [argument, expected] of [
@@ -69,22 +68,16 @@ test('each /delegation change round-trips through the policy file', async () => 
     ],
   ] as const) {
     const changed = changeDelegation(argument, policy, catalog, installed);
-
     assert.deepEqual(changed, expected, argument);
-
     await store.write(changed as typeof policy);
-
     policy = await store.read();
-
     assert.deepEqual(policy, expected, argument);
   }
 });
 
 test('the policy page shows the rule each kind of work follows when it has none', () => {
   const page = delegationPage(defaultPolicy, catalog, {}, installed, 0);
-
   assert.match(page, /^review +both$/m);
-
   assert.match(page, /^implementation +same$/m);
 });
 
@@ -137,7 +130,6 @@ test('/delegation shows the policy and saves a change before showing it again', 
 
   try {
     ui.stdin.write(`/delegation review other${ENTER}`);
-
     await until('the policy page', () => ui.text().includes('Families'));
 
     assert.deepEqual(await policy.read(), {
@@ -146,9 +138,7 @@ test('/delegation shows the policy and saves a change before showing it again', 
     });
 
     assert.match(ui.text(), /review +other/);
-
     assert.match(ui.text(), /claude {2}opus → claude-opus-5-5/);
-
     assert.match(ui.text(), /codex {2}sol → gpt-6\.1-sol/);
   } finally {
     ui.unmount();
@@ -195,7 +185,6 @@ test('a refused /delegation change cancels the commands after it', async () => {
     );
 
     assert.ok(!calls.some(([name]) => name === 'clear'));
-
     assert.deepEqual(await policy.read(), defaultPolicy);
   } finally {
     ui.unmount();
@@ -205,7 +194,6 @@ test('a refused /delegation change cancels the commands after it', async () => {
 test('an unreadable policy file is named in the error rather than replaced', async () => {
   const directory = `${await scratch('witch-delegation-')}/delegation`;
   const store = await DelegationStore.open(directory);
-
   await writeFile(`${directory}/policy.json`, '{"shiftAt": 90,');
 
   await assert.rejects(store.read(), {

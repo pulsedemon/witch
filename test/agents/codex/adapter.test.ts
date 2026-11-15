@@ -34,7 +34,6 @@ test('a Codex that exits while idle posts the exit as a notice', async () => {
 
   try {
     assert.equal((await session.send('exit when idle')).status, 'completed');
-
     assert.ok(await within(notice.promise, 2000, 'exit notice'));
   } finally {
     await close(session, cwd).catch(() => {});
@@ -49,7 +48,6 @@ test('closing a Codex session posts no exit notice', async () => {
   });
 
   await close(session, cwd);
-
   assert.deepEqual(notices, []);
 });
 
@@ -62,7 +60,6 @@ test('a Codex that exits during a model change fails the change without a notice
 
   try {
     await assert.rejects(within(session.selectModel('exit'), 2000, 'exit'));
-
     assert.deepEqual(notices, []);
   } finally {
     await close(session, cwd).catch(() => {});
@@ -104,9 +101,7 @@ test('a request Codex resolves itself leaves the queue before the turn ends', as
 
   try {
     const turn = session.send('withdrawn');
-
     await appears(join(cwd, 'replied'));
-
     await delay(50);
 
     assert.deepEqual(
@@ -117,7 +112,6 @@ test('a request Codex resolves itself leaves the queue before the turn ends', as
     );
 
     await writeFile(join(cwd, 'release'), 'yes');
-
     assert.equal((await turn).status, 'completed');
   } finally {
     await close(session, cwd);
@@ -149,7 +143,6 @@ test('a file change approval reaches the user and returns its decision', async (
     if (event.type !== 'request') return;
 
     kinds.push(event.request.kind);
-
     session.respond(event.request.id, { decision: 'accept' });
   });
 
@@ -180,7 +173,6 @@ for (const decision of ['accept', 'decline'] as const) {
 
     try {
       await session.selectModel('model-b', 'high');
-
       assert.equal(session.info.model, 'model-b');
 
       assert.deepEqual(await session.send('do the task'), {
@@ -193,11 +185,8 @@ for (const decision of ['accept', 'decline'] as const) {
       );
 
       assert.equal(prompt.params.effort, 'high');
-
       assert.equal(prompt.params.input[0].text, 'do the task');
-
       assert.equal(prompt.params.threadId, 'native-thread');
-
       assert.equal(session.info.permissionMode, 'on-request / user');
 
       if (decision === 'accept')
@@ -232,7 +221,6 @@ test('skills keep the first enabled entry per name and prefer its interface desc
     );
 
     assert.equal((await session.send('add skill')).status, 'completed');
-
     const event = await within(changed.promise, 2000, 'skills change');
 
     assert.deepEqual(
@@ -253,7 +241,6 @@ test('a skill send names the first listed path, and a plain send names none', as
 
   try {
     await session.skills();
-
     await session.send('add skill', { skill: { name: 'review', args: 'x' } });
 
     assert.deepEqual(await input(), [
@@ -276,13 +263,9 @@ test('a prompt steered into a turn goes to Codex for that turn, and one Codex re
 
   try {
     assert.equal(await session.steer('too early'), false);
-
     await assert.rejects(access(join(cwd, 'steer.json')));
-
     const turn = session.send('hold');
-
     await appears(join(cwd, 'prompt.json'));
-
     assert.equal(await session.steer('also this'), true);
 
     const request = JSON.parse(
@@ -313,11 +296,8 @@ test('a prompt steered into a turn goes to Codex for that turn, and one Codex re
     });
 
     assert.equal(await session.steer('refused'), false);
-
     await writeFile(join(cwd, 'release'), 'yes');
-
     await within(session.interrupt(), 2000, 'interrupt');
-
     assert.equal((await turn).status, 'interrupted');
   } finally {
     await close(session, cwd);
@@ -329,7 +309,6 @@ test('a steered spell is refused and Codex gets no turn/steer', async () => {
 
   try {
     const turn = session.send('hold');
-
     await appears(join(cwd, 'prompt.json'));
 
     assert.equal(
@@ -338,13 +317,9 @@ test('a steered spell is refused and Codex gets no turn/steer', async () => {
     );
 
     await assert.rejects(access(join(cwd, 'steer.json')));
-
     assert.equal(await session.steer('plain'), true);
-
     await writeFile(join(cwd, 'release'), 'yes');
-
     await within(session.interrupt(), 2000, 'interrupt');
-
     assert.equal((await turn).status, 'interrupted');
   } finally {
     await close(session, cwd);
@@ -356,22 +331,14 @@ test('interrupt waits for the native turn to complete', async () => {
 
   try {
     const turn = session.send('hold');
-
     await appears(join(cwd, 'prompt.json'));
-
     const interrupting = session.interrupt();
     const done = settled(interrupting);
-
     await appears(join(cwd, 'replied'));
-
     await delay(50);
-
     assert.equal(done(), false);
-
     await writeFile(join(cwd, 'release'), 'yes');
-
     await within(interrupting, 2000, 'interrupt');
-
     assert.equal((await turn).status, 'interrupted');
   } finally {
     await close(session, cwd);
@@ -384,11 +351,8 @@ for (const prompt of ['die on interrupt', 'die after interrupt'])
 
     try {
       const turn = session.send(prompt);
-
       await appears(join(cwd, 'prompt.json'));
-
       await within(session.interrupt(), 2000, 'interrupt');
-
       assert.equal((await within(turn, 2000, 'turn')).status, 'interrupted');
     } finally {
       await close(session, cwd);
@@ -400,7 +364,6 @@ test('an interrupt a running Codex refuses rejects, and the turn goes on', async
 
   try {
     const turn = session.send('refuse interrupt');
-
     await appears(join(cwd, 'prompt.json'));
 
     await assert.rejects(
@@ -409,7 +372,6 @@ test('an interrupt a running Codex refuses rejects, and the turn goes on', async
     );
 
     await writeFile(join(cwd, 'release'), 'yes');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
   } finally {
     await close(session, cwd);
@@ -421,11 +383,8 @@ test('an interrupt answered after the turn completed resolves with the completed
 
   try {
     const turn = session.send('complete before interrupt');
-
     await appears(join(cwd, 'prompt.json'));
-
     await within(session.interrupt(), 2000, 'interrupt');
-
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
   } finally {
     await close(session, cwd);
@@ -438,15 +397,10 @@ test('model selection waits for the settings notification', async () => {
   try {
     const selecting = session.selectModel('held');
     const done = settled(selecting);
-
     await appears(join(cwd, 'replied'));
-
     await delay(50);
-
     assert.equal(done(), false);
-
     await writeFile(join(cwd, 'release'), 'yes');
-
     await within(selecting, 2000, 'model selection');
   } finally {
     await close(session, cwd);
@@ -467,7 +421,6 @@ test('malformed notifications post one notice per method and the turn completes'
     );
 
     assert.equal(notices.length, 1);
-
     assert.match(notices[0]!, /item\/agentMessage\/delta/);
   } finally {
     await close(session, cwd);
@@ -502,9 +455,7 @@ test('a retried native error posts a notice, and the final one only fails the tu
 
   try {
     const result = await session.send('error');
-
     assert.deepEqual([result.status, result.error], ['failed', 'native error']);
-
     assert.deepEqual(notices, ['retrying']);
   } finally {
     await close(session, cwd);
@@ -537,13 +488,9 @@ for (const [prompt, status, error, exhausted] of [
 
     try {
       const result = await within(session.send(prompt), 2000, `${prompt} turn`);
-
       assert.equal(result.status, status);
-
       assert.match(result.error ?? '', error);
-
       assert.equal(result.exhausted, exhausted);
-
       assert.equal(session.closed, false);
     } finally {
       await close(session, cwd);
@@ -668,11 +615,8 @@ test("Codex items are titled by what they act on, with a path under the session'
     );
 
     assert.match(tools[1]!.text, /Captured\./);
-
     assert.doesNotMatch(tools[1]!.text, /iVBORw/);
-
     const output = JSON.parse(tools[1]!.text);
-
     assert.equal(output.extra, 'tool metadata');
 
     assert.deepEqual(output.result.content, [
@@ -818,7 +762,6 @@ test('a grandchild holding the native pipes cannot keep a dead turn open, and th
     );
 
     assert.equal(result.status, 'failed');
-
     assert.deepEqual(notices, []);
   } finally {
     const pid = Number(
@@ -836,15 +779,10 @@ test("a model chosen without an effort keeps the requested one and never reports
 
   try {
     assert.equal(session.info.effort, undefined);
-
     await session.selectModel('model-b');
-
     assert.equal(session.info.effort, undefined);
-
     await session.selectModel('model-a', 'high');
-
     await session.selectModel('model-b');
-
     assert.equal(session.info.effort, 'high');
   } finally {
     await close(session, cwd);
@@ -856,15 +794,10 @@ test('a null effort stops requesting one', async () => {
 
   try {
     await session.selectModel('model-a', 'high');
-
     await session.selectModel('model-b', null);
-
     assert.equal(session.info.effort, undefined);
-
     assert.equal((await session.send('tool')).status, 'completed');
-
     const prompt = JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8'));
-
     assert.equal(prompt.params.effort, undefined);
   } finally {
     await close(session, cwd);
@@ -876,9 +809,7 @@ test("a turn after connecting with an effort requests it, not Codex's own", asyn
 
   try {
     assert.equal((await session.send('tool')).status, 'completed');
-
     const prompt = JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8'));
-
     assert.equal(prompt.params.effort, 'high');
   } finally {
     await close(session, cwd);
@@ -890,9 +821,7 @@ test('a model choice that changes no native setting returns and shows the choice
 
   try {
     assert.equal(session.info.effort, 'high');
-
     await within(session.selectModel('model-a'), 2000, 'the same model');
-
     assert.equal(session.info.effort, 'high');
 
     await within(
@@ -902,9 +831,7 @@ test('a model choice that changes no native setting returns and shows the choice
     );
 
     assert.equal(session.info.effort, 'low');
-
     await within(session.selectModel('model-a', null), 2000, 'a null effort');
-
     assert.equal(session.info.effort, undefined);
   } finally {
     await close(session, cwd);
@@ -1110,11 +1037,8 @@ test('a reroute shows the model in use, and choosing the thread model again retu
 
   try {
     assert.equal((await session.send('reroute')).status, 'completed');
-
     assert.equal(session.info.model, 'model-c');
-
     await within(session.selectModel('model-a'), 2000, 'the thread model');
-
     assert.equal(session.info.model, 'model-a');
   } finally {
     await close(session, cwd);
@@ -1173,7 +1097,6 @@ test("reports context, lines summed over the thread's turns and limits merged fr
 
   try {
     await until('the limits', () => !!session.usage.account?.limits);
-
     assert.equal((await session.send('usage')).status, 'completed');
 
     assert.deepEqual(
@@ -1231,7 +1154,6 @@ test('a Codex that cannot read its limits still connects, and leaves limits out'
     );
 
     assert.deepEqual(session.usage, {});
-
     assert.equal(session.closed, false);
   } finally {
     await close(session, cwd);
@@ -1257,13 +1179,9 @@ test('reading limits again joins the read in flight', async () => {
     );
 
     assert.equal(reads.length, 1);
-
     await Promise.all([session.readAccountUsage(), session.readAccountUsage()]);
-
     assert.equal(reads.length, 2);
-
     await session.readAccountUsage();
-
     assert.equal(reads.length, 3);
   } finally {
     await close(session, cwd);
@@ -1275,11 +1193,8 @@ test('reports the effort Codex runs, its own default first and then the one a se
 
   try {
     assert.equal(session.info.nativeEffort, 'low');
-
     assert.equal(session.info.effort, undefined);
-
     await session.selectModel('model-b', 'high');
-
     assert.equal(session.info.nativeEffort, 'high');
   } finally {
     await close(session, cwd);
@@ -1338,13 +1253,9 @@ test('a prompt steered while a shell command runs is refused, and an interrupt e
 
   try {
     const shell = session.shell('hold');
-
     await until('the command row', () => tools.length > 0);
-
     assert.equal(await session.steer('more'), false);
-
     await assert.rejects(access(join(cwd, 'steer.json')));
-
     await within(session.interrupt(), 3000, 'interrupt');
 
     const request = JSON.parse(
@@ -1367,7 +1278,6 @@ test('an interrupt waiting on a shell turn that never started ends when Codex ex
 
   try {
     const shell = session.shell('die soon');
-
     await within(session.interrupt(), 3000, 'interrupt');
 
     assert.notEqual(
@@ -1390,7 +1300,6 @@ test("a refused shell command fails its turn with Codex's reason and leaves the 
     );
 
     assert.equal(refused.status, 'failed');
-
     assert.match(refused.error ?? '', /command must not be empty/);
 
     assert.equal(

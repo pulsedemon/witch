@@ -54,7 +54,6 @@ export async function setup(t: TestContext) {
   }));
 
   const packets = await scratch('witch-review-packets-');
-
   vi.stubEnv('TMPDIR', packets);
 
   register(() => {
@@ -64,7 +63,6 @@ export async function setup(t: TestContext) {
   const a = await f.start('A');
   const c = a.coordinator;
   const cwd = c.snapshot.conversation!.cwd;
-
   await git('-C', cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/reviews');
 
   const repository = repositoryRead({
@@ -74,11 +72,8 @@ export async function setup(t: TestContext) {
   });
 
   a.coordination.updateRepository(repository);
-
   c.copilot.updateRepository(repository);
-
   await a.claim(source.closingIssues[0]!);
-
   const observe = () => c.copilot.observe(structuredClone(source));
   const reviews = () => a.a.inputs.filter(({ author }) => author === 'witch');
 
@@ -104,7 +99,6 @@ export async function reply(f: Fixture, client: Client, source: GitHubReviews) {
   )!;
 
   const batch = state.batch!;
-
   assert.ok(batch, 'the admission receipt was saved before native input');
 
   const packet = JSON.parse(await readFile(batch.packet, 'utf8')) as {

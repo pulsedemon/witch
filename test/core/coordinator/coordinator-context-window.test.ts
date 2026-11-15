@@ -16,9 +16,7 @@ test('a context window choice survives reconnect, clear and new with fresh threa
     });
 
     const original = coordinator.snapshot.native!.id;
-
     await coordinator.send('retain the window choice');
-
     const id = coordinator.snapshot.conversation!.id;
 
     assert.equal(
@@ -27,37 +25,21 @@ test('a context window choice survives reconnect, clear and new with fresh threa
     );
 
     await coordinator.close();
-
     coordinator = await f.reopen();
-
     assert.equal(f.a.sessions.at(-1)!.options.contextWindow, 'maximum');
-
     assert.equal(coordinator.snapshot.native!.contextWindow, 'maximum');
-
     assert.equal(coordinator.snapshot.native!.id, original);
-
     await coordinator.clear();
-
     assert.notEqual(coordinator.snapshot.native!.id, original);
-
     assert.equal(coordinator.snapshot.native!.contextWindow, 'maximum');
-
     assert.equal(f.a.sessions.at(-1)!.options.contextWindow, 'maximum');
-
     const cleared = coordinator.snapshot.native!.id;
-
     await coordinator.newConversation();
-
     assert.notEqual(coordinator.snapshot.conversation!.id, id);
-
     assert.notEqual(coordinator.snapshot.native!.id, cleared);
-
     assert.equal(coordinator.snapshot.native!.contextWindow, 'maximum');
-
     assert.equal(f.a.sessions.at(-1)!.options.resume, undefined);
-
     assert.equal(f.a.sessions.at(-1)!.options.contextWindow, 'maximum');
-
     assert.equal(coordinator.snapshot.native!.effort, 'high');
   } finally {
     await coordinator.close();
@@ -76,17 +58,11 @@ test('new inherits an explicit window with an implicit model but never its threa
   };
 
   const next = createConversation('/project', 'a', source);
-
   assert.equal(next.sessions.a!.contextWindow, 'maximum');
-
   assert.equal(next.sessions.a!.requestedModel, undefined);
-
   assert.equal(next.sessions.a!.id, '');
-
   assert.equal(next.sessions.a!.hasHistory, false);
-
   assert.equal(next.sessions.a!.deliveredRevision, undefined);
-
   assert.deepEqual(createConversation('/project', 'b', source).sessions, {});
 });
 
@@ -121,7 +97,6 @@ test('a rejected model selection preserves the saved and applied window preferen
     );
 
     assert.equal(saved.sessions.a!.contextWindow, 'maximum');
-
     assert.equal(saved.sessions.a!.effort, 'low');
   } finally {
     await f.coordinator.close();
@@ -139,7 +114,6 @@ test('a destination receives its window before exactly one continuation, and run
     });
 
     f.a.interruptNext = true;
-
     await f.coordinator.send('unfinished context-window task');
 
     f.b.beforeConnect = async (options) => {
@@ -153,9 +127,7 @@ test('a destination receives its window before exactly one continuation, and run
     });
 
     assert.equal(f.b.inputs.length, 1);
-
     assert.equal(f.b.sessions.at(-1)!.options.contextWindow, 'default');
-
     assert.equal(f.coordinator.snapshot.native!.contextWindow, 'default');
 
     assert.equal(
@@ -164,7 +136,6 @@ test('a destination receives its window before exactly one continuation, and run
     );
 
     await f.coordinator.selectModel({ agent: 'a', id: 'a-big' });
-
     assert.equal(f.coordinator.snapshot.native!.contextWindow, 'maximum');
   } finally {
     await f.coordinator.close();

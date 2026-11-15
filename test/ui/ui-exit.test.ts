@@ -23,15 +23,10 @@ for (const typed of ['/ex', '/quit '])
 
     try {
       await delay(60);
-
       ui.stdin.write(typed);
-
       await delay(30);
-
       ui.stdin.write('\r');
-
       await until('the exit', () => exits === 1);
-
       assert.deepEqual(calls, []);
     } finally {
       ui.unmount();
@@ -57,17 +52,11 @@ test('/restart restarts without exiting or sending a prompt', async () => {
 
   try {
     await delay(60);
-
     ui.stdin.write('/restart');
-
     await delay(30);
-
     ui.stdin.write('\r');
-
     await until('the restart', () => restarts === 1);
-
     assert.equal(exits, 0);
-
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
@@ -99,17 +88,11 @@ for (const phase of ['idle', 'cleaning'] as const)
 
     try {
       await delay(60);
-
       ui.stdin.write('\u0003');
-
       await until('the exit hint', () => ui.text().includes(hint));
-
       assert.equal(state.exits, 0);
-
       ui.stdin.write('\u0003');
-
       await until('the exit', () => state.exits === 1);
-
       assert.ok(!calls.some(([call]) => call === 'interrupt'));
     } finally {
       ui.unmount();
@@ -121,13 +104,9 @@ test('Ctrl+C while running interrupts and keeps the composer text', async () => 
 
   try {
     await delay(60);
-
     ui.stdin.write('draft text');
-
     await until('the draft', () => ui.text().includes('draft text'));
-
     ui.stdin.write('\u0003');
-
     await until('the interrupt', () => calls.length > 0);
 
     assert.deepEqual(
@@ -136,7 +115,6 @@ test('Ctrl+C while running interrupts and keeps the composer text', async () => 
     );
 
     assert.ok(ui.text().includes('draft text'));
-
     assert.equal(state.exits, 0);
   } finally {
     ui.unmount();
@@ -148,11 +126,8 @@ test('Ctrl+C with text in the composer clears it without exiting', async () => {
 
   try {
     await delay(60);
-
     ui.stdin.write('draft text');
-
     await until('the draft', () => ui.text().includes('draft text'));
-
     ui.stdin.write('\u0003');
 
     await until(
@@ -161,7 +136,6 @@ test('Ctrl+C with text in the composer clears it without exiting', async () => {
     );
 
     assert.ok(!ui.text().includes(hint));
-
     assert.equal(state.exits, 0);
   } finally {
     ui.unmount();
@@ -177,11 +151,8 @@ test('Ctrl+C in the error phase keeps the recovered prompts', async () => {
     );
 
     ui.stdin.write('\u0003');
-
     await until('the exit hint', () => ui.text().includes(hint));
-
     assert.ok(ui.text().includes('recovered prompt'));
-
     assert.equal(state.exits, 0);
   } finally {
     ui.unmount();
@@ -197,11 +168,8 @@ test('Ctrl+C in memory recovery quits at once, even with a request open', async 
 
   try {
     await delay(60);
-
     ui.stdin.write('\u0003');
-
     await until('the exit', () => state.exits === 1);
-
     assert.ok(!calls.some(([call]) => call === 'interrupt'));
   } finally {
     ui.unmount();
@@ -213,17 +181,11 @@ test('a second Ctrl+C after the window arms again instead of exiting', async () 
 
   try {
     await delay(60);
-
     ui.stdin.write('\u0003');
-
     await until('the exit hint', () => ui.text().includes(hint));
-
     await until('the hint expires', () => !ui.text().includes(hint));
-
     ui.stdin.write('\u0003');
-
     await until('the hint again', () => ui.text().includes(hint));
-
     assert.equal(state.exits, 0);
   } finally {
     ui.unmount();
@@ -245,17 +207,11 @@ test('Ctrl+C while closing quits instead of interrupting again', async () => {
 
   try {
     await delay(60);
-
     coordinator.publish({ phase: 'closing' });
-
     await until('the closing frame', () => ui.text().includes('CLOSING'));
-
     ui.stdin.write('\u0003');
-
     await delay(60);
-
     assert.equal(exits, 1);
-
     assert.ok(!calls.some(([call]) => call === 'interrupt'));
   } finally {
     ui.unmount();
@@ -277,13 +233,9 @@ test('Escape interrupts merge cleanup without exiting', async () => {
 
   try {
     await delay(60);
-
     ui.stdin.write('\u001b');
-
     await until('the cleanup interrupt', () => calls.length > 0);
-
     assert.deepEqual(calls, [['interrupt']]);
-
     assert.equal(exits, 0);
   } finally {
     ui.unmount();

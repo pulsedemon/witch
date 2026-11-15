@@ -46,7 +46,6 @@ function bind(expected, actual, key) {
     );
 
     bindings.set(expected, actual);
-
     reverse.set(actual, expected);
   }
 
@@ -90,13 +89,10 @@ function match(expected, actual, key = '') {
 
   if (Array.isArray(expected)) {
     assert.ok(Array.isArray(actual));
-
     assert.equal(actual.length, expected.length);
-
     expected.forEach((child, index) => match(child, actual[index], key));
   } else if (expected && typeof expected === 'object') {
     assert.ok(actual && typeof actual === 'object');
-
     assert.deepEqual(Object.keys(actual).sort(), Object.keys(expected).sort());
 
     for (const [name, child] of Object.entries(expected))
@@ -106,7 +102,6 @@ function match(expected, actual, key = '') {
 
 function fail(error) {
   process.stderr.write(`frame ${position}: ${error.stack ?? error}\n`);
-
   process.exit(1);
 }
 
@@ -115,7 +110,6 @@ function advance() {
     while (!held && position < frames.length) {
       if (gates.delete(position)) {
         held = true;
-
         process.send?.({ paused: position });
 
         return;
@@ -157,7 +151,6 @@ createInterface({ input: process.stdin })
   .on('line', (line) => {
     try {
       inputs.push(JSON.parse(line));
-
       advance();
     } catch (error) {
       fail(error);
@@ -168,11 +161,9 @@ createInterface({ input: process.stdin })
 process.on('message', (message) => {
   if (message.release) {
     held = false;
-
     advance();
   }
 });
 
 process.on('SIGTERM', finish);
-
 advance();

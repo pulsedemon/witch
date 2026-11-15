@@ -14,9 +14,7 @@ export async function checkout(name = 'repo', lockfile = true) {
   const root = await scratch('witch-spawn-');
   const origin = join(root, 'origin.git');
   const main = join(root, name);
-
   await git(root, 'init', '--bare', '-b', 'main', origin);
-
   await git(root, 'init', '-b', 'main', main);
 
   if (lockfile)
@@ -24,11 +22,8 @@ export async function checkout(name = 'repo', lockfile = true) {
   else await writeFile(join(main, 'project.godot'), '');
 
   await git(main, 'add', '.');
-
   await git(main, 'commit', '-m', 'first');
-
   await git(main, 'remote', 'add', 'origin', origin);
-
   await git(main, 'push', '-u', 'origin', 'main');
 
   return { root, origin, main, slot: (index: number) => `${main}-${index}` };
@@ -60,7 +55,6 @@ export function recording(
       return runCommand(command, args, options);
 
     calls.push({ command, args, cwd: options.cwd });
-
     const failure = fail(command, options.cwd);
 
     if (failure instanceof Error) throw failure;

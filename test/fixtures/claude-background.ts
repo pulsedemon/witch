@@ -69,7 +69,6 @@ export async function background(sessionState = true) {
     options?: Parameters<typeof f.session.steer>[1],
   ) => {
     assert.equal(await f.session.steer(text, options), true);
-
     let uuid = '';
 
     await until('steered input', async () => {

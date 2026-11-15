@@ -165,9 +165,7 @@ export class WorkTreeChanges {
 
       const snapshot = await this.snapshot(checkout);
       const git = (...args: string[]) => this.git(checkout, args);
-
       await rm(checkout.env.GIT_INDEX_FILE!, { force: true });
-
       await git('read-tree', baseline.tree);
 
       for (const path of inside) {
@@ -198,7 +196,6 @@ export class WorkTreeChanges {
       }
 
       const tree = (await git('write-tree')).trim();
-
       this.baselines.set(checkout.top, { ...baseline, tree });
     });
   }
@@ -301,7 +298,6 @@ export class WorkTreeChanges {
         );
 
         budget -= cost(file);
-
         files.push(file);
       }
 
@@ -470,12 +466,9 @@ export class WorkTreeChanges {
     ]);
 
     const store = join(this.directory, 'objects');
-
     await mkdir(store, { recursive: true });
-
     // a state directory can sit inside the checkout, and a snapshot must not take in its own storage
     await writeFile(join(this.directory, '.gitignore'), '*\n');
-
     const inherited = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
 
     return {
@@ -512,14 +505,11 @@ export class WorkTreeChanges {
     }
 
     const copy = checkout.env.GIT_INDEX_FILE!;
-
     await rm(copy, { force: true });
 
     try {
       const { atime, mtime } = await stat(checkout.index);
-
       await copyFile(checkout.index, copy);
-
       // Git rechecks an entry as old as its index, which catches an edit made in the second the index was written
       await utimes(copy, atime, mtime);
     } catch (error) {

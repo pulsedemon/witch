@@ -118,7 +118,6 @@ export async function nativePrompt({
   // the project marker moves before delivery, even when the turn later fails
   if (reference.deliveredProject !== scope.project) {
     delete reference.deliveredRevision;
-
     reference.deliveredProject = scope.project;
   }
 

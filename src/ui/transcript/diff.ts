@@ -107,7 +107,6 @@ function changedWords(before: string, after: string): [Range[], Range[]] {
 
       if (count) {
         counts.set(token, count - 1);
-
         unmatched -= 2;
       }
     }
@@ -249,7 +248,6 @@ function prepareFile(
       if (whole && !full && shown === preview) hidden++;
       else {
         shown++;
-
         const code = plain(line.slice(1)).replaceAll('\r', '');
 
         drawn.push({
@@ -346,9 +344,7 @@ function prepareFile(
       lines.push(
         code.map((part, index) => {
           const start = offset;
-
           offset += stripAnsi(part).length;
-
           const text = (numbered ? (index ? gutter : row.prefix) : '') + part;
 
           return {

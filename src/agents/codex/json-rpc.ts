@@ -28,7 +28,6 @@ export async function* pages<T>(
 
   for (;;) {
     const page = schema.parse(await rpc.request(method, request));
-
     yield page.data;
 
     if (!page.nextCursor) return;
@@ -51,11 +50,8 @@ export class JsonRpc {
 
   constructor(private readonly process: ChildProcessWithoutNullStreams) {
     this.child = watchChild(process);
-
     readLines(process.stdout, (line) => this.receive(line));
-
     process.stdin.on('error', (error) => this.fail(error));
-
     process.on('error', (error) => this.fail(error));
 
     process.on('close', (code, signal) => {
@@ -75,9 +71,7 @@ export class JsonRpc {
 
     const id = ++this.sequence;
     const result = Promise.withResolvers<unknown>();
-
     this.pending.set(id, result);
-
     this.write({ id, method, params });
 
     return result.promise;
@@ -131,7 +125,6 @@ export class JsonRpc {
         this.onMessage(message);
       } else if (typeof message.id === 'number') {
         const request = this.pending.get(message.id);
-
         this.pending.delete(message.id);
 
         if (message.error) request?.reject(new Error(message.error.message));
@@ -154,7 +147,6 @@ export class JsonRpc {
     for (const request of this.pending.values()) request.reject(error);
 
     this.pending.clear();
-
     this.onExit(error);
   }
 }

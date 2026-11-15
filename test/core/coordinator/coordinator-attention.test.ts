@@ -25,7 +25,6 @@ test('completion identifies the successful activity only after its final save', 
   try {
     a.gate = gate;
     const sending = coordinator.send('remember-port');
-
     await within(gate.entered, 5000, 'the native turn');
 
     // admitting the prompt saves the record too, so the spy starts once the turn holds its activity
@@ -38,7 +37,6 @@ test('completion identifies the successful activity only after its final save', 
         if (record.activity) return save.call(this, record);
 
         spy.mockRestore();
-
         entered.resolve();
 
         return release.promise.then(() => save.call(this, record));
@@ -47,37 +45,22 @@ test('completion identifies the successful activity only after its final save', 
     saving = spy;
     const id = coordinator.snapshot.conversation!.id;
     const activity = (await readRecord(root, id)).activity!;
-
     assert.equal(coordinator.snapshot.completedTurn, undefined);
-
     gate.open();
-
     await within(entered.promise, 5000, 'the final save');
-
     assert.equal(coordinator.snapshot.completedTurn, undefined);
-
     assert.equal((await readRecord(root, id)).activity?.id, activity.id);
-
     release.resolve();
-
     await sending;
-
     assert.equal(coordinator.snapshot.completedTurn, activity.id);
-
     const stored = await readRecord(root, id);
-
     assert.equal(stored.activity, undefined);
-
     assert.deepEqual(stored.lastTurn, { id: activity.id, status: 'completed' });
-
     assert.equal(coordinator.snapshot.completedTurn, stored.lastTurn.id);
   } finally {
     saving?.mockRestore();
-
     release.resolve();
-
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -91,7 +74,6 @@ test('a rejected final save publishes no completion', async () => {
   try {
     a.gate = gate;
     const sending = coordinator.send('successful native result');
-
     await within(gate.entered, 5000, 'the native turn');
 
     const spy = vi
@@ -108,19 +90,13 @@ test('a rejected final save publishes no completion', async () => {
       });
 
     saving = spy;
-
     gate.open();
-
     await sending;
-
     assert.match(coordinator.snapshot.error!, /final save rejected/);
-
     assert.equal(coordinator.snapshot.completedTurn, undefined);
   } finally {
     saving?.mockRestore();
-
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -132,9 +108,7 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
 
     try {
       await coordinator.send('previous success');
-
       assert.ok(coordinator.snapshot.completedTurn);
-
       const id = coordinator.snapshot.conversation!.id;
       const previous = (await readRecord(root, id)).lastTurn;
       const turns = a.inputs.length;
@@ -160,18 +134,14 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
 
       if (outcome !== 'preparation') {
         await within(gate.entered, 5000, 'the next turn');
-
         const activity = (await readRecord(root, id)).activity!;
 
         if (outcome === 'interrupted') await coordinator.interrupt();
         else gate.open();
 
         await sending;
-
         const stored = await readRecord(root, id);
-
         assert.deepEqual(stored.lastTurn, { id: activity.id, status: outcome });
-
         assert.notEqual(stored.lastTurn.id, previous!.id);
       } else await sending;
 
@@ -184,16 +154,12 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
 
       if (outcome === 'preparation') {
         assert.match(coordinator.snapshot.error!, /preparation failed/);
-
         assert.deepEqual(coordinator.snapshot.queue, ['next turn']);
-
         assert.deepEqual((await readRecord(root, id)).lastTurn, previous);
       }
     } finally {
       hook.current = passThrough;
-
       gate.open();
-
       await coordinator.close();
     }
   });
@@ -211,14 +177,10 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
 
   try {
     await f.coordinator.send('finished task');
-
     await next();
-
     const id = f.coordinator.snapshot.conversation!.id;
     const previous = (await readRecord(f.root, id)).lastTurn!;
-
     assert.equal(previous.status, 'completed');
-
     assert.equal(previous.id, f.coordinator.snapshot.completedTurn);
 
     assert.equal(
@@ -227,13 +189,9 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
     );
 
     await f.a.sessions.at(-1)!.session.close();
-
     await f.coordinator.selectModel({ agent: 'a', id: 'a-big' });
-
     await next();
-
     assert.deepEqual((await readRecord(f.root, id)).lastTurn, previous);
-
     assert.equal(f.a.inputs.length, 1);
 
     assert.equal(
@@ -242,7 +200,6 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
     );
 
     stop();
-
     await f.coordinator.close();
 
     reopened = new Coordinator(
@@ -258,13 +215,9 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
     );
 
     await reopened.initialize(f.project, { continue: true });
-
     await next();
-
     assert.deepEqual((await readRecord(f.root, id)).lastTurn, previous);
-
     assert.equal(reopened.snapshot.completedTurn, undefined);
-
     assert.equal(f.a.inputs.length, 1);
 
     assert.deepEqual(
@@ -273,15 +226,10 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
     );
 
     await reopened.send('new request');
-
     await next();
-
     const current = (await readRecord(f.root, id)).lastTurn!;
-
     assert.equal(current.status, 'completed');
-
     assert.notEqual(current.id, previous.id);
-
     assert.equal(reopened.snapshot.completedTurn, current.id);
 
     assert.equal(
@@ -290,11 +238,8 @@ test('reconnect and restart retain the ordinary outcome without replaying comple
     );
   } finally {
     stop();
-
     stopReopened?.();
-
     await reopened?.close();
-
     await f.coordinator.close();
   }
 });
@@ -312,65 +257,37 @@ test('conversation adoption clears completion and the internal handoff summary s
 
   try {
     await coordinator.send('first task');
-
     const first = coordinator.snapshot.completedTurn;
-
     assert.ok(first);
-
     await coordinator.newConversation();
-
     assert.equal(coordinator.snapshot.completedTurn, undefined);
-
     await coordinator.send('second task');
-
     const previous = coordinator.snapshot.completedTurn;
-
     assert.ok(previous);
-
     assert.notEqual(previous, first);
-
     signals.clear();
-
     a.gate = summary;
     b.gate = destination;
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     await within(summary.entered, 5000, 'the summary');
-
     summary.open();
-
     await within(switching, 5000, 'the switch without continuation');
-
     assert.deepEqual(b.inputs, []);
-
     assert.equal(coordinator.snapshot.completedTurn, previous);
-
     assert.deepEqual([...signals], [previous]);
-
     const sending = coordinator.send('Destination task');
-
     await within(destination.entered, 5000, 'the destination prompt');
-
     assert.equal(coordinator.snapshot.completedTurn, undefined);
-
     destination.open();
-
     await sending;
-
     const current = coordinator.snapshot.completedTurn;
-
     assert.ok(current);
-
     assert.notEqual(current, previous);
-
     assert.deepEqual([...signals], [previous, current]);
   } finally {
     unsubscribe();
-
     summary.open();
-
     destination.open();
-
     await coordinator.close();
   }
 });
@@ -389,9 +306,7 @@ for (const failed of [false, true])
       a.refuseSteer = true;
       a.gate = gate;
       const first = coordinator.send('first queued turn');
-
       await within(gate.entered, 5000, 'the first turn');
-
       await coordinator.send('second queued turn');
 
       void gate.result.then(() => {
@@ -400,13 +315,9 @@ for (const failed of [false, true])
       });
 
       gate.open();
-
       await first;
-
       await next();
-
       assert.equal(a.inputs.length, 2);
-
       assert.ok(a.inputs[1]!.prompt === 'second queued turn');
 
       assert.deepEqual(
@@ -419,9 +330,7 @@ for (const failed of [false, true])
       );
     } finally {
       stop();
-
       gate.open();
-
       await coordinator.close();
     }
   });
@@ -444,17 +353,11 @@ test('clearing a publication report without another turn does not replay complet
     };
 
     await coordinator.send('remember-port');
-
     await next();
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.match(coordinator.snapshot.error!, /cannot lock ref/);
-
     const completed = coordinator.snapshot.completedTurn;
-
     assert.ok(completed);
-
     assert.equal(a.inputs.length, 1);
 
     assert.deepEqual(
@@ -463,13 +366,9 @@ test('clearing a publication report without another turn does not replay complet
     );
 
     await coordinator.selectModel({ agent: 'a', id: 'a-big' });
-
     await next();
-
     assert.equal(coordinator.snapshot.error, undefined);
-
     assert.equal(coordinator.snapshot.completedTurn, completed);
-
     assert.equal(a.inputs.length, 1);
 
     assert.deepEqual(
@@ -478,9 +377,7 @@ test('clearing a publication report without another turn does not replay complet
     );
   } finally {
     hook.current = passThrough;
-
     stop();
-
     await coordinator.close();
   }
 });

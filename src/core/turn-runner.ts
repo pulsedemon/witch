@@ -131,7 +131,6 @@ export class TurnRunner {
   async reviewCopilot(batch: ReviewBatch): Promise<TurnResult | undefined> {
     let result: TurnResult | undefined;
     let delivered = false;
-
     this.host.publish({ reviewing: true });
 
     try {
@@ -173,7 +172,6 @@ export class TurnRunner {
 
   async answerPeers(): Promise<boolean> {
     let ran = false;
-
     this.host.publish({ answering: true });
 
     await this.host
@@ -225,7 +223,6 @@ export class TurnRunner {
 
       if (usage !== undefined && usage >= compactAt) {
         this.host.publish({ phase: 'compacting' });
-
         const compacted = await this.compact(scope);
 
         if (compacted.status !== 'completed') return compacted;
@@ -414,7 +411,6 @@ export class TurnRunner {
         });
 
       showing?.();
-
       this.host.persist(this.host.save());
 
       if (command !== undefined) delivered?.();
@@ -486,7 +482,6 @@ export class TurnRunner {
 
             result = await sending.finally(() => {
               stopPolicy?.();
-
               stopResend();
             });
 
@@ -499,10 +494,8 @@ export class TurnRunner {
       }
 
       this.host.ended();
-
       // first, so the prompts the turn left unread go ahead of those a refused steer gives back
       await steering;
-
       await this.compaction.busy;
 
       // unread input settles as unsent, so an automatic instruction never reaches the user queue; the drain reruns a
@@ -531,7 +524,6 @@ export class TurnRunner {
       if (result.inputUnsent) this.retain(conversation.id, pendingContext);
 
       this.retain(conversation.id, result.unreadContext);
-
       await this.finishActivity(activity, this.compaction.failure ?? result);
 
       if (result.status === 'completed' && !answer) {
@@ -539,7 +531,6 @@ export class TurnRunner {
           const reference = conversation.sessions[activity.agent]!;
           reference.deliveredRevision = activity.baseRevision;
           reference.deliveredInstructionsRevision = input.instructionsRevision;
-
           recordDelivery(reference, input);
         }
 
@@ -635,9 +626,7 @@ export class TurnRunner {
 
     return () => {
       stopped = true;
-
       stopHook?.();
-
       unsubscribe();
     };
   }
@@ -656,9 +645,7 @@ export class TurnRunner {
     );
 
     this.host.failed(result.status !== 'completed');
-
     await this.finishActivity(activity, result);
-
     await this.host.save();
 
     if (this.host.cancelled()) this.host.failed(true);
@@ -672,7 +659,6 @@ export class TurnRunner {
   ): Promise<void> {
     const conversation = this.host.conversation();
     const completed = result.status === 'completed';
-
     await this.host.files().flush();
 
     if (!completed) {
@@ -704,7 +690,6 @@ export class TurnRunner {
     if (!context?.length) return;
 
     const pending = this.pendingContext.get(id) ?? [];
-
     this.pendingContext.set(id, [...pending, ...context]);
   }
 

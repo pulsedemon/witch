@@ -41,7 +41,6 @@ class FamiliarRequests {
 
     if (!request && action.kind === 'familiar-request') {
       request = { id: `familiar/${this.run}/${id}`, resolved: false };
-
       this.requests.set(id, request);
 
       this.emit({
@@ -83,7 +82,6 @@ class FamiliarRequests {
     if (request.resolved) return;
 
     request.resolved = true;
-
     this.emit({ type: 'request-resolved', id: request.id });
   }
 }
@@ -112,7 +110,6 @@ export class FamiliarRun {
     };
 
     this.requests = new FamiliarRequests(action.run, emit);
-
     emit({ type: 'subagent', subagent: this.subagent });
   }
 
@@ -129,7 +126,6 @@ export class FamiliarRun {
     if (action.sequence <= this.sequence) return { kind: 'familiar-updated' };
 
     this.checkRunning();
-
     this.sequence = action.sequence;
     this.subagent = { ...this.subagent, ...action.progress };
 
@@ -143,13 +139,11 @@ export class FamiliarRun {
   /** ends the run with the command that carried it, marking a familiar that never reported its own end. */
   end(status: 'stopped' | 'failed'): void {
     this.ended = true;
-
     this.requests.resolveAll();
 
     if (this.subagent.status !== 'running') return;
 
     this.subagent = { ...this.subagent, status };
-
     this.emit({ type: 'subagent', subagent: this.subagent });
   }
 

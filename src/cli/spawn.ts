@@ -313,7 +313,6 @@ export async function spawnWorktrees(
     if (!registered.includes(spawned.path)) {
       try {
         await git(main, 'worktree', 'add', '--detach', spawned.path, ref);
-
         spawned.created = true;
       } catch (error) {
         spawned.error = failure(error);

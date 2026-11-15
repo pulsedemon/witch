@@ -15,8 +15,6 @@ test('a rejection of the Fable limit blocks Fable and no other family', () => {
   );
 
   assert.equal(limit.rejects(1, 'claude-fable-5-1'), true);
-
   assert.equal(limit.rejects(1, 'claude-opus-5-5'), false);
-
   assert.equal(limit.rejects(1, 'claude-sonnet-5-5'), false);
 });

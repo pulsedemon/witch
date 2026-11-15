@@ -25,7 +25,6 @@ import {
 
 async function exchange(bound: ControlBinding): Promise<void> {
   await files.mkdir(join(bound.directory, 'inbox'));
-
   await files.mkdir(join(bound.directory, 'replies'));
 }
 
@@ -49,11 +48,8 @@ test('control requests preserve their binding and action through a real ledger m
   const bound = await binding();
   const directory = join(bound.directory, 'actual');
   const alias = join(bound.directory, 'alias');
-
   await files.mkdir(directory);
-
   await files.symlink(directory, alias);
-
   bound.directory = alias;
 
   const store = await CoordinationStore.open(
@@ -66,9 +62,7 @@ test('control requests preserve their binding and action through a real ledger m
     bound.directory,
     async (request) => {
       assert.equal(request.conversation, 'conversation-a');
-
       assert.equal(request.activation, bound.activation);
-
       assert.equal(request.action.kind, 'claim');
 
       if (request.action.kind !== 'claim') throw new Error('Unexpected action');
@@ -98,7 +92,6 @@ test('control requests preserve their binding and action through a real ledger m
     });
 
     assert.equal(result.kind, 'claimed');
-
     assert.ok(result.id);
 
     if (result.kind !== 'claimed') assert.fail('Expected a claim');
@@ -116,11 +109,8 @@ test('control requests preserve their binding and action through a real ledger m
     });
 
     assert.deepEqual(await store.claims(), [result.claim]);
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
-
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
@@ -129,16 +119,12 @@ test('control requests preserve their binding and action through a real ledger m
 
 test('a reply for another request is not accepted or acknowledged', async () => {
   const bound = await binding();
-
   await exchange(bound);
-
   const calling = callControl(bound, { kind: 'peers' });
 
   const rejected = assert.rejects(calling, (error: unknown) => {
     assert.ok(error instanceof Error);
-
     assert.equal(error instanceof ControlTimeoutError, false);
-
     assert.match(error.message, /result unknown.*Reply id/s);
 
     return true;
@@ -164,9 +150,7 @@ test('a reply for another request is not accepted or acknowledged', async () => 
 
 test('the client waits through an incomplete reply before accepting and acknowledging it', async () => {
   const bound = await binding();
-
   await exchange(bound);
-
   const partialRead = Promise.withResolvers<void>();
   const originalRead = files.readFile;
 
@@ -191,19 +175,12 @@ test('the client waits through an incomplete reply before accepting and acknowle
 
   try {
     await files.writeFile(reply, '{"id":');
-
     await within(partialRead.promise, 3000, 'partial reply read');
-
     await setImmediate();
-
     assert.equal(isSettled(), false);
-
     await writeJson(reply, { id, kind: 'released' });
-
     assert.deepEqual(await calling, { id, kind: 'released' });
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
   } finally {
     if (!isSettled()) await writeJson(reply, { id, kind: 'released' });
@@ -221,19 +198,15 @@ for (const redirect of ['file', 'inbox'] as const) {
 
     try {
       await host.drain();
-
       await watching(bound.directory);
-
       const inbox = join(bound.directory, 'inbox');
       const name = `${request.id}.json`;
-
       await writeJson(join(target, name), request);
 
       if (redirect === 'file')
         await files.symlink(join(target, name), join(inbox, name));
       else {
         await files.rename(inbox, join(bound.directory, 'original-inbox'));
-
         await files.symlink(target, inbox);
       }
 
@@ -248,7 +221,6 @@ for (const redirect of ['file', 'inbox'] as const) {
       );
 
       await host.drain();
-
       assert.equal(calls(), 0);
 
       assert.deepEqual(
@@ -273,15 +245,10 @@ test('the host cannot create a reply through a redirected parent', async () => {
 
   try {
     await host.drain();
-
     await watching(bound.directory);
-
     const replies = join(bound.directory, 'replies');
-
     await files.rename(replies, join(bound.directory, 'original-replies'));
-
     await files.symlink(target, replies);
-
     const request = envelope(bound);
 
     await writeJson(
@@ -290,11 +257,8 @@ test('the host cannot create a reply through a redirected parent', async () => {
     );
 
     await until('request handled', () => calls() > 0);
-
     await host.drain();
-
     assert.deepEqual(await files.readdir(target), []);
-
     assert.equal((failures[0] as NodeJS.ErrnoException).code, 'ELOOP');
   } finally {
     await host.close();
@@ -309,9 +273,7 @@ test('replacing a parent after open cannot redirect the request being read', asy
   const name = `${request.id}.json`;
   const inbox = join(bound.directory, 'inbox');
   const outside = { ...request, action: { kind: 'peers' } };
-
   await writeJson(join(target, name), outside);
-
   const failures: unknown[] = [];
   const actions: unknown[] = [];
 
@@ -326,11 +288,8 @@ test('replacing a parent after open cannot redirect the request being read', asy
   );
 
   t.onTestFinished(() => host.close());
-
   await host.drain();
-
   await watching(bound.directory);
-
   let redirected = false;
   const originalOpen = files.open;
 
@@ -345,9 +304,7 @@ test('replacing a parent after open cannot redirect the request being read', asy
             (process.platform === 'linux' ? 'inbox' : name)
         ) {
           redirected = true;
-
           await files.rename(inbox, `${inbox}-held`);
-
           await files.symlink(target, inbox);
         }
 
@@ -368,9 +325,7 @@ test('replacing a parent after open cannot redirect the request being read', asy
   );
 
   await host.close();
-
   assert.equal(redirected, true);
-
   assert.deepEqual(actions, [request.action]);
 
   // the rename starts a read of the replaced inbox, which is refused
@@ -395,7 +350,6 @@ test('replacing a parent after open cannot redirect the request being read', asy
 
 test('a missing host reply leaves the result unknown and keeps the published request', async () => {
   const bound = await binding();
-
   await exchange(bound);
 
   await assert.rejects(
@@ -430,9 +384,7 @@ for (const { code, expired } of [
 ])
   test(`re-notification ${code} ${expired ? 'after' : 'before'} expiry preserves its failure kind`, async () => {
     const bound = await binding();
-
     await exchange(bound);
-
     const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
     const failure = Object.assign(new Error('Cannot touch request'), { code });
 
@@ -483,9 +435,7 @@ test('acknowledgement between reply lookup and request read cannot dispatch the 
         !clientWaiting
       ) {
         clientWaiting = true;
-
         replyRead.resolve();
-
         await acknowledge.promise;
       }
 
@@ -501,9 +451,7 @@ test('acknowledgement between reply lookup and request read cannot dispatch the 
         String(args[0]).startsWith(join(bound.directory, 'replies'))
       ) {
         lookupWaiting = true;
-
         lookup.resolve();
-
         await resumeLookup.promise;
       }
 
@@ -541,25 +489,16 @@ test('acknowledgement between reply lookup and request read cannot dispatch the 
     );
 
     await within(lookup.promise, 3000, 'next reply lookup');
-
     acknowledge.resolve();
-
     assert.equal((await calling).kind, 'released');
-
     resumeLookup.resolve();
-
     await host.drain();
-
     assert.equal(await originalRead(work, 'utf8'), 'handled\n');
-
     assert.deepEqual(failures, []);
   } finally {
     acknowledge.resolve();
-
     resumeLookup.resolve();
-
     await calling.catch(() => {});
-
     await host.close();
   }
 });
@@ -575,7 +514,6 @@ test('a listed request removed before its read is acknowledged without dispatch 
     async (...args: Parameters<typeof files.open>) => {
       if (basename(String(args[0])) === `${request.id}.json`) {
         await files.unlink(inbox);
-
         reached.resolve();
       }
 
@@ -587,19 +525,12 @@ test('a listed request removed before its read is acknowledged without dispatch 
 
   try {
     await host.drain();
-
     await watching(bound.directory);
-
     await writeJson(inbox, request);
-
     await within(reached.promise, 3000, 'request disappearance');
-
     await host.drain();
-
     assert.equal(calls(), 0);
-
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
-
     assert.deepEqual(failures, []);
   } finally {
     await host.close();

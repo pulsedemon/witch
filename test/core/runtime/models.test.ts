@@ -17,9 +17,7 @@ test('catalogs preserve runtime order and identity, and reuse inactive lists unt
   );
 
   a!.catalog.splice(0, 2, { id: 'same', label: 'First', efforts: ['high'] });
-
   b!.catalog.splice(0, 2, { id: 'same', label: 'Second', efforts: ['low'] });
-
   const cwd = await scratch('witch-models-');
 
   const active = await a!.connect({
@@ -55,15 +53,10 @@ test('catalogs preserve runtime order and identity, and reuse inactive lists unt
     ]);
 
     assert.deepEqual(a!.discoveries, []);
-
     assert.equal(b!.discoveries[0]!.cwd, cwd);
-
     assert.equal(b!.discoveries[0]!.executable, 'b');
-
     assert.equal(b!.sessions.length, 0);
-
     assert.deepEqual(missing!.discoveries, []);
-
     assert.equal(active.closed, false);
 
     assert.deepEqual((await catalog.read(cwd, active)).map(modelKey), [
@@ -72,7 +65,6 @@ test('catalogs preserve runtime order and identity, and reuse inactive lists unt
     ]);
 
     assert.equal(b!.discoveries.length, 1);
-
     b!.failDiscovery = true;
 
     assert.deepEqual((await catalog.read(cwd, active, true)).map(modelKey), [
@@ -87,11 +79,8 @@ test('catalogs preserve runtime order and identity, and reuse inactive lists unt
     ]);
 
     assert.equal(a!.discoveries.length, 1);
-
     assert.equal(b!.discoveries.length, 2);
-
     assert.equal(a!.sessions.length, 1);
-
     assert.equal(b!.sessions.length, 0);
   } finally {
     await active.close();
@@ -117,9 +106,7 @@ test('catalog cancellation waits for every discovery to finish cleanup before re
       );
 
       await cancelled[index]!.promise;
-
       await closed[index]!.promise;
-
       options.signal!.throwIfAborted();
 
       return [];
@@ -143,21 +130,13 @@ test('catalog cancellation waits for every discovery to finish cleanup before re
 
   try {
     const signals = await Promise.all(entered.map((entry) => entry.promise));
-
     catalog.cancel();
-
     assert.ok(signals.every((signal) => signal.aborted));
-
     closed[0]!.resolve();
-
     await setImmediate();
-
     assert.equal(isSettled(), false);
-
     closed[1]!.resolve();
-
     await rejected;
-
     assert.deepEqual(errors, []);
   } finally {
     catalog.cancel();
@@ -167,7 +146,6 @@ test('catalog cancellation waits for every discovery to finish cleanup before re
     for (const close of closed) close.resolve();
 
     await pending.catch(() => {});
-
     await rejected.catch(() => {});
   }
 });
@@ -180,9 +158,7 @@ test('latest models are read once per process, again on a refresh or after a fai
 
   a.latest = async ({ signal }) => {
     reads.push(signal);
-
     await gate.hold;
-
     signal?.throwIfAborted();
 
     if (failing) throw new Error('latest failed');
@@ -201,39 +177,23 @@ test('latest models are read once per process, again on a refresh or after a fai
   );
 
   const cwd = await scratch('witch-latest-');
-
   await catalog.read(cwd);
-
   assert.deepEqual(catalog.latest, { a: {} });
-
   assert.match(String(errors[0]), /a: latest failed/);
-
   failing = false;
-
   await catalog.read(cwd);
-
   assert.deepEqual(catalog.latest, { a: { opus: 'a-opus-2' } });
-
   await catalog.read(cwd);
-
   assert.equal(reads.length, 2);
-
   await catalog.read(cwd, undefined, true);
-
   assert.equal(reads.length, 3);
-
   let release!: () => void;
   gate.hold = new Promise((resolve) => (release = resolve));
   const reading = catalog.read(cwd, undefined, true);
-
   await setImmediate();
-
   catalog.cancel(new Error('stop'));
-
   release();
-
   await assert.rejects(reading);
-
   assert.equal(reads.at(-1)!.aborted, true);
 });
 
@@ -244,7 +204,6 @@ test('a latest read that has not answered in time is stopped and reported, and t
   a.latest = (options) =>
     new Promise((_resolve, reject) => {
       signal = options.signal;
-
       signal?.addEventListener('abort', () => reject(signal!.reason));
     });
 
@@ -255,25 +214,19 @@ test('a latest read that has not answered in time is stopped and reported, and t
   );
 
   const cwd = await scratch('witch-latest-');
-
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
   try {
     const reading = catalog.read(cwd);
-
     vi.advanceTimersByTime(LATEST_READ_MS - 1);
-
     assert.equal(signal!.aborted, false);
-
     vi.advanceTimersByTime(1);
-
     await reading;
   } finally {
     vi.useRealTimers();
   }
 
   assert.match(String(errors[0]), /a: the alias read timed out/);
-
   assert.deepEqual(catalog.latest, { a: {} });
 });
 

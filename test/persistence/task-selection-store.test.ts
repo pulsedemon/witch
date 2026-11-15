@@ -43,7 +43,6 @@ async function fixture(register: RegisterCleanup) {
     };
 
     const release = await store.holdActivation(value.activation);
-
     register(release);
 
     return value;
@@ -106,7 +105,6 @@ function contender(register: RegisterCleanup, root: string, name: string) {
     },
     async stop() {
       child.kill('SIGKILL');
-
       await exited;
     },
   };
@@ -118,7 +116,6 @@ test('three processes advance in enqueue order and reserve distinct tasks', asyn
   const a = contender(cleanup, f.root, 'A');
   const b = contender(cleanup, f.root, 'B');
   const c = contender(cleanup, f.root, 'C');
-
   await Promise.all([a.ready, b.ready, c.ready]);
 
   const states = [
@@ -146,17 +143,11 @@ test('three processes advance in enqueue order and reserve distinct tasks', asyn
     );
 
   const first = await a.call('recommend', 17);
-
   assert.deepEqual(await a.call('recommend', 17), first);
-
   assert.equal(((await b.call('status')) as SelectionState).position, 1);
-
   await b.call('recommend', 18);
-
   assert.equal(((await c.call('status')) as SelectionState).position, 1);
-
   await c.call('recommend', 19);
-
   const state = await f.store.state();
 
   assert.deepEqual(
@@ -181,11 +172,8 @@ test('a dead head advances the next process while other live claims remain', asy
   const f = await fixture(cleanup);
   const a = contender(cleanup, f.root, 'A');
   const b = contender(cleanup, f.root, 'B');
-
   await Promise.all([a.ready, b.ready]);
-
   await a.call('begin');
-
   assert.equal(((await b.call('begin')) as SelectionState).position, 2);
 
   const active = await f.store.claim(
@@ -197,9 +185,7 @@ test('a dead head advances the next process while other live claims remain', asy
   );
 
   await a.stop();
-
   assert.equal(((await b.call('status')) as SelectionState).position, 1);
-
   assert.deepEqual(await f.store.claims(), [active]);
 });
 
@@ -211,19 +197,12 @@ test('a crashed active owner releases its task while another process keeps its c
     b = contender(cleanup, f.root, 'B');
 
   await Promise.all([a.ready, b.ready]);
-
   await a.call('claim', 90);
-
   const live = await b.call('claim', 91);
-
   assert.equal((await f.store.claims()).length, 2);
-
   await a.stop();
-
   assert.deepEqual(await f.store.claims(), [live]);
-
   const next = await f.scope('C');
-
   await f.claim(next, 90);
 
   assert.deepEqual(
@@ -251,7 +230,6 @@ test('non-head and alias-conflicting recommendations preserve every byte and tic
   );
 
   const before = await readFile(f.file, 'utf8');
-
   await assert.rejects(f.recommend(b, second.ticket.id, 17), /first position/);
 
   await assert.rejects(
@@ -282,18 +260,12 @@ test('separate projects choose independently and recommendation retries cannot r
     b = await f.scope('B', 'project-q');
 
   await f.begin(a);
-
   const second = await f.begin(b);
-
   assert.equal(second.position, 1);
-
   const recommended = await f.recommend(b, second.ticket.id, 18);
   const before = await readFile(f.file, 'utf8');
-
   assert.deepEqual(await f.recommend(b, second.ticket.id, 18), recommended);
-
   await assert.rejects(f.recommend(b, second.ticket.id, 19), /does not match/);
-
   await assert.rejects(f.recommend(a, second.ticket.id, 18), /does not match/);
 
   await assert.rejects(
@@ -341,22 +313,14 @@ test('owner, activation and turn fence status, recommendation and cancellation',
   }
 
   assert.equal(await readFile(f.file, 'utf8'), before);
-
   await f.store.cancelSelection(a, first.ticket.id, deadline(), verify);
-
   const next = await f.begin(a);
-
   await f.store.cancelSelection(a, first.ticket.id, deadline(), verify);
-
   assert.deepEqual((await f.store.state()).selections, [next.ticket]);
-
   await f.store.cancelSelection(a, undefined, deadline(), verify);
-
   const later = { ...a, turn: randomUUID() };
   const newest = await f.begin(later);
-
   await f.store.cancelSelection(a, undefined, deadline(), verify);
-
   assert.deepEqual((await f.store.state()).selections, [newest.ticket]);
 
   await assert.rejects(
@@ -381,7 +345,6 @@ test('promotion keeps identity and aliases while different work replaces a sugge
   );
 
   const promoted = await f.claim(a, 17);
-
   assert.equal(promoted.id, suggestion.id);
 
   assert.deepEqual(promoted.references, [
@@ -390,21 +353,14 @@ test('promotion keeps identity and aliases while different work replaces a sugge
   ]);
 
   assert.equal(promoted.suggestion, undefined);
-
   await assert.rejects(f.begin(a), /Release the current task/);
-
   await f.store.releaseConversation(a.owner, f.identity, deadline(), verify);
-
   assert.deepEqual(await f.store.claims(), []);
-
   const second = await f.begin(a);
   const old = await f.recommend(a, second.ticket.id, 18);
   const replacement = await f.claim(a, 19);
-
   assert.notEqual(replacement.id, old.id);
-
   assert.deepEqual(await f.store.claims(), [replacement]);
-
   assert.equal(replacement.suggestion, undefined);
 });
 
@@ -428,11 +384,8 @@ test('failed replacement preserves a suggestion and reselect releases it at the 
   );
 
   const before = await readFile(f.file, 'utf8');
-
   await assert.rejects(f.claim(a, 18), ClaimConflict);
-
   assert.equal(await readFile(f.file, 'utf8'), before);
-
   assert.equal((await f.begin(a)).position, 2);
 
   assert.ok(
@@ -453,17 +406,11 @@ test('only a successful direct claim removes its selection', async (t) => {
     b = await f.scope('B');
 
   const first = await f.begin(a);
-
   await f.claim(b, 18);
-
   await assert.rejects(f.claim(a, 18), ClaimConflict);
-
   assert.deepEqual((await f.store.state()).selections, [first.ticket]);
-
   const claim = await f.claim(a, 17);
-
   assert.equal(claim.suggestion, undefined);
-
   assert.deepEqual((await f.store.state()).selections, []);
 });
 
@@ -479,15 +426,11 @@ for (const active of [false, true])
     };
 
     const release = await f.store.holdActivation(a.activation);
-
     cleanup(release);
-
     const first = await f.begin(a);
     const reserved = await f.recommend(a, first.ticket.id, 17);
     const suggestion = active ? await f.claim(a, 17) : reserved;
-
     await release();
-
     assert.deepEqual(await f.store.claims(), [suggestion]);
 
     await f.store.releaseConversation(
@@ -507,18 +450,12 @@ for (const active of [false, true])
     );
 
     assert.deepEqual(await f.store.claims(), [suggestion]);
-
     const bytes = JSON.parse(await readFile(f.file, 'utf8'));
     bytes.claims[0].process.started = 'previous incarnation';
-
     await writeFile(f.file, JSON.stringify(bytes));
-
     const before = await readFile(f.file, 'utf8');
-
     assert.deepEqual(await f.store.claims(), []);
-
     assert.equal(await readFile(f.file, 'utf8'), before);
-
     await f.claim(a, 18);
 
     assert.deepEqual(
@@ -550,18 +487,13 @@ test('deadline and unknown activation failures preserve the ledger', async (t) =
   );
 
   vi.restoreAllMocks();
-
   assert.equal(await readFile(f.file, 'utf8'), before);
-
   const lock = join(f.root, 'coordination', 'sessions', `${a.activation}.lock`);
-
   await chmod(lock, 0o000);
 
   try {
     await assert.rejects(f.store.state(), /EACCES/);
-
     await assert.rejects(f.recommend(a, first.ticket.id, 17), /EACCES/);
-
     assert.equal(await readFile(f.file, 'utf8'), before);
   } finally {
     await chmod(lock, 0o600);
@@ -573,7 +505,6 @@ test('version one migrates only on a change and unsupported ledgers stay untouch
   const f = await fixture(cleanup);
   const conversations = await StateStore.open(f.root);
   const opened = await conversations.create(record('old', f.root));
-
   cleanup(() => opened.close());
 
   const old = {
@@ -585,44 +516,29 @@ test('version one migrates only on a change and unsupported ledgers stay untouch
   };
 
   const original = JSON.stringify({ version: 1, claims: [old] });
-
   await writeFile(f.file, original);
-
   assert.deepEqual(await f.store.state(), { claims: [old], selections: [] });
-
   assert.equal(await readFile(f.file, 'utf8'), original);
-
   const a = await f.scope('A');
   const lock = join(f.root, 'conversations', 'old', 'lock');
-
   await chmod(lock, 0o000);
 
   try {
     await assert.rejects(f.store.state(), /EACCES/);
-
     await assert.rejects(f.begin(a), /EACCES/);
-
     assert.equal(await readFile(f.file, 'utf8'), original);
   } finally {
     await chmod(lock, 0o600);
   }
 
   await f.begin(a);
-
   const migrated = JSON.parse(await readFile(f.file, 'utf8'));
-
   assert.equal(migrated.version, 2);
-
   assert.deepEqual(migrated.claims, [old]);
-
   await opened.close();
-
   await writeFile(f.file, original);
-
   assert.deepEqual(await f.store.claims(), []);
-
   assert.equal(await readFile(f.file, 'utf8'), original);
-
   await f.claim(a, 90);
 
   assert.deepEqual(
@@ -636,9 +552,7 @@ test('version one migrates only on a change and unsupported ledgers stay untouch
     '{',
   ]) {
     await writeFile(f.file, invalid);
-
     await assert.rejects(f.begin(a));
-
     assert.equal(await readFile(f.file, 'utf8'), invalid);
   }
 });

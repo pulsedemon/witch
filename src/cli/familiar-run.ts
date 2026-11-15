@@ -130,7 +130,6 @@ export async function saveReport(
   }
 
   await file.truncate(bytes.length);
-
   await file.sync();
 }
 

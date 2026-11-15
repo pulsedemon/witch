@@ -26,21 +26,13 @@ test('concurrent observers freeze one recipient set and retain the event after r
   ]);
 
   assert.deepEqual(first, second);
-
   assert.deepEqual(first.pullRequest, merged);
-
   assert.ok(['observer-a', 'observer-b'].includes(first.source));
-
   assert.deepEqual(await b.mergeEvents('project-a', 'b'), [first]);
-
   await b.recordMerge('project-a', merged, 'late', ['a', 'b', 'late']);
-
   assert.deepEqual(await a.mergeEvents('project-a', 'late'), []);
-
   assert.deepEqual(await a.mergeEvents('project-b', 'b'), []);
-
   const reopened = await CoordinationStore.open(await StateStore.open(root));
-
   assert.deepEqual(await reopened.mergeEvents('project-a', 'a'), [first]);
 });
 
@@ -99,6 +91,5 @@ test('a merge whose deadline passes after the lock is taken records nothing', as
   );
 
   vi.restoreAllMocks();
-
   assert.deepEqual(await store.mergeEvents('project-a', 'a'), []);
 });

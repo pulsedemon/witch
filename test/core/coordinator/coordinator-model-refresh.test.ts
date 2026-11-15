@@ -20,7 +20,6 @@ test('interrupting inactive model discovery keeps the connected session', async 
 
   try {
     await coordinator.send('before refresh');
-
     const { session, options } = a.sessions[0]!;
 
     const command: BackgroundCommand = {
@@ -50,9 +49,7 @@ test('interrupting inactive model discovery keeps the connected session', async 
       });
 
       await aborted.promise;
-
       await cleaned.promise;
-
       options.signal!.throwIfAborted();
 
       return b.catalog;
@@ -68,41 +65,23 @@ test('interrupting inactive model discovery keeps the connected session', async 
     );
 
     await coordinator.interrupt();
-
     await coordinator.interrupt();
-
     assert.equal(signal.aborted, true);
-
     assert.equal(session.closed, false);
-
     assert.equal(isSettled(), false);
-
     cleaned.resolve();
-
     assert.equal(await within(refreshing, 2000, 'refresh cleanup'), false);
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.equal(coordinator.snapshot.error, undefined);
-
     assert.deepEqual(coordinator.snapshot.models, before.models);
-
     assert.deepEqual(coordinator.snapshot.native, before.native);
-
     assert.deepEqual(coordinator.snapshot.items, before.items);
-
     assert.deepEqual(coordinator.snapshot.skills, before.skills);
-
     assert.deepEqual(coordinator.snapshot.usage, before.usage);
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, [command]);
-
     const after = await readRecord(root, before.conversation!.id);
-
     assert.deepEqual(after.process, saved.process);
-
     assert.ok(saved.process);
-
     assert.deepEqual(await identifyProcess(saved.process.pid), saved.process);
 
     options.onEvent({
@@ -134,21 +113,14 @@ test('interrupting inactive model discovery keeps the connected session', async 
     );
 
     await coordinator.send('after canceled refresh');
-
     assert.equal(a.sessions.length, 1);
-
     assert.equal(b.sessions.length, 0);
-
     assert.equal(a.inputs.at(-1)!.session, session.info.id);
-
     assert.match(a.inputs.at(-1)!.prompt, /^after canceled refresh$/);
   } finally {
     aborted.resolve();
-
     cleaned.resolve();
-
     await refreshing?.catch(() => {});
-
     await coordinator.close();
   }
 });
@@ -171,15 +143,10 @@ test('interrupting an active model read discards its result', async () => {
 
     refreshing = coordinator.refreshModels();
     const isSettled = settled(refreshing);
-
     await within(entered.promise, 2000, 'active model read');
-
     await coordinator.interrupt();
-
     assert.equal(session.closed, false);
-
     assert.equal(isSettled(), false);
-
     models.resolve([{ id: 'late-model', label: 'Late model', efforts: [] }]);
 
     assert.equal(
@@ -188,21 +155,14 @@ test('interrupting an active model read discards its result', async () => {
     );
 
     assert.deepEqual(coordinator.snapshot.models, before.models);
-
     assert.equal(coordinator.snapshot.error, undefined);
-
     await coordinator.send('after active cancellation');
-
     assert.equal(a.sessions.length, 1);
-
     assert.equal(a.inputs.at(-1)!.session, session.info.id);
-
     assert.match(a.inputs.at(-1)!.prompt, /^after active cancellation$/);
   } finally {
     models.resolve(a.catalog);
-
     await refreshing?.catch(() => {});
-
     await coordinator.close();
   }
 });
@@ -219,7 +179,6 @@ test('a queued turn cannot turn a canceled refresh into a successful result', as
 
     session.models = async () => {
       entered.resolve();
-
       await release.promise;
 
       return a.catalog;
@@ -227,47 +186,27 @@ test('a queued turn cannot turn a canceled refresh into a successful result', as
 
     a.gate = gate;
     refreshing = coordinator.refreshModels();
-
     void refreshing.catch(() => {});
-
     await within(entered.promise, 2000, 'active model read');
-
     await coordinator.send('queued after cancel');
-
     assert.deepEqual(coordinator.snapshot.queue, ['queued after cancel']);
-
     await coordinator.interrupt();
-
     release.resolve();
-
     assert.equal(await within(refreshing, 2000, 'canceled refresh'), false);
-
     await within(gate.entered, 2000, 'queued turn');
-
     assert.equal(coordinator.snapshot.phase, 'running');
-
     assert.equal(a.inputs.length, 1);
-
     assert.equal(a.inputs[0]!.session, session.info.id);
-
     assert.match(a.inputs[0]!.prompt, /^queued after cancel$/);
-
     assert.equal(a.sessions.length, 1);
-
     gate.open();
-
     await until('queued reply', () => coordinator.snapshot.phase === 'idle');
-
     assert.deepEqual(coordinator.snapshot.queue, []);
-
     assert.equal(coordinator.snapshot.items.at(-1)!.text, 'Done.');
   } finally {
     release.resolve();
-
     gate.open();
-
     await refreshing?.catch(() => {});
-
     await coordinator.close();
   }
 });
@@ -289,37 +228,24 @@ test('interrupting model refresh settlement keeps the session and cancels the pi
         if (held || this.record.id !== id) return;
 
         held = true;
-
         entered.resolve();
-
         await release.promise;
       },
     );
 
     refreshing = coordinator.refreshModels();
-
     void refreshing.catch(() => {});
-
     await within(entered.promise, 2000, 'refresh settlement');
-
     await coordinator.interrupt();
-
     await coordinator.interrupt();
-
     assert.equal(a.sessions[0]!.session.closed, false);
-
     release.resolve();
-
     assert.equal(await within(refreshing, 2000, 'settled refresh'), false);
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.equal(coordinator.snapshot.error, undefined);
   } finally {
     release.resolve();
-
     await refreshing?.catch(() => {});
-
     await coordinator.close();
   }
 });
@@ -331,13 +257,9 @@ test('the snapshot carries the family aliases read at connect and again on a mod
 
   try {
     await until('the connect read', () => !!coordinator.snapshot.latest.a);
-
     assert.deepEqual(coordinator.snapshot.latest, { a: { opus: 'a-opus-2' } });
-
     a.latest = async () => ({ opus: 'a-opus-3' });
-
     assert.equal(await coordinator.refreshModels(), true);
-
     assert.deepEqual(coordinator.snapshot.latest, { a: { opus: 'a-opus-3' } });
   } finally {
     await coordinator.close();

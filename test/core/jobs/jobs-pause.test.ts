@@ -10,7 +10,6 @@ import { until } from '../../fixtures/within.js';
 async function stopped(reads: () => number): Promise<number> {
   for (const end = Date.now() + 1000; Date.now() < end;) {
     const count = reads();
-
     await delay(100);
 
     if (reads() === count) return count;
@@ -55,14 +54,10 @@ test('an inactive watch stops reading once a fresh read finds nothing it tracks,
 
   try {
     jobs.setActive(false);
-
     // the failed read leaves no baseline, so only the read after it pauses
     const count = await stopped(() => reads);
-
     assert.equal(count, 2);
-
     jobs.setActive(true);
-
     await until('a read', () => reads > count, 5);
   } finally {
     jobs.close();
@@ -105,26 +100,17 @@ test('an inactive watch keeps reading for settle after activity or its last job 
 
   try {
     const ended = performance.now();
-
     jobs.setActive(false);
-
     await stopped(() => reads.length);
-
     assert.ok(reads.at(-1)! - ended >= 150);
-
     const job = orphanRow(100951);
     rows = [job];
     const before = reads.length;
-
     jobs.track(job.pgid);
-
     await until('a read that finds the job', () => reads.length > before);
-
     rows = [];
     const gone = reads.length;
-
     await stopped(() => reads.length);
-
     assert.ok(reads.at(-1)! - reads[gone]! >= 150);
   } finally {
     jobs.close();
@@ -134,7 +120,6 @@ test('an inactive watch keeps reading for settle after activity or its last job 
 test('a read that began before activity ended does not pause the watch', async () => {
   // with the clock frozen, only the activity count tells the held read from a later one
   vi.useFakeTimers({ toFake: ['performance'] });
-
   const held = Promise.withResolvers<void>();
   let reads = 0;
 
@@ -143,7 +128,6 @@ test('a read that began before activity ended does not pause the watch', async (
     settle: 0,
     processes: async () => {
       reads++;
-
       await held.promise;
 
       return [];
@@ -152,11 +136,8 @@ test('a read that began before activity ended does not pause the watch', async (
 
   try {
     await until('a held read', () => reads > 0);
-
     jobs.setActive(false);
-
     held.resolve();
-
     assert.ok((await stopped(() => reads)) > 1);
   } finally {
     jobs.close();
@@ -179,9 +160,7 @@ test('a tracked group keeps an inactive watch reading', async () => {
 
   try {
     jobs.track(job.pgid);
-
     jobs.setActive(false);
-
     const count = reads;
 
     // waits on the count, not a fixed window, so a loaded machine cannot fail it
@@ -214,7 +193,6 @@ test('a job list while paused finds an orphan and resumes the reads', async () =
 
   try {
     jobs.setActive(false);
-
     const count = await stopped(() => reads);
     rows = [orphanRow(100971)];
 
@@ -245,16 +223,12 @@ test('a watch is live while a group is tracked and from the end of activity unti
   });
 
   let changes = 0;
-
   jobs.subscribe(() => changes++);
-
   const state = () => [jobs.live, changes];
 
   try {
     assert.deepEqual(state(), [false, 0]);
-
     jobs.track(job.pgid);
-
     rows = [job];
 
     assert.deepEqual(
@@ -263,49 +237,29 @@ test('a watch is live while a group is tracked and from the end of activity unti
     );
 
     assert.deepEqual(state(), [true, 1]);
-
     rows = [];
-
     await jobs.list();
-
     assert.deepEqual(state(), [false, 2]);
-
     // tmux keeps the watch reading without giving it a job
     rows = [{ ...orphanRow(4300), name: 'tmux' }];
-
     await jobs.list();
-
     assert.deepEqual(state(), [false, 2]);
-
     rows = [];
-
     jobs.setActive(false);
-
     assert.deepEqual(state(), [true, 3]);
-
     await jobs.list();
-
     assert.deepEqual(state(), [false, 4]);
-
     // a read already running when activity ends has not looked since
     jobs.setActive(true);
-
     const release = Promise.withResolvers<void>();
     held = release.promise;
     const reading = jobs.list();
-
     jobs.setActive(false);
-
     held = undefined;
-
     release.resolve();
-
     await reading;
-
     assert.deepEqual(state(), [true, 5]);
-
     await jobs.list();
-
     assert.deepEqual(state(), [false, 6]);
   } finally {
     jobs.close();

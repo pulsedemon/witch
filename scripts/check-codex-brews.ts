@@ -112,7 +112,6 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
   );
 
   console.log(`${version} evidence: ${directory}`);
-
   const home = join(directory, 'home');
   const cwd = join(directory, 'project');
   const temporary = join(directory, 'tmp');
@@ -141,9 +140,7 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
   >();
 
   const failure = Promise.withResolvers<never>();
-
   void failure.promise.catch(() => {});
-
   let error: Error | undefined;
   let order = 0;
   let responseId = 0;
@@ -170,7 +167,6 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
 
   const fail = (cause: unknown): void => {
     error ??= cause instanceof Error ? cause : new Error(String(cause));
-
     failure.reject(error);
   };
 
@@ -187,7 +183,6 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
       if (error) throw error;
 
       assert.ok(Date.now() < deadline, `Timeout: ${label}`);
-
       await delay(20);
     }
 
@@ -258,7 +253,6 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
 
   const workerIdentity = (name: Worker) => {
     const identity = workers.get(name);
-
     assert.ok(identity, `${name}: recorded worker identity`);
 
     return identity;
@@ -323,11 +317,8 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
 
   const releaseModel = (key: string): void => {
     const response = held.get(key);
-
     assert.ok(response, `Held model response: ${key}`);
-
     held.delete(key);
-
     final(response, `${key} done`);
   };
 
@@ -424,13 +415,9 @@ const poll = setInterval(() => {
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
 
       const raw: unknown = JSON.parse(Buffer.concat(chunks).toString());
-
       model.push(observe({ request: raw, url: request.url }));
-
       assert.equal(request.url, '/v1/responses');
-
       const body = modelRequest.parse(raw);
-
       assert.equal(body.model, 'gpt-5.4');
 
       if (closing) {
@@ -450,7 +437,6 @@ const poll = setInterval(() => {
       );
 
       const marker = JSON.stringify(input);
-
       assert.ok(marker, 'Scenario marker reached the local provider');
 
       const name = ([...names, 'delta'] as const).find((name) =>
@@ -468,16 +454,12 @@ const poll = setInterval(() => {
               : undefined;
 
       assert.ok(key, `Unexpected model request: ${marker}`);
-
       const step = steps.get(key) ?? 0;
-
       steps.set(key, step + 1);
-
       model.push(observe({ key, step }));
 
       if (name === 'delta') {
         assert.equal(step, 0, 'Delta sends one final response');
-
         final(response, 'delta done');
       } else if (name) {
         if (!key.endsWith('-follow') && step === 0) {
@@ -494,7 +476,6 @@ const poll = setInterval(() => {
           );
 
           assert.ok(!held.has(key));
-
           held.set(key, response);
         }
       } else if (key === 'parent-start') {
@@ -584,10 +565,8 @@ const poll = setInterval(() => {
 
   const rpc = async (method: string, threadId: string): Promise<unknown> => {
     assert.ok(child);
-
     const id = `brew-check-${++requestId}`;
     const result = Promise.withResolvers<unknown>();
-
     pending.set(id, result);
 
     try {
@@ -610,7 +589,6 @@ const poll = setInterval(() => {
       );
 
       assert.equal(coordinator!.snapshot.error, undefined);
-
       assert.deepEqual(coordinator!.snapshot.queue, []);
     });
 
@@ -634,9 +612,7 @@ const poll = setInterval(() => {
       }
 
       const pid = Number(content);
-
       assert.ok(Number.isInteger(pid) && pid > 0, `${name}: worker PID`);
-
       const identity = await identifyProcess(pid);
 
       if (identity) workers.set(name, identity);
@@ -671,9 +647,7 @@ const poll = setInterval(() => {
     );
 
     const address = server.address();
-
     assert.ok(address && typeof address !== 'string');
-
     port = address.port;
 
     await writeFile(
@@ -716,7 +690,6 @@ supports_websockets = false
         });
 
         childClosed = new Promise((resolve) => child!.once('close', resolve));
-
         child.on('error', fail);
 
         child.once('close', () => {
@@ -754,7 +727,6 @@ supports_websockets = false
         createInterface({ input: child.stdout }).on('line', (line) => {
           try {
             const message = JSON.parse(line) as RpcMessage;
-
             trace.push(observe({ direction: 'received', message }));
 
             if (!closing && message.method === 'error')
@@ -789,7 +761,6 @@ supports_websockets = false
         },
         onEvent: (event) => {
           events.push(observe(event));
-
           options.onEvent(event);
         },
       });
@@ -813,23 +784,16 @@ supports_websockets = false
     watching = (async () => {
       while (!closing) {
         await discoverWorkers();
-
         await delay(20);
       }
     })();
 
     void watching.catch(fail);
-
     await check('Coordinator initialization', coordinator.initialize(cwd));
-
     assert.ok(child?.pid);
-
     assert.ok(native, 'Native process identity');
-
     const parent = coordinator.snapshot.native?.id;
-
     assert.ok(parent);
-
     const starting = send('PARENT_START');
 
     await until('Three held child replies and worker identities', () =>
@@ -843,9 +807,7 @@ supports_websockets = false
     );
 
     assert.deepEqual(brewRows(), [], 'No premature brew transcript row');
-
     assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
-
     assert.equal(new Set(names.map((name) => origin(name).threadId)).size, 3);
 
     for (const name of names) {
@@ -876,7 +838,6 @@ supports_websockets = false
       );
 
       descriptions.set(name, terminals.data[0]!.command);
-
       assert.equal(turnEnded(first.threadId, first.turnId), undefined);
     }
 
@@ -895,7 +856,6 @@ supports_websockets = false
       );
 
       admitted.push(name);
-
       listed(...admitted);
 
       const [start] = commands().filter(
@@ -903,7 +863,6 @@ supports_websockets = false
       );
 
       assert.equal(start!.value.status, 'running');
-
       assert.equal(start!.value.description, descriptions.get(name));
 
       assert.ok(
@@ -914,21 +873,13 @@ supports_websockets = false
     }
 
     await starting;
-
     assert.equal(brewRows().length, 3);
-
     checks.push('admission');
-
     const following = send('PARENT_FOLLOW');
-
     await until('Alpha later turn held', () => held.has('alpha-follow'));
-
     const alphaLater = laterTurn('alpha');
-
     assert.ok(await running(workerIdentity('alpha')));
-
     listed(...names);
-
     await writeFile(join(cwd, 'alpha.release'), 'go');
 
     await until('Alpha completion during later turn', () =>
@@ -940,15 +891,10 @@ supports_websockets = false
     );
 
     assert.equal(turnEnded(alphaLater.threadId, alphaLater.turn.id), undefined);
-
     listed('beta', 'gamma');
-
     await following;
-
     checks.push('late completion');
-
     await send('PARENT_SHUTDOWN');
-
     const betaLater = laterTurn('beta');
 
     await until(
@@ -965,9 +911,7 @@ supports_websockets = false
     );
 
     assert.equal(turnEnded(alphaLater.threadId, alphaLater.turn.id), undefined);
-
     assert.equal(turnEnded(betaLater.threadId, betaLater.turn.id), undefined);
-
     assert.ok(await running(workerIdentity('beta')));
 
     assert.deepEqual(
@@ -990,7 +934,6 @@ supports_websockets = false
       );
 
     checks.push('shutdown isolation');
-
     await writeFile(join(cwd, 'beta.release'), 'go');
 
     await until('Beta failed brew during later turn', () =>
@@ -1001,7 +944,6 @@ supports_websockets = false
     );
 
     assert.equal(turnEnded(betaLater.threadId, betaLater.turn.id), undefined);
-
     listed();
 
     for (const name of names) {
@@ -1012,7 +954,6 @@ supports_websockets = false
       );
 
       assert.equal(ends.length, 1, `${name}: one native command end`);
-
       const end = ends[0]!.value;
 
       assert.equal(
@@ -1065,7 +1006,6 @@ supports_websockets = false
     }
 
     releaseModel('alpha-follow');
-
     releaseModel('beta-follow');
 
     await until(
@@ -1076,9 +1016,7 @@ supports_websockets = false
     );
 
     assert.equal(commands().length, 6);
-
     assert.equal(brewRows().length, 6);
-
     checks.push('failure and exact transitions');
   } catch (cause) {
     fail(cause);
@@ -1098,7 +1036,6 @@ supports_websockets = false
 
     await cleanup('Worker discovery', async () => {
       await watching;
-
       await discoverWorkers();
     });
 
@@ -1197,10 +1134,8 @@ supports_websockets = false
 
 try {
   await runScenario('v1');
-
   await runScenario('v2');
 } catch (error) {
   console.error(error);
-
   process.exitCode = 1;
 }

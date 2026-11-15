@@ -45,11 +45,8 @@ async function withGh<T>(
   body: () => Promise<T>,
 ): Promise<T> {
   const bin = join(root, 'bin');
-
   await write(join(bin, 'gh'), `#!/bin/sh\n${script}\n`);
-
   await chmod(join(bin, 'gh'), 0o755);
-
   const previousPath = process.env.PATH;
   process.env.PATH = `${bin}:${previousPath}`;
 
@@ -62,11 +59,8 @@ async function withGh<T>(
 
 test('a head branch still on its remote once GitHub would have deleted it stays', async () => {
   const { checkout, other, tip } = await merged();
-
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
-
   await merge(other, 'feat/x', true);
-
   // close enough to the end of the wait for one more fetch
   const mergedAt = new Date(Date.now() - 14_000).toISOString();
 
@@ -79,15 +73,12 @@ test('a head branch still on its remote once GitHub would have deleted it stays'
   );
 
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
 test("a head branch GitHub deletes after the first fetch goes, even past the deletion window and when reading the repository's settings fails", async () => {
   const { root, origin, checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x', true);
-
   const pack = join(root, 'upload-pack');
   const fetched = join(root, 'fetched');
 
@@ -97,9 +88,7 @@ test("a head branch GitHub deletes after the first fetch goes, even past the del
   );
 
   await execute('chmod', ['+x', pack]);
-
   await git(checkout, 'config', 'remote.origin.uploadpack', pack);
-
   const mergedAt = new Date(Date.now() - 60_000).toISOString();
 
   const result = await withGh(root, failing, () =>
@@ -107,9 +96,7 @@ test("a head branch GitHub deletes after the first fetch goes, even past the del
   );
 
   assert.equal(typeof result === 'object' && result.cleaned, true);
-
   assert.deepEqual(await branches(checkout), ['main']);
-
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
@@ -201,22 +188,18 @@ test("a head branch the repository keeps after merging goes at once, also once d
     },
   ]) {
     const { root, origin, checkout, other, tip } = await merged();
-
     await merge(other, 'feat/x', true);
-
     let script = gh;
 
     if (moved === 'deleted')
       script = `git -C ${quote(origin)} update-ref -d refs/heads/feat/x\n${gh}`;
     else if (moved) {
       await git(other, 'switch', 'feat/x');
-
       await git(other, 'commit', '--allow-empty', '-m', 'after');
 
       // a push that lands while gh answers
       if (moved === 'during') {
         await git(other, 'push', 'origin', 'feat/x:later');
-
         script = `git -C ${quote(origin)} update-ref refs/heads/feat/x refs/heads/later\n${gh}`;
       } else await git(other, 'push', 'origin', 'feat/x');
     }
@@ -257,9 +240,7 @@ test("a head branch the repository keeps after merging goes at once, also once d
 
 test('a head branch that tracks no remote branch stays, and says so', async () => {
   const { checkout, other, tip } = await merged();
-
   await git(checkout, 'branch', '--unset-upstream');
-
   await merge(other, 'feat/x');
 
   assert.deepEqual(
@@ -276,9 +257,7 @@ test('a head branch that tracks no remote branch stays, and says so', async () =
 for (const upstream of ['origin/main', 'main'])
   test(`a head branch tracking ${upstream} stays and names its upstream`, async () => {
     const { checkout, other, tip } = await merged();
-
     await git(checkout, 'branch', `--set-upstream-to=${upstream}`);
-
     await merge(other, 'feat/x');
 
     assert.deepEqual(
@@ -299,15 +278,10 @@ async function older(
   keep = true,
 ) {
   await git(checkout, 'switch', '-c', name, 'main');
-
   await git(checkout, 'commit', '--allow-empty', '-m', name);
-
   const tip = await git(checkout, 'rev-parse', 'HEAD');
-
   await git(checkout, 'push', '-u', 'origin', name);
-
   await merge(other, name, keep);
-
   await git(checkout, 'switch', 'feat/x');
 
   return tip;
@@ -318,29 +292,17 @@ for (const keepHead of [true, false])
     const { root, origin, checkout, other, tip } = await merged();
     const old = await older(checkout, other, 'feat/old');
     const changed = await older(checkout, other, 'feat/changed');
-
     await git(origin, 'update-ref', 'refs/heads/feat/changed', tip);
-
     await git(checkout, 'branch', 'feat/local', 'main');
-
     await git(checkout, 'switch', '-c', 'feat/unmerged', 'main');
-
     await git(checkout, 'commit', '--allow-empty', '-m', 'unmerged');
-
     const unmerged = await git(checkout, 'rev-parse', 'HEAD');
-
     await git(checkout, 'push', '-u', 'origin', 'feat/unmerged');
-
     await git(checkout, 'switch', 'feat/x');
-
     await merge(other, 'feat/x', keepHead);
-
     await git(checkout, 'fetch');
-
     await git(checkout, 'branch', '--track', 'feat/alias', 'origin/main');
-
     const alias = await git(checkout, 'rev-parse', 'feat/alias');
-
     assert.equal(alias, await git(checkout, 'rev-parse', 'origin/main'));
 
     const result = await withGh(root, answering('false\nmain\nfalse\n'), () =>
@@ -356,13 +318,9 @@ for (const keepHead of [true, false])
     ]);
 
     assert.equal(await git(checkout, 'rev-parse', 'feat/changed'), changed);
-
     assert.equal(await git(checkout, 'rev-parse', 'feat/alias'), alias);
-
     assert.equal(await git(checkout, 'rev-parse', 'feat/unmerged'), unmerged);
-
     assert.equal(await git(origin, 'rev-parse', 'feat/old'), old);
-
     assert.equal(await git(origin, 'rev-parse', 'feat/changed'), tip);
 
     await assert.rejects(
@@ -383,28 +341,17 @@ test('retained pruning preserves free default and base branches plus a branch he
   );
 
   await older(checkout, other, 'feat/old');
-
   const held = await older(checkout, other, 'feat/held');
   const holder = join(root, 'holder');
-
   await git(checkout, 'worktree', 'add', holder, 'feat/held');
-
   await merge(other, 'feat/x', true);
-
   await git(other, 'push', 'origin', 'main:release');
-
   await git(checkout, 'fetch');
-
   await git(checkout, 'branch', '--track', 'release', 'origin/release');
-
   await git(launcher, 'merge', '--ff-only', 'origin/main');
-
   await git(launcher, 'switch', '--detach');
-
   const main = await git(checkout, 'rev-parse', 'main');
-
   assert.equal(main, await git(checkout, 'rev-parse', 'origin/main'));
-
   const release = await git(checkout, 'rev-parse', 'release');
 
   const result = await withGh(root, answering('false\nmain\nfalse\n'), () =>
@@ -412,13 +359,9 @@ test('retained pruning preserves free default and base branches plus a branch he
   );
 
   assert.deepEqual(await branches(checkout), ['feat/held', 'main', 'release']);
-
   assert.equal(await git(checkout, 'rev-parse', 'main'), main);
-
   assert.equal(await git(checkout, 'rev-parse', 'release'), release);
-
   assert.equal(await git(holder, 'rev-parse', 'HEAD'), held);
-
   assert.equal(await git(origin, 'rev-parse', 'feat/held'), held);
 
   assert.deepEqual(result, {
@@ -432,17 +375,11 @@ test('retained pruning refreshes the head remote even when the base uses another
   const old = await older(checkout, other, 'feat/old');
   const foreign = await older(checkout, other, 'feat/foreign');
   const changed = await older(checkout, other, 'feat/changed');
-
   await merge(other, 'feat/x');
-
   const upstream = join(root, 'upstream.git');
-
   await git(root, 'clone', '--bare', origin, upstream);
-
   await git(checkout, 'remote', 'add', 'upstream', upstream);
-
   await git(checkout, 'fetch', 'upstream');
-
   await git(checkout, 'branch', '--set-upstream-to=upstream/main', 'main');
 
   await git(
@@ -465,13 +402,9 @@ test('retained pruning refreshes the head remote even when the base uses another
   ]);
 
   assert.equal(await git(checkout, 'rev-parse', 'feat/foreign'), foreign);
-
   assert.equal(await git(checkout, 'rev-parse', 'feat/changed'), changed);
-
   assert.equal(await git(checkout, 'rev-parse', 'origin/feat/changed'), tip);
-
   assert.equal(await git(origin, 'rev-parse', 'feat/old'), old);
-
   assert.ok(typeof result === 'object' && result.cleaned);
 });
 
@@ -497,7 +430,6 @@ process.exit(run(args).status ?? 1);
   );
 
   await chmod(join(bin, 'git'), 0o755);
-
   process.env.PATH = `${bin}:${previousPath}`;
 
   try {
@@ -510,15 +442,10 @@ process.exit(run(args).status ?? 1);
 test('a retained tip changed immediately before deletion is preserved with its config', async () => {
   const { root, checkout, other, tip } = await merged();
   const old = await older(checkout, other, 'feat/old');
-
   await git(checkout, 'switch', '-c', 'unmerged', 'main');
-
   await git(checkout, 'commit', '--allow-empty', '-m', 'unmerged');
-
   const changed = await git(checkout, 'rev-parse', 'HEAD');
-
   await git(checkout, 'switch', 'feat/x');
-
   await merge(other, 'feat/x');
 
   const result = await withGit(
@@ -536,7 +463,6 @@ if (args[0] === 'update-ref' && args[1] === '-d' && args[2] === 'refs/heads/feat
   );
 
   assert.notEqual(changed, old);
-
   assert.equal(await git(checkout, 'rev-parse', 'feat/old'), changed);
 
   assert.equal(
@@ -545,18 +471,14 @@ if (args[0] === 'update-ref' && args[1] === '-d' && args[2] === 'refs/heads/feat
   );
 
   assert.ok(typeof result === 'object' && result.cleaned);
-
   assert.match(result.text, /branch feat\/old stayed:.*update-ref/s);
-
   assert.deepEqual(await branches(checkout), ['feat/old', 'main', 'unmerged']);
 });
 
 test('a worktree that starts holding a retained candidate after enumeration keeps its branch', async () => {
   const { root, checkout, other, tip } = await merged();
   const old = await older(checkout, other, 'feat/old');
-
   await merge(other, 'feat/x');
-
   const holder = join(root, 'holder');
   const scans = join(root, 'scans');
 
@@ -583,7 +505,6 @@ if (args[0] === 'for-each-ref' && args.includes('--merged') && args.at(-1) === '
   );
 
   assert.deepEqual(await branches(checkout), ['feat/old', 'main']);
-
   assert.equal(await git(holder, 'rev-parse', 'HEAD'), old);
 });
 
@@ -591,9 +512,7 @@ for (const failure of ['policy', 'fetch', 'disabled'])
   test(`${failure} in retained pruning leaves retained refs and still deletes gone refs`, async () => {
     const { root, checkout, other, tip } = await merged();
     const old = await older(checkout, other, 'feat/old');
-
     await older(checkout, other, 'feat/gone', false);
-
     await merge(other, 'feat/x');
 
     const run = () =>
@@ -620,11 +539,8 @@ if (args.at(-2) === 'fetch' && args.at(-1) === 'origin') {
         : await run();
 
     assert.deepEqual(await branches(checkout), ['feat/old', 'main']);
-
     assert.equal(await git(checkout, 'rev-parse', 'feat/old'), old);
-
     assert.ok(typeof result === 'object' && result.cleaned);
-
     assert.match(result.text, /deleted branches feat\/x and feat\/gone/);
 
     if (failure === 'disabled')
@@ -646,9 +562,7 @@ if (args.at(-2) === 'fetch' && args.at(-1) === 'origin') {
 
 test('cleanup without retained candidates needs no policy lookup or extra fetch', async () => {
   const { root, checkout, other, tip } = await merged();
-
   await merge(other, 'feat/x');
-
   const called = join(root, 'called');
 
   const result = await withGit(
@@ -678,12 +592,9 @@ for (const repoint of [false, true])
     const { root, origin, checkout, other, tip } = await merged();
     const old = await older(checkout, other, 'feat/old');
     const changed = await older(checkout, other, 'feat/changed');
-
     await merge(other, 'feat/x');
-
     const entered = join(root, 'entered');
     const hooks = join(root, 'hooks');
-
     await git(checkout, 'config', 'core.hooksPath', hooks);
 
     await write(
@@ -692,7 +603,6 @@ for (const repoint of [false, true])
     );
 
     await chmod(join(hooks, 'post-merge'), 0o755);
-
     const controller = new AbortController();
     const progress: MergeCleanup = {};
 
@@ -714,14 +624,11 @@ for (const repoint of [false, true])
     );
 
     await git(checkout, 'config', '--unset', 'core.hooksPath');
-
     assert.deepEqual(progress.remote, { name: 'origin', url: origin });
 
     if (repoint) {
       const replacement = join(root, 'replacement.git');
-
       await git(root, 'clone', '--bare', origin, replacement);
-
       await git(checkout, 'remote', 'set-url', 'origin', replacement);
     } else await git(origin, 'update-ref', 'refs/heads/feat/changed', tip);
 
@@ -730,9 +637,7 @@ for (const repoint of [false, true])
     );
 
     assert.equal(await git(checkout, 'rev-parse', 'feat/changed'), changed);
-
     assert.equal(await git(origin, 'rev-parse', 'feat/old'), old);
-
     assert.ok(typeof result === 'object' && result.cleaned);
 
     if (repoint) {
@@ -745,7 +650,6 @@ for (const repoint of [false, true])
       assert.match(result.text, /origin's URL changed during cleanup/);
     } else {
       assert.deepEqual(await branches(checkout), ['feat/changed', 'main']);
-
       assert.equal(result.text.match(/feat\/old/g)?.length, 1);
     }
 
@@ -759,9 +663,7 @@ for (const repoint of [false, true])
 
 test('a config read failure after retained deletion reports the deleted ref and the surviving config', async () => {
   const { root, checkout, other, tip } = await merged();
-
   await older(checkout, other, 'feat/old');
-
   await merge(other, 'feat/x');
 
   const result = await withGit(
@@ -786,7 +688,6 @@ if (args[0] === 'config' && args[1] === '--get-regexp' && args[2].includes('feat
   );
 
   assert.ok(typeof result === 'object' && result.cleaned);
-
   assert.match(result.text, /deleted branches feat\/x and feat\/old/);
 
   assert.match(
@@ -798,11 +699,8 @@ if (args[0] === 'config' && args[1] === '--get-regexp' && args[2].includes('feat
 test('retained pruning rejects a remote repointed during the initial head policy lookup', async () => {
   const { root, origin, checkout, other, tip } = await merged();
   const old = await older(checkout, other, 'feat/old');
-
   await merge(other, 'feat/x', true);
-
   const replacement = join(root, 'replacement.git');
-
   await git(root, 'clone', '--bare', origin, replacement);
 
   const result = await withGh(
@@ -812,26 +710,20 @@ test('retained pruning rejects a remote repointed during the initial head policy
   );
 
   assert.deepEqual(await branches(checkout), ['feat/old', 'main']);
-
   assert.equal(await git(checkout, 'rev-parse', 'feat/old'), old);
-
   assert.ok(typeof result === 'object' && result.cleaned);
-
   assert.match(result.text, /origin's URL changed during cleanup/);
 });
 
 for (const during of ['gone deletion', 'retained config removal'])
   test(`resuming after interruption during ${during} finishes config cleanup without stale failure notices`, async () => {
     const { root, checkout, other, tip } = await merged();
-
     await older(checkout, other, 'feat/old');
-
     const policyFailure = during === 'gone deletion';
 
     if (policyFailure) await older(checkout, other, 'feat/gone', false);
 
     await merge(other, 'feat/x');
-
     const entered = join(root, 'entered');
     const queried = join(root, 'queried');
     const progress: MergeCleanup = {};
@@ -886,7 +778,6 @@ if (target && !existsSync(${JSON.stringify(entered)})) {
     );
 
     assert.ok(typeof result === 'object' && result.cleaned);
-
     assert.match(result.text, /deleted branches feat\/x.*feat\/old/);
 
     assert.doesNotMatch(
@@ -900,9 +791,7 @@ if (target && !existsSync(${JSON.stringify(entered)})) {
 test('a worktree acquired during the upstream-tip read keeps its branch and config', async () => {
   const { root, checkout, other, tip } = await merged();
   const old = await older(checkout, other, 'feat/old');
-
   await merge(other, 'feat/x');
-
   const holder = join(root, 'holder');
 
   await withGit(
@@ -920,7 +809,6 @@ if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'refs/remot
   );
 
   assert.deepEqual(await branches(checkout), ['feat/old', 'main']);
-
   assert.equal(await git(holder, 'rev-parse', 'HEAD'), old);
 
   assert.equal(
@@ -938,38 +826,23 @@ for (const mode of ['bisect', 'rebase', 'apply', 'update-refs'])
     );
 
     const base = await git(checkout, 'rev-parse', 'main');
-
     await older(checkout, other, 'feat/old');
-
     await git(checkout, 'switch', 'feat/old');
-
     await git(checkout, 'commit', '--allow-empty', '-m', 'middle');
-
     await write(join(checkout, 'shared.txt'), 'old\n');
-
     await git(checkout, 'add', 'shared.txt');
-
     await git(checkout, 'commit', '-m', 'last');
-
     const old = await git(checkout, 'rev-parse', 'HEAD');
-
     await git(checkout, 'push');
-
     await merge(other, 'feat/old', true);
-
     await git(checkout, 'switch', 'feat/x');
-
     await merge(other, 'feat/x');
 
     if (mode === 'apply') {
       await git(checkout, 'switch', '-c', 'target', base);
-
       await write(join(checkout, 'shared.txt'), 'target\n');
-
       await git(checkout, 'add', 'shared.txt');
-
       await git(checkout, 'commit', '-m', 'target');
-
       await git(checkout, 'switch', 'feat/x');
     }
 
@@ -1039,9 +912,7 @@ for (const mode of ['bisect', 'rebase', 'apply', 'update-refs'])
     );
 
     assert.ok(typeof result === 'object' && result.cleaned);
-
     assert.equal(await git(checkout, 'rev-parse', 'feat/old'), old);
-
     assert.equal(await git(origin, 'rev-parse', 'feat/old'), old);
 
     assert.equal(

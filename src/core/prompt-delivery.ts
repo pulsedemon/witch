@@ -120,20 +120,13 @@ export class PromptDelivery {
     // one sent during an operation runs after it only as drainAfter would, even when its steer is refused once it has ended
     const during = this.host.snapshot().phase !== 'idle';
     this.automaticHeld = false;
-
     this.copilot.resume();
-
     this.repair.resume();
-
     // counted before the pause releases, so the automatic work its release wakes can't run ahead of this prompt
     this.admissions++;
-
     this.pauses.resumeForPrompt();
-
     const arriving = { prompt };
-
     this.arriving.push(arriving);
-
     const record = this.host.record();
 
     // the composer clears once this returns, so the prompt leaves the draft in the same save
@@ -164,7 +157,6 @@ export class PromptDelivery {
         // a failed admission loses its prompt here as it does live
         if (this.arriving.includes(arriving)) {
           this.arriving = without(this.arriving, [arriving]);
-
           this.saveQueue();
         }
       });
@@ -189,7 +181,6 @@ export class PromptDelivery {
 
     if (this.restoredQueue) {
       this.restoredQueue = false;
-
       this.drainAfter(true);
     }
 
@@ -212,16 +203,13 @@ export class PromptDelivery {
 
   holdPromptDelivery(compacting?: () => boolean): () => void {
     const hold = { compacting };
-
     this.deliveryHolds.add(hold);
-
     this.host.publish({});
 
     return () => {
       if (!this.deliveryHolds.delete(hold)) return;
 
       this.host.publish({});
-
       this.drainAfter(true);
     };
   }
@@ -320,7 +308,6 @@ export class PromptDelivery {
       return;
 
     const draining = this.host.replied() ? this.steerQueued() : this.drain();
-
     draining.catch((error: unknown) => this.host.report(error));
   }
 
@@ -345,9 +332,7 @@ export class PromptDelivery {
     if (this.draining) return;
 
     const draining = (this.draining = Promise.withResolvers<void>());
-
     this.runtimes.beginStep();
-
     // an admission that didn't run isn't retried in this drain until its candidate changes. repairs need no entry:
     // one that doesn't run either recorded its key or found its candidate changed
     const tried = new Set<string>();
@@ -374,13 +359,11 @@ export class PromptDelivery {
 
           if (this.answerReady() && !tried.has(answers)) {
             tried.add(answers);
-
             ran = await this.runAutomatic(() => this.turns.answerPeers());
           } else if (this.repair.ready())
             ran = await this.runAutomatic(() => this.repair.run());
           else if (!tried.has('copilot') && this.copilot.ready()) {
             tried.add('copilot');
-
             ran = await this.runAutomatic(() => this.copilot.run());
           } else return;
 
@@ -401,11 +384,8 @@ export class PromptDelivery {
         );
 
         const taken = batch.map((prompt) => ({ prompt }));
-
         this.taken.push(...taken);
-
         this.host.publish({ queue: queue.slice(batch.length) });
-
         let delivered = false;
         let result = undefined as TurnResult | undefined;
 
@@ -416,7 +396,6 @@ export class PromptDelivery {
               // the save after the row carries the queue without the batch
               showing: () => {
                 this.taken = without(this.taken, taken);
-
                 this.recordQueue();
               },
               unsent: () => this.taken.unshift(...taken),
@@ -454,7 +433,6 @@ export class PromptDelivery {
       }
     } finally {
       this.draining = undefined;
-
       draining.resolve();
 
       // a repair that became ready while this drain ran had its wake dropped
@@ -505,7 +483,6 @@ export class PromptDelivery {
 
       const followers = joining(this.host.snapshot().queue);
       const taken = followers.map((prompt) => ({ prompt }));
-
       this.taken.push(...taken);
 
       this.host.publish({
@@ -523,7 +500,6 @@ export class PromptDelivery {
           if (!(await this.steer(prompt))) return false;
 
           this.taken = without(this.taken, [follower]);
-
           this.saveQueue();
 
           return true;

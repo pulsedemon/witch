@@ -43,7 +43,6 @@ export function useToolFocus(conversation: string | undefined) {
 
   useEffect(() => {
     setSelection(undefined);
-
     setFullDiffs(new Set());
   }, [conversation]);
 
@@ -84,7 +83,6 @@ export function useToolFocus(conversation: string | undefined) {
 
       if (next !== current && item) {
         setSelection(item.id);
-
         scrollTo(item.id);
       }
 
@@ -101,7 +99,6 @@ export function useToolFocus(conversation: string | undefined) {
         });
 
         setExpanded((previous) => new Map(previous).set(item.id, true));
-
         scrollTo(item.id);
       }
 

@@ -23,7 +23,6 @@ class Terminal extends EventEmitter {
   resize(columns: number, rows = this.rows) {
     this.columns = columns;
     this.rows = rows;
-
     this.emit('resize');
   }
   write = (frame: string) => {
@@ -38,9 +37,7 @@ class Keys extends EventEmitter {
   private data: string | null = null;
   write(data: string) {
     this.data = data;
-
     this.emit('readable');
-
     this.emit('data', data);
   }
   read = () => {
@@ -187,16 +184,13 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     },
     holdPromptDelivery: () => {
       holds++;
-
       coordinator.publish({ commandsPending: true });
-
       let released = false;
 
       return () => {
         if (released) return;
 
         released = true;
-
         coordinator.publish({ commandsPending: --holds > 0 });
       };
     },
@@ -204,9 +198,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     draft: (id: string, text: string) => drafts.push([id, text]),
     unqueue: (draft: string) => {
       calls.push(['unqueue', draft]);
-
       const { queue } = coordinator.snapshot;
-
       coordinator.publish({ queue: [] });
 
       return [...queue];
@@ -273,11 +265,8 @@ export async function openCommand(
   text: string,
 ) {
   ui.stdin.write(command);
-
   await delay(30);
-
   ui.stdin.write(ENTER);
-
   await until(`${command} to show ${text}`, () => ui.text().includes(text));
 }
 
@@ -301,9 +290,7 @@ export const approval = {
 /** opens the command picker and waits for it. */
 export async function commands(ui: ReturnType<typeof show>) {
   ui.stdin.write('\u0010');
-
   await until('the command picker', () => ui.text().includes('Commands'));
-
   await delay(30);
 }
 
@@ -322,8 +309,6 @@ export function drag(
   to: [number, number],
 ) {
   ui.stdin.write(left('press', ...from));
-
   ui.stdin.write(left('drag', ...to));
-
   ui.stdin.write(left('release', ...to));
 }

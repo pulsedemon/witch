@@ -6,22 +6,16 @@ export function png(width: number, height: number): Buffer {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type), data]);
     const length = Buffer.alloc(4);
-
     length.writeUInt32BE(data.length);
-
     const crc = Buffer.alloc(4);
-
     crc.writeUInt32BE(crc32(body));
 
     return Buffer.concat([length, body, crc]);
   };
 
   const header = Buffer.alloc(13);
-
   header.writeUInt32BE(width, 0);
-
   header.writeUInt32BE(height, 4);
-
   header[8] = 8;
   const pixels = randomBytes((width + 1) * height);
 

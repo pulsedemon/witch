@@ -33,9 +33,7 @@ for (const race of ['source', 'parent', 'destination'])
       });
 
       await rename(f.at('w'), f.at('c'));
-
       const report = await f.repair('c/main');
-
       assert.equal((await f.saved('live')).raw.cwd, f.at(cwd));
 
       assert.ok(
@@ -69,7 +67,6 @@ test('a destination replaced between two conversations keeps the later one where
     }
 
     await rename(f.at('w'), f.at('c'));
-
     await f.repair('c/main');
 
     for (const index of [0, 1])
@@ -94,25 +91,15 @@ for (const field of ['process', 'usageProcess', 'answerProcess', 'shell'])
 
     try {
       const identity = await identifyProcess(child.pid!);
-
       await f.save('live', 'w/main', { [field]: identity });
-
       const before = (await f.saved('live')).mtimes;
-
       await rename(f.at('w'), f.at('c'));
-
       const report = await f.repair('c/main');
-
       assert.deepEqual(report.blocked, []);
-
       await exited;
-
       const after = await f.saved('live');
-
       assert.equal(after.raw.cwd, f.at('c/main'));
-
       assert.deepEqual(after.raw[field], identity);
-
       assert.deepEqual(after.mtimes, before);
     } finally {
       child.kill();
@@ -124,7 +111,6 @@ test('a left process that refuses to stop blocks repair only after the others st
 
   const start = async (script: string) => {
     const child = spawn(process.execPath, ['-e', script]);
-
     await once(child.stdout, 'data');
 
     return child;
@@ -147,17 +133,12 @@ test('a left process that refuses to stop blocks repair only after the others st
     });
 
     await rename(f.at('w'), f.at('c'));
-
     const report = await f.repair('c/main');
-
     assert.match(report.blocked[0]!.reason, /has not stopped/);
-
     assert.equal((await f.saved('stuck')).raw.cwd, f.at('w/main'));
-
     await within(exited, 1000, 'the usage process stopping');
   } finally {
     stubborn.kill('SIGKILL');
-
     usage.kill('SIGKILL');
   }
 });
@@ -170,8 +151,6 @@ test('a live pid with a different start time is left running', async () => {
   });
 
   await rename(f.at('w'), f.at('c'));
-
   await f.repair('c/main');
-
   assert.equal((await f.saved('reused')).raw.cwd, f.at('c/main'));
 });

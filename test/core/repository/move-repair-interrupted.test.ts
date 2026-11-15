@@ -42,9 +42,7 @@ async function stopped(
 ) {
   const root = await scratch('witch-interrupted-');
   const at = (path: string) => join(root, path);
-
   await mkdir(at(home), { recursive: true });
-
   const store = await StateStore.open(at('state'));
   const memory = await seededMemory(at('state/memory.git'));
   const repair = (cwd: string) => repairMoves(store, memory, at(cwd));
@@ -67,11 +65,8 @@ async function stopped(
     await files.append({ id, kind: 'tool', cwd: at(path), text: '' });
 
   await files.close();
-
   await repair(home);
-
   await move(at);
-
   let written = false;
 
   fileWrites.before = (file) => {
@@ -85,7 +80,6 @@ async function stopped(
 
   try {
     const report = await repair(away);
-
     assert.ok(report.blocked.some(({ reason }) => /stopped/.test(reason)));
   } finally {
     fileWrites.before = undefined;
@@ -119,11 +113,8 @@ for (const stop of ['before', 'after'] as const)
       if (again) await rename(at('b'), at('c'));
 
       await repair(final);
-
       const { record, rows } = await saved();
-
       assert.equal(record.cwd, at(final));
-
       assert.equal(record.historyMove, undefined);
 
       assert.deepEqual(rows, [
@@ -134,15 +125,10 @@ for (const stop of ['before', 'after'] as const)
 
 test('a repair stopped before its history write leaves a tool row at the path it moved to when the directory moves back', async () => {
   const { at, repair, saved } = await stopped('before', [['ran', 'b']]);
-
   await rename(at('b'), at('a'));
-
   await repair('a');
-
   const { record, rows } = await saved();
-
   assert.equal(record.cwd, at('a'));
-
   assert.equal(record.historyMove, undefined);
 
   assert.deepEqual(rows, [
@@ -157,19 +143,12 @@ test('a conversation opened before its stopped repair finishes keeps its new row
   ]);
 
   const files = await store.claim('a');
-
   await files.append({ id: 'later', kind: 'user', cwd: at('b'), text: 'hi' });
-
   await files.close();
-
   await rename(at('b'), at('c'));
-
   await repair('c');
-
   const { record, rows } = await saved();
-
   assert.equal(record.cwd, at('c'));
-
   assert.equal(record.historyMove, undefined);
 
   assert.deepEqual(rows, [
@@ -189,9 +168,7 @@ for (const finish of ['the next repair', 'opening the conversation'])
         away: 'p',
         move: async (at) => {
           await rename(at('p/child'), at('x'));
-
           await rm(at('p'), { recursive: true });
-
           await rename(at('x'), at('p'));
         },
       },
@@ -201,9 +178,7 @@ for (const finish of ['the next repair', 'opening the conversation'])
     else await (await store.claim('a')).close();
 
     const { record, rows } = await saved();
-
     assert.equal(record.cwd, at('p'));
-
     assert.equal(record.historyMove, undefined);
 
     assert.deepEqual(rows, [

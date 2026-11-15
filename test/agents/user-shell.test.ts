@@ -48,11 +48,8 @@ test("a command runs in its directory through the user's shell without a login o
 
   const shell = await within(result, 3000, 'the command');
   const lines = shell.output.split('\n');
-
   assert.ok(lines.includes(await realpath(cwd)));
-
   assert.ok(lines.includes('out'));
-
   assert.ok(lines.includes('err'));
 
   assert.ok(
@@ -63,7 +60,6 @@ test("a command runs in its directory through the user's shell without a login o
   );
 
   assert.equal(shell.code, 3);
-
   assert.equal(shell.interrupted, false);
 });
 
@@ -88,7 +84,6 @@ test("an abort kills the command's whole process group and reports it interrupte
       );
 
       assert.equal(shell.interrupted, true);
-
       assert.doesNotMatch(shell.output, /after/);
     }
 
@@ -105,13 +100,9 @@ test('a command whose background child holds its output ends when the shell exit
   const cwd = await scratch('witch-shell-');
   const { chunks, result } = run('echo parent; (sleep 0.3; echo late) &', cwd);
   const shell = await within(result, 2000, 'the command');
-
   assert.match(shell.output, /parent\n$/);
-
   assert.equal(shell.code, 0);
-
   await delay(600);
-
   assert.doesNotMatch(chunks.join(''), /late/);
 });
 
@@ -165,13 +156,9 @@ test('output past 1 MiB is cut once with a note, and the command still runs to i
   const { chunks, result } = run("head -c 2000000 /dev/zero | tr '\\0' a", cwd);
   const shell = await within(result, 5000, 'the command');
   const note = '\n[output past 1 MiB cut]\n';
-
   assert.equal(shell.output.length, (1 << 20) + note.length);
-
   assert.ok(shell.output.endsWith(note));
-
   assert.equal(shell.code, 0);
-
   assert.equal(chunks.join(''), shell.output);
 });
 

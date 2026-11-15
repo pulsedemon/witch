@@ -75,7 +75,6 @@ export class ClaudeCompaction {
 
   finish(result: TurnResult): void {
     this.result ??= result;
-
     this.finished.resolve(this.result);
   }
 }

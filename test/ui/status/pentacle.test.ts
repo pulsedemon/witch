@@ -16,8 +16,6 @@ const span = (rows: string[]): [number, number] => {
 
 test('face on, the pentacle fills its cells, and a quarter turn about its upright axis narrows it to the middle', () => {
   assert.deepEqual(span(drawn(0)), [0, 21]);
-
   const [left, right] = span(drawn(Math.PI / 2));
-
   assert.ok(left >= 8 && right <= 13, `${left}..${right}`);
 });

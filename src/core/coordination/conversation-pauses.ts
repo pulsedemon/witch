@@ -134,7 +134,6 @@ export class ConversationPauses {
     if (fresh.length && paused.stopping) paused.again = true;
     else if (fresh.length) {
       paused.stopping = true;
-
       void this.stopForPause(paused);
     }
 
@@ -147,7 +146,6 @@ export class ConversationPauses {
 
     try {
       await this.host.stop();
-
       await task?.catch(() => {});
     } catch (error) {
       if (this.paused !== paused || this.host.closed()) return;
@@ -168,7 +166,6 @@ export class ConversationPauses {
     }
 
     paused.stopping = false;
-
     this.confirm();
   }
 
@@ -190,7 +187,6 @@ export class ConversationPauses {
         !paused.confirming.has(pause.id)
       ) {
         paused.confirming.add(pause.id);
-
         this.host.coordination()?.confirmPause(paused.conversation, pause.id);
       }
     }
@@ -203,9 +199,7 @@ export class ConversationPauses {
     if (!paused) return;
 
     this.paused = undefined;
-
     clearTimeout(paused.retry);
-
     paused.release();
 
     void (this.host.draining() ?? Promise.resolve()).then(() =>

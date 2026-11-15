@@ -30,5 +30,4 @@ await assert.rejects(
 );
 
 assert.equal(spawnError?.code, 'ENOENT');
-
 process.stdout.write('rejected\n');

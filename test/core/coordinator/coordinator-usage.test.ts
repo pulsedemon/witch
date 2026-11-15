@@ -14,9 +14,7 @@ test('usage process registration preserves the main identity and ignores reports
     const id = coordinator.snapshot.conversation!.id;
     const before = await readRecord(root, id);
     const report = a.sessions[0]!.options.onUsageProcess!;
-
     await report(helper.pid);
-
     const registered = await readRecord(root, id);
 
     assert.deepEqual(
@@ -25,29 +23,18 @@ test('usage process registration preserves the main identity and ignores reports
     );
 
     assert.deepEqual(registered.process, before.process);
-
     assert.deepEqual(tracked, []);
-
     await report(undefined);
-
     const cleared = await readRecord(root, id);
-
     assert.equal(cleared.usageProcess, undefined);
-
     assert.deepEqual(cleared.process, before.process);
-
     await coordinator.close();
-
     await report(helper.pid);
-
     assert.equal((await readRecord(root, id)).usageProcess, undefined);
   } finally {
     const closed = once(helper, 'close');
-
     helper.kill('SIGKILL');
-
     await closed;
-
     await coordinator.close();
   }
 });
@@ -66,7 +53,6 @@ test('connect reads the other runtime, and each turn carries the account usage w
     );
 
     assert.equal(f.b.accountReads.length, 1);
-
     assert.equal(f.b.sessions.length, 0);
 
     f.a.turnUsage = {
@@ -76,11 +62,8 @@ test('connect reads the other runtime, and each turn carries the account usage w
     };
 
     await f.coordinator.send('First');
-
     const first = f.a.inputs.at(-1)!.context!;
-
     assert.match(first, /You are running inside Witch/);
-
     assert.match(first, /\nAccount usage: b 7D 40%\. /);
 
     assert.deepEqual(
@@ -89,13 +72,9 @@ test('connect reads the other runtime, and each turn carries the account usage w
     );
 
     await f.coordinator.send('Second');
-
     const second = f.a.inputs.at(-1)!.context!;
-
     assert.doesNotMatch(second, /You are running inside Witch/);
-
     assert.match(second, /^Account usage: a 5H 30%; b 7D 40%\. /m);
-
     assert.equal(f.b.accountReads.length, 1);
   } finally {
     await f.coordinator.close();
@@ -118,9 +97,7 @@ test('new credit observations reach each next turn without resending fixed instr
     };
 
     f.coordinator.accountUsage.report('a', account);
-
     await f.coordinator.send('First');
-
     assert.match(f.a.inputs.at(-1)!.context!, /7D 100%, 12345\.678900 credits/);
 
     f.coordinator.accountUsage.report('a', {
@@ -133,11 +110,8 @@ test('new credit observations reach each next turn without resending fixed instr
     });
 
     await f.coordinator.send('Second');
-
     const context = f.a.inputs.at(-1)!.context!;
-
     assert.match(context, /7D 100%, 9\.876500 credits/);
-
     assert.doesNotMatch(context, /12345\.678900|You are running inside Witch/);
   } finally {
     await f.coordinator.close();

@@ -13,9 +13,7 @@ import { unitFixture, record } from '../fixtures/coordinator.js';
 
 test('startup reports missing conversation directories without blocking the initial prompt', async () => {
   const f = await unitFixture();
-
   await f.coordinator.close();
-
   const missing = join(f.root, 'missing checkout');
 
   for (const id of ['old-one', 'old-two'])
@@ -48,13 +46,9 @@ test('startup reports missing conversation directories without blocking the init
     );
 
     assert.equal(notices.length, 1);
-
     assert.ok(notices[0]!.text.includes(missing));
-
     assert.match(notices[0]!.text, /2 conversation\(s\)/);
-
     assert.ok(!notices[0]!.text.includes(f.project));
-
     assert.equal(coordinator.snapshot.error, undefined);
 
     assert.equal(
@@ -71,7 +65,6 @@ test('startup reports missing conversation directories without blocking the init
     assert.equal(f.a.inputs.length, 1);
   } finally {
     ui.unmount();
-
     await coordinator.close();
   }
 });
@@ -97,7 +90,6 @@ for (const unreadable of [false, true]) {
     const original = await readFile(history);
     const modified = (await stat(history)).mtimeMs;
     const parent = join(f.root, 'old parent');
-
     await mkdir(parent);
 
     await (
@@ -130,7 +122,6 @@ for (const unreadable of [false, true]) {
         );
 
         assert.equal(coordinator.snapshot.error, undefined);
-
         assert.equal(f.a.inputs.length, 1);
 
         assert.deepEqual(
@@ -153,7 +144,6 @@ for (const unreadable of [false, true]) {
         );
       } finally {
         ui.unmount();
-
         await coordinator.close();
       }
 
@@ -161,11 +151,8 @@ for (const unreadable of [false, true]) {
 
       try {
         assert.equal(continued.snapshot.conversation!.id, previous);
-
         assert.deepEqual(await readFile(history), original);
-
         assert.equal((await stat(history)).mtimeMs, modified);
-
         assert.equal(f.a.inputs.length, 1);
       } finally {
         await continued.close();
@@ -193,30 +180,19 @@ for (const cleanup of [false, true]) {
 
       if (cleanup) {
         coordinator.publish({ phase: 'cleaning' });
-
         await until('cleanup', () => ui.text().startsWith('CLEANING'));
-
         await delay(60);
-
         assert.deepEqual(calls, []);
-
         assert.ok(!ui.text().includes('say hello'));
       }
 
       coordinator.publish({ phase: 'idle' });
-
       await until('the send', () => calls.some(([name]) => name === 'send'));
-
       assert.ok(ui.text().includes('Ask the agent, or type /help'));
-
       assert.ok(!ui.text().includes('say hello'));
-
       coordinator.publish({ phase: 'running' });
-
       await delay(60);
-
       coordinator.publish({ phase: 'idle' });
-
       await delay(60);
 
       assert.deepEqual(
@@ -242,17 +218,11 @@ test('a prompt sent while the load connects goes after the initial prompt, which
 
   try {
     await delay(60);
-
     ui.stdin.write('and then this');
-
     await delay(30);
-
     ui.stdin.write('\r');
-
     await until('the sends', () => calls.length > 1);
-
     coordinator.publish({ phase: 'running' });
-
     await delay(60);
 
     assert.deepEqual(calls, [
@@ -303,7 +273,6 @@ for (const [name, update, focusTools] of [
 
       if (focusTools) {
         ui.stdin.write('\t');
-
         await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
       }
 
@@ -311,7 +280,6 @@ for (const [name, update, focusTools] of [
 
       if (update.phase === 'recovery') {
         await delay(60);
-
         coordinator.publish({ phase: 'idle', recovery: undefined });
       }
 
@@ -344,9 +312,7 @@ test('an initial prompt that comes back to the composer goes ahead of a draft ty
 
   try {
     await delay(60);
-
     ui.stdin.write('typed');
-
     await until('the draft', () => ui.text().includes('┃ typed'));
 
     coordinator.publish({
@@ -355,9 +321,7 @@ test('an initial prompt that comes back to the composer goes ahead of a draft ty
     });
 
     await until('the seeded composer', () => ui.text().includes('┃ say hello'));
-
     const text = ui.text();
-
     assert.ok(text.indexOf('┃ say hello') < text.indexOf('┃ typed'));
   } finally {
     ui.unmount();
@@ -375,14 +339,11 @@ test('queued prompts left at idle or in an error come back ahead of the draft, a
 
     try {
       await delay(60);
-
       ui.stdin.write('newer');
-
       await until('the draft', () => ui.text().includes('┃ newer'));
 
       if (covered) {
         ui.stdin.write('\u0010');
-
         await until('the picker', () => ui.text().includes('Commands'));
       }
 
@@ -397,9 +358,7 @@ test('queued prompts left at idle or in an error come back ahead of the draft, a
       if (covered) ui.stdin.write('\u001b');
 
       await until('the queued prompt', () => ui.text().includes('┃ hello'));
-
       assert.ok(ui.text().indexOf('┃ hello') < ui.text().indexOf('┃ newer'));
-
       assert.deepEqual(calls, [['unqueue', 'hello\nnewer']]);
     } finally {
       ui.unmount();
@@ -413,9 +372,7 @@ test('a reopened conversation puts its saved queue ahead of its saved draft, als
 
   try {
     await delay(60);
-
     ui.stdin.write('\u0010');
-
     await until('the picker', () => ui.text().includes('Commands'));
 
     coordinator.publish({
@@ -426,13 +383,9 @@ test('a reopened conversation puts its saved queue ahead of its saved draft, als
     });
 
     await until('the queue taken back', () => calls.length > 0);
-
     assert.deepEqual(calls, [['unqueue', 'p1\nx']]);
-
     ui.stdin.write('\u001b');
-
     await until('the composer', () => ui.text().includes('┃ x'));
-
     assert.ok(ui.text().indexOf('┃ p1') < ui.text().indexOf('┃ x'));
   } finally {
     ui.unmount();
@@ -450,11 +403,8 @@ test('the composer takes typing while an open conversation connects, and none be
 
     try {
       await delay(60);
-
       ui.stdin.write('hello');
-
       await delay(60);
-
       assert.equal(ui.text().includes('┃ hello'), open);
     } finally {
       ui.unmount();

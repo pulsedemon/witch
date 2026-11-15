@@ -98,7 +98,6 @@ export function useCasting(
   useEffect(() => {
     const update = () => {
       const next = live(items, Date.now());
-
       // an unchanged empty map keeps its identity, so a transcript with no new cast doesn't render again
       setCasting((previous) => (previous.size || next.size ? next : previous));
 

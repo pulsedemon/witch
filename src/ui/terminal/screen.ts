@@ -66,10 +66,8 @@ export class Screen {
       }
 
       this.print(data.slice(text, index));
-
       escape.lastIndex = index;
       const match = escape.exec(data);
-
       // a lone escape prints nothing
       index = match ? escape.lastIndex : index + 1;
       text = index;
@@ -124,9 +122,7 @@ export class Screen {
           if (this.x >= this.columns) this.wrap();
 
           const count = Math.min(run.length - start, this.columns - this.x);
-
           this.cells[this.y]!.fill(this.link, this.x, this.x + count);
-
           this.x += count;
           start += count;
         }
@@ -138,7 +134,6 @@ export class Screen {
         if (segment === '\n' || segment === '\r\n') {
           // the terminal's output processing adds the carriage return
           this.x = 0;
-
           this.lineFeed();
         } else if (segment === '\r') this.x = 0;
         else if (segment === '\b') this.x = Math.max(0, this.x - 1);
@@ -147,7 +142,6 @@ export class Screen {
 
           if (width === undefined) {
             width = stringWidth(segment);
-
             this.widths.set(segment, width);
           }
 
@@ -156,7 +150,6 @@ export class Screen {
           if (this.x + width > this.columns) this.wrap();
 
           this.cells[this.y]!.fill(this.link, this.x, this.x + width);
-
           this.x += width;
         }
       }
@@ -165,7 +158,6 @@ export class Screen {
 
   private wrap(): void {
     this.x = 0;
-
     this.lineFeed();
   }
 
@@ -173,7 +165,6 @@ export class Screen {
     if (this.y < this.rows - 1) this.y++;
     else {
       this.cells.shift();
-
       this.cells.push(this.row());
     }
   }

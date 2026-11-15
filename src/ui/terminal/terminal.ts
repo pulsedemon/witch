@@ -87,7 +87,6 @@ export function watchTerminal(
 
   function cancelDesktop() {
     clearTimeout(desktop?.timer);
-
     desktop = undefined;
   }
 
@@ -129,7 +128,6 @@ export function watchTerminal(
             desktop = undefined;
           } else {
             alert.timer = setTimeout(attempt, retry);
-
             alert.timer.unref();
           }
         })
@@ -137,9 +135,7 @@ export function watchTerminal(
           if (stopped || disabled) return;
 
           disabled = true;
-
           cancelDesktop();
-
           coordinator.report(error);
         });
     };
@@ -178,11 +174,8 @@ export function watchTerminal(
     if (conversation?.id !== conversationId) {
       conversationId = conversation?.id;
       delivered = snapshot.completedTurn;
-
       clearImmediate(pending);
-
       pending = undefined;
-
       cancelDesktop();
     }
 
@@ -196,7 +189,6 @@ export function watchTerminal(
 
     if (next !== title) {
       title = next;
-
       write(`\u001b]2;${title}\u001b\\`);
     }
 
@@ -204,7 +196,6 @@ export function watchTerminal(
 
     if (wait?.key !== active) {
       clearInterval(timer);
-
       timer = undefined;
       active = wait?.key;
 
@@ -216,9 +207,7 @@ export function watchTerminal(
         };
 
         notify(reason);
-
         timer = setInterval(() => notify(reason), 15_000);
-
         timer.unref();
       }
     }
@@ -234,7 +223,6 @@ export function watchTerminal(
 
     if (!completed || completed === delivered || !settled(snapshot)) {
       clearImmediate(pending);
-
       pending = undefined;
     } else if (!pending) {
       const owner = conversationId;
@@ -275,15 +263,10 @@ export function watchTerminal(
     if (stopped) return;
 
     stopped = true;
-
     unsubscribe();
-
     unsubscribeCoordination?.();
-
     clearInterval(timer);
-
     clearImmediate(pending);
-
     cancelDesktop();
   }
 

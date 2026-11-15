@@ -241,7 +241,6 @@ async function runReview(
 
     const cancelled = Promise.withResolvers<undefined>();
     const cancel = () => cancelled.resolve(undefined);
-
     signal.addEventListener('abort', cancel, { once: true });
 
     const reply = await Promise.race([
@@ -366,7 +365,6 @@ async function runReview(
       return stopped(incomplete);
 
     nonBlocking += findings.filter(({ blocking }) => !blocking).length;
-
     // read before settling, so a correction that removed a target fails the review
     const corrected = await read();
 

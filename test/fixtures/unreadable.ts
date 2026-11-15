@@ -26,7 +26,6 @@ export function unreadable(
 
   t.onTestFinished(() => {
     spy.mockRestore();
-
     syncBuiltinESMExports();
   });
 }

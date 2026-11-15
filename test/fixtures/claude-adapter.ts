@@ -37,7 +37,6 @@ export async function launcher(
       !options.args.includes('--tools=Read,Grep,Glob')
     ) {
       const directory = join(cwd, `usage-${usageChildren.length}`);
-
       mkdirSync(directory);
 
       const executable =
@@ -62,11 +61,8 @@ export async function launcher(
     }
 
     assert.ok(options.args.some((arg) => arg.includes('user,project,local')));
-
     assert.equal(options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');
-
     args.push(options.args);
-
     envs.push(options.env);
 
     const child = spawn(
@@ -158,12 +154,10 @@ export function frameWriter(
   };
 
   child.stdout.on('data', captureOut);
-
   child.stderr.on('data', captureErr);
 
   child.once('close', () => {
     child.stdout.off('data', captureOut);
-
     child.stderr.off('data', captureErr);
   });
 
@@ -171,9 +165,7 @@ export function frameWriter(
 
   return async (...frames: object[]) => {
     const index = ++sequence;
-
     await writeJson(join(cwd, `events-${index}.json`), frames);
-
     const started = performance.now();
 
     try {

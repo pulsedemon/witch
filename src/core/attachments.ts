@@ -82,7 +82,6 @@ export class Attachments {
   /** takes the bytes now, since a dragged screenshot thumbnail's file can be gone before the prompt is sent. */
   attach(path: string): string {
     const id = this.next++;
-
     this.images.set(id, { data: readFileSync(path), saved: new Map() });
 
     return `[Image #${id}]`;
@@ -108,7 +107,6 @@ export class Attachments {
           );
 
           saved.set(store.directory, saving);
-
           void saving.catch(() => saved.delete(store.directory));
         }
 
@@ -120,7 +118,6 @@ export class Attachments {
   /** stops running conversions, so an interrupt or shutdown never waits on `sips`. */
   cancel(): void {
     this.conversions.abort();
-
     this.conversions = new AbortController();
   }
 }
@@ -154,15 +151,12 @@ export async function convertImage(
   fit?: number,
 ): Promise<Buffer> {
   signal.throwIfAborted();
-
   const directory = await mkdtemp(join(tmpdir(), 'witch-image-'));
 
   try {
     const input = join(directory, 'input');
     const output = join(directory, `output.${format}`);
-
     await writeFile(input, data);
-
     const resize: string[] = [];
 
     if (fit !== undefined) {

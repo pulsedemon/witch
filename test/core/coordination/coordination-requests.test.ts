@@ -29,9 +29,7 @@ for (const kind of [
 ] as const)
   test(`${kind} discovers once and publishes the resulting ownership`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-
     pauseDiscovery(vi.spyOn);
-
     const { start } = await unitCoordinationFixture(cleanup);
 
     const a = await start(),
@@ -143,9 +141,7 @@ for (const kind of [
       );
 
       assert.equal(value.kind, expected, JSON.stringify(value));
-
       const snapshot = a.coordination.snapshot;
-
       assert.deepEqual(snapshot.peers[0]?.claim, peer.claim);
 
       if (value.kind === 'claimed') {
@@ -156,15 +152,12 @@ for (const kind of [
         ]);
 
         assert.deepEqual(snapshot.ownClaim, value.claim);
-
         assert.equal(snapshot.ownSelection, undefined);
       }
 
       if (value.kind === 'selection') {
         assert.equal(value.selection.position, 1);
-
         assert.deepEqual(value.snapshot.ownSelection, value.selection);
-
         assert.deepEqual(snapshot.ownSelection, value.selection);
       }
 
@@ -174,7 +167,6 @@ for (const kind of [
         assert.equal(snapshot.ownSelection, undefined);
 
       assert.equal(discoveries, 1);
-
       assert.ok(reads <= (kind === 'peers' ? 1 : 2), `${reads} ledger reads`);
     } finally {
       await turn.finish();
@@ -183,12 +175,9 @@ for (const kind of [
 
 test('human release reuses its lookup and publishes the released state', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start();
-
   assert.equal((await a.claim()).kind, 'claimed');
 
   const measured = await measureControl(vi.spyOn, () =>
@@ -196,26 +185,20 @@ test('human release reuses its lookup and publishes the released state', async (
   );
 
   assert.equal(a.coordination.snapshot.ownClaim, undefined);
-
   assert.deepEqual(await registry.claims(), []);
-
   assert.equal(measured.discoveries, 1);
-
   assert.equal(measured.reads, 2);
 });
 
 test('a later query reads the peer reservation made between requests', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const { start } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
     b = await start('B');
 
   assert.equal((await a.query()).peers[0]?.claim, undefined);
-
   const reserved = await b.claim('task:new-owner', 'New reservation');
 
   if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
@@ -225,9 +208,7 @@ test('a later query reads the peer reservation made between requests', async (t)
   );
 
   assert.deepEqual(value.peers[0]?.claim, reserved.claim);
-
   assert.equal(discoveries, 1);
-
   assert.equal(reads, 1);
 });
 
@@ -262,7 +243,6 @@ for (const stage of ['acquisition', 'completion'] as const)
 
         if (background && stage === 'acquisition') {
           entered.resolve();
-
           await resume(finishRead.promise, args);
         }
 
@@ -270,7 +250,6 @@ for (const stage of ['acquisition', 'completion'] as const)
 
         if (background && stage === 'completion') {
           entered.resolve();
-
           await finishRead.promise;
         }
 
@@ -291,7 +270,6 @@ for (const stage of ['acquisition', 'completion'] as const)
           ++discoveries === 2
         ) {
           discovering.resolve();
-
           await finishDiscovery.promise;
         }
 
@@ -300,9 +278,7 @@ for (const stage of ['acquisition', 'completion'] as const)
 
     let request: ReturnType<typeof a.query> | undefined;
     let unsubscribe = () => {};
-
     refreshes[0]!();
-
     const refreshing = a.coordination['refreshing']!.promise;
 
     try {
@@ -327,7 +303,6 @@ for (const stage of ['acquisition', 'completion'] as const)
       if (stage === 'completion') await request;
       else {
         finishRead.resolve();
-
         await within(refreshing, 5000, 'background reads the latest ledger');
       }
 
@@ -337,7 +312,6 @@ for (const stage of ['acquisition', 'completion'] as const)
         )?.claim;
 
       assert.deepEqual(peerClaim(), claimed.claim);
-
       const publications: (string | undefined)[] = [];
 
       unsubscribe = a.coordination.subscribe(() => {
@@ -345,11 +319,8 @@ for (const stage of ['acquisition', 'completion'] as const)
       });
 
       finishRead.resolve();
-
       finishDiscovery.resolve();
-
       await within(refreshing, 5000, 'background refresh completes');
-
       const response = await request;
 
       assert.deepEqual(
@@ -358,21 +329,14 @@ for (const stage of ['acquisition', 'completion'] as const)
       );
 
       assert.deepEqual(peerClaim(), claimed.claim);
-
       assert.ok(publications.every((id) => id === claimed.claim.id));
     } finally {
       unsubscribe();
-
       finishRead.resolve();
-
       finishDiscovery.resolve();
-
       await request?.catch(() => {});
-
       await refreshing;
-
       observing.mockRestore();
-
       reading.mockRestore();
     }
   });
@@ -403,9 +367,7 @@ test('an older successful ledger read cannot clear a later read failure', async 
   local['lock'] = async (...args: Parameters<typeof lock>) => {
     if (first) {
       first = false;
-
       entered.resolve();
-
       await resume(finishRead.promise, args);
     }
 
@@ -420,7 +382,6 @@ test('an older successful ledger read cannot clear a later read failure', async 
     .mockImplementation(async (...args: Parameters<typeof state>) => {
       try {
         const ledger = await state(...args);
-
         requestRead.resolve();
 
         return ledger;
@@ -439,7 +400,6 @@ test('an older successful ledger read cannot clear a later read failure', async 
     .mockImplementation(async (...args: Parameters<typeof open>) => {
       if (args[0] === undefined && ++discoveries === 2) {
         discovering.resolve();
-
         await finishDiscovery.promise;
       }
 
@@ -447,14 +407,11 @@ test('an older successful ledger read cannot clear a later read failure', async 
     });
 
   let request: ReturnType<typeof callControl> | undefined;
-
   refreshes[0]!();
-
   const refreshing = a.coordination['refreshing']!.promise;
 
   try {
     await within(entered.promise, 5000, 'background read paused');
-
     request = callControl(binding, { kind: 'peers' });
 
     await within(
@@ -464,17 +421,11 @@ test('an older successful ledger read cannot clear a later read failure', async 
     );
 
     await writeFile(file, '{broken');
-
     finishRead.resolve();
-
     await within(refreshing, 5000, 'later ledger read fails');
-
     assert.ok(failure instanceof SyntaxError);
-
     const error = a.coordination.snapshot.error;
-
     assert.ok(error, 'ledger read failure is visible');
-
     finishDiscovery.resolve();
 
     const result = await within(
@@ -486,33 +437,20 @@ test('an older successful ledger read cannot clear a later read failure', async 
     if (result.kind !== 'error') assert.fail(JSON.stringify(result));
 
     assert.equal(result.message, error);
-
     assert.equal(a.coordination.snapshot.error, error);
-
     assert.deepEqual(a.coordination.snapshot.ownClaim, reserved.claim);
-
     await writeFile(file, original);
-
     const recovered = await a.query();
-
     assert.equal(recovered.error, undefined);
-
     assert.deepEqual(recovered.ownClaim, reserved.claim);
   } finally {
     finishRead.resolve();
-
     finishDiscovery.resolve();
-
     await writeFile(file, original);
-
     await request;
-
     await refreshing;
-
     observing.mockRestore();
-
     reading.mockRestore();
-
     local['lock'] = lock;
   }
 });
@@ -547,7 +485,6 @@ test('an older ledger failure cannot replace a later successful observation', as
       } catch (error) {
         if (background) {
           failed.resolve(error);
-
           await finishFailure.promise;
         }
 
@@ -559,9 +496,7 @@ test('an older ledger failure cannot replace a later successful observation', as
 
   try {
     await writeFile(file, '{broken');
-
     refreshes[0]!();
-
     refreshing = a.coordination['refreshing']!.promise;
 
     assert.ok(
@@ -573,36 +508,24 @@ test('an older ledger failure cannot replace a later successful observation', as
     );
 
     await writeFile(file, original);
-
     const recovered = await a.query();
-
     assert.equal(recovered.error, undefined);
-
     assert.deepEqual(recovered.ownClaim, reserved.claim);
-
     finishFailure.resolve();
-
     await within(refreshing, 5000, 'older failure completes');
-
     assert.equal(a.coordination.snapshot.error, undefined);
-
     assert.deepEqual(a.coordination.snapshot.ownClaim, reserved.claim);
   } finally {
     finishFailure.resolve();
-
     await writeFile(file, original);
-
     await refreshing;
-
     reading.mockRestore();
   }
 });
 
 test('cancellation publishes the next waiter without another discovery', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const { start } = await unitCoordinationFixture(cleanup);
 
   const a = await start(),
@@ -625,9 +548,7 @@ test('cancellation publishes the next waiter without another discovery', async (
     );
 
     assert.equal(result.value.kind, 'selection-cancelled');
-
     assert.equal(result.discoveries, 1);
-
     assert.equal(a.coordination.snapshot.ownSelection, undefined);
 
     assert.deepEqual(a.coordination.snapshot.peers[0]?.selection, {
@@ -636,7 +557,6 @@ test('cancellation publishes the next waiter without another discovery', async (
     });
   } finally {
     await first.finish();
-
     await second.finish();
   }
 });
@@ -652,7 +572,6 @@ test('claim finalization preserves newer background observations', async (t) => 
     cleanup,
     async () => {
       entered.resolve();
-
       await finish.promise;
 
       return { assigned: [] };
@@ -681,7 +600,6 @@ test('claim finalization preserves newer background observations', async (t) => 
     )!;
 
     await registry.publish({ ...peer, title: 'Changed during assignment' });
-
     refreshes[0]!();
 
     await until(
@@ -692,9 +610,7 @@ test('claim finalization preserves newer background observations', async (t) => 
     );
 
     assert.equal(a.coordination.snapshot.ownClaim?.summary, 'A task');
-
     finish.resolve();
-
     const result = await claiming;
 
     if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
@@ -707,7 +623,6 @@ test('claim finalization preserves newer background observations', async (t) => 
     );
   } finally {
     finish.resolve();
-
     await claiming;
   }
 });
@@ -721,7 +636,6 @@ test('claim finalization preserves a newer discovery failure until recovery', as
 
   const { start, store } = await unitCoordinationFixture(cleanup, async () => {
     entered.resolve();
-
     await finish.promise;
 
     return { assigned: [] };
@@ -742,9 +656,7 @@ test('claim finalization preserves a newer discovery failure until recovery', as
 
   try {
     await within(entered.promise, 5000, 'assignment');
-
     await writeFile(file, '{broken');
-
     refreshes[0]!();
 
     await until('new discovery failure published', () =>
@@ -756,19 +668,14 @@ test('claim finalization preserves a newer discovery failure until recovery', as
     );
 
     const error = a.coordination.snapshot.error;
-
     finish.resolve();
-
     const result = await claiming;
 
     if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
 
     assert.deepEqual(a.coordination.snapshot.ownClaim, result.claim);
-
     assert.equal(a.coordination.snapshot.error, error);
-
     await writeFile(file, original);
-
     refreshes[0]!();
 
     await until(
@@ -779,9 +686,7 @@ test('claim finalization preserves a newer discovery failure until recovery', as
     assert.deepEqual(a.coordination.snapshot.ownClaim, result.claim);
   } finally {
     finish.resolve();
-
     await writeFile(file, original);
-
     await claiming;
   }
 });
