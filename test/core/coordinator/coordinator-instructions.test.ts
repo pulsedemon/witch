@@ -266,7 +266,7 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
     );
 
     const shared = paragraphs.filter((paragraph) =>
-      paragraph.startsWith('For either issue workflow above'),
+      paragraph.startsWith('Issue workflow for the two rules above'),
     );
 
     assert.equal(shared.length, 1, context);
