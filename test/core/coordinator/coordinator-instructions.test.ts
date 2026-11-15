@@ -177,11 +177,11 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
 
     const context = f.a.inputs.at(-1)!.context!;
 
-    const rule = context
-      .split('\n\n')
-      .find((paragraph) =>
-        paragraph.startsWith('When you find a concrete bug'),
-      );
+    const paragraphs = context.split('\n\n');
+
+    const rule = paragraphs.find((paragraph) =>
+      paragraph.startsWith('When you find a concrete bug'),
+    );
 
     assert.ok(rule, context);
 
@@ -217,19 +217,8 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
 
     assert.match(
       rule,
-      /Search the current repository's open and closed issues before every creation, including after a repeated observation/,
+      /Use the issue workflow below, commenting on a matching issue only when your evidence adds something/,
     );
-
-    assert.match(
-      rule,
-      /Reuse a matching issue, commenting on it only when your evidence adds something/,
-    );
-
-    assert.match(rule, /evidence, impact and a checkable completion condition/);
-
-    assert.match(rule, /reconcile it against existing issues before retrying/);
-
-    assert.match(rule, /clickable Markdown link using its full URL/);
 
     assert.match(rule, /A bug your current task fixes needs no issue/);
 
@@ -263,13 +252,9 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
       /If a search or write is blocked, report the bug and the blocked step instead/,
     );
 
-    assert.match(rule, /Native approval rules still apply/);
-
-    const audit = context
-      .split('\n\n')
-      .find((paragraph) =>
-        paragraph.startsWith('After successfully opening a pull request'),
-      );
+    const audit = paragraphs.find((paragraph) =>
+      paragraph.startsWith('After successfully opening a pull request'),
+    );
 
     assert.ok(audit, context);
 
@@ -279,6 +264,67 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
       audit,
       /Do not file already-fixed findings, accepted tradeoffs or speculative improvements; keep blockers belonging to the current pull request in that work/,
     );
+
+    assert.match(
+      audit,
+      /Use the issue workflow below, creating one issue for each distinct concrete follow-up without a match and linking the source pull request in it/,
+    );
+
+    assert.match(
+      audit,
+      /In your final reply, report the new or existing issues, or explicitly say no follow-ups were warranted/,
+    );
+
+    assert.match(
+      audit,
+      /report the audit as incomplete rather than saying no follow-ups remain/,
+    );
+
+    const shared = paragraphs.filter((paragraph) =>
+      paragraph.startsWith('For either issue workflow above'),
+    );
+
+    assert.equal(shared.length, 1, context);
+
+    const workflow = shared[0]!;
+
+    // both triggers point down at the workflow, so it has to follow them
+    assert.ok(
+      paragraphs.indexOf(audit) < paragraphs.indexOf(workflow) &&
+        paragraphs.indexOf(rule) < paragraphs.indexOf(workflow),
+      context,
+    );
+
+    assert.match(
+      workflow,
+      /use the pull request's repository for an audit follow-up and the current repository for a blocked bug/,
+    );
+
+    assert.match(
+      workflow,
+      /Search its open and closed issues before every creation, including after repeated observations, retries or resumed conversations/,
+    );
+
+    assert.match(workflow, /Reuse a matching issue\./);
+
+    assert.doesNotMatch(workflow, /comment/);
+
+    assert.match(
+      workflow,
+      /Otherwise create one issue stating the evidence, impact and a checkable completion condition/,
+    );
+
+    assert.match(
+      workflow,
+      /reconcile it against existing issues before retrying/,
+    );
+
+    assert.match(
+      workflow,
+      /Report each new or reused issue as a clickable Markdown link using its full URL/,
+    );
+
+    assert.match(workflow, /Native approval rules still apply/);
   } finally {
     await f.coordinator.close();
   }
