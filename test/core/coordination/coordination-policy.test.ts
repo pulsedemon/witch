@@ -186,6 +186,12 @@ for (const owned of ['active claim', 'recorded suggestion']) {
     const input = await a.coordination.context();
     assert.deepEqual(input.snapshot.ownClaim, before[0]);
     assert.match(input.instructions, /--release <claim-id>/);
+    assert.match(input.instructions, /--release <claim-id> --reference/);
+
+    assert.match(
+      input.instructions,
+      /preserves the continuing task and stops automatic handling/,
+    );
 
     assert.match(
       input.instructions,

@@ -164,6 +164,7 @@ export function boundCommandTitle(
     if (start === undefined) continue;
 
     let title: string | undefined;
+    const references: string[] = [];
 
     for (let at = start + expected.length; at < words.length; at++) {
       const argument = words[at]!;
@@ -198,6 +199,9 @@ export function boundCommandTitle(
               ? 'Familiar Codex'
               : undefined;
 
+      if (kind === 'control' && name === 'reference' && value)
+        references.push(value);
+
       if (!action) continue;
 
       if (title || (name !== 'peers' && !value)) return;
@@ -207,7 +211,10 @@ export function boundCommandTitle(
 
     if (title)
       return {
-        title: title.replace(/\s+/g, ' '),
+        title: (title.startsWith('release ') && references.length
+          ? `release references ${references.join(', ')}`
+          : title
+        ).replace(/\s+/g, ' '),
         expandedTitle: command,
         singleLine: true,
       };

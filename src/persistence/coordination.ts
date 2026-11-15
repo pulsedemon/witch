@@ -771,6 +771,60 @@ export class CoordinationStore {
     });
   }
 
+  async releaseReferences(
+    owner: ClaimOwner,
+    id: string,
+    references: readonly string[],
+    deadline: number,
+    verify: Verify,
+  ): Promise<{ references: string[]; claim?: TaskClaim }> {
+    const released = [
+      ...new Set(
+        references.map((value) => taskReference(value, owner.project)),
+      ),
+    ];
+
+    return this.mutate(deadline, verify, (ledger) => {
+      const index = ledger.claims.findIndex((claim) => claim.id === id);
+      const claim = ledger.claims[index];
+
+      if (!claim)
+        throw new Error(
+          'This claim no longer exists. Query peers before continuing.',
+        );
+
+      if (!sameOwner(claim.owner, owner))
+        throw new Error('Only the owning conversation can release this task.');
+
+      if (claim.suggestion)
+        throw new Error('Release the whole suggested task with --release.');
+
+      if (claim.transfer || claim.automaticTransfer)
+        throw new Error(
+          'Wait for the pending task transfer before releasing references.',
+        );
+
+      if (
+        !released.length ||
+        released.some((value) => !claim.references.includes(value))
+      )
+        throw new Error(
+          'Every released reference must belong to this claim. Query peers before continuing.',
+        );
+
+      claim.references = claim.references.filter(
+        (value) => !released.includes(value),
+      );
+
+      if (!claim.references.length) ledger.claims.splice(index, 1);
+
+      return {
+        references: released,
+        ...(claim.references.length ? { claim } : {}),
+      };
+    });
+  }
+
   async requestTransfer(
     to: ClaimOwner,
     target: TransferTarget,
@@ -802,6 +856,16 @@ export class CoordinationStore {
         (!sameOwner(claim.owner, target.claim.owner) || claim.suggestion)
       )
         throw new ClaimConflict(claim);
+
+      if (
+        target.field === 'automaticTransfer' &&
+        !claimInput(to, target.input).references.some((value) =>
+          claim.references.includes(value),
+        )
+      )
+        throw new Error(
+          'The conflicting references were released. Query peers and claim again.',
+        );
 
       if (claim.owner.conversation === to.conversation)
         throw new Error('This conversation already holds this task.');

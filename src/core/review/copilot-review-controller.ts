@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { errorMessage } from '../../errors.js';
 import type { TurnResult } from '../../agents/types.js';
 import { readJson } from '../../persistence/json.js';
@@ -21,6 +22,7 @@ import {
 } from './github-reviews.js';
 import type { GitHubReviews } from './github-reviews.js';
 import type { SessionCoordination } from '../coordination/coordination.js';
+import { taskReference } from '../coordination/coordination-state.js';
 import type { Repository } from '../repository/repository.js';
 import { bindingChanged, revoke } from '../repository/review-ownership.js';
 import type { ConversationRecord } from '../state.js';
@@ -310,8 +312,12 @@ export class CopilotReviewController {
     const claim = coordination?.snapshot.ownClaim;
 
     return state &&
-      claim?.id === state.claim &&
-      claim?.owner.project === coordination?.reviews.owner.project &&
+      claim &&
+      claim.id === state.claim &&
+      claim.owner.project === coordination?.reviews.owner.project &&
+      claim.references.includes(
+        taskReference(state.pullRequest.url, claim.owner.project),
+      ) &&
       this.repository?.branch === state.pullRequest.branch &&
       this.repository.pullRequest?.url === state.pullRequest.url
       ? state
@@ -396,7 +402,7 @@ export class CopilotReviewController {
 
       batch = await this.serial(async () => {
         if (
-          this.source !== fresh ||
+          !isDeepStrictEqual(this.source, fresh) ||
           !this.matches(record, fresh) ||
           !this.host.ready()
         )

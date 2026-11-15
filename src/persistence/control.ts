@@ -86,6 +86,11 @@ const controlOutcomeSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('released') }),
   z.object({
+    kind: z.literal('references-released'),
+    references: z.array(z.string()).min(1),
+    claim: taskClaimSchema.optional(),
+  }),
+  z.object({
     kind: z.literal('selection'),
     selection: selectionStateSchema,
     snapshot: coordinationSnapshotSchema,

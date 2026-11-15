@@ -570,7 +570,7 @@ test('a head GitHub never asks Copilot to review reports that no review is pendi
     x.a.a.inputs
       .at(-1)!
       .context?.includes(
-        `${x.source.pullRequest.url}, 0 handled, 0 outstanding. Keep this task claimed while its open pull request remains watched; verify feedback against current code and existing replies.\n\nNo Copilot review is pending`,
+        `${x.source.pullRequest.url}, 0 handled, 0 outstanding. Keep ownership if you intend further PR work; otherwise release the finished work and stop automatic handling. Verify feedback against current code and existing replies.\n\nNo Copilot review is pending`,
       ),
   );
 

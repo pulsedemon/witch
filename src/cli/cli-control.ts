@@ -40,6 +40,7 @@ const options = {
   summary: { type: 'string' },
   alias: { type: 'string', multiple: true },
   release: { type: 'string' },
+  reference: { type: 'string', multiple: true },
   'select-next': { type: 'string' },
   'cancel-selection': { type: 'string' },
   recommend: { type: 'string' },
@@ -193,6 +194,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     ...actionOptions,
     'summary',
     'alias',
+    'reference',
     'selection',
     'message',
     'to',
@@ -210,6 +212,9 @@ export function parseCommand(args = process.argv.slice(2)) {
     };
 
   const flags = actionOptions.map((name) => `--${name}`);
+
+  if (values.reference && values.release === undefined)
+    throw new Error('--reference requires --release.');
 
   if (actionOptions.filter((name) => values[name] !== undefined).length !== 1)
     throw new Error(
@@ -306,7 +311,13 @@ export function parseCommand(args = process.argv.slice(2)) {
                               of: choice(values.of),
                               named: choice(values.named),
                             }
-                          : { kind: 'release', claim: values.release },
+                          : values.reference
+                            ? {
+                                kind: 'release-references',
+                                claim: values.release,
+                                references: values.reference,
+                              }
+                            : { kind: 'release', claim: values.release },
   );
 
   return {
@@ -366,6 +377,9 @@ function describe(outcome: ControlOutcome): string {
 
     case 'released':
       return 'Task released.';
+
+    case 'references-released':
+      return `Released references: ${outcome.references.map(oneLine).join(', ')}\n${outcome.claim ? `Remaining references: ${outcome.claim.references.map(oneLine).join(', ')}\nClaim id: ${outcome.claim.id}` : 'Task released.'}`;
 
     case 'conflict':
       return `${outcome.message}${outcome.owner ? `\nCheckout: ${outcome.owner.cwd}` : ''}\nClaim id: ${outcome.claim.id}`;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -606,7 +606,14 @@ test('the CLI watcher wiring carries a real repository observation through a rev
           headRefOid: x.source.pullRequest.commit,
           baseRefName: 'main',
           mergeable: 'MERGEABLE',
-          statusCheckRollup: [],
+          statusCheckRollup: [
+            {
+              __typename: 'CheckRun',
+              name: 'verify',
+              status: 'COMPLETED',
+              conclusion: 'SUCCESS',
+            },
+          ],
         }),
       };
     },
@@ -622,6 +629,7 @@ test('the CLI watcher wiring carries a real repository observation through a rev
 
   try {
     await x.handled();
+    assert.equal(repository.snapshot?.pullRequestFailure, undefined);
     const saved = await record(x.f, x.a);
 
     assert.deepEqual(
@@ -643,6 +651,50 @@ test('the CLI watcher wiring carries a real repository observation through a rev
     stop();
     stopRepository();
     repository.close();
+  }
+});
+
+test('an unchanged observation during ownership verification preserves the verified review packet', async (t) => {
+  const x = await setup(t);
+  const expected = structuredClone(x.source);
+  autoReply(x.f, x.a, x.source);
+  const entered = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  const owns = x.a.coordination.reviews.owns.bind(x.a.coordination.reviews);
+
+  vi.spyOn(x.a.coordination.reviews, 'owns').mockImplementationOnce(
+    async (...args) => {
+      entered.resolve();
+      await resume.promise;
+
+      return owns(...args);
+    },
+  );
+
+  const native = x.a.a.sessions[0]!.session;
+  const send = native.send.bind(native);
+  let packet: { source: GitHubReviews } | undefined;
+
+  native.send = async (...args) => {
+    const saved = await record(x.f, x.a);
+
+    packet = JSON.parse(
+      await readFile(saved.copilotReviews![0]!.batch!.packet, 'utf8'),
+    );
+
+    return send(...args);
+  };
+
+  try {
+    await x.observe();
+    await within(entered.promise, 5000, 'ownership verification');
+    await x.observe();
+    resume.resolve();
+    await x.handled();
+    assert.equal(x.reviews().length, 1);
+    assert.deepEqual(packet!.source, expected);
+  } finally {
+    resume.resolve();
   }
 });
 

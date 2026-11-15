@@ -72,6 +72,11 @@ export const coordinationActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('claim'), input: claimInputSchema }),
   z.object({ kind: z.literal('release'), claim: z.string().uuid() }),
   z.object({
+    kind: z.literal('release-references'),
+    claim: z.string().uuid(),
+    references: z.array(z.string().trim().min(1)).min(1),
+  }),
+  z.object({
     kind: z.literal('take'),
     input: claimInputSchema.pick({ reference: true }),
   }),
@@ -168,7 +173,7 @@ export type Transfer = NonNullable<TaskClaim['transfer']>;
 
 export type TransferTarget =
   | { field: 'transfer'; reference: string }
-  | { field: 'automaticTransfer'; claim: TaskClaim };
+  | { field: 'automaticTransfer'; claim: TaskClaim; input: ClaimInput };
 
 export type TransferField = TransferTarget['field'];
 
