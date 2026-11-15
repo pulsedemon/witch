@@ -9,7 +9,11 @@ import type {
   FamiliarAction,
   FamiliarProgress,
 } from '../agents/familiar-report.js';
-import { mergeCasts } from '../agents/familiar-report.js';
+import {
+  boundMarker,
+  familiarMarker,
+  mergeCasts,
+} from '../agents/familiar-report.js';
 import { errorMessage } from '../errors.js';
 import { watchChild, withTail } from '../agents/stderr.js';
 import type { AgentEvent, AgentSession, UserRequest } from '../agents/types.js';
@@ -157,8 +161,56 @@ export async function runCodexFamiliar(
     });
   };
 
+  const commandOutput = new Map<
+    string,
+    { partial: string; discarding: boolean }
+  >();
+
+  // nested wrappers register with the owning host, which sees only this wrapper's stdout.
+  const forwardMarkers = (event: Extract<AgentEvent, { type: 'tool' }>) => {
+    if (event.done) {
+      commandOutput.delete(event.id);
+
+      return;
+    }
+
+    if (event.command && !event.append) {
+      commandOutput.set(event.id, { partial: '', discarding: false });
+
+      return;
+    }
+
+    const output = event.append && commandOutput.get(event.id);
+
+    if (!output) return;
+
+    for (const part of event.text.split(/(?<=\n)/)) {
+      const ends = part.endsWith('\n');
+
+      if (!output.discarding) {
+        output.partial += part;
+
+        if (output.partial.length > 4096) {
+          output.partial = '';
+          output.discarding = true;
+        } else if (ends) {
+          const marker = boundMarker(output.partial.trimEnd(), binding);
+
+          if (marker) process.stdout.write(familiarMarker(marker));
+        }
+      }
+
+      if (ends) {
+        output.partial = '';
+        output.discarding = false;
+      }
+    }
+  };
+
   const receive = (event: AgentEvent) => {
     if (ending) return;
+
+    if (event.type === 'tool') forwardMarkers(event);
 
     if (event.type === 'info')
       progress = { ...progress, model: event.info.model };
