@@ -235,6 +235,16 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
 
     assert.match(
       rule,
+      /A failure of Witch itself seen during a task, such as a control command, a familiar launch or report, or coordination, is a bug even when its cause is undiagnosed or load looks responsible/,
+    );
+
+    assert.match(
+      rule,
+      /If you work around it and continue, file it at once, or tell the user when the current repository is not Witch's/,
+    );
+
+    assert.match(
+      rule,
       /If a search or write is blocked, report the bug and the blocked step instead/,
     );
 
