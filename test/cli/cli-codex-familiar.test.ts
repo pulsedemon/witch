@@ -679,7 +679,7 @@ test('a Codex familiar survives an exhausted progress timeout and delivers its p
     const launch = await f.launch();
     const native = await identifyProcess(launch.pid);
     assert.ok(native);
-    await delay(11_000);
+    await delay(32_000);
     assert.equal(f.child.exitCode, null);
     assert.deepEqual(await identifyProcess(launch.pid), native);
     await writeFile(join(f.root, 'release'), 'yes');

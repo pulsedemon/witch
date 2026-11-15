@@ -10,6 +10,9 @@ import { errorMessage } from '../errors.js';
 import { callControl, ControlTimeoutError } from '../persistence/control.js';
 import type { ControlBinding, ControlResult } from '../persistence/control.js';
 
+/** how long a familiar keeps trying to register or deliver a report; a host answering one request at a time can fall seconds behind under heavy load. */
+const familiarWindow = 30_000;
+
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
 export class FamiliarReports {
   private sequence = 0;
@@ -80,22 +83,18 @@ export class FamiliarReports {
   }
 }
 
-/** retries a familiar's control call for 10 s, each try capped at 1.5 s, then throws the last failure. */
+/** waits up to `familiarWindow` on one request, publishing another only after a failure that isn't a timeout, then throws the last failure. */
 export async function callFamiliar(
   binding: ControlBinding,
   action: FamiliarAction,
 ): Promise<Exclude<ControlResult, { kind: 'error' }>> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + familiarWindow;
 
   for (;;) {
     let outcome: ControlResult;
 
     try {
-      outcome = await callControl(
-        binding,
-        action,
-        Math.min(deadline, Date.now() + 1500),
-      );
+      outcome = await callControl(binding, action, deadline);
     } catch (error) {
       if (Date.now() < deadline) await delay(100);
 
@@ -151,7 +150,7 @@ export async function registerFamiliar(
     run,
   });
 
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + familiarWindow;
 
   for (;;) {
     if (stopped()) throw new Error('Familiar stopped before launch.');
