@@ -9,11 +9,8 @@ import {
 
 test('a command token is a whole draft with no whitespace', () => {
   assert.deepEqual(activeToken('/mo', 3), { kind: 'command', query: 'mo' });
-
   assert.deepEqual(activeToken('/', 1), { kind: 'command', query: '' });
-
   assert.equal(activeToken('/model x', 8), undefined);
-
   assert.equal(activeToken('see /mo', 7), undefined);
 });
 
@@ -33,7 +30,6 @@ test('a file token is the @ word holding the cursor, and the query ends at the c
   });
 
   assert.equal(activeToken('see @src x', 4), undefined);
-
   assert.equal(activeToken('mail a@b', 8), undefined);
 
   assert.deepEqual(activeToken('one\n@n', 6), {
@@ -46,11 +42,8 @@ test('a file token is the @ word holding the cursor, and the query ends at the c
 
 test('a token key changes with the token text and position but not with the cursor inside it', () => {
   assert.equal(tokenKey('see @sr', 7), tokenKey('see @sr', 6));
-
   assert.notEqual(tokenKey('see @sr', 7), tokenKey('see @src', 8));
-
   assert.notEqual(tokenKey('@sr', 3), tokenKey(' @sr', 4));
-
   assert.equal(tokenKey('plain', 5), undefined);
 });
 
@@ -76,7 +69,6 @@ test('commands rank an exact name or alias first, then name prefixes, in input o
 
   // a Witch command never matches inside its name or by its initials
   assert.deepEqual(rankCommands('odel', items, []), []);
-
   assert.deepEqual(rankCommands('ep', items, []), []);
 });
 

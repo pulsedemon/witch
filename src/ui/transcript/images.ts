@@ -72,7 +72,6 @@ export class Graphics {
       (image !== 'queued' && 'retry' in image && Date.now() >= image.retry)
     ) {
       this.entries.set(key, 'queued');
-
       const { signal } = this.controller;
       this.queue = this.queue.then(() => this.load(key, signal));
 
@@ -119,7 +118,6 @@ export class Graphics {
    */
   release(): void {
     this.controller.abort();
-
     this.controller = new AbortController();
 
     for (const image of this.entries.values())
@@ -127,7 +125,6 @@ export class Graphics {
         this.write(`\u001b_Ga=d,d=I,i=${image.id},q=2\u001b\\`);
 
     this.entries.clear();
-
     // synchronous, since a forced quit exits right after
     rmSync(this.directory, { recursive: true, force: true });
   }
@@ -148,7 +145,6 @@ export class Graphics {
         if (!loaded) return;
 
         await mkdir(this.directory, { recursive: true, mode: 0o700 });
-
         await writeFile(fileURLToPath(link), loaded.data, { signal });
       }
   }
@@ -179,7 +175,6 @@ export class Graphics {
           }
 
           this.entries.set(key, image);
-
           this.loads++;
         } else
           this.entries.set(key, {

@@ -49,11 +49,8 @@ test('binding an issue claim adds the PR alias and records assignment without re
 
   const a = await f.start('A');
   const source = reviewSource();
-
   await attach(f, a, source);
-
   const claimed = await a.claim(source.closingIssues[0]!, 'finish the fix');
-
   assert.equal(claimed.kind, 'claimed');
 
   if (claimed.kind !== 'claimed') assert.fail();
@@ -64,7 +61,6 @@ test('binding an issue claim adds the PR alias and records assignment without re
   );
 
   assert.equal(result!.claim.id, claimed.claim.id);
-
   assert.equal(result!.claim.summary, 'finish the fix');
 
   assert.deepEqual(result!.claim.references, [
@@ -102,11 +98,8 @@ test('binding refuses a stale summary and retries with the current claim', async
 
   const a = await f.start('A');
   const source = reviewSource();
-
   await attach(f, a, source);
-
   await a.claim(source.closingIssues[0]!, 'old summary');
-
   const entered = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
   const run = commands.runCommand;
@@ -116,9 +109,7 @@ test('binding refuses a stale summary and retries with the current claim', async
     async (command, args, options) => {
       if (command === 'git' && args.includes('symbolic-ref') && !held) {
         held = true;
-
         entered.resolve();
-
         await released.promise;
       }
 
@@ -132,7 +123,6 @@ test('binding refuses a stale summary and retries with the current claim', async
   );
 
   const rejected = assert.rejects(binding, /ownership changed/);
-
   await entered.promise;
 
   try {
@@ -142,11 +132,8 @@ test('binding refuses a stale summary and retries with the current claim', async
   }
 
   await rejected;
-
   const saved = (await f.registry.claims())[0]!;
-
   assert.equal(saved.summary, 'new summary');
-
   assert.deepEqual(saved.references, ['github:team/project#4']);
 
   const fresh = await a.coordination.reviews.bind(
@@ -167,14 +154,10 @@ test('another PR owner refuses alias binding without transfer or loss of either 
   const a = await f.start('A');
   const b = await f.start('B');
   const source = reviewSource();
-
   await attach(f, a, source);
-
   const issue = await a.claim(source.closingIssues[0]!);
   const owner = await b.claim(source.pullRequest.url);
-
   assert.equal(issue.kind, 'claimed');
-
   assert.equal(owner.kind, 'claimed');
 
   await assert.rejects(
@@ -183,7 +166,6 @@ test('another PR owner refuses alias binding without transfer or loss of either 
   );
 
   const claims = await f.registry.claims();
-
   assert.equal(claims.length, 2);
 
   assert.deepEqual(claims.map(({ references }) => references).sort(), [
@@ -202,9 +184,7 @@ test('an unrelated task is never replaced by the branch PR', async (t) => {
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start('A');
   const source = reviewSource();
-
   await attach(f, a, source);
-
   await a.claim('task:unrelated');
 
   assert.equal(
@@ -213,7 +193,6 @@ test('an unrelated task is never replaced by the branch PR', async (t) => {
   );
 
   assert.equal((await f.registry.claims()).length, 1);
-
   assert.match((await f.registry.claims())[0]!.references[0]!, /:unrelated$/);
 });
 
@@ -222,11 +201,8 @@ test('fresh Git state rejects a changed branch even while the displayed status i
   const a = await f.start('A');
   const source = reviewSource();
   const cwd = await attach(f, a, source);
-
   await a.claim(source.pullRequest.url);
-
   const bound = await a.coordination.reviews.bind(source.pullRequest, []);
-
   await git('-C', cwd, 'symbolic-ref', 'HEAD', 'refs/heads/other-work');
 
   assert.equal(
@@ -256,9 +232,7 @@ test('failed GitHub assignment leaves usable ownership and retries only on an ex
 
   const a = await f.start('A');
   const source = reviewSource();
-
   await attach(f, a, source);
-
   await a.claim(source.closingIssues[0]!);
 
   const result = await a.coordination.reviews.bind(
@@ -274,7 +248,6 @@ test('failed GitHub assignment leaves usable ownership and retries only on an ex
   );
 
   assert.deepEqual(result!.claim.assigned, ['github:team/project#4']);
-
   const before = writes;
 
   const reread = await a.coordination.reviews.bind(
@@ -283,11 +256,8 @@ test('failed GitHub assignment leaves usable ownership and retries only on an ex
   );
 
   assert.equal(reread!.warning, undefined);
-
   assert.equal(writes, before);
-
   assert.equal((await a.claim(source.pullRequest.url)).kind, 'claimed');
-
   assert.equal(writes, before + 1);
 });
 
@@ -295,9 +265,7 @@ test('closed PRs do not bind even if the local status still says open', async (t
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start('A');
   const source = reviewSource();
-
   await attach(f, a, source);
-
   await a.claim(source.closingIssues[0]!);
 
   assert.equal(
@@ -322,9 +290,7 @@ test('a solo PR suggestion binds only after the requested claim promotion', asyn
 
   const a = await f.start('A');
   const source = reviewSource();
-
   await attach(f, a, source);
-
   const selecting = await selectionTurn(cleanup, a);
   const { ticket } = await selecting.select();
 
@@ -335,13 +301,9 @@ test('a solo PR suggestion binds only after the requested claim promotion', asyn
   });
 
   assert.equal(suggested.kind, 'claimed');
-
   await selecting.finish();
-
   const context = await a.coordination.context();
-
   assert.deepEqual(context.snapshot.peers, []);
-
   assert.ok(context.snapshot.ownClaim!.suggestion);
 
   assert.match(
@@ -360,23 +322,18 @@ test('a solo PR suggestion binds only after the requested claim promotion', asyn
   );
 
   assert.equal((await a.claim(source.pullRequest.url)).kind, 'claimed');
-
   const bound = await a.coordination.reviews.bind(source.pullRequest, []);
-
   assert.equal(bound!.claim.id, context.snapshot.ownClaim!.id);
-
   assert.equal(bound!.claim.suggestion, undefined);
 });
 
 test("an ownership check given the turn's project reads no scope", async (t) => {
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start('A');
   const source = reviewSource();
   const cwd = await attach(f, a, source);
   const claimed = await a.claim(source.pullRequest.url, 'review fixes');
-
   assert.equal(claimed.kind, 'claimed');
 
   if (claimed.kind !== 'claimed') assert.fail();
@@ -391,7 +348,6 @@ test("an ownership check given the turn's project reads no scope", async (t) => 
   );
 
   assert.equal(reads.mock.calls.length, 0);
-
   assert.equal(await reviews.owns(claimed.claim.id, source.pullRequest), true);
 
   assert.deepEqual(

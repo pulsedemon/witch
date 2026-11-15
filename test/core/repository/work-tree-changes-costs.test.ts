@@ -24,7 +24,6 @@ async function repository(
 ) {
   const root = await scratch('witch-changes-costs-');
   const work = join(root, 'work');
-
   await mkdir(work);
 
   const git = (...args: string[]) =>
@@ -45,7 +44,6 @@ async function repository(
     await writeFile(join(work, name), content);
 
   await git('add', '-A');
-
   await git('commit', '-qm', 'baseline');
 
   return {
@@ -95,7 +93,6 @@ test('absorption uses a fixed number of Git processes for growing reports and re
       await writeFile(join(work, name), 'reported\n');
 
     await writeFile(join(work, 'pending.txt'), 'pending\n');
-
     calls.length = 0;
     indexes.length = 0;
 
@@ -105,7 +102,6 @@ test('absorption uses a fixed number of Git processes for growing reports and re
     );
 
     counts.push(calls.length);
-
     writes.push(indexes.length);
 
     assert.equal(
@@ -134,7 +130,6 @@ test('absorption uses a fixed number of Git processes for growing reports and re
   }
 
   assert.equal(new Set(counts).size, 1);
-
   assert.equal(new Set(writes).size, 1);
 });
 
@@ -157,7 +152,6 @@ test('batch absorption keeps literal names and unreported siblings when reports 
   for (const name of names) await writeFile(join(work, name), 'reported\n');
 
   await writeFile(join(work, 'new.txt'), 'new\n');
-
   await writeFile(join(work, 'pending.txt'), 'pending\n');
 
   await changes.absorb(
@@ -190,13 +184,9 @@ async function filtered() {
   const first = join(environment, 'one.sh');
   const second = join(environment, 'two.sh');
   const calls: string[][] = [];
-
   await writeFile(marker, '');
-
   await writeFile(first, `printf x >> '${marker}'\nsed 's/^/one:/'\n`);
-
   await writeFile(second, `printf x >> '${marker}'\nsed 's/^/two:/'\n`);
-
   await writeFile(config, '');
 
   await execute(
@@ -229,11 +219,8 @@ async function filtered() {
 
 test('unchanged unstaged and untracked files reuse canonical blobs without index enumeration', async () => {
   const { work, changes, marker, calls } = await filtered();
-
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'dirty\n');
-
   await writeFile(join(work, 'new.txt'), 'fresh\n');
 
   assert.deepEqual(
@@ -268,9 +255,7 @@ test('unchanged unstaged and untracked files reuse canonical blobs without index
   );
 
   const old = new Date('2020-01-01T00:00:00Z');
-
   await utimes(join(work, 'a.txt'), old, old);
-
   await utimes(join(work, 'new.txt'), old, old);
 
   assert.deepEqual(await changes.read(work), {
@@ -292,13 +277,9 @@ test('unchanged unstaged and untracked files reuse canonical blobs without index
 
 test('a changed user filter definition refreshes warm canonical blobs', async () => {
   const { work, changes, git, config, second } = await filtered();
-
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'dirty\n');
-
   await changes.read(work);
-
   await git('config', '--file', config, 'filter.probe.clean', `sh '${second}'`);
 
   assert.deepEqual(
@@ -312,13 +293,9 @@ test('a changed user filter definition refreshes warm canonical blobs', async ()
 test('a repository filter introduced after warming stays disabled while the canonical result refreshes', async () => {
   const { root, work, changes, git } = await filtered();
   const marker = join(root, 'local-filter-ran');
-
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'dirty\n');
-
   await changes.read(work);
-
   await git('config', 'filter.probe.clean', `sh -c 'touch "${marker}"; cat'`);
 
   assert.deepEqual(
@@ -341,20 +318,14 @@ for (const source of ['working', 'info', 'global'])
 
     if (source === 'global') {
       attributes = join(root, 'attributes');
-
       await writeFile(join(work, '.gitattributes'), '');
-
       await writeFile(attributes, '*.txt filter=probe\n');
-
       await git('config', '--file', config, 'core.attributesFile', attributes);
     }
 
     await changes.watch(work);
-
     await writeFile(join(work, 'a.txt'), 'dirty\n');
-
     await changes.read(work);
-
     await writeFile(attributes, '*.txt -filter\n');
 
     assert.deepEqual(
@@ -373,11 +344,8 @@ test('warm snapshots follow index tracking and ignore changes', async () => {
   });
 
   await git('add', '-f', 'kept.log');
-
   await git('commit', '-qm', 'track ignored file');
-
   await changes.watch(work);
-
   await rm(join(work, 'kept.log'));
 
   assert.deepEqual(
@@ -406,11 +374,8 @@ test('warm snapshots follow index tracking and ignore changes', async () => {
   );
 
   await writeFile(join(work, 'new.txt'), 'new\n');
-
   await changes.read(work);
-
   await writeFile(join(work, '.gitignore'), '*.log\nnew.txt\n');
-
   const read = await changes.read(work);
 
   assert.deepEqual(
@@ -435,7 +400,6 @@ function binary(version: number): Buffer {
     seed ^= seed << 13;
     seed ^= seed >>> 17;
     seed ^= seed << 5;
-
     data.writeUInt32LE(seed >>> 0, offset);
   }
 
@@ -462,7 +426,6 @@ test('obsolete binary versions do not accumulate while the current blob stays re
   const { root, work, git, changes } = await repository({ 'a.txt': 'base\n' });
   const versions: string[] = [];
   let at8 = 0;
-
   await changes.watch(work);
 
   for (let version = 1; version <= 32; version++) {
@@ -497,7 +460,6 @@ test('obsolete binary versions do not accumulate while the current blob stays re
       if (version === 8) at8 = bytes;
       else {
         assert.ok(bytes < 6 * 1024 * 1024);
-
         assert.ok(bytes <= at8 + 65536);
       }
     }
@@ -521,7 +483,6 @@ test('obsolete binary versions do not accumulate while the current blob stays re
   });
 
   assert.equal(Number(size.stdout), 2 * 1024 * 1024);
-
   assert.equal(retained.has(versions.at(-2)!), false);
 });
 
@@ -549,21 +510,13 @@ test('failed reads retain private reporting roots through later absorption and r
   );
 
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'private baseline\n');
-
   await changes.read(work);
-
   const before = await objects(root);
-
   await writeFile(join(work, 'a.txt'), 'pending\n');
-
   fail = true;
-
   await assert.rejects(changes.read(work), /fatal: raw/);
-
   await writeFile(join(work, 'b.txt'), 'reported\n');
-
   await changes.absorb(work, [join(work, 'b.txt')]);
 
   assert.deepEqual(
@@ -603,13 +556,9 @@ test('a failed reachability read does not advance the reporting baseline', async
   };
 
   const { work, changes } = await repository({ 'a.txt': 'base\n' }, run);
-
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'pending\n');
-
   fail = true;
-
   await assert.rejects(changes.read(work), /fatal: roots/);
 
   assert.deepEqual(
@@ -625,26 +574,17 @@ test('reclaiming one checkout preserves private baselines in other repositories 
   const second = await repository({ 'a.txt': 'base\n' });
   const linked = join(first.root, 'linked');
   const changes = first.changes;
-
   await first.git('worktree', 'add', '-q', linked, '-b', 'side');
-
   await writeFile(join(second.work, 'a.txt'), 'second baseline\n');
-
   await writeFile(join(linked, 'a.txt'), 'linked baseline\n');
-
   await changes.watch(first.work);
-
   await changes.watch(second.work);
-
   await changes.watch(linked);
-
   await writeFile(join(second.work, 'a.txt'), 'second pending\n');
-
   await writeFile(join(linked, 'a.txt'), 'linked pending\n');
 
   for (const text of ['one\n', 'two\n', 'three\n']) {
     await writeFile(join(first.work, 'a.txt'), text);
-
     await changes.read(first.work);
   }
 
@@ -670,9 +610,7 @@ for (const ignored of [false, true])
     if (ignored) await writeFile(join(work, '.gitignore'), 'a\n');
 
     await changes.watch(work);
-
     await rm(join(work, 'a'));
-
     await mkdir(join(work, 'a'));
 
     const inner = (...args: string[]) =>
@@ -682,7 +620,6 @@ for (const ignored of [false, true])
       });
 
     await inner('init', '-q');
-
     await inner('commit', '--allow-empty', '-qm', 'first');
 
     const expected = [
@@ -695,25 +632,17 @@ for (const ignored of [false, true])
     ];
 
     assert.deepEqual((await changes.read(work)).files, expected);
-
     await inner('commit', '--allow-empty', '-qm', 'second');
-
     assert.deepEqual((await changes.read(work)).files, expected);
   });
 
 test('text auto conversion follows the real index after a snapshot changed from CRLF to LF', async () => {
   const { work, git, changes } = await repository({ 'a.txt': 'one\r\n' });
-
   await git('config', 'core.autocrlf', 'false');
-
   await writeFile(join(work, '.gitattributes'), 'a.txt text=auto\n');
-
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'one\n');
-
   await changes.read(work);
-
   await writeFile(join(work, 'a.txt'), 'one\r\n');
 
   assert.deepEqual(
@@ -731,13 +660,9 @@ test('removing tracked attributes retains the same CRLF result as a native snaps
   });
 
   await git('config', 'core.autocrlf', 'false');
-
   await writeFile(join(work, '.gitattributes'), 'a.txt -text\n');
-
   await writeFile(join(work, 'a.txt'), 'one\r\n');
-
   await changes.watch(work);
-
   await rm(join(work, '.gitattributes'));
 
   assert.deepEqual(
@@ -759,9 +684,7 @@ test('packed binary versions are reclaimed and deleting the last private blob le
   };
 
   const { work, git, changes } = await repository({ 'a.txt': 'base\n' }, run);
-
   await git('config', 'core.bigFileThreshold', '1k');
-
   await changes.watch(work);
 
   const size = async () => {
@@ -790,9 +713,7 @@ test('packed binary versions are reclaimed and deleting the last private blob le
 
     if (version === 32) {
       const bytes = await size();
-
       assert.ok(bytes < 6 * 1024 * 1024);
-
       assert.ok(bytes <= at8 + 65536);
     }
   }
@@ -808,9 +729,7 @@ test('packed binary versions are reclaimed and deleting the last private blob le
   });
 
   assert.equal(Number(blobSize.stdout), 2 * 1024 * 1024);
-
   await rm(join(work, 'data.bin'));
-
   assert.equal((await changes.read(work)).files[0]!.kind, 'delete');
 
   assert.deepEqual(await changes.read(work), {
@@ -829,9 +748,7 @@ test('sparse checkout changes preserve omitted tracked files and still report in
   });
 
   await changes.watch(work);
-
   await git('sparse-checkout', 'init', '--no-cone');
-
   await git('sparse-checkout', 'set', '/keep.txt');
 
   assert.deepEqual(await changes.read(work), {
@@ -865,22 +782,16 @@ test('text edits retain an unchanged private pack without rewriting its payload'
 
   const run: GitRun = (command, args, options) => {
     calls.push(args);
-
     directory = options.env?.GIT_OBJECT_DIRECTORY ?? directory;
 
     return execute(command, args, options);
   };
 
   const { work, git, changes } = await repository({ 'a.txt': 'base\n' }, run);
-
   await git('config', 'core.bigFileThreshold', '1k');
-
   await changes.watch(work);
-
   await writeFile(join(work, 'data.bin'), binary(1));
-
   await changes.read(work);
-
   await changes.read(work);
 
   const names = (await readdir(join(directory, 'pack'))).filter((name) =>
@@ -894,7 +805,6 @@ test('text edits retain an unchanged private pack without rewriting its payload'
   );
 
   calls.length = 0;
-
   await writeFile(join(work, 'a.txt'), 'edited\n');
 
   assert.deepEqual(
@@ -914,9 +824,7 @@ test('text edits retain an unchanged private pack without rewriting its payload'
 
   for (const [index, name] of names.entries()) {
     const after = await stat(join(directory, 'pack', name), { bigint: true });
-
     assert.equal(after.ino, before[index]!.ino);
-
     assert.equal(after.mtimeNs, before[index]!.mtimeNs);
   }
 });
@@ -927,7 +835,6 @@ test('a file removed during conversion is reported as a deletion', async () => {
   const run: GitRun = async (command, args, options) => {
     if (target && args.includes('update-index') && args.includes('--stdin')) {
       await rm(target);
-
       target = undefined;
     }
 
@@ -935,11 +842,8 @@ test('a file removed during conversion is reported as a deletion', async () => {
   };
 
   const { work, changes } = await repository({ 'a.txt': 'base\n' }, run);
-
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'edited\n');
-
   target = join(work, 'a.txt');
 
   assert.deepEqual(
@@ -966,7 +870,6 @@ for (const kind of ['file', 'repository'])
     if (kind === 'file') await writeFile(target, 'old\n');
     else {
       await mkdir(target);
-
       await execute('git', ['init', '-q'], { cwd: target, timeout: 10_000 });
 
       await execute(
@@ -986,13 +889,9 @@ for (const kind of ['file', 'repository'])
     }
 
     await changes.watch(work);
-
     await rm(target, { recursive: true });
-
     await mkdir(target);
-
     await writeFile(join(target, '.env'), 'excluded\n');
-
     await writeFile(join(target, 'visible.txt'), 'visible\n');
 
     assert.deepEqual(
@@ -1038,13 +937,9 @@ test('SHA-256 snapshots absorb exact paths and reclaim obsolete loose and packed
   );
 
   await changes.watch(work);
-
   await writeFile(join(work, 'a.txt'), 'reported\n');
-
   await writeFile(join(work, 'pending.txt'), 'pending\n');
-
   await rm(join(work, 'removed.txt'));
-
   await changes.absorb(work, [join(work, 'a.txt'), join(work, 'removed.txt')]);
 
   assert.deepEqual(
@@ -1056,11 +951,8 @@ test('SHA-256 snapshots absorb exact paths and reclaim obsolete loose and packed
   );
 
   const old = (await git('hash-object', '--no-filters', 'a.txt')).stdout.trim();
-
   await writeFile(join(work, 'a.txt'), 'next\n');
-
   await changes.read(work);
-
   await changes.read(work);
 
   const local = (...args: string[]) =>
@@ -1077,11 +969,8 @@ test('SHA-256 snapshots absorb exact paths and reclaim obsolete loose and packed
   ).stdout.trim();
 
   assert.equal((await local('cat-file', '-p', current)).stdout, 'next\n');
-
   await git('config', 'core.bigFileThreshold', '1k');
-
   await writeFile(join(work, 'data.bin'), Buffer.alloc(2048, 1));
-
   await changes.read(work);
 
   assert.ok(
@@ -1095,11 +984,8 @@ test('SHA-256 snapshots absorb exact paths and reclaim obsolete loose and packed
   ).stdout.trim();
 
   await writeFile(join(work, 'data.bin'), Buffer.alloc(2048, 2));
-
   await changes.read(work);
-
   await changes.read(work);
-
   await assert.rejects(local('cat-file', '-e', packed), { code: 1 });
 
   const live = (
@@ -1112,7 +998,6 @@ test('SHA-256 snapshots absorb exact paths and reclaim obsolete loose and packed
 test('an untracked repository first commit is discovered with unchanged directory metadata', async () => {
   const { work, changes } = await repository({ 'a.txt': 'base\n' });
   const nested = join(work, 'nested');
-
   await mkdir(nested);
 
   const inner = (...args: string[]) =>
@@ -1122,19 +1007,12 @@ test('an untracked repository first commit is discovered with unchanged director
     });
 
   await inner('init', '-q');
-
   await changes.watch(work);
-
   assert.deepEqual((await changes.read(work)).files, []);
-
   const before = await lstat(nested, { bigint: true });
-
   await inner('commit', '--allow-empty', '-qm', 'first');
-
   const after = await lstat(nested, { bigint: true });
-
   assert.equal(after.mtimeNs, before.mtimeNs);
-
   assert.equal(after.ctimeNs, before.ctimeNs);
 
   assert.deepEqual((await changes.read(work)).files, [
@@ -1154,21 +1032,13 @@ for (const ignored of [false, true])
     });
 
     await mkdir(join(work, 'folder'));
-
     await writeFile(join(work, 'folder', 'a.txt'), 'base\n');
-
     await git('add', '-f', 'folder/a.txt');
-
     await git('commit', '-qm', 'tracked child');
-
     await changes.watch(work);
-
     await mkdir(join(root, 'copy'));
-
     await writeFile(join(root, 'copy', 'a.txt'), 'outside\n');
-
     await rm(join(work, 'folder'), { recursive: true });
-
     await symlink('../copy', join(work, 'folder'));
 
     assert.deepEqual(
@@ -1220,17 +1090,11 @@ test('a failed snapshot cannot reintroduce a newly ignored untracked file on res
   );
 
   await writeFile(join(work, 'x.txt'), 'visible\n');
-
   await changes.watch(work);
-
   await writeFile(join(work, '.gitignore'), 'x.txt\n');
-
   await writeFile(join(work, 'a.txt'), 'changed\n');
-
   fail = true;
-
   await assert.rejects(changes.read(work), /injected/);
-
   await writeFile(join(work, 'x.txt'), 'excluded secret\n');
 
   assert.deepEqual(
@@ -1264,9 +1128,7 @@ test('an invalid nested Git directory in a tracked file replacement keeps ignore
   });
 
   await changes.watch(work);
-
   await rm(join(work, 'a'));
-
   await mkdir(join(work, 'a'));
 
   await execute('git', ['init', '-q'], {
@@ -1275,9 +1137,7 @@ test('an invalid nested Git directory in a tracked file replacement keeps ignore
   });
 
   await rm(join(work, 'a', '.git', 'HEAD'));
-
   await writeFile(join(work, 'a', '.env'), 'excluded\n');
-
   await writeFile(join(work, 'a', 'visible.txt'), 'visible\n');
 
   assert.deepEqual(
@@ -1325,7 +1185,6 @@ for (const ours of ['lf', 'crlf', 'absent'])
     );
 
     await git('config', 'core.autocrlf', 'false');
-
     await git('config', 'core.filemode', 'false');
 
     await writeFile(
@@ -1334,7 +1193,6 @@ for (const ours of ['lf', 'crlf', 'absent'])
     );
 
     await writeFile(join(root, 'lf'), 'one:one\n');
-
     await writeFile(join(root, 'crlf'), 'one:one\r\n');
 
     const lf = (
@@ -1354,6 +1212,31 @@ for (const ours of ['lf', 'crlf', 'absent'])
       `100644 ${ours === 'crlf' ? lf : crlf} 3\ta.txt`,
     ];
 
+    const nested = join(work, 'nested');
+    const nestedMarker = join(root, 'nested-filter');
+    await mkdir(nested);
+
+    const inner = (...args: string[]) =>
+      execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        cwd: nested,
+        timeout: 10_000,
+      });
+
+    await inner('init', '-q');
+    await writeFile(join(nested, '.gitattributes'), 'in.txt filter=private\n');
+    await writeFile(join(nested, 'in.txt'), 'a\n');
+    await inner('add', '-A');
+    await inner('commit', '-qm', 'inner');
+    const nestedCommit = (await inner('rev-parse', 'HEAD')).stdout.trim();
+
+    await inner(
+      'config',
+      'filter.private.clean',
+      `sh -c 'touch "${nestedMarker}"; cat'`,
+    );
+
+    await git('add', 'nested');
+
     await fixture.run('git', ['update-index', '-z', '--index-info'], {
       cwd: work,
       timeout: 10_000,
@@ -1361,17 +1244,11 @@ for (const ours of ['lf', 'crlf', 'absent'])
     });
 
     await git('init', '-q', join(work, 'unborn'));
-
     const original = await readFile(join(work, '.git', 'index'));
-
     await writeFile(join(work, 'a.txt'), 'one\r\n');
-
     await changes.watch(work);
-
     const count = (await readFile(marker)).length;
-
     assert.deepEqual((await changes.read(work)).files, []);
-
     assert.equal((await readFile(marker)).length, count);
 
     const indexed = await execute('git', ['ls-tree', tree, '--', 'a.txt'], {
@@ -1381,7 +1258,15 @@ for (const ours of ['lf', 'crlf', 'absent'])
     });
 
     assert.match(indexed.stdout, /^100755 blob [0-9a-f]+\ta\.txt\n$/);
+    await writeFile(join(nested, 'in.txt'), 'b\n');
 
+    await utimes(
+      join(nested, 'in.txt'),
+      new Date('2020-01-01'),
+      new Date('2020-01-01'),
+    );
+
+    await inner('-c', 'filter.private.clean=cat', 'commit', '-qam', 'next');
     await writeFile(join(work, 'a.txt'), 'one\n');
 
     assert.deepEqual(
@@ -1391,15 +1276,23 @@ for (const ours of ['lf', 'crlf', 'absent'])
       ours === 'crlf' ? [['-one:one\r', '+one:one']] : [],
     );
 
+    await assert.rejects(readFile(nestedMarker), { code: 'ENOENT' });
+
+    assert.equal(
+      (
+        await execute('git', ['ls-tree', tree, '--', 'nested'], {
+          cwd: work,
+          timeout: 10_000,
+          env: privateEnv,
+        })
+      ).stdout,
+      `160000 commit ${nestedCommit}\tnested\n`,
+    );
+
     const stable = (await readFile(marker)).length;
-
     assert.deepEqual((await changes.read(work)).files, []);
-
     assert.equal((await readFile(marker)).length, stable);
-
     changes.close();
-
     await changes.settled();
-
     assert.deepEqual(await readFile(join(work, '.git', 'index')), original);
   });

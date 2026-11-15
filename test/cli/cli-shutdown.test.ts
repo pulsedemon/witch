@@ -27,17 +27,19 @@ async function check(
   action: 'escape' | 'exit' | 'restart',
 ) {
   const root = await scratch(`witch-${runtime}-${action}-`);
-  const cli = await compiledCli();
+
+  const cli = await within(
+    compiledCli(),
+    100,
+    'CLI build prepared before the test deadline',
+  );
+
   const project = join(root, 'project');
   const bin = join(root, 'bin');
   const restartGate = join(root, 'restart');
-
   await mkdir(project, { recursive: true });
-
   await mkdir(bin);
-
   await symlink(git, join(bin, 'git'));
-
   const fixture = join(repo, `test/fixtures/${runtime}.mjs`);
   const mode = runtime === 'codex' ? 'brews' : 'background';
 
@@ -59,7 +61,6 @@ async function check(
   });
 
   await files.close();
-
   await writeFile(join(project, 'hold-interrupt'), '');
 
   const child = spawn(
@@ -95,9 +96,7 @@ async function check(
   );
 
   const closed = once(child, 'close');
-
   void closed.catch(() => {});
-
   let output = '';
   let stderr = '';
 
@@ -142,7 +141,6 @@ async function check(
 
   const submit = async (text: string) => {
     const start = output.length;
-
     child.stdin.write(text);
 
     await wait('composer', () =>
@@ -175,13 +173,9 @@ async function check(
 
     // snapshot storage sits in the state directory, since agents can write the scratch one
     assert.match((await readdir(join(store.root, 'changes'))).join(), /^\d+$/);
-
     const first = `shutdown-first-${randomUUID()}`;
-
     await submit(first);
-
     await wait('initial native input', () => input(first));
-
     const native = (await record()).process!;
     const start = performance.now();
 
@@ -190,9 +184,7 @@ async function check(
 
     if (action === 'exit') {
       await within(closed, 11000, 'CLI exit');
-
       assert.equal(child.exitCode, 0, stderr);
-
       assert.deepEqual(await readdir(join(store.root, 'changes')), []);
     } else if (action === 'restart') {
       await wait('restart handoff', () => exists(restartGate));
@@ -205,9 +197,7 @@ async function check(
     }
 
     const elapsedMs = Math.round(performance.now() - start);
-
     assert.ok(elapsedMs < 10000, `${runtime} ${action}: ${elapsedMs} ms`);
-
     assert.equal(sameProcess(await identifyProcess(native.pid), native), false);
 
     const history = await readFile(
@@ -229,9 +219,7 @@ async function check(
 
     if (action !== 'exit') {
       const next = `shutdown-next-${randomUUID()}`;
-
       await submit(next);
-
       await wait('next native input', () => input(next));
 
       await writeJson(
@@ -279,9 +267,7 @@ async function check(
       );
 
       await submit('/exit');
-
       await within(closed, 5000, 'final exit');
-
       assert.equal(child.exitCode, 0, stderr);
     }
   } finally {

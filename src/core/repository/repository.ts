@@ -125,7 +125,6 @@ async function filterless(
 
   for (const name of drivers) {
     set(`filter.${name}.process`, '');
-
     set(`filter.${name}.required`, 'false');
   }
 
@@ -374,9 +373,7 @@ export class RepositoryWatch {
       }
 
     this.timer = setInterval(() => this.tick(), this.interval);
-
     this.timer.unref();
-
     void this.refresh();
   }
 
@@ -388,11 +385,8 @@ export class RepositoryWatch {
 
   close(): void {
     this.closed = true;
-
     clearInterval(this.timer);
-
     clearTimeout(this.scheduled);
-
     this.unwatch();
   }
 
@@ -438,19 +432,14 @@ export class RepositoryWatch {
   /** an admission needs a read started after its request, including when an older read is still running. */
   async readPullRequest(): Promise<void> {
     await this.refreshing;
-
     await this.refresh();
-
     await this.fetching;
-
     const branch = this.snapshot?.branch;
 
     if (this.closed || !branch || branch === 'HEAD') return;
 
     await this.fetchPullRequest(branch);
-
     await this.refreshing;
-
     await this.refresh();
   }
 
@@ -479,7 +468,6 @@ export class RepositoryWatch {
     this.scheduled = setTimeout(
       () => {
         this.scheduled = undefined;
-
         void this.refresh();
       },
       Math.max(debounce, this.startedAt + this.interval - performance.now()),
@@ -552,10 +540,8 @@ export class RepositoryWatch {
 
   private async readStatus(): Promise<void> {
     this.stale = false;
-
     // this read covers a change still waiting for its own, such as when the minute timer starts it first
     clearTimeout(this.scheduled);
-
     this.scheduled = undefined;
     this.startedAt = performance.now();
     let repository: Repository | undefined;
@@ -678,7 +664,6 @@ export class RepositoryWatch {
           this.snapshot.commit !== commit
         ) {
           value = undefined;
-
           this.refreshPullRequest();
         }
 
@@ -686,7 +671,6 @@ export class RepositoryWatch {
       }
     } catch (error) {
       value = undefined;
-
       failures.add(reason(error));
     } finally {
       this.fetching = undefined;

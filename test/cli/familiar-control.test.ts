@@ -49,21 +49,17 @@ test('familiar request parsing enforces the absolute diff path contract', () => 
   );
 
   input.action.request.diff[0]!.path = '/work/absolute.txt';
-
   assert.deepEqual(controlRequestSchema.parse(input), input);
 });
 
 test('familiar reports bypass a blocked task mailbox and preserve active-session admission', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
 
   const f = await coordinationFixture(cleanup, async (references) => {
     entered.resolve();
-
     await release.promise;
 
     return {
@@ -122,15 +118,11 @@ test('familiar reports bypass a blocked task mailbox and preserve active-session
     );
 
     assert.equal(stale.kind, 'error');
-
     assert.equal(client.coordinator.snapshot.subagents[0]!.tools, 7);
-
     const wrongMailbox = await callControl(binding, { kind: 'peers' });
-
     assert.equal(wrongMailbox.kind, 'error');
   } finally {
     release.resolve();
-
     assert.equal((await claiming).kind, 'claimed');
   }
 });
@@ -152,13 +144,9 @@ test('an explicit control deadline reaches the host and prevents late report acc
     binding.directory,
     async (request) => {
       received = request.deadline;
-
       entered.resolve();
-
       await release.promise;
-
       checkDeadline(request.deadline);
-
       accepted = true;
 
       return { kind: 'familiar-registered' };
@@ -184,38 +172,26 @@ test('an explicit control deadline reaches the host and prevents late report acc
 
   try {
     await within(entered.promise, 3000, 'report arrival');
-
     assert.equal(received, deadline);
-
     now = vi.spyOn(Date, 'now').mockReturnValue(deadline + 1);
-
     release.resolve();
-
     await rejected;
-
     await host.drain();
-
     assert.equal(accepted, false);
   } finally {
     release.resolve();
-
     await host.close();
-
     now?.mockRestore();
   }
 });
 
 test('only a supporting session receives familiar instructions and the exact user prompt stays separate', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await coordinationFixture(cleanup);
   const client = await f.start();
   const prompt = 'Review this\n  exact user input.';
-
   await client.coordinator.send(prompt);
-
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
 
   assert.doesNotMatch(
@@ -230,11 +206,8 @@ test('only a supporting session receives familiar instructions and the exact use
   };
 
   await client.coordinator.send(prompt);
-
   const input = client.a.inputs.at(-1)!;
-
   assert.equal(input.prompt, prompt);
-
   assert.ok(!input.context!.includes(prompt));
 
   assert.ok(
@@ -270,7 +243,6 @@ test('only a supporting session receives familiar instructions and the exact use
   );
 
   assert.match(input.context!, /keep its stdout connected/);
-
   assert.doesNotMatch(input.context!, /run_in_background/);
 
   const rule = input
@@ -314,15 +286,11 @@ test('only a supporting session receives familiar instructions and the exact use
   );
 
   await client.coordinator.send(prompt);
-
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
-
   const before = client.coordination.commandPrefixes().familiar;
   const native = client.a.sessions[0]!.session;
   const { familiar } = native;
-
   await native.close();
-
   const connect = client.a.connect.bind(client.a);
 
   // a Claude session launches its familiar with Bash
@@ -339,7 +307,6 @@ test('only a supporting session receives familiar instructions and the exact use
   };
 
   await client.coordinator.send(prompt);
-
   assert.equal(client.a.inputs.at(-1)!.session, input.session);
 
   assert.match(
@@ -353,7 +320,6 @@ test('only a supporting session receives familiar instructions and the exact use
   );
 
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /require_escalated/);
-
   assert.notEqual(client.coordination.commandPrefixes().familiar, before);
 
   assert.ok(
@@ -492,7 +458,6 @@ test('pending native requests leave the mailbox available and retain complete re
       );
 
       const emitted = events.filter((e) => e.type === 'request').at(-1)!;
-
       assert.equal(emitted.type, 'request');
 
       assert.deepEqual(emitted.request, {
@@ -511,7 +476,6 @@ test('pending native requests leave the mailbox available and retain complete re
       });
 
       assert.equal(answer.kind, 'familiar-response');
-
       assert.deepEqual(answer.response, response);
 
       await callControl(binding, {
@@ -522,7 +486,6 @@ test('pending native requests leave the mailbox available and retain complete re
     }
   } finally {
     await owner.close();
-
     await host.close();
   }
 

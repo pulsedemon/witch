@@ -99,28 +99,19 @@ async function holdsAutomatic(from: Client, client: Client, name: string) {
   });
 
   assert.equal(asked.kind, 'peer-request', JSON.stringify(asked));
-
   await refreshed(client);
-
   await refreshed(client);
-
   // an unheld session would start its answer turn within this
   await delay(500);
-
   assert.equal(answerTurns(client).length, before);
 }
 
 test('a pause stops and holds the sessions live when issued, and no session opened later', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   await f.checkout('D');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const b = await f.start('B');
@@ -133,13 +124,9 @@ test('a pause stops and holds the sessions live when issued, and no session open
   ] as const) {
     client.a.gate = new TurnGate();
     client.a.refuseSteer = true;
-
     sends.push(client.coordinator.send(`${name} working`));
-
     await client.a.gate.entered;
-
     sends.push(client.coordinator.send(`${name} queued`));
-
     await until('queued', () => client.coordinator.snapshot.queue.length === 1);
   }
 
@@ -156,7 +143,6 @@ test('a pause stops and holds the sessions live when issued, and no session open
   });
 
   await confirmed(f, a, issued);
-
   await confirmed(f, b, issued);
 
   for (const [name, client] of [
@@ -164,28 +150,18 @@ test('a pause stops and holds the sessions live when issued, and no session open
     ['b', b],
   ] as const) {
     assert.equal(interrupts(client), 1);
-
     assert.ok(shown(client, `pause/${issued.id}`));
-
     client.a.gate!.open();
-
     await refreshed(client);
-
     assert.deepEqual(prompts(client), [`${name} working`]);
-
     assert.deepEqual(client.coordinator.snapshot.queue, [`${name} queued`]);
   }
 
   await holdsAutomatic(i, b, 'b-held');
-
   assert.equal(interrupts(c), 0);
-
   const d = await f.start('D');
-
   await d.coordinator.send('d works');
-
   assert.deepEqual(prompts(d), ['d works']);
-
   assert.equal(interrupts(d), 0);
 
   assert.deepEqual(
@@ -197,9 +173,7 @@ test('a pause stops and holds the sessions live when issued, and no session open
 
   // the user's prompt lifts A's pause and runs right after what A queued
   await a.coordinator.send('a resumes');
-
   await until('a resumed', () => prompts(a).length === 3);
-
   assert.deepEqual(prompts(a), ['a working', 'a queued', 'a resumes']);
 
   await until(
@@ -208,25 +182,15 @@ test('a pause stops and holds the sessions live when issued, and no session open
   );
 
   await refreshed(b);
-
   assert.deepEqual(prompts(b), ['b working']);
-
   assert.equal((await statuses(f, issued))[id(b)], 'paused');
-
   const lifted = await control(i, { kind: 'resume', pause: issued.id });
-
   assert.equal(lifted.kind, 'pause', JSON.stringify(lifted));
-
   await refreshed(b);
-
   await until('b released', () => prompts(b).length === 2);
-
   assert.equal(prompts(b)[1], 'b queued');
-
   await until('b answers', () => answerTurns(b).length === 1);
-
   assert.ok(shown(b, `pause-lifted/${issued.id}`));
-
   const stored = await f.registry.pause(id(i), issued.id);
 
   assert.deepEqual(
@@ -244,32 +208,21 @@ test('a pause stops and holds the sessions live when issued, and no session open
 
 test('a pause holds across switching conversations and a restart, until a prompt resumes it', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const b = await f.start('B');
   const issued = await pause(i);
-
   await confirmed(f, a, issued);
-
   await confirmed(f, b, issued);
-
   const conversation = id(a);
   const other = id(b);
-
   // the other conversation isn't held: it answers a peer request on its own
   await a.coordinator.newConversation();
-
   const elsewhere = await claimed(a, 'elsewhere');
-
   await control(i, { kind: 'ask', claim: elsewhere.id, message: 'Free?' });
-
   await refreshed(a);
 
   await until(
@@ -281,20 +234,13 @@ test('a pause holds across switching conversations and a restart, until a prompt
   );
 
   await a.coordinator.selectConversation(conversation);
-
   await refreshed(a);
-
   await holdsAutomatic(i, a, 'a-switched');
-
   // B's Witch closes; A's opens B's paused conversation straight from its own, and a prompt there resumes only B
   await b.coordinator.close();
-
   await a.coordinator.selectConversation(other);
-
   await refreshed(a);
-
   await holdsAutomatic(i, a, 'b-in-a');
-
   await a.coordinator.send('b resumes');
 
   await until(
@@ -310,19 +256,12 @@ test('a pause holds across switching conversations and a restart, until a prompt
   );
 
   await a.coordinator.selectConversation(conversation);
-
   await refreshed(a);
-
   await holdsAutomatic(i, a, 'a-again');
-
   await a.coordinator.close({ restart: true });
-
   const restarted = await f.start('A', { conversation });
-
   await refreshed(restarted);
-
   await holdsAutomatic(i, restarted, 'a-restarted');
-
   const stored = await f.registry.pause(id(i), issued.id);
 
   assert.deepEqual(stored.recipients, [
@@ -340,7 +279,6 @@ test('a pause holds across switching conversations and a restart, until a prompt
   });
 
   await restarted.coordinator.send('a resumes');
-
   await until('a resumed', () => prompts(restarted).includes('a resumes'));
 
   await until(
@@ -351,19 +289,13 @@ test('a pause holds across switching conversations and a restart, until a prompt
 
 test('a resume whose write failed is stored when the session restarts', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const issued = await pause(i);
-
   await confirmed(f, a, issued);
-
   const conversation = id(a);
 
   vi.spyOn(CoordinationStore.prototype, 'resumeByUser').mockRejectedValueOnce(
@@ -378,19 +310,12 @@ test('a resume whose write failed is stored when the session restarts', async (t
 
   // no tick runs before the restart, so closing stores it
   await a.coordinator.close({ restart: true });
-
   assert.equal((await statuses(f, issued))[conversation], 'resumed');
-
   const restarted = await f.start('A', { conversation });
-
   await refreshed(restarted);
-
   const claim = await claimed(restarted, 'after-restart');
-
   await control(i, { kind: 'ask', claim: claim.id, message: 'Back?' });
-
   await refreshed(restarted);
-
   await until('answer turn', () => answerTurns(restarted).length === 1);
 });
 
@@ -398,15 +323,11 @@ test('a failed resume write retries on the tick while the prompt is delivered on
   const cleanup = orderedCleanup(t.onTestFinished);
   const ticks = pauseDiscovery(vi.spyOn);
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const issued = await pause(i);
-
   await confirmed(f, a, issued);
-
   const resume = CoordinationStore.prototype.resumeByUser;
 
   vi.spyOn(CoordinationStore.prototype, 'resumeByUser')
@@ -416,7 +337,6 @@ test('a failed resume write retries on the tick while the prompt is delivered on
     });
 
   await a.coordinator.send('a resumes');
-
   assert.deepEqual(prompts(a), ['a resumes']);
 
   await until('write failed', () =>
@@ -424,11 +344,8 @@ test('a failed resume write retries on the tick while the prompt is delivered on
   );
 
   assert.equal((await statuses(f, issued))[id(a)], 'paused');
-
   await refreshed(a);
-
   await a.coordinator.send('still running');
-
   assert.deepEqual(prompts(a), ['a resumes', 'still running']);
 
   for (const tick of ticks) tick();
@@ -443,28 +360,19 @@ test('a failed resume write retries on the tick while the prompt is delivered on
 
 test('a recipient confirms only after its stopped turn settles, and retries a failed stop', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const settlement = holdSettlement(a.a.sessions[0]!.session);
-
   cleanup(() => settlement.restore());
-
   const gate = new TurnGate();
   a.a.gate = gate;
   a.a.failInterrupt = true;
   const working = a.coordinator.send('working');
-
   await gate.entered;
-
   const issued = await pause(i);
-
   await refreshed(a);
 
   await until('stop failed', () =>
@@ -474,17 +382,11 @@ test('a recipient confirms only after its stopped turn settles, and retries a fa
   );
 
   a.a.failInterrupt = false;
-
   await until('stop retried', () => interrupts(a) === 2, 250);
-
   await settlement.entered;
-
   await refreshed(a);
-
   assert.equal((await statuses(f, issued))[id(a)], 'pending');
-
   settlement.release();
-
   await working;
 
   await until(
@@ -495,30 +397,19 @@ test('a recipient confirms only after its stopped turn settles, and retries a fa
 
 test('a recipient that Claude Code runs on its own confirms once that run ends', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const emit = a.a.sessions.at(-1)!.options.onEvent;
-
   emit({ type: 'running', running: true });
-
   const issued = await pause(i);
-
   await refreshed(a);
-
   await refreshed(a);
-
   // an unheld confirmation would be written within this
   await delay(500);
-
   assert.equal((await statuses(f, issued))[id(a)], 'pending');
-
   emit({ type: 'running', running: false });
 
   await until(
@@ -529,49 +420,32 @@ test('a recipient that Claude Code runs on its own confirms once that run ends',
 
 test('a resume cancels a scheduled stop retry, which never interrupts the next turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const gate = new TurnGate();
   a.a.gate = gate;
   a.a.failInterrupt = true;
   const working = a.coordinator.send('working');
-
   await gate.entered;
-
   await pause(i);
-
   await refreshed(a);
-
   await until('stop failed', () => interrupts(a) === 1);
-
   a.a.failInterrupt = false;
-
   // the user's prompt resumes before the retry fires, and runs once the stopped turn ends
   const resuming = a.coordinator.send('carry on');
-
   gate.open();
-
   await Promise.all([working, resuming]);
-
   await until('next turn', () => prompts(a).includes('carry on'));
-
   await delay(2500);
-
   assert.equal(interrupts(a), 1);
 });
 
 test('--to pauses only the named sessions, in any project', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
   const a = await f.start('A');
   const b = await f.start('B');
@@ -584,23 +458,16 @@ test('--to pauses only the named sessions, in any project', async (t) => {
   );
 
   await confirmed(f, c, issued);
-
   await refreshed(b);
-
   assert.equal(interrupts(b), 0);
-
   assert.equal(interrupts(c), 1);
 });
 
 test('a session that goes live before a default pause is recorded is a recipient', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('D');
-
   const a = await f.start('A');
   const b = await f.start('B');
   let d: Awaited<ReturnType<typeof f.start>> | undefined;
@@ -616,7 +483,6 @@ test('a session that goes live before a default pause is recorded is a recipient
     });
 
   const issued = await pause(a);
-
   spy.mockRestore();
 
   assert.deepEqual(
@@ -627,9 +493,7 @@ test('a session that goes live before a default pause is recorded is a recipient
 
 test('a pause that cannot reach every intended recipient records nothing', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
   const a = await f.start('A');
 
@@ -637,9 +501,7 @@ test('a pause that cannot reach every intended recipient records nothing', async
     assert.deepEqual(await f.registry.pauses(id(a)), []);
 
   assert.equal(await refused(a, undefined), 'No other live session to pause.');
-
   assert.equal(await refused(a, [id(a)]), 'No other live session to pause.');
-
   const b = await f.start('B');
   const unknown = randomUUID();
 
@@ -649,7 +511,6 @@ test('a pause that cannot reach every intended recipient records nothing', async
   );
 
   await nothing();
-
   // B closes after admission captured it, inside the locked check
   const issue = CoordinationStore.prototype.issuePause;
 
@@ -667,15 +528,10 @@ test('a pause that cannot reach every intended recipient records nothing', async
   );
 
   spy.mockRestore();
-
   await nothing();
-
   const legacy = record(randomUUID(), join(f.root, 'B'));
-
   await (await f.store.create(legacy)).close();
-
   const lock = await legacyLock(f.store, legacy.id);
-
   cleanup(() => lock.close());
 
   assert.match(
@@ -688,9 +544,7 @@ test('a pause that cannot reach every intended recipient records nothing', async
 
 test('a session whose Witch cannot be paused refuses the whole pause', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const publish = CoordinationStore.prototype.publish;
 
   // B's presence comes from a Witch built before pauses
@@ -706,13 +560,9 @@ test('a session whose Witch cannot be paused refuses the whole pause', async (t)
   });
 
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
-
   await f.start('A');
-
   const b = await f.start('B');
 
   assert.match(
@@ -727,9 +577,7 @@ test('a failed pause read is retried on the next tick without another write', as
   const cleanup = orderedCleanup(t.onTestFinished);
   const ticks = pauseDiscovery(vi.spyOn);
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const read = CoordinationStore.prototype.pauses;
@@ -758,7 +606,6 @@ test('a failed pause read is retried on the next tick without another write', as
   );
 
   await delay(200);
-
   assert.equal((await statuses(f, issued))[id(a)], 'pending');
 
   for (const tick of ticks) tick();
@@ -771,13 +618,9 @@ test('a failed pause read is retried on the next tick without another write', as
 
 test('an issuer resume while a stopped, undelivered turn settles still runs the held queue', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const session = a.a.sessions[0]!.session;
@@ -796,87 +639,52 @@ test('an issuer resume while a stopped, undelivered turn settles still runs the 
   };
 
   const settlement = holdSettlement(session);
-
   cleanup(() => settlement.restore());
-
   a.a.gate = new TurnGate();
   a.a.refuseSteer = true;
   const working = a.coordinator.send('working');
-
   await a.a.gate.entered;
-
   const queued = a.coordinator.send('queued');
-
   await until('queued', () => a.coordinator.snapshot.queue.length === 1);
-
   const issued = await pause(i);
-
   await refreshed(a);
-
   await settlement.entered;
-
   a.a.gate.open();
-
   const lifted = await control(i, { kind: 'resume', pause: issued.id });
-
   assert.equal(lifted.kind, 'pause', JSON.stringify(lifted));
-
   await refreshed(a);
-
   settlement.release();
-
   await Promise.all([working, queued]);
-
   await until('queue ran', () => prompts(a).length === 2);
-
   assert.deepEqual(prompts(a), ['working', 'working\nqueued']);
 });
 
 test("an issuer resume leaves the user's own Escape hold in place", async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
-
   await a.coordinator.interrupt();
-
   const issued = await pause(i);
-
   await confirmed(f, a, issued);
-
   const lifted = await control(i, { kind: 'resume', pause: issued.id });
-
   assert.equal(lifted.kind, 'pause', JSON.stringify(lifted));
-
   await refreshed(a);
-
   await holdsAutomatic(i, a, 'escaped');
-
   await a.coordinator.send('back');
-
   await until('answer turn', () => answerTurns(a).length === 1);
 });
 
 test('a pause arriving during an operation started while held stops it before confirming', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
-
   await confirmed(f, a, await pause(i));
-
   a.a.gate = new TurnGate();
   let compacted = false;
 
@@ -885,35 +693,23 @@ test('a pause arriving during an operation started while held stops it before co
   });
 
   await a.a.gate.entered;
-
   const second = await pause(i);
-
   await confirmed(f, a, second);
-
   assert.equal(compacted, true);
-
   await compacting.catch(() => {});
 });
 
 test('automatic work waits for a restarted recipient to read its pauses', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const claim = await claimed(a, 'restarting');
-
   await confirmed(f, a, await pause(i));
-
   const conversation = id(a);
-
   await a.coordinator.close({ restart: true });
-
   const read = CoordinationStore.prototype.pauses;
   let failing = true;
 
@@ -928,40 +724,25 @@ test('automatic work waits for a restarted recipient to read its pauses', async 
   });
 
   const restarted = await f.start('A', { conversation });
-
   await control(i, { kind: 'ask', claim: claim.id, message: 'Awake?' });
-
   await refreshed(restarted);
-
   await refreshed(restarted);
-
   await delay(500);
-
   assert.deepEqual(answerTurns(restarted), []);
-
   failing = false;
-
   await refreshed(restarted);
-
   await delay(500);
-
   assert.deepEqual(answerTurns(restarted), []);
 });
 
 test("a failed pause read after switching away drops the previous conversation's hold", async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
-
   await confirmed(f, a, await pause(i));
-
   const conversation = id(a);
   const read = CoordinationStore.prototype.pauses;
   let failing = true;
@@ -977,41 +758,26 @@ test("a failed pause read after switching away drops the previous conversation's
   });
 
   await a.coordinator.newConversation();
-
   await a.coordinator.send('elsewhere');
-
   assert.deepEqual(prompts(a), ['elsewhere']);
-
   failing = false;
-
   await a.coordinator.selectConversation(conversation);
-
   await refreshed(a);
-
   await holdsAutomatic(i, a, 'a-back');
 });
 
 test('a prompt that resumes a pause runs before automatic work its release wakes', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const claim = await claimed(a, 'waiting');
-
   await confirmed(f, a, await pause(i));
-
   await control(i, { kind: 'ask', claim: claim.id, message: 'Later?' });
-
   await refreshed(a);
-
   await a.coordinator.send('resume');
-
   await until('answer turn', () => answerTurns(a).length === 1);
 
   assert.deepEqual(
@@ -1022,23 +788,15 @@ test('a prompt that resumes a pause runs before automatic work its release wakes
 
 test('a prompt sent before a failed pause read resumes the pauses issued before it', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const issued = await pause(i);
-
   await confirmed(f, a, issued);
-
   const conversation = id(a);
-
   await a.coordinator.close({ restart: true });
-
   const read = CoordinationStore.prototype.pauses;
   let failing = true;
 
@@ -1053,14 +811,10 @@ test('a prompt sent before a failed pause read resumes the pauses issued before 
   });
 
   const restarted = await f.start('A', { conversation });
-
   await restarted.coordinator.send('after restart');
-
   assert.deepEqual(prompts(restarted), ['after restart']);
-
   failing = false;
   const later = await pause(i);
-
   await refreshed(restarted);
 
   await until(
@@ -1075,19 +829,14 @@ test('a prompt sent before a failed pause read resumes the pauses issued before 
   );
 
   await restarted.coordinator.send('after the later pause');
-
   await until('delivered', () => prompts(restarted).length === 2);
 });
 
 test('a pause arriving during an in-flight stop gets its own stop before confirming', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const session = a.a.sessions[0]!.session;
@@ -1098,7 +847,6 @@ test('a pause arriving during an in-flight stop gets its own stop before confirm
   session.interrupt = async (...args) => {
     if (first) {
       first = false;
-
       await held.promise;
     }
 
@@ -1106,13 +854,9 @@ test('a pause arriving during an in-flight stop gets its own stop before confirm
   };
 
   const issued = await pause(i);
-
   await refreshed(a);
-
   const second = await pause(i);
-
   await refreshed(a);
-
   // an operation the user starts while the first stop is still in flight
   a.a.gate = new TurnGate();
   let compacted = false;
@@ -1122,7 +866,6 @@ test('a pause arriving during an in-flight stop gets its own stop before confirm
   });
 
   await a.a.gate.entered;
-
   held.resolve();
 
   await until(
@@ -1133,25 +876,18 @@ test('a pause arriving during an in-flight stop gets its own stop before confirm
   );
 
   assert.equal(compacted, true);
-
   await compacting.catch(() => {});
 });
 
 test('a prompt sent while /clear reconnects coordination still stores its resume', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const issued = await pause(i);
-
   await confirmed(f, a, issued);
-
   const activate = SessionCoordination.prototype.activate;
   let sending: Promise<void> | undefined;
 
@@ -1165,7 +901,6 @@ test('a prompt sent while /clear reconnects coordination still stores its resume
   );
 
   await a.coordinator.clear();
-
   await sending;
 
   await until(
@@ -1176,22 +911,15 @@ test('a prompt sent while /clear reconnects coordination still stores its resume
 
 test('automatic work after /clear waits for the new activation to read its pauses', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-
   pauseDiscovery(vi.spyOn);
-
   const f = await unitCoordinationFixture(cleanup);
-
   await f.checkout('I');
-
   const i = await f.start('I');
   const a = await f.start('A');
   const claim = await claimed(a, 'clearing');
-
   // A last read no pauses; this one and the request land before it reads again
   await pause(i);
-
   await control(i, { kind: 'ask', claim: claim.id, message: 'Paused?' });
-
   const conversation = id(a);
   const read = CoordinationStore.prototype.pauses;
 
@@ -1206,10 +934,7 @@ test('automatic work after /clear waits for the new activation to read its pause
   });
 
   await a.coordinator.clear();
-
   await refreshed(a);
-
   await delay(500);
-
   assert.deepEqual(answerTurns(a), []);
 });

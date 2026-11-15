@@ -86,25 +86,18 @@ test('a real move retains its recorded identity after timestamp restoration', as
   });
 
   await mkdir(f.at('a/child'));
-
   await utimes(f.at('a'), new Date('2000-01-01'), new Date('2000-01-01'));
-
   await rename(f.at('a'), f.at('b'));
 
   await updateLedger(f.root, async (ledger) => {
     const moves = await findMoves(ledger.entries, [f.at('b')]);
-
     assert.equal(moves.length, 1);
-
     await resolve(ledger, moves, 0);
   });
 
   const ledger = await readLedger(f.root);
-
   assert.equal(ledger.entries[0]!.path, f.at('b'));
-
   assert.equal(ledger.entries[0]!.birthtimeNs, String(before.birthtimeNs));
-
   assert.equal(ledger.moves[0]!.birthtimeNs, String(before.birthtimeNs));
 });
 
@@ -117,12 +110,9 @@ test('legacy directory identities still move and gain creation time when adopted
   });
 
   await rename(f.at('a'), f.at('b'));
-
   const ledger = await readLedger(f.root);
   const moves = await findMoves(ledger.entries, [f.at('b')]);
-
   assert.deepEqual(f.moved(moves), [[f.at('a'), f.at('b')]]);
-
   await resolve(ledger, moves, 0);
 
   assert.equal(
@@ -142,9 +132,7 @@ test('different generations of an inode record separate moves between the same p
   const earlier = { ...move, birthtimeNs: '1' };
   const later = { ...move, birthtimeNs: '2' };
   const ledger: Ledger = { entries: [], moves: [] };
-
   await resolve(ledger, [earlier], 0);
-
   await resolve(ledger, [later], 0);
 
   assert.deepEqual(
@@ -162,7 +150,6 @@ test('mapper maps a path and its descendants at a boundary only', async () => {
   });
 
   assert.equal(map(f.at('w/main')), f.at('c/main'));
-
   assert.equal(map(f.at('w/main/src')), f.at('c/main/src'));
 
   for (const path of ['w/main-1', 'w/main copy', 'w/main.git', 'x/w/main'])
@@ -178,7 +165,6 @@ test('mapper applies the most specific move', async () => {
   });
 
   assert.equal(nested.map(f.at('a/sub/x')), f.at('e/x'));
-
   assert.equal(nested.map(f.at('a/y')), f.at('b/y'));
 
   const chained = await mapper({
@@ -202,13 +188,9 @@ test('mapper follows a directory moved back and forth', async () => {
   };
 
   assert.equal((await mapper(ledger)).map(f.at('b/x')), f.at('a/x'));
-
   await rename(f.at('a'), f.at('b'));
-
   await resolve(ledger, [{ ...there, from: f.at('a'), to: f.at('b') }], 0);
-
   assert.equal(ledger.moves.length, 3);
-
   assert.equal((await mapper(ledger)).map(f.at('a/x')), f.at('b/x'));
 });
 
@@ -217,14 +199,12 @@ for (const seeded of [false, true])
     const f = await directories('main/sub');
     const parent = await f.entry('main');
     const child = await f.entry('main/sub');
-
     await rename(f.at('main'), f.at('Main'));
 
     if (!(await identify(f.at('main'))))
       t.skip('requires case-insensitive paths');
 
     assert.equal(await realpath(f.at('main')), f.at('Main'));
-
     const ledger: Ledger = { entries: [child, parent], moves: [] };
 
     const moves = await findMoves(
@@ -233,17 +213,11 @@ for (const seeded of [false, true])
     );
 
     assert.deepEqual(f.moved(moves), [[f.at('main'), f.at('Main')]]);
-
     await resolve(ledger, moves, 0);
-
     const mapping = await mapper(ledger);
-
     assert.equal(mapping.map(f.at('main/sub')), f.at('Main/sub'));
-
     await rename(f.at('Main'), f.at('main'));
-
     assert.equal(await mapping.unchanged(f.at('main/sub')), false);
-
     await resolve(ledger, await findMoves(ledger.entries, []), 0);
 
     assert.equal(
@@ -256,14 +230,11 @@ for (const seeded of [false, true])
 
 test('existing symlink aliases are not recorded as case moves', async () => {
   const f = await directories('main/sub');
-
   await symlink(f.at('main'), f.at('alias'));
-
   const entries = [await f.entry('alias'), await f.entry('alias/sub')];
 
   if (!(await identify(f.at('MAIN')))) {
     await symlink(f.at('main'), f.at('MAIN'));
-
     entries.push(await f.entry('MAIN'), await f.entry('MAIN/sub'));
   }
 
@@ -280,7 +251,6 @@ test('a move recorded while the clock reads behind the last one is dated after i
   };
 
   await resolve(ledger, [await f.move('b', 'c')], 0);
-
   assert.equal(ledger.moves[1]?.at, ahead + 1);
 });
 
@@ -327,9 +297,7 @@ test('resolving a move beside many known directories reads each one a bounded nu
   };
 
   await resolve(ledger, [await f.move('a', 'b')], 0);
-
   assert.equal(ledger.entries.length, 2000);
-
   // checking each entry's place in the ledger before its path reads every entry per entry
   assert.ok(reads.n < 20_000, String(reads.n));
 });
@@ -361,9 +329,7 @@ test('resolving a move relocates the directories it carries in one pass over the
   );
 
   await resolve(ledger, [await f.move('a', 'b')], 0);
-
   assert.equal(ledger.entries[199]?.path, f.at('b/c199'));
-
   // reading every entry again for each carried directory made large moves quadratic
   assert.ok(reads < 20, String(reads));
 });
@@ -396,7 +362,6 @@ test('resolving many moves at once reads the ledger a fixed number of times', as
   };
 
   await resolve(ledger, moves, 0);
-
   // scanning the entries and the moves for each move made a parent holding thousands of known directories take seconds
   assert.ok(reads.n < 4 * moves.length, String(reads.n));
 
@@ -428,7 +393,6 @@ test("formerPaths follows a directory back through its own and its parents' move
   ]);
 
   await mkdir(f.at('p'));
-
   assert.deepEqual(await formerPaths(ledger, f.at('v/p')), [f.at('w/p')]);
 });
 
@@ -455,15 +419,10 @@ test('mapper never carries a replaced child', async () => {
   };
 
   await rename(f.at('old/nested'), f.at('x/nested'));
-
   await rename(f.at('spare'), f.at('old/nested'));
-
   await rename(f.at('old'), f.at('new'));
-
   await resolve(ledger, await findMoves(ledger.entries, [f.at('new')]), 0);
-
   const { map } = await mapper(ledger);
-
   assert.equal(map(f.at('old/g')), f.at('new/g'));
 
   // macOS finds the child by its identity; elsewhere it stays unresolved
@@ -482,26 +441,18 @@ test('mapper suspends a reused chain', async () => {
   };
 
   ledger.moves[0] = { ...ledger.moves[0]!, to: f.at('b') };
-
   await rename(f.at('spare'), f.at('b'));
-
   const reused = await mapper(ledger);
-
   assert.equal(reused.map(f.at('a')), undefined);
-
   assert.deepEqual(f.moved(reused.suspended), [[f.at('b'), f.at('c')]]);
-
   await rename(f.at('b'), f.at('spare'));
-
   assert.equal((await mapper(ledger)).map(f.at('a')), f.at('c'));
 });
 
 test('mapper maps prompts written before a move even after its path is reused', async () => {
   const f = await directories('c', 'spare');
   const move = { ...(await f.move('a', 'c')), prompts: 100 };
-
   await rename(f.at('spare'), f.at('a'));
-
   const { map } = await mapper({ entries: [], moves: [move] });
 
   const written = (offset: number) => ({
@@ -510,10 +461,8 @@ test('mapper maps prompts written before a move even after its path is reused', 
   });
 
   assert.equal(map(f.at('a'), written(99)), f.at('c'));
-
   // written there after the move, it belongs to the directory there now
   assert.equal(map(f.at('a'), written(100)), f.at('a'));
-
   assert.equal(map(f.at('a')), undefined);
 });
 
@@ -522,9 +471,7 @@ test.skipIf(!darwin)(
   async () => {
     const f = await directories('w/main', 'w/main-1', 'x/deep');
     const entries = [await f.entry('w/main'), await f.entry('w/main-1')];
-
     await rename(f.at('w/main'), f.at('c'));
-
     await rename(f.at('w/main-1'), f.at('x/deep/far'));
 
     assert.deepEqual(f.moved(await findMoves(entries, [])), [
@@ -553,9 +500,7 @@ test('findMoves resolves a seed by identity and its siblings', async () => {
 test('findMoves infers siblings of a renamed main checkout', async () => {
   const f = await directories('w/main', 'w/main-1', 'c');
   const entries = [await f.entry('w/main'), await f.entry('w/main-1')];
-
   await rename(f.at('w/main'), f.at('c/other'));
-
   await rename(f.at('w/main-1'), f.at('c/other-1'));
 
   assert.deepEqual(f.moved(await findMoves(entries, [f.at('c/other')])), [
@@ -567,11 +512,8 @@ test('findMoves infers siblings of a renamed main checkout', async () => {
 test('findMoves never matches a different directory at a candidate path', async () => {
   const f = await directories('w/main', 'w/main-1', 'x', 'c', 'spare');
   const entries = [await f.entry('w/main'), await f.entry('w/main-1')];
-
   await rename(f.at('w/main'), f.at('c/main'));
-
   await rename(f.at('w/main-1'), f.at('x/far'));
-
   await rename(f.at('spare'), f.at('c/main-1'));
 
   assert.deepEqual(f.moved(await findMoves(entries, [f.at('c/main')])), [
@@ -637,11 +579,8 @@ test('findMoves records where a sibling really is, not a link or a differently c
   ];
 
   await rename(f.at('w'), f.at('c'));
-
   await rename(f.at('c/linked'), f.at('far/linked'));
-
   await symlink(f.at('far/linked'), f.at('c/linked'));
-
   await rename(f.at('c/cased'), f.at('c/Cased'));
 
   assert.deepEqual(f.moved(await findMoves(entries, [f.at('c/main')])), [
@@ -663,9 +602,7 @@ test('resolve updates entries once', async () => {
   };
 
   await rename(f.at('w'), f.at('c'));
-
   const seeds = [f.at('c/main')];
-
   await resolve(ledger, await findMoves(ledger.entries, seeds), 7);
 
   assert.deepEqual(
@@ -682,9 +619,7 @@ test('resolve updates entries once', async () => {
   );
 
   assert.deepEqual(await findMoves(ledger.entries, seeds), []);
-
   await resolve(ledger, await findMoves(ledger.entries, seeds), 8);
-
   assert.equal(ledger.moves.length, 2);
 });
 
@@ -705,13 +640,9 @@ for (let index = 0; index < 20; index++)
     ]);
 
   await Promise.all([writer('a'), writer('b')]);
-
   const { moves } = await readLedger(root);
-
   assert.equal(moves.length, 40);
-
   await updateLedger(root, async () => {});
-
   assert.equal((await readLedger(root)).moves.length, 40);
 });
 
@@ -721,17 +652,11 @@ test.skipIf(!darwin)(
     const f = await directories('a', 'gone');
     const moved = { path: f.at('a'), ...(await identify(f.at('a')))! };
     const deleted = { path: f.at('gone'), ...(await identify(f.at('gone')))! };
-
     await rename(f.at('a'), f.at('b'));
-
     await mkdir(f.at('a'));
-
     await mkdir(f.at('replacement'));
-
     await rm(f.at('gone'), { recursive: true });
-
     await rename(f.at('replacement'), f.at('gone'));
-
     const before = { ...moved };
 
     assert.equal(
@@ -740,11 +665,8 @@ test.skipIf(!darwin)(
     );
 
     assert.deepEqual(moved, before);
-
     const now = (await identify(f.at('gone')))!;
-
     assert.equal(await adoptIdentity(deleted, now), true);
-
     assert.equal(deleted.inode, now.inode);
   },
 );
@@ -762,13 +684,9 @@ test("a moved entry that takes a stale entry's path keeps its own repository and
   };
 
   await rm(f.at('two-1'), { recursive: true });
-
   const move = await f.move('one', 'two-1');
-
   await rename(f.at('one'), f.at('two-1'));
-
   await resolve(ledger, [{ ...move, ...(await identify(f.at('two-1')))! }], 0);
-
   const at = ledger.entries.filter(({ path }) => path === f.at('two-1'));
 
   assert.deepEqual(
@@ -782,11 +700,8 @@ test.skipIf(!darwin)(
   async () => {
     const f = await directories('a', 'locked');
     const recorded = { path: f.at('a'), ...(await identify(f.at('a')))! };
-
     await rename(f.at('a'), f.at('locked/a'));
-
     await mkdir(f.at('a'));
-
     await chmod(f.at('locked'), 0);
 
     try {
@@ -807,17 +722,11 @@ test.skipIf(!darwin)(
 test('adoptIdentity drops the repository and slot that described the directory gone from a path', async () => {
   const f = await directories('w-2');
   const recorded = await f.entry('w-2', { main: f.at('w'), slot: 2 });
-
   // made before the old one goes, so Linux can't give it the same inode
   await mkdir(f.at('replacement'));
-
   await rm(f.at('w-2'), { recursive: true });
-
   await rename(f.at('replacement'), f.at('w-2'));
-
   const now = (await identify(f.at('w-2')))!;
-
   assert.equal(await adoptIdentity(recorded, now), true);
-
   assert.deepEqual(recorded, { path: f.at('w-2'), ...now });
 });

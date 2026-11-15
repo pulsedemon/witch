@@ -32,14 +32,11 @@ export async function checkNativeAnswer(
   signal: AbortSignal,
 ): Promise<void> {
   const cwd = join(directory, 'project');
-
   await mkdir(cwd, { recursive: true, mode: 0o700 });
-
   const server = join(directory, 'fake-mcp.mjs');
   const marker = join(directory, 'mcp-writes');
   const forbidden = join(cwd, 'forbidden-write');
   const requestFile = join(directory, 'request.json');
-
   await writeFile(server, serverSource);
 
   await writeFile(
@@ -176,7 +173,6 @@ export async function checkNativeAnswer(
     );
 
     assert.equal(result.status, 'completed', result.error);
-
     assert.equal(JSON.parse(result.text).result, 'CHECKED');
 
     assert.equal(
@@ -225,7 +221,6 @@ export async function checkNativeAnswer(
     }
 
     answering = false;
-
     await ordinaryWrite();
 
     assert.equal(

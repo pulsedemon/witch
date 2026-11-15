@@ -61,14 +61,12 @@ async function observer(
       );
 
       child.stdin.write('start');
-
       await started;
     },
     finish: async () => {
       if (!limit) child.stdin.end();
 
       await within(ended, 30_000, 'observer finished');
-
       assert.equal(child.exitCode, 0, output);
 
       return JSON.parse(output.trim().split('\n').at(-1)!) as {
@@ -83,7 +81,6 @@ test('concurrent probes never report a free file as held', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const root = await scratch('witch-lock-observers-');
   const store = await StateStore.open(root);
-
   await (await store.create(record('observed', root))).close();
 
   const observers = await Promise.all([
@@ -92,7 +89,6 @@ test('concurrent probes never report a free file as held', async (t) => {
   ]);
 
   await Promise.all(observers.map((child) => child.start()));
-
   const results = await Promise.all(observers.map((child) => child.finish()));
 
   assert.deepEqual(results, [
@@ -105,13 +101,9 @@ test('observation never prevents a free conversation from opening', async (t) =>
   const cleanup = orderedCleanup(t.onTestFinished);
   const root = await scratch('witch-lock-acquisition-');
   const store = await StateStore.open(root);
-
   await (await store.create(record('observed', root))).close();
-
   const child = await observer(cleanup, root, 0);
-
   await child.start();
-
   let failures = 0;
 
   for (let attempt = 0; attempt < 1000; attempt++) {
@@ -125,9 +117,7 @@ test('observation never prevents a free conversation from opening', async (t) =>
   }
 
   const result = await child.finish();
-
   assert.ok(result.attempts > 1);
-
   assert.equal(failures, 0);
 });
 
@@ -138,7 +128,6 @@ test('batch observation preserves path identity and filesystem failures', async 
   const sharedPath = join(root, 'shared');
   const free = join(root, 'free');
   const missing = join(root, 'missing');
-
   await Promise.all([writeFile(heldPath, ''), writeFile(free, '')]);
 
   const held = await openLocked(
@@ -171,7 +160,6 @@ test('batch observation preserves path identity and filesystem failures', async 
   );
 
   await assert.rejects(access(missing), { code: 'ENOENT' });
-
   await chmod(free, 0o000);
 
   try {
@@ -187,7 +175,6 @@ test('batch observation preserves path identity and filesystem failures', async 
 test('query failure never reports an unlocked file', async () => {
   const root = await scratch('witch-lock-query-failure-');
   const file = join(root, 'free');
-
   await writeFile(file, '');
 
   await writeFile(
@@ -203,7 +190,6 @@ test('query failure never reports an unlocked file', async () => {
   try {
     process.env.PERL5LIB = root;
     process.env.PERL5OPT = '-MFailLockQuery';
-
     await assert.rejects(lockedFiles([file]), /injected lock query failure/);
   } finally {
     for (const [key, value] of Object.entries(previous)) {

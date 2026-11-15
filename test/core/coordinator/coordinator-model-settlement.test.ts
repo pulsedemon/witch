@@ -27,23 +27,15 @@ test('a same-runtime model choice made while a finished turn settles waits and a
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
-
     await within(gate.entered, 2000, 'the gated turn');
-
     a.replied = true;
-
     // the picker opens while the familiar holds the reply open
     assert.equal(await coordinator.refreshModels(), true);
-
     const release = coordinator.holdPromptDelivery();
     const before = a.selections.length;
-
     gate.open();
-
     await within(settlement.entered, 2000, 'the post-turn save');
-
     assert.equal(coordinator.snapshot.phase, 'running');
-
     assert.equal(session.replied, false);
 
     const outcome = coordinator
@@ -54,25 +46,15 @@ test('a same-runtime model choice made while a finished turn settles waits and a
       );
 
     await coordinator.send('/after');
-
     await delay(100);
-
     assert.deepEqual(a.selections.slice(before), []);
-
     assert.deepEqual(coordinator.snapshot.queue, ['/after']);
-
     settlement.release();
-
     assert.equal(await within(outcome, 2000, 'the model choice'), undefined);
-
     assert.deepEqual(a.selections.slice(before), [['a-big', 'high']]);
-
     assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual(coordinator.snapshot.queue, ['/after']);
-
     release();
 
     await until('the queued turn', () =>
@@ -87,9 +69,7 @@ test('a same-runtime model choice made while a finished turn settles waits and a
     await within(sending, 2000, 'the turn');
   } finally {
     settlement.restore();
-
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -118,7 +98,6 @@ for (const outcome of [
       const id = coordinator.snapshot.conversation!.id;
       a.gate = gate;
       const sending = coordinator.send('Start');
-
       await within(gate.entered, 2000, 'the gated turn');
 
       const release =
@@ -127,13 +106,9 @@ for (const outcome of [
           : undefined;
 
       const before = a.selections.length;
-
       gate.open();
-
       await within(settlement.entered, 2000, 'the post-turn save');
-
       assert.equal(coordinator.snapshot.phase, 'running');
-
       assert.equal(session.replied, false);
 
       const lapsed = assert.rejects(
@@ -145,21 +120,16 @@ for (const outcome of [
         if (release) await coordinator.send('/queued');
 
         await coordinator.interrupt();
-
         // Escape releases the batch's hold after interrupting
         release?.();
-
         settlement.release();
       } else if (outcome === 'close') {
         const closing = coordinator.close();
-
         settlement.release();
-
         await closing;
       } else settlement.fail(new Error('disk full'));
 
       await within(lapsed, 2000, 'the lapsed choice');
-
       await within(sending, 2000, 'the turn');
 
       if (release)
@@ -179,13 +149,10 @@ for (const outcome of [
         );
 
       await coordinator.close();
-
       assert.equal((await readRecord(root, id)).sessions.a!.model, 'a-model');
     } finally {
       settlement.restore();
-
       gate.open();
-
       await coordinator.close();
     }
   });
@@ -199,25 +166,15 @@ test('a model picker opened while a finished turn settles waits and refreshes on
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
-
     await within(gate.entered, 2000, 'the gated turn');
-
     const release = coordinator.holdPromptDelivery();
-
     gate.open();
-
     await within(settlement.entered, 2000, 'the post-turn save');
-
     assert.equal(coordinator.snapshot.phase, 'running');
-
     assert.equal(session.replied, false);
-
     a.catalog.push({ id: 'a-new', label: 'a-new', efforts: [] });
-
     const refreshing = coordinator.refreshModels();
-
     await coordinator.send('/after');
-
     await delay(100);
 
     assert.equal(
@@ -226,7 +183,6 @@ test('a model picker opened while a finished turn settles waits and refreshes on
     );
 
     settlement.release();
-
     assert.equal(await within(refreshing, 2000, 'the refresh'), true);
 
     assert.equal(
@@ -235,17 +191,12 @@ test('a model picker opened while a finished turn settles waits and refreshes on
     );
 
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual(coordinator.snapshot.queue, ['/after']);
-
     release();
-
     await within(sending, 2000, 'the turn');
   } finally {
     settlement.restore();
-
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -260,33 +211,23 @@ for (const outcome of ['interrupt', 'close', 'failure'] as const)
     try {
       a.gate = gate;
       const sending = coordinator.send('Start');
-
       await within(gate.entered, 2000, 'the gated turn');
-
       gate.open();
-
       await within(settlement.entered, 2000, 'the post-turn save');
-
       assert.equal(coordinator.snapshot.phase, 'running');
-
       a.catalog.push({ id: 'a-new', label: 'a-new', efforts: [] });
-
       const refreshing = coordinator.refreshModels();
 
       if (outcome === 'interrupt') {
         await coordinator.interrupt();
-
         settlement.release();
       } else if (outcome === 'close') {
         const closing = coordinator.close();
-
         settlement.release();
-
         await closing;
       } else settlement.fail(new Error('disk full'));
 
       assert.equal(await within(refreshing, 2000, 'the lapsed refresh'), false);
-
       await within(sending, 2000, 'the turn');
 
       assert.equal(
@@ -295,9 +236,7 @@ for (const outcome of ['interrupt', 'close', 'failure'] as const)
       );
     } finally {
       settlement.restore();
-
       gate.open();
-
       await coordinator.close();
     }
   });
@@ -313,46 +252,31 @@ test('a close that starts while a finished turn settles keeps the closing phase'
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
-
     await within(gate.entered, 2000, 'the gated turn');
-
     gate.open();
-
     await within(settlement.entered, 2000, 'the post-turn save');
-
     // the save after the turn runner's is settlement's own, past its closed check
     const holding = ConversationStore.prototype.save;
 
     ConversationStore.prototype.save = function (record) {
       ConversationStore.prototype.save = holding;
-
       settling.resolve();
 
       return held.promise.then(() => holding.call(this, record));
     };
 
     settlement.release();
-
     await within(settling.promise, 2000, 'the settlement save');
-
     const closing = coordinator.close();
-
     held.resolve();
-
     await closing;
-
     await within(sending, 2000, 'the turn');
-
     assert.equal(coordinator.snapshot.phase, 'closing');
   } finally {
     held.resolve();
-
     settlement.restore();
-
     ConversationStore.prototype.save = save;
-
     gate.open();
-
     await coordinator.close();
   }
 });

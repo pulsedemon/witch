@@ -89,7 +89,6 @@ export function updatesText(
     } else {
       if (entry.installation) {
         lines.push(`Installed: ${entry.installation.version}`);
-
         lines.push(`Installation: ${entry.installation.launcher}`);
 
         lines.push(

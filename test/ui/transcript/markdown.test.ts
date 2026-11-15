@@ -37,9 +37,7 @@ test('relative link targets resolve against their own base or stay text without 
   );
 
   const unlinked = markdown(text, '/work', null);
-
   assert.ok(links(unlinked, kept));
-
   assert.ok(!unlinked.includes('ports.md'));
 });
 
@@ -142,7 +140,6 @@ function streamMarkdown(chunks: readonly string[]): string[] {
 
     if (rendered) {
       complete.push(...rendered.complete);
-
       pending = rendered.pending;
       output = [...complete, rendered.tail].join('\n');
     } else {

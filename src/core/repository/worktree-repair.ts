@@ -202,12 +202,10 @@ async function repairWorktrees(
 
     if (target !== registered && !existing) {
       moved.push(target);
-
       needed = true;
     }
 
     checked.push(target);
-
     const admin = await namedAdmin(target);
     const expected = join(common, 'worktrees', name);
 

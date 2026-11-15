@@ -53,29 +53,17 @@ const status = (cwd: string) => git(cwd, 'status', '--porcelain');
 
 test('a moved main checkout and worktree are repaired from the new location', async () => {
   const f = await setup();
-
   await f.save('a-old', 'w/main');
-
   await f.save('b-new', 'w/main', { futureField: 'kept' });
-
   await f.save('sub', 'w/main/sub');
-
   await mkdir(f.at('w/main/sub'));
-
   await f.repair('w/main');
-
   const before = await Promise.all(['b-new', 'a-old', 'sub'].map(f.saved));
-
   await mkdir(f.at('w/main-copy'));
-
   await f.save('copy', 'w/main-copy');
-
   await rename(f.at('w'), f.at('c'));
-
   const report = await f.repair('c/main');
-
   await status(f.at('c/main'));
-
   await status(f.at('c/main-1'));
 
   assert.match(
@@ -89,11 +77,8 @@ test('a moved main checkout and worktree are repaired from the new location', as
     ['sub', 'c/main/sub'],
   ].entries()) {
     const after = await f.saved(id!);
-
     assert.equal(after.raw.cwd, f.at(cwd!));
-
     assert.ok(after.history!.includes(JSON.stringify(f.at(cwd!))));
-
     assert.deepEqual(after.mtimes, before[index]!.mtimes);
   }
 
@@ -125,51 +110,34 @@ test('a moved main checkout and worktree are repaired from the new location', as
 
 test('a conversation without history is repaired', async () => {
   const f = await setup();
-
   await f.save('draft', 'w/main', { draft: 'unsent' }, false);
-
   await rename(f.at('w'), f.at('c'));
-
   await f.repair('c/main');
-
   const after = await f.saved('draft');
-
   assert.equal(after.raw.cwd, f.at('c/main'));
-
   assert.equal(after.history, undefined);
 });
 
 test('a main checkout and worktree moved together are repaired from the worktree', async () => {
   const f = await setup();
-
   await f.save('in-worktree', 'w/main-1');
-
   await rename(f.at('w'), f.at('c'));
-
   await f.repair('c/main-1');
-
   await status(f.at('c/main'));
-
   await status(f.at('c/main-1'));
-
   assert.equal((await f.saved('in-worktree')).raw.cwd, f.at('c/main-1'));
 });
 
 test('a moved main checkout alone repairs its worktree', async () => {
   const f = await setup();
-
   await rename(f.at('w/main'), f.at('w/renamed'));
-
   await f.repair('w/renamed');
-
   await status(f.at('w/main-1'));
 });
 
 test('a worktree moved alone is repaired from its new location', async () => {
   const f = await setup();
-
   await rename(f.at('w/main-1'), f.at('w/elsewhere'));
-
   await f.repair('w/elsewhere');
 
   assert.match(
@@ -182,21 +150,13 @@ test.skipIf(!darwin)(
   'a main checkout and worktree moved to unrelated places are both repaired',
   async () => {
     const f = await setup();
-
     await mkdir(f.at('x'));
-
     await rename(f.at('w/main'), f.at('c'));
-
     await rename(f.at('w/main-1'), f.at('x/far'));
-
     const report = await f.repair('c');
-
     await status(f.at('c'));
-
     await status(f.at('x/far'));
-
     assert.equal(report.repaired[0]!.worktrees, 1);
-
     assert.deepEqual(report.blocked, []);
   },
 );
@@ -205,11 +165,8 @@ test.skipIf(darwin)(
   'a worktree moved somewhere unrelated is reported where it can not be located',
   async () => {
     const f = await setup();
-
     await mkdir(f.at('x'));
-
     await rename(f.at('w/main-1'), f.at('x/far'));
-
     const report = await f.repair('w/main');
 
     assert.deepEqual(report.unresolved, [
@@ -222,15 +179,10 @@ test.skipIf(darwin)(
 
 test('a deleted, unpruned worktree is reported and does not block', async () => {
   const f = await setup();
-
   await rm(f.at('w/main-1'), { recursive: true });
-
   await rename(f.at('w/main'), f.at('w/renamed'));
-
   const report = await f.repair('w/renamed');
-
   await status(f.at('w/renamed'));
-
   assert.deepEqual(report.blocked, []);
 
   assert.ok(
@@ -255,15 +207,10 @@ test('a deleted worktree beside a moved one does not block the repair', async ()
   );
 
   await f.repair('w/main');
-
   await rm(f.at('w/main-1'), { recursive: true });
-
   await rename(f.at('w'), f.at('c'));
-
   const report = await f.repair('c/main');
-
   assert.deepEqual(report.blocked, []);
-
   await status(f.at('c/main-2'));
 });
 
@@ -281,7 +228,6 @@ test('a slot is read only from a name under its main checkout', async () => {
   );
 
   await f.repair('w/main');
-
   const { entries } = await readLedger(f.at('state'));
 
   const slots = Object.fromEntries(
@@ -289,13 +235,11 @@ test('a slot is read only from a name under its main checkout', async () => {
   );
 
   assert.equal(slots[f.at('w/main-1')], 1);
-
   assert.equal(slots[f.at('w/abcd-3')], undefined);
 });
 
 test('an interrupted repair finishes at the next start', async () => {
   const f = await setup();
-
   await rename(f.at('w'), f.at('c'));
 
   const interrupted = await repairMoves(f.store, f.memory, f.at('c/main'), {
@@ -310,17 +254,13 @@ test('an interrupted repair finishes at the next start', async () => {
   );
 
   await assert.rejects(status(f.at('c/main-1')));
-
   await mkdir(f.at('elsewhere'));
-
   await f.repair('elsewhere');
-
   await status(f.at('c/main-1'));
 });
 
 test('a failed repair keeps a moved worktree and its slot', async () => {
   const f = await setup();
-
   await rename(f.at('w/main-1'), f.at('far'));
 
   await repairMoves(f.store, f.memory, f.at('far'), {
@@ -331,7 +271,6 @@ test('a failed repair keeps a moved worktree and its slot', async () => {
   });
 
   const { entries } = await readLedger(f.at('state'));
-
   assert.equal(entries.find(({ path }) => path === f.at('far'))?.slot, 1);
 });
 
@@ -342,11 +281,8 @@ for (const [unreadable, mode] of [
 ] as const)
   test(`an unreadable ${unreadable} blocks its repository`, async () => {
     const f = await setup();
-
     await rename(f.at('w/main'), f.at('w/renamed'));
-
     const file = f.at(`w/renamed/${unreadable}`);
-
     await chmod(file, mode);
 
     try {
@@ -380,11 +316,8 @@ for (const relative of ['.git', 'gitdir'])
       );
 
     await status(f.at('w/main-1'));
-
     const report = await f.repair('w/main');
-
     assert.deepEqual(report.blocked, []);
-
     assert.deepEqual(report.unresolved, []);
 
     assert.ok(
@@ -408,24 +341,18 @@ for (const [move, to, main] of [
     );
 
     await status(f.at('w/main-1'));
-
     await mkdir(f.at('x/y'), { recursive: true });
-
     await rename(f.at('w/main-1'), f.at(to));
 
     if (main) {
       await rename(f.at('w/main'), f.at('c'));
-
       // the main checkout's move is recorded first, so the worktree's run maps the old common directory without /.vol
       await f.repair('c');
     }
 
     const report = await f.repair(to);
-
     assert.deepEqual(report.blocked, []);
-
     assert.deepEqual(report.unresolved, []);
-
     await status(f.at(to));
   });
 
@@ -442,7 +369,6 @@ test('a worktree named with slot 0 gets no slot and the ledger stays readable', 
   );
 
   await f.repair('w/main');
-
   const { entries } = await readLedger(f.at('state'));
 
   assert.equal(
@@ -453,17 +379,11 @@ test('a worktree named with slot 0 gets no slot and the ledger stays readable', 
 
 test('a main checkout that left its worktree behind is reported with its recovery command', async () => {
   const f = await setup();
-
   await f.save('inside', 'w/main-1');
-
   await f.repair('w/main');
-
   await mkdir(f.at('c'));
-
   await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
-
   await rm(f.at('w/main'), { recursive: true });
-
   const report = await f.repair('w/main-1');
 
   assert.ok(
@@ -481,7 +401,6 @@ test('a main checkout that left its worktree behind is reported with its recover
 test('a start with nothing moved runs no repair', async () => {
   const f = await setup();
   f.runs.length = 0;
-
   await f.repair('w/main');
 
   assert.ok(
@@ -497,23 +416,16 @@ for (const variant of [
 ])
   test(`a foreign .git at a registration's path blocks repair and stays untouched: ${variant}`, async () => {
     const f = await setup();
-
     await mkdir(f.at('other'));
-
     await git(f.at('other'), 'init', '-q', '-b', 'main');
-
     await git(f.at('other'), 'commit', '-q', '--allow-empty', '-m', 'other');
-
     let main = f.at('w/main');
     const foreign = f.at('w/main-1');
 
     if (variant === 'foreign worktree') {
       await rename(f.at('w/main'), f.at('c'));
-
       await rename(f.at('w/main-1'), f.at('away'));
-
       await git(f.at('other'), 'worktree', 'add', '-q', '--detach', foreign);
-
       main = f.at('c');
     } else if (variant === 'replaced .git')
       await writeFile(
@@ -522,23 +434,15 @@ for (const variant of [
       );
     else if (variant === 'swapped') {
       await git(main, 'worktree', 'add', '-q', '--detach', f.at('w/main-2'));
-
       await rename(foreign, f.at('away'));
-
       await rename(f.at('w/main-2'), foreign);
     } else {
       await rename(f.at('w/main'), f.at('c'));
-
       main = f.at('c');
-
       await rm(f.at('other'), { recursive: true });
-
       await mkdir(f.at('w/main'));
-
       await git(f.at('w/main'), 'init', '-q', '-b', 'main');
-
       await git(f.at('w/main'), 'commit', '-q', '--allow-empty', '-m', 'x');
-
       await mkdir(f.at('x'));
 
       await git(
@@ -560,7 +464,6 @@ for (const variant of [
 
     const before = await snapshot();
     const report = await repairMoves(f.store, f.memory, main);
-
     assert.deepEqual(await snapshot(), before);
 
     assert.ok(
@@ -571,11 +474,8 @@ for (const variant of [
 
 test('prompts added while repair waits for the ledger lock stay with the moved directory', async () => {
   const f = await setup();
-
   await f.store.addPrompt(f.at('w/main'), 'first');
-
   await rename(f.at('w'), f.at('c'));
-
   let entered!: () => void;
   const inside = new Promise<void>((done) => (entered = done));
   let release!: () => void;
@@ -583,26 +483,18 @@ test('prompts added while repair waits for the ledger lock stay with the moved d
 
   const held = updateLedger(f.at('state'), async () => {
     entered();
-
     await gate;
   });
 
   await inside;
-
   // a repair asks for the ledger lock only after any boundary read outside it
   const asked = new Promise<void>((done) => (ledgerCalls.before = done));
   const repairing = f.repair('c/main');
-
   await asked;
-
   ledgerCalls.before = undefined;
-
   await f.store.addPrompt(f.at('w/main'), 'while waiting');
-
   release();
-
   await held;
-
   await repairing;
 
   assert.deepEqual(await f.store.prompts(f.at('c/main')), [
@@ -645,29 +537,17 @@ for (const kind of ['origin-less repository', 'plain directory'])
     });
 
     await f.repair(base);
-
     const moved = base === 'p' ? 'q' : 'w/renamed';
-
     await rename(f.at(base), f.at(moved));
-
     const report = await f.repair(moved);
-
     assert.equal((await f.saved('top')).raw.cwd, f.at(moved));
-
     assert.equal((await f.saved('sub')).raw.cwd, f.at(`${moved}/sub`));
-
     assert.equal((await f.saved('elsewhere')).raw.cwd, f.at(base));
-
     assert.ok(report.blocked.some(({ path }) => path === f.at(base)));
-
     const again = base === 'p' ? 'r' : 'w/again';
-
     await rename(f.at(moved), f.at(again));
-
     await f.repair(again);
-
     assert.equal((await f.saved('top')).raw.cwd, f.at(again));
-
     assert.equal((await f.saved('sub')).raw.cwd, f.at(`${again}/sub`));
 
     assert.deepEqual((await f.saved('top')).raw.sessions, {
@@ -684,15 +564,10 @@ test('a detected move into another project blocks its records', async () => {
   });
 
   await f.save('same', 'w/main');
-
   await rename(f.at('w'), f.at('c'));
-
   const report = await f.repair('c/main');
-
   assert.equal((await f.saved('other')).raw.cwd, f.at('w/main'));
-
   assert.equal((await f.saved('same')).raw.cwd, f.at('c/main'));
-
   assert.ok(report.blocked.some(({ path }) => path === f.at('w/main')));
 });
 
@@ -707,7 +582,6 @@ test('a declared move into a different project is refused before anything is wri
   });
 
   await mkdir(f.at('c'));
-
   await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
 
   await git(
@@ -719,7 +593,6 @@ test('a declared move into a different project is refused before anything is wri
   );
 
   await rm(f.at('w/main'), { recursive: true });
-
   const before = await readLedger(f.at('state'));
 
   const report = await f.repair('c/main', {
@@ -727,17 +600,13 @@ test('a declared move into a different project is refused before anything is wri
   });
 
   assert.ok(report.blocked.length);
-
   assert.deepEqual(await readLedger(f.at('state')), before);
-
   assert.equal((await f.saved('kept')).raw.cwd, f.at('w/main'));
 });
 
 test('a declared parent move accepts nested repositories', async () => {
   const f = await setup();
-
   await mkdir(f.at('w/main/nested'));
-
   await git(f.at('w/main/nested'), 'init', '-q', '-b', 'main');
 
   await git(
@@ -757,9 +626,7 @@ test('a declared parent move accepts nested repositories', async () => {
   });
 
   await mkdir(f.at('c'));
-
   await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
-
   await rm(f.at('w/main'), { recursive: true });
 
   const report = await f.repair('c/main', {
@@ -775,17 +642,11 @@ test('a declared parent move accepts nested repositories', async () => {
 
 test('an unprovable move is reported with its command, and a declared one repairs it', async () => {
   const f = await setup();
-
   await f.save('copied', 'w/main');
-
   await mkdir(f.at('c'));
-
   await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
-
   await rm(f.at('w/main'), { recursive: true });
-
   const report = await f.repair('c/main');
-
   assert.ok(report.unresolved.some(({ path }) => path === f.at('w/main')));
 
   assert.ok(
@@ -796,15 +657,10 @@ test('an unprovable move is reported with its command, and a declared one repair
 
   const declared = { from: f.at('w/main'), to: f.at('c/main') };
   const preview = await f.repair('c/main', { declared, preview: true });
-
   assert.equal(preview.repaired[0]?.conversations, 1);
-
   assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
-
   assert.match(describeMoves(preview, f.at('state'), true)!, /--apply/);
-
   await f.repair('c/main', { declared });
-
   assert.equal((await f.saved('copied')).raw.cwd, f.at('c/main'));
 
   const recorded = (await readLedger(f.at('state'))).moves.find(
@@ -827,15 +683,10 @@ test('an unprovable move is reported with its command, and a declared one repair
 
 test('a declared recovery named through a symlinked parent repairs the saved path', async () => {
   const f = await setup();
-
   await f.save('copied', 'w/main');
-
   await symlink(f.at('w'), f.at('alias'));
-
   await mkdir(f.at('c'));
-
   await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
-
   await rm(f.at('w/main'), { recursive: true });
 
   await f.repair('c/main', {
@@ -853,15 +704,10 @@ test('a declared recovery named through a symlinked parent repairs the saved pat
 
 test('a declared recovery whose old path names nothing saved is refused before anything is written', async () => {
   const f = await setup();
-
   await f.save('copied', 'w/main');
-
   await mkdir(f.at('c'));
-
   await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
-
   await rm(f.at('w/main'), { recursive: true });
-
   const moves = (await readLedger(f.at('state'))).moves;
 
   const report = await f.repair('c/main', {
@@ -869,23 +715,16 @@ test('a declared recovery whose old path names nothing saved is refused before a
   });
 
   assert.match(report.blocked[0]?.reason ?? '', /No saved conversation/);
-
   assert.deepEqual((await readLedger(f.at('state'))).moves, moves);
-
   assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
 });
 
 test('a declared copy removed as repair starts is reported, not recorded', async () => {
   const f = await setup();
-
   await f.save('copied', 'w/main');
-
   await mkdir(f.at('c'));
-
   await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
-
   await rm(f.at('w'), { recursive: true });
-
   await mkdir(f.at('spare'));
 
   ledgerCalls.before = () =>
@@ -903,19 +742,14 @@ test('a declared copy removed as repair starts is reported, not recorded', async
   );
 
   assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
-
   assert.deepEqual((await readLedger(f.at('state'))).moves, []);
 });
 
 test('a reused directory inode cannot redirect a saved conversation', async () => {
   const f = await setup();
-
   await f.save('saved', 'w/main');
-
   const before = await f.saved('saved');
-
   await mkdir(f.at('spare'));
-
   const replacement = await stat(f.at('spare'), { bigint: true });
 
   await updateLedger(f.at('state'), async (ledger) => {
@@ -924,46 +758,30 @@ test('a reused directory inode cannot redirect a saved conversation', async () =
     )!;
 
     assert.notEqual(original.birthtimeNs, String(replacement.birthtimeNs));
-
     // reproduce inode reuse without depending on the filesystem's allocator
     original.device = String(replacement.dev);
     original.inode = String(replacement.ino);
   });
 
   await rm(f.at('w'), { recursive: true });
-
   const report = await f.repair('spare');
-
   assert.deepEqual(await f.saved('saved'), before);
-
   assert.deepEqual(report.repaired, []);
-
   assert.deepEqual((await readLedger(f.at('state'))).moves, []);
 });
 
 test('an unreadable record is reported only for a declared move', async () => {
   const f = await setup();
-
   await f.save('good', 'w/main');
-
   await mkdir(f.at('state/conversations/bad'));
-
   const bad = f.at('state/conversations/bad/state.json');
-
   await writeFile(bad, '{');
-
   await rename(f.at('w'), f.at('c'));
-
   const report = await f.repair('c/main');
-
   assert.ok(!report.blocked.some(({ path }) => path.includes('bad')));
-
   assert.equal((await f.saved('good')).raw.cwd, f.at('c/main'));
-
   await mkdir(f.at('d'));
-
   await cp(f.at('c/main'), f.at('d/main'), { recursive: true });
-
   await rm(f.at('c/main'), { recursive: true });
 
   const declared = await f.repair('d/main', {
@@ -978,28 +796,17 @@ test('an unreadable record is reported only for a declared move', async () => {
 
 test('a failure on one path is reported and the rest repair', async () => {
   const f = await setup();
-
   await mkdir(f.at('locked/inside'), { recursive: true });
-
   await mkdir(f.at('locked/from'));
-
   await f.save('locked', 'locked/inside');
-
   await f.save('earlier', 'locked/from');
-
   await f.save('fine', 'w/main');
-
   // the ledger knows both directories under `locked`, and a move out of one of them
   await f.repair('w/main');
-
   await rename(f.at('locked/from'), f.at('locked/to'));
-
   await f.repair('locked/to');
-
   assert.equal((await f.saved('earlier')).raw.cwd, f.at('locked/to'));
-
   await rename(f.at('w'), f.at('c'));
-
   await chmod(f.at('locked'), 0);
 
   try {
@@ -1020,9 +827,7 @@ for (const held of ['main checkout', 'worktree'])
   test(`an inaccessible ${held} is reported and the rest repair`, async () => {
     const f = await setup();
     const other = f.at('locked/other');
-
     await mkdir(f.at('locked'));
-
     // the conversation that still repairs moves to the start directory, which every platform finds
     const [from, to] = held === 'worktree' ? ['w/main', 'w/moved'] : ['p', 'q'];
 
@@ -1030,25 +835,18 @@ for (const held of ['main checkout', 'worktree'])
       await git(f.at('w/main'), 'worktree', 'add', '-q', '--detach', other);
     else {
       await mkdir(other);
-
       await git(other, 'init', '-q', '-b', 'main');
-
       await git(other, 'commit', '-q', '--allow-empty', '-m', 'other');
-
       await mkdir(f.at(from));
     }
 
     await f.save('fine', from);
-
     await f.repair(held === 'worktree' ? 'w/main' : 'locked/other');
-
     await rename(f.at(from), f.at(to));
-
     await chmod(f.at('locked'), 0);
 
     try {
       const report = await f.repair(to);
-
       assert.equal((await f.saved('fine')).raw.cwd, f.at(to));
 
       assert.ok(
@@ -1064,13 +862,9 @@ for (const held of ['main checkout', 'worktree'])
 
 test('a missing worktree with conversations in it is one line', async () => {
   const f = await setup();
-
   await f.save('inside', 'w/main-1');
-
   await f.repair('w/main');
-
   await rm(f.at('w/main-1'), { recursive: true });
-
   const report = await f.repair('w/main');
 
   assert.deepEqual(report.unresolved, [
@@ -1085,19 +879,12 @@ test('a missing worktree with conversations in it is one line', async () => {
 
 test('a history that cannot be read blocks its conversation instead of moving it without its history', async () => {
   const f = await setup();
-
   await f.save('looped', 'w/main');
-
   const history = f.at('state/conversations/looped/history.jsonl');
-
   await rm(history);
-
   await symlink(history, history);
-
   await rename(f.at('w'), f.at('c'));
-
   const report = await f.repair('c/main');
-
   assert.equal((await f.saved('looped')).raw.cwd, f.at('w/main'));
 
   assert.ok(
@@ -1109,29 +896,19 @@ test('a history that cannot be read blocks its conversation instead of moving it
 test('a prompt history that cannot be read stops the repair before any move is recorded', async () => {
   const f = await setup();
   const prompts = f.at('state/prompts.jsonl');
-
   await symlink(prompts, prompts);
-
   await rename(f.at('w'), f.at('c'));
-
   const before = await readLedger(f.at('state'));
-
   await assert.rejects(f.repair('c/main'), /ELOOP/);
-
   assert.deepEqual(await readLedger(f.at('state')), before);
 });
 
 test('a declared recovery from a copy Witch already started in keeps one ledger entry for it', async () => {
   const f = await setup();
-
   await f.save('copied', 'w/main');
-
   await mkdir(f.at('c'));
-
   await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
-
   await rm(f.at('w/main'), { recursive: true });
-
   await f.repair('c/main');
 
   await f.repair('c/main', {
@@ -1139,9 +916,7 @@ test('a declared recovery from a copy Witch already started in keeps one ledger 
   });
 
   const { entries } = await readLedger(f.at('state'));
-
   assert.equal(entries.filter(({ path }) => path === f.at('c/main')).length, 1);
-
   assert.equal((await f.saved('copied')).raw.cwd, f.at('c/main'));
 });
 
@@ -1149,13 +924,9 @@ test.skipIf(!darwin)(
   'a declared copy where an earlier occupant moved away from is never traded for a stand-in',
   async () => {
     const f = await setup();
-
     await mkdir(f.at('d'));
-
     await f.save('occupant', 'd');
-
     await f.save('copied', 'w/main');
-
     await f.repair('d');
 
     // a conversation saved before the ledger knew its directory
@@ -1164,9 +935,7 @@ test.skipIf(!darwin)(
     });
 
     await rename(f.at('d'), f.at('e'));
-
     await cp(f.at('w/main'), f.at('d'), { recursive: true });
-
     await rm(f.at('w/main'), { recursive: true });
 
     await repairMoves(f.store, f.memory, f.at('d'), {
@@ -1176,7 +945,6 @@ test.skipIf(!darwin)(
 
         if (args[0] === 'worktree' && args[1] === 'repair') {
           await rename(f.at('d'), f.at('actual'));
-
           await cp(f.at('actual'), f.at('d'), { recursive: true });
         }
 
@@ -1185,7 +953,6 @@ test.skipIf(!darwin)(
     });
 
     await f.repair('d');
-
     assert.notEqual((await f.saved('copied')).raw.cwd, f.at('d'));
   },
 );
@@ -1195,16 +962,12 @@ test("a declared copy onto a deleted directory's path is repaired, not reported 
 
   for (const name of ['d', 's']) {
     await mkdir(f.at(name));
-
     await f.save(name, name);
   }
 
   await f.repair('d');
-
   await rm(f.at('d'), { recursive: true });
-
   await cp(f.at('s'), f.at('d'), { recursive: true });
-
   await rm(f.at('s'), { recursive: true });
 
   const report = await f.repair('d', {
@@ -1212,7 +975,6 @@ test("a declared copy onto a deleted directory's path is repaired, not reported 
   });
 
   assert.deepEqual(report.blocked, []);
-
   assert.equal((await f.saved('s')).raw.cwd, f.at('d'));
 });
 
@@ -1228,36 +990,23 @@ test("repair's worktree check runs none of the repository's clean filters", asyn
   );
 
   await writeFile(f.at('w/main-1/.gitattributes'), '*.txt filter=mark\n');
-
   await writeFile(f.at('w/main-1/a.txt'), 'x\n');
-
   await git(f.at('w/main-1'), 'add', '.');
-
   await git(f.at('w/main-1'), 'commit', '-q', '-m', 'filtered');
-
   await rm(marker, { force: true });
-
   // a changed stat makes status read the file through its clean filter
   const later = new Date(Date.now() + 60_000);
-
   await utimes(f.at('w/main-1/a.txt'), later, later);
-
   await rename(f.at('w'), f.at('c'));
-
   const report = await f.repair('c/main');
-
   assert.deepEqual(report.blocked, []);
-
   await assert.rejects(stat(marker), { code: 'ENOENT' });
 });
 
 test('a worktree registration left without its gitdir blocks its repository', async () => {
   const f = await setup();
-
   await rm(f.at('w/main/.git/worktrees/main-1/gitdir'));
-
   await rename(f.at('w/main'), f.at('w/renamed'));
-
   const report = await f.repair('w/renamed');
 
   assert.ok(
@@ -1273,19 +1022,12 @@ test.skipIf(!darwin)(
   "a directory that moved where it can't be looked for is reported",
   async () => {
     const f = await setup();
-
     await mkdir(f.at('p'));
-
     await f.save('held', 'p');
-
     await f.repair('p');
-
     await mkdir(f.at('locked'));
-
     await rename(f.at('p'), f.at('locked/p'));
-
     await mkdir(f.at('p'));
-
     await chmod(f.at('locked'), 0);
 
     try {
@@ -1303,11 +1045,8 @@ test.skipIf(!darwin)(
 
 test("a repaired conversation's ownership counts from the mapping it followed, not the rewrite's end", async () => {
   const f = await setup();
-
   await f.save('moved', 'w/main');
-
   await rename(f.at('w'), f.at('c'));
-
   // the listing record() makes comes after the mapping was taken and before the rewrite
   let lists = 0;
   let during = 0;
@@ -1318,7 +1057,6 @@ test("a repaired conversation's ownership counts from the mapping it followed, n
 
       if (args[0] === 'worktree' && args[1] === 'list' && ++lists === 2) {
         during = Date.now();
-
         await new Promise((settled) => setTimeout(settled, 5));
       }
 
@@ -1327,9 +1065,7 @@ test("a repaired conversation's ownership counts from the mapping it followed, n
   });
 
   const { raw } = await f.saved('moved');
-
   assert.equal(raw.cwd, f.at('c/main'));
-
   assert.ok(Date.parse(String(raw.cwdSince)) <= during, String(raw.cwdSince));
 });
 
@@ -1339,7 +1075,6 @@ test("a tool row at a path the conversation's directory passed through keeps its
   for (const name of ['a', 'b']) await mkdir(f.at(name));
 
   await f.save('a', 'a');
-
   const row = { id: 'tool', kind: 'tool', cwd: f.at('b'), text: 'ran' };
 
   await appendFile(
@@ -1348,59 +1083,39 @@ test("a tool row at a path the conversation's directory passed through keeps its
   );
 
   await f.repair('b');
-
   const files = await (await StateStore.open(f.at('state'))).claim('a');
 
   try {
     await rename(f.at('b'), f.at('d'));
-
     await f.repair('d');
-
     await rename(f.at('a'), f.at('b'));
-
     await f.repair('b');
-
     await rename(f.at('b'), f.at('c'));
-
     await f.repair('c');
   } finally {
     await files.close();
   }
 
   await f.repair('c');
-
   const { raw, history } = await f.saved('a');
-
   assert.equal(raw.cwd, f.at('c'));
-
   const [own, tool] = history!.split('\n');
-
   assert.equal(JSON.parse(own!).cwd, f.at('c'));
-
   assert.equal(JSON.parse(tool!).cwd, f.at('b'));
 });
 
 test("another repository's worktree in a removed one's place is recorded, not blocked", async () => {
   const f = await setup();
   const other = f.at('other');
-
   await mkdir(other);
-
   await git(other, 'init', '-q', '-b', 'main');
-
   await git(other, 'commit', '-q', '--allow-empty', '-m', 'first');
-
   // made while the old one exists, so the replacement can't reuse its inode
   await git(other, 'worktree', 'add', '-q', '--detach', f.at('staged'));
-
   await git(f.at('w/main'), 'worktree', 'remove', f.at('w/main-1'));
-
   await git(other, 'worktree', 'move', f.at('staged'), f.at('w/main-1'));
-
   const report = await f.repair('w/main-1');
-
   assert.deepEqual(report.blocked, []);
-
   const { entries } = await readLedger(f.at('state'));
 
   assert.equal(
@@ -1415,20 +1130,15 @@ test('concurrent repairs leave every record moved and one move in the ledger', a
   for (const id of ['one', 'two', 'three']) await f.save(id, 'w/main');
 
   const before = await Promise.all(['one', 'two', 'three'].map(f.saved));
-
   await rename(f.at('w'), f.at('c'));
-
   await Promise.all([f.repair('c/main'), f.repair('c/main')]);
 
   for (const [index, id] of ['one', 'two', 'three'].entries()) {
     const after = await f.saved(id);
-
     assert.equal(after.raw.cwd, f.at('c/main'));
-
     assert.deepEqual(after.mtimes, before[index]!.mtimes);
   }
 
   const { moves } = await readLedger(f.at('state'));
-
   assert.equal(moves.filter(({ from }) => from === f.at('w/main')).length, 1);
 });

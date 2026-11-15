@@ -27,7 +27,6 @@ test('ESLint enforces PascalCase TSX names at root and nested paths without rest
   );
 
   await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
-
   await writeFile(join(root, 'package.json'), '{"type":"module"}');
 
   await writeFile(
@@ -45,7 +44,6 @@ test('ESLint enforces PascalCase TSX names at root and nested paths without rest
 
   for (const [file] of cases) {
     const target = join(root, file);
-
     await mkdir(dirname(target), { recursive: true });
 
     await writeFile(
@@ -66,11 +64,8 @@ test('ESLint enforces PascalCase TSX names at root and nested paths without rest
   );
 
   assert.equal(result.error, undefined);
-
   assert.equal(result.signal, null);
-
   assert.equal(result.status, 1, result.stderr || result.stdout);
-
   const reports = JSON.parse(result.stdout) as ESLint.LintResult[];
 
   assert.deepEqual(

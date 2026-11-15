@@ -62,9 +62,7 @@ test('a highlighted link keeps its underline, as the terminal draws a selected l
 
   for (const index of [4, 5, 6]) {
     const codes = cells[index]!.styles.map(({ code }) => code);
-
     assert.ok(codes.includes('\u001b[7m'), `${index}: ${codes.join(' ')}`);
-
     assert.ok(codes.includes('\u001b[4m'), `${index}: ${codes.join(' ')}`);
 
     assert.ok(
@@ -76,13 +74,11 @@ test('a highlighted link keeps its underline, as the terminal draws a selected l
 
 test('a highlight past the text covers the empty cells it reaches', () => {
   assert.equal(highlight('ab', 1, 4), `a${inverse('b  ')}`);
-
   assert.equal(highlight('ab', 3, 5), `ab ${inverse('  ')}`);
 });
 
 test("an image row keeps its placeholders' colors", () => {
   const row = `\u001b[38;5;1m${placeholder.repeat(3)}\u001b[39m`;
-
   assert.equal(highlight(row, 0, 3), row);
 });
 
@@ -129,7 +125,6 @@ test('selected text drops trailing spaces in time linear in a long run of spaces
 test('selection keeps complete emoji clusters containing variation selectors and joiners', () => {
   for (const cluster of ['⚠️', '👩‍💻']) {
     const text = `a${cluster}b`;
-
     assert.equal(highlight(text, 1, 3), `a${inverse(cluster)}b`);
 
     assert.equal(

@@ -91,7 +91,6 @@ export class AnswerTurn {
         await active.session?.close(active.stop);
       } finally {
         this.active = undefined;
-
         active.finished.resolve();
       }
     }

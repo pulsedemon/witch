@@ -89,18 +89,15 @@ export async function runClaudeFamiliar(
 
   const interrupt = () => {
     stopped = 'SIGINT';
-
     terminate('SIGINT');
   };
 
   const stop = () => {
     stopped = 'SIGTERM';
-
     terminate('SIGTERM');
   };
 
   process.on('SIGINT', interrupt);
-
   process.on('SIGTERM', stop);
 
   try {
@@ -108,7 +105,6 @@ export async function runClaudeFamiliar(
 
     const reports = new FamiliarReports(binding, run, (error) => {
       task.failed(error.message);
-
       terminate('SIGTERM');
     });
 
@@ -146,7 +142,6 @@ export async function runClaudeFamiliar(
       drain = setTimeout(() => {
         for (const stream of [child!.stdout!, child!.stderr!]) {
           stream.push(null);
-
           stream.destroy();
         }
       }, 100);
@@ -167,16 +162,13 @@ export async function runClaudeFamiliar(
     );
 
     const save = () => saveReport(file, terminal.report ?? '');
-
     await save();
 
     try {
       await reports.finish(terminal);
     } catch (error) {
       task.failed(errorMessage(error));
-
       terminal = task.closed(code, stopped ?? null);
-
       await save();
     }
 
@@ -185,21 +177,15 @@ export async function runClaudeFamiliar(
     return exitCode(terminal.status);
   } catch (error) {
     const message = errorMessage(error);
-
     await file.writeFile(message);
-
     process.stderr.write(`witch: ${message}\nSaved report: ${path}\n`);
 
     return stopped ? 130 : 1;
   } finally {
     clearTimeout(escalation);
-
     clearTimeout(drain);
-
     process.off('SIGINT', interrupt);
-
     process.off('SIGTERM', stop);
-
     await file.close();
   }
 }

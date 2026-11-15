@@ -67,7 +67,6 @@ for (const admission of ['direct', 'handed', 'reported', 'marked']) {
 
       try {
         await jobs.list();
-
         rows = [agentRow, server, pane, ordinary];
 
         if (admission === 'handed') jobs.track(server.pgid);
@@ -141,13 +140,9 @@ test('a mixed group preserves ordinary ownership while excluding tmux', async ()
 
   try {
     const [original] = await jobs.list();
-
     assert.ok(original);
-
     rows = [orphan];
-
     assert.equal((await jobs.list())[0]!.generation, original.generation);
-
     rows = [orphan, tmux, pane, child];
 
     assert.deepEqual(
@@ -156,20 +151,13 @@ test('a mixed group preserves ordinary ownership while excluding tmux', async ()
     );
 
     await jobs.stop(original);
-
     assert.equal(kill.mock.calls.length, 0);
-
     rows = [orphan, child];
     const restored = (await jobs.list()).find(({ group }) => group === 100201);
-
     assert.ok(restored, 'ordinary orphan returns after tmux exits');
-
     assert.notEqual(restored.generation, original.generation);
-
     await jobs.stop(original);
-
     assert.equal(kill.mock.calls.length, 0);
-
     rows = [orphan, child, later];
 
     assert.deepEqual(
@@ -178,7 +166,6 @@ test('a mixed group preserves ordinary ownership while excluding tmux', async ()
     );
 
     await jobs.stop(restored);
-
     assert.deepEqual(kill.mock.calls, [[-100201, 'SIGTERM']]);
 
     assert.deepEqual(
@@ -245,13 +232,9 @@ test('observed tmux descendants stay excluded after reparenting and group change
     ];
 
     assert.deepEqual(await jobs.list(), []);
-
     rows = [{ ...orphanRow(100402), pgid: 100403 }];
-
     jobs.track(100403);
-
     assert.deepEqual(await jobs.list(), []);
-
     rows = [{ ...orphanRow(100402), identity: '100402 b' }];
 
     assert.deepEqual(
@@ -280,15 +263,10 @@ test('a stale selection cannot stop a group that became tmux', async () => {
 
   try {
     const [original] = await jobs.list();
-
     assert.ok(original);
-
     rows = [agentRow, { ...rows[1]!, name: 'tmux' }];
-
     await jobs.stop(original);
-
     assert.equal(kill.mock.calls.length, 0);
-
     assert.deepEqual(await jobs.list(), []);
   } finally {
     jobs.close();
@@ -314,17 +292,12 @@ test('a failed read does not commit partial tmux exclusions', async () => {
 
   try {
     const [before] = await jobs.list();
-
     assert.ok(before);
-
     rows = [agentRow, { ...original[1]!, name: 'tmux' }, orphanRow(100602)];
     fail = true;
-
     await assert.rejects(jobs.list(), { message: 'mark failed' });
-
     rows = original;
     fail = false;
-
     assert.deepEqual(await jobs.list(), [before]);
   } finally {
     jobs.close();

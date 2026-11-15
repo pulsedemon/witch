@@ -20,9 +20,7 @@ test('a model chosen to keep the current effort stores the effort in force', asy
 
   try {
     await coordinator.selectModel({ agent: 'a', id: 'first', effort: 'high' });
-
     await coordinator.selectModel({ agent: 'a', id: 'second' });
-
     await coordinator.selectModel({ agent: 'a', id: 'a-big' });
 
     const record = await readRecord(
@@ -44,10 +42,8 @@ test('catalog refresh preserves the active session, process, transcript, usage a
 
   try {
     await coordinator.send('Keep this conversation');
-
     const before = structuredClone(coordinator.snapshot);
     const saved = await readRecord(root, before.conversation!.id);
-
     assert.equal(await coordinator.refreshModels(), true);
 
     assert.deepEqual(
@@ -61,27 +57,16 @@ test('catalog refresh preserves the active session, process, transcript, usage a
     );
 
     assert.deepEqual(coordinator.snapshot.native, before.native);
-
     assert.deepEqual(coordinator.snapshot.items, before.items);
-
     assert.deepEqual(coordinator.snapshot.usage, before.usage);
-
     assert.deepEqual(coordinator.snapshot.skills, before.skills);
-
     const after = await readRecord(root, before.conversation!.id);
-
     assert.deepEqual(after.sessions, saved.sessions);
-
     assert.deepEqual(after.process, saved.process);
-
     assert.equal(a.sessions.length, 1);
-
     assert.equal(a.sessions[0]!.session.closed, false);
-
     assert.equal(b.sessions.length, 0);
-
     b.failDiscovery = true;
-
     assert.equal(await coordinator.refreshModels(), true);
 
     assert.deepEqual(
@@ -97,11 +82,8 @@ test('catalog refresh preserves the active session, process, transcript, usage a
     );
 
     assert.equal(coordinator.snapshot.native!.id, before.native!.id);
-
     a.failModels = true;
-
     assert.equal(await coordinator.refreshModels(), true);
-
     assert.deepEqual(coordinator.snapshot.models, []);
 
     assert.equal(
@@ -122,7 +104,6 @@ test('standalone catalogs recover from a failed active startup without reconnect
 
   try {
     assert.match(coordinator.snapshot.error!, /Destination unavailable/);
-
     await coordinator.refreshModels();
 
     assert.deepEqual(
@@ -131,17 +112,11 @@ test('standalone catalogs recover from a failed active startup without reconnect
     );
 
     assert.equal(a.sessions.length, 0);
-
     assert.equal(b.sessions.length, 0);
-
     await coordinator.selectModel({ agent: 'b', id: 'b-big', effort: 'high' });
-
     assert.equal(coordinator.snapshot.conversation!.agent, 'b');
-
     assert.equal(coordinator.snapshot.native!.model, 'b-big');
-
     assert.equal(coordinator.snapshot.native!.effort, 'high');
-
     assert.deepEqual(b.inputs, []);
   } finally {
     await coordinator.close();
@@ -162,9 +137,7 @@ test('closing during catalog discovery cancels and joins its cleanup', async () 
     });
 
     await aborted.promise;
-
     await cleaned.promise;
-
     options.signal!.throwIfAborted();
 
     return b.catalog;
@@ -183,23 +156,15 @@ test('closing during catalog discovery cancels and joins its cleanup', async () 
     });
 
     assert.equal(signal.aborted, true);
-
     await until('active shutdown', () => a.sessions.at(-1)!.session.closed);
-
     assert.equal(closed, false);
-
     cleaned.resolve();
-
     await within(Promise.all([closing, rejected]), 2000, 'catalog shutdown');
-
     assert.equal(b.sessions.length, 0);
   } finally {
     aborted.resolve();
-
     cleaned.resolve();
-
     await Promise.allSettled([refreshing, rejected, closing]);
-
     await coordinator.close();
   }
 });
@@ -209,9 +174,7 @@ test('an effort the agent rejects while disconnected keeps the stored one, so th
 
   try {
     await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
-
     a.invalidEffort = 'hgih';
-
     await a.sessions.at(-1)!.session.close();
 
     await assert.rejects(
@@ -220,17 +183,11 @@ test('an effort the agent rejects while disconnected keeps the stored one, so th
     );
 
     const id = coordinator.snapshot.conversation!.id;
-
     assert.equal((await readRecord(root, id)).sessions.a?.effort, 'high');
-
     await a.sessions.at(-1)!.session.close();
-
     const opened = a.sessions.length;
-
     await coordinator.send('Continue');
-
     assert.equal(a.sessions.length, opened + 1);
-
     assert.equal(a.sessions.at(-1)!.options.effort, 'high');
   } finally {
     await coordinator.close();
@@ -242,9 +199,7 @@ test('a model that lists no efforts resets the effort', async () => {
 
   try {
     await coordinator.selectModel({ agent: 'a', id: 'first', effort: 'high' });
-
     await coordinator.selectModel({ agent: 'a', id: 'a-model' });
-
     assert.deepEqual(a.selections.at(-1), ['a-model', null]);
 
     const record = await readRecord(
@@ -267,13 +222,9 @@ test('the live session publishes its skills, and a failed connect after /new sho
 
   try {
     assert.deepEqual(coordinator.snapshot.skills, [review]);
-
     b.failConnect = true;
-
     await assert.rejects(coordinator.newConversation('b'));
-
     assert.equal(coordinator.snapshot.conversation!.agent, 'b');
-
     assert.deepEqual(coordinator.snapshot.skills, []);
   } finally {
     await coordinator.close();
@@ -285,9 +236,7 @@ test('a skills failure while connecting is reported and keeps the session', asyn
 
   try {
     a.failSkills = true;
-
     await coordinator.newConversation();
-
     assert.equal(coordinator.snapshot.error, undefined);
 
     assert.deepEqual(
@@ -296,9 +245,7 @@ test('a skills failure while connecting is reported and keeps the session', asyn
     );
 
     assert.deepEqual(coordinator.snapshot.skills, []);
-
     await coordinator.send('Start');
-
     assert.equal(a.sessions.length, 2);
   } finally {
     await coordinator.close();
@@ -319,13 +266,9 @@ test('a listed /skill reaches the agent as a skill call, and an unlisted one sta
     });
 
     assert.match(a.inputs.at(-1)!.prompt, /^ \/review {2}the/);
-
     await coordinator.send('/review');
-
     assert.deepEqual(a.inputs.at(-1)!.skill, { name: 'review', args: '' });
-
     await coordinator.send('/reviewer x');
-
     assert.equal(a.inputs.at(-1)!.skill, undefined);
   } finally {
     await coordinator.close();
@@ -355,9 +298,7 @@ test("a model list that fails at connect is reported, and the session's skills a
     );
 
     assert.deepEqual(coordinator.snapshot.usage, { context: 5 });
-
     await coordinator.send('/review now');
-
     assert.deepEqual(a.inputs.at(-1)!.skill, { name: 'review', args: 'now' });
   } finally {
     await coordinator.close();
@@ -383,14 +324,10 @@ for (const stop of ['interrupt', 'close'] as const)
       };
 
       const selecting = coordinator.selectModel({ agent: 'a', id: 'next' });
-
       await within(entered.promise, 2000, 'the model change');
-
       // close() awaits the change, so its rejection needs a handler first
       const rejected = assert.rejects(selecting, /Session closed/);
-
       await coordinator[stop]();
-
       await rejected;
     } finally {
       await coordinator.close();
@@ -414,9 +351,7 @@ for (const stop of ['interrupt', 'close'] as const)
       try {
         session.selectModel = async () => {
           entered.resolve();
-
           await closed.promise;
-
           await release.promise;
 
           throw new Error('Selection cancelled');
@@ -437,15 +372,12 @@ for (const stop of ['interrupt', 'close'] as const)
           if (!session.closed) order.push('session close entered');
 
           await close();
-
           closed.resolve();
         };
 
         a.gate = gate;
         sending = coordinator.send('Start');
-
         await within(gate.entered, 2000, 'the first turn');
-
         a.replied = true;
 
         selecting = assert
@@ -467,7 +399,6 @@ for (const stop of ['interrupt', 'close'] as const)
 
         if (ended) {
           gate.open();
-
           await within(gate.result, 2000, 'the native turn');
         }
 
@@ -480,7 +411,6 @@ for (const stop of ['interrupt', 'close'] as const)
         if (stop === 'close') {
           // keep the rejection pending beyond the native close, which alone must not release the conversation
           await delay(400);
-
           assert.ok(!order.includes('coordinator closed'));
         }
 
@@ -512,26 +442,17 @@ for (const stop of ['interrupt', 'close'] as const)
           await reclaimed.close();
         } else {
           gate.open();
-
           const before = a.sessions.length;
-
           await within(coordinator.send('After'), 3000, 'the resumed turn');
-
           assert.equal(a.sessions.length, before + 1);
-
           assert.equal(a.sessions.at(-1)!.session.info.id, session.info.id);
-
           assert.ok(a.inputs.at(-1)!.prompt === 'After');
         }
       } finally {
         release.resolve();
-
         gate.open();
-
         await session.close();
-
         await Promise.allSettled([selecting, sending, stopping]);
-
         await coordinator.close();
       }
     });
@@ -560,11 +481,8 @@ test('interrupting a pending replied model change preserves unread Claude prompt
 
   try {
     await coordinator.initialize(cwd);
-
     assert.equal(coordinator.snapshot.error, undefined);
-
     sending = coordinator.send('reporting familiar');
-
     await until('the replied turn', () => !!session?.replied);
 
     selecting = assert.rejects(
@@ -608,7 +526,6 @@ test('interrupting a pending replied model change preserves unread Claude prompt
     );
   } finally {
     await coordinator.close();
-
     await Promise.allSettled([sending, selecting]);
 
     assert.ok(

@@ -290,7 +290,6 @@ class ClaudeSession implements AgentSession {
 
           this.child = watchChild(child);
           this.registered = options.onProcess(child.pid);
-
           // initialize() awaits it, but may fail before it does
           this.registered.catch(() => {});
 
@@ -341,12 +340,10 @@ class ClaudeSession implements AgentSession {
     }
 
     this.connected = true;
-
     await this.registered;
 
     if (!this.options.answer) {
       this.readUsage();
-
       this.mcp.refresh();
     }
   }
@@ -373,7 +370,6 @@ class ClaudeSession implements AgentSession {
       throw new Error('Stop the current turn before changing models');
 
     const level = effort == null ? effort : effortLevel.parse(effort);
-
     await this.query.setModel(model);
 
     if (model !== this.info.model) this.report(this.context.invalidate());
@@ -390,7 +386,6 @@ class ClaudeSession implements AgentSession {
     };
 
     this.options.onEvent({ type: 'info', info: this.info });
-
     await this.contextUsage();
 
     if (this.options.automaticCompaction) await this.context.configure();
@@ -452,11 +447,8 @@ class ClaudeSession implements AgentSession {
 
     turn.initialInput = uuid;
     turn.idle = false;
-
     turn.started.resolve(true);
-
     turn.inputs.set(uuid, { pending: true });
-
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
 
     if (skill && !skill.builtin) this.projection.pendingCast(uuid, skill.name);
@@ -566,14 +558,12 @@ class ClaudeSession implements AgentSession {
           onOutput: (text) => row(text),
           onSpawn: (pid) => {
             started = this.options.onShell?.(pid);
-
             // awaited once the command ends, which can be long after a failed report
             started?.catch(() => {});
           },
         });
 
         this.records.push(bashRecord(command, run));
-
         failed = shellFailed(run);
 
         return {
@@ -587,13 +577,11 @@ class ClaudeSession implements AgentSession {
 
         if (started) {
           await started;
-
           await this.options.onShell?.(undefined);
         }
       }
     } finally {
       this.command = undefined;
-
       finished.resolve();
     }
   }
@@ -653,7 +641,6 @@ class ClaudeSession implements AgentSession {
         this.projection.pendingCast(uuid, skill.name);
     } else {
       turn.held = true;
-
       void this.reply(turn, command, prompt);
     }
 
@@ -711,9 +698,7 @@ class ClaudeSession implements AgentSession {
       turn.idle = false;
       const records = this.takeUnreadContext();
       const uuid = this.push(content(records, answer, []));
-
       turn.inputs.set(uuid, { pending: true });
-
       turn.commandRecords.set(uuid, { records, writeAttempted: false });
     } else if (!this.closed) this.finishIdle(turn);
   }
@@ -739,7 +724,6 @@ class ClaudeSession implements AgentSession {
     if (this.answers.busy) return this.answers.interrupt(options);
 
     this.command?.controller.abort();
-
     const turn = this.turn;
 
     if (!turn) return Promise.resolve();
@@ -758,7 +742,6 @@ class ClaudeSession implements AgentSession {
         if (!(error instanceof NativeStopTimeout)) throw error;
 
         this.reportStopTimeout();
-
         await this.close({ ...options, deadline });
       })
       .finally(() => {
@@ -810,9 +793,7 @@ class ClaudeSession implements AgentSession {
       );
 
       this.closed = true;
-
       this.mcp.stop();
-
       void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
 
       this.finish(turn, {
@@ -841,15 +822,10 @@ class ClaudeSession implements AgentSession {
 
   private async closeSession(deadline: number): Promise<void> {
     const command = this.command;
-
     command?.controller.abort();
-
     this.closed = true;
-
     this.mcp.stop();
-
     const usageClosed = this.usageReader.close({ deadline });
-
     void usageClosed.catch(() => {});
 
     const stopped = (async () => {
@@ -867,16 +843,12 @@ class ClaudeSession implements AgentSession {
         cleanupError = error;
       } finally {
         this.input.close();
-
         this.query.close();
       }
 
       await this.reading;
-
       await this.child?.closed;
-
       await command?.finished;
-
       await usageClosed;
 
       if (cleanupError) throw cleanupError;
@@ -888,13 +860,9 @@ class ClaudeSession implements AgentSession {
       if (!(error instanceof NativeStopTimeout)) throw error;
 
       this.reportStopTimeout();
-
       this.commands.stop();
-
       this.requests.cancel();
-
       this.input.close();
-
       this.query.close();
 
       try {
@@ -983,9 +951,7 @@ class ClaudeSession implements AgentSession {
       await this.end(errorMessage(failure));
     } finally {
       this.closed = true;
-
       this.mcp.stop();
-
       this.commands.stop();
 
       await this.usageReader
@@ -1000,7 +966,6 @@ class ClaudeSession implements AgentSession {
 
   private receive(message: SDKMessage): void {
     this.commands.receive(message);
-
     this.projection.started(message);
 
     if (this.compaction?.receive(message, this.info.id)) {
@@ -1078,7 +1043,6 @@ class ClaudeSession implements AgentSession {
         };
 
         this.options.onEvent({ type: 'info', info: this.info });
-
         this.mcp.refresh();
       } else if (message.subtype === 'compact_boundary') {
         if (message.session_id !== this.info.id) return;
@@ -1101,9 +1065,7 @@ class ClaudeSession implements AgentSession {
           };
 
         this.nativeRunning = running;
-
         this.options.onEvent({ type: 'running', running });
-
         const turn = this.turn;
 
         if (turn) {
@@ -1170,7 +1132,6 @@ class ClaudeSession implements AgentSession {
       return false;
 
     run.exhausted = true;
-
     this.options.onEvent({ type: 'exhausted' });
 
     return true;
@@ -1182,9 +1143,7 @@ class ClaudeSession implements AgentSession {
 
     if (this.turn === turn) {
       this.closed = true;
-
       this.finish(turn, result);
-
       this.query.close();
     }
 
@@ -1193,7 +1152,6 @@ class ClaudeSession implements AgentSession {
 
   private report(update: Usage): void {
     this.usage = { ...this.usage, ...update };
-
     this.options.onEvent({ type: 'usage', usage: this.usage });
   }
 
@@ -1209,7 +1167,6 @@ class ClaudeSession implements AgentSession {
 
     // onEvent is the session's only reporting channel, so a failure of its own has nowhere to go
     void this.contextUsage().catch(() => {});
-
     this.usageReader.refresh();
   }
 
@@ -1243,13 +1200,9 @@ class ClaudeSession implements AgentSession {
     if (!closed) this.confirmBackgroundExhaustion();
 
     this.closed = true;
-
     this.mcp.stop();
-
     this.stopUntil ??= stopDeadline();
-
     void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
-
     const turn = this.turn;
 
     // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI

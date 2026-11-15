@@ -45,11 +45,8 @@ test('process arguments preserve boundaries and omit exited processes', async (t
 
   t.onTestFinished(async () => {
     child.kill();
-
     empty.kill();
-
     await ended;
-
     await emptyEnded;
   });
 
@@ -64,11 +61,8 @@ test('process arguments preserve boundaries and omit exited processes', async (t
   );
 
   child.kill();
-
   await ended;
-
   assert.deepEqual(await processArguments([child.pid!]), new Map());
-
   assert.deepEqual(await processArguments([]), new Map());
 });
 
@@ -92,16 +86,12 @@ test('process identities preserve native start strings across a batch', async (t
 
   t.onTestFinished(async () => {
     live.kill();
-
     await ended;
   });
 
   await once(live, 'spawn');
-
   const exited = spawn(process.execPath, ['-e', '']);
-
   await once(exited, 'close');
-
   const expected = new Map<number, ProcessIdentity>();
 
   for (const pid of [live.pid!, process.pid]) {
@@ -143,7 +133,6 @@ test('process identities preserve native start strings across a batch', async (t
   );
 
   assert.deepEqual(await identifyProcess(live.pid!), expected.get(live.pid!));
-
   assert.equal(await identifyProcess(exited.pid!), undefined);
 
   assert.deepEqual(await countProbes(() => identifyProcesses([exited.pid!])), {
@@ -166,7 +155,6 @@ test('process identities preserve native start strings across a batch', async (t
 test('a left process that refuses to stop still lets the others stop, then fails', async () => {
   const start = async (script: string) => {
     const child = spawn(process.execPath, ['-e', script]);
-
     await once(child.stdout, 'data');
 
     return child;
@@ -194,7 +182,6 @@ test('a left process that refuses to stop still lets the others stop, then fails
     await within(exited, 1000, 'the usage process stopping');
   } finally {
     stubborn.kill('SIGKILL');
-
     usage.kill('SIGKILL');
   }
 });

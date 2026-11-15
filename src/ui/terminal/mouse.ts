@@ -49,9 +49,7 @@ export class MouseInput extends EventEmitter {
 
   constructor(private readonly source: Source) {
     super();
-
     source.setEncoding('utf8');
-
     source.on('data', (chunk) => this.receive(chunk));
   }
 
@@ -68,7 +66,6 @@ export class MouseInput extends EventEmitter {
   setRawMode(mode: boolean): void {
     if (!mode) {
       clearTimeout(this.escapeTimer);
-
       this.escapeTimer = undefined;
       this.pending = '';
     }
@@ -86,7 +83,6 @@ export class MouseInput extends EventEmitter {
 
   private receive(chunk: string): void {
     clearTimeout(this.escapeTimer);
-
     this.escapeTimer = undefined;
     let data = this.pending + chunk;
     this.pending = partial.exec(data)?.[0] ?? '';
@@ -96,7 +92,6 @@ export class MouseInput extends EventEmitter {
         this.escapeTimer = undefined;
         this.text += this.pending;
         this.pending = '';
-
         this.emit('readable');
       }, 20);
 
@@ -120,16 +115,13 @@ export class MouseInput extends EventEmitter {
 
       if (button === 64 || button === 65) {
         this.pressed = undefined;
-
         this.emit('wheel', button === 64 ? -1 : 1);
       } else if (button === 0 && kind === 'M') {
         this.pressed = cell;
-
         this.emit('pointer', 'press', cell);
       } else if (button === 32) {
         // held motion is reported only on reaching a new cell, so a drag has left the press cell
         this.pressed = undefined;
-
         this.emit('pointer', 'drag', cell);
       } else if (button === 0) {
         // held motion reports every cell it reaches, so a release elsewhere follows reports that went missing
@@ -140,7 +132,6 @@ export class MouseInput extends EventEmitter {
           this.emit('click');
 
         this.pressed = undefined;
-
         this.emit('pointer', 'release', cell);
       } else this.emit('hover', cell);
     }

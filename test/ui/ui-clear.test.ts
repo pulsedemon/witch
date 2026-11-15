@@ -30,9 +30,7 @@ const message = (id: string, text = id): DisplayItem => ({
 
 async function submit(ui: ReturnType<typeof show>, text: string) {
   ui.stdin.write(text);
-
   await delay(30);
-
   ui.stdin.write(ENTER);
 }
 
@@ -43,13 +41,10 @@ test('clear runs in the current conversation and its visible boundary survives r
 
   try {
     await c.send('earlier context');
-
     const id = c.snapshot.conversation!.id;
     const native = c.snapshot.native!.id;
     ui = show(createElement(App, { coordinator: c, onExit: () => {} }), 80, 25);
-
     await until('old transcript', () => ui!.text().includes('earlier context'));
-
     await submit(ui, '/clear');
 
     await until(
@@ -65,15 +60,10 @@ test('clear runs in the current conversation and its visible boundary survives r
     );
 
     assert.equal(c.snapshot.conversation!.id, id);
-
     assert.equal(f.a.inputs.length, 1);
-
     assert.match(ui.text(), /earlier context/);
-
     ui.unmount();
-
     await c.close();
-
     c = await f.reopen();
     ui = show(createElement(App, { coordinator: c, onExit: () => {} }), 80, 25);
 
@@ -87,7 +77,6 @@ test('clear runs in the current conversation and its visible boundary survives r
     assert.match(ui.text(), /earlier context/);
   } finally {
     ui?.unmount();
-
     await c.close();
   }
 });
@@ -98,19 +87,12 @@ test('clear dispatches locally, discards prose and appears in help', async () =>
 
   try {
     await until('composer', () => ui.text().includes('Ask the agent'));
-
     await submit(ui, '/clear');
-
     await until('clear dispatch', () => calls.length === 1);
-
     assert.deepEqual(calls, [['clear']]);
-
     await submit(ui, '/clear extra');
-
     await until('clear dispatch', () => calls.length === 2);
-
     assert.deepEqual(calls[1], ['clear']);
-
     await submit(ui, '/help');
 
     await until('help with clear', () =>
@@ -149,9 +131,7 @@ test('the reminder stays stable when its row displaces the last archived row', a
 
     for (let i = 0; i < 3; i++) {
       coordinator.publish({ usage: { context: i } });
-
       await delay(70);
-
       assert.match(ui.text(), /Earlier messages shown here/);
 
       assert.equal(
@@ -164,7 +144,6 @@ test('the reminder stays stable when its row displaces the last archived row', a
     }
 
     ui.stdin.write('draft');
-
     ui.stdin.write(SHIFT_ENTER);
 
     await until(
@@ -215,7 +194,6 @@ test('only the latest clear boundary controls the reminder while scrolling', asy
     );
 
     assert.ok(!ui.text().includes(reminder));
-
     ui.stdin.write(wheelUp.repeat(55));
 
     await until('history between clears', () =>
@@ -223,9 +201,7 @@ test('only the latest clear boundary controls the reminder while scrolling', asy
     );
 
     assert.match(ui.text(), /Earlier messages shown here/);
-
     assert.doesNotMatch(ui.text(), /before-first-clear/);
-
     ui.stdin.write(wheelDown.repeat(100));
 
     await until(
@@ -245,13 +221,9 @@ test('an empty clear and a transcript with no clear have no archived-row reminde
 
   try {
     await until('ordinary history', () => ui.text().includes('ordinary'));
-
     assert.ok(!ui.text().includes(reminder));
-
     coordinator.publish({ items: [marker('empty-clear'), message('fresh')] });
-
     await until('fresh history', () => ui.text().includes('fresh'));
-
     assert.ok(!ui.text().includes(reminder));
   } finally {
     ui.unmount();
@@ -283,9 +255,7 @@ test('batched drag events keep their row coordinates when scrolling removes the 
 
   try {
     await until('latest rows', () => ui.text().includes('fresh line 7'));
-
     ui.stdin.write(wheelUp.repeat(40));
-
     await until('archived first row', () => ui.text().includes('old alpha'));
 
     ui.stdin.write(
@@ -340,18 +310,12 @@ test('the reminder preserves archived colors, selection and hyperlink coordinate
   const copy = async (text: string) => {
     const lines = ui.text().split('\n');
     const row = lines.findIndex((line) => line.includes(text));
-
     assert.ok(row >= 0, ui.text());
-
     const column = lines[row]!.indexOf(text);
     const count = copied.length;
-
     drag(ui, [column, row], [column + text.length - 1, row]);
-
     ui.stdin.write('\u001b[99;9u');
-
     await until('selected text copied', () => copied.length > count);
-
     assert.equal(copied.at(-1), text);
   };
 
@@ -380,9 +344,7 @@ test('the reminder preserves archived colors, selection and hyperlink coordinate
     );
 
     await copy('old alpha');
-
     await copy('fresh beta');
-
     ui.stdin.write(`\t${ENTER}`);
 
     await until('expanded retained tool', () =>
@@ -403,17 +365,12 @@ test('the reminder preserves archived colors, selection and hyperlink coordinate
     );
 
     const screen = new Screen({ columns: 60, rows: 25 });
-
     screen.write(ui.frame());
-
     const rows = ui.text().split('\n');
     const row = rows.findIndex((line) => line.includes('archive'));
     const column = rows[row]!.indexOf('archive');
-
     assert.equal(screen.linkAt(column, row), 'https://example.com/archive');
-
     assert.equal(screen.linkAt(column, 1), undefined);
-
     await copy('old alpha');
   } finally {
     ui.unmount();

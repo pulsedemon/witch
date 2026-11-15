@@ -29,9 +29,7 @@ export async function setup(t: TestContext, name = 'A') {
   const x = await f.start(name);
   const c = x.coordinator;
   const cwd = c.snapshot.conversation!.cwd;
-
   await git('-C', cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/x');
-
   const project = (await f.memory.scopePaths(cwd)).project;
 
   const pullRequest = (fields: Partial<PullRequest> = {}) =>
@@ -60,14 +58,11 @@ export async function setup(t: TestContext, name = 'A') {
     client: { coordinator: typeof c; coordination: typeof x.coordination } = x,
   ) => {
     client.coordination.updateRepository(repository);
-
     client.coordinator.conflict = repository.conflict;
-
     client.coordinator.repair.observe(repository);
   };
 
   c.repair.setRefresh(async () => {});
-
   await x.claim(pullRequest().url, 'repair task');
 
   const repairs = (agent = x.a) =>

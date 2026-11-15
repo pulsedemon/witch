@@ -19,9 +19,7 @@ describe('moved checkouts', () => {
     const repository = await checkout('w/main');
     const state = join(repository.root, 'state');
     const first = recording();
-
     await printed(() => runSpawn(repository.main, count, state, first.run));
-
     const at = (path: string) => join(repository.root, path);
 
     return { ...repository, state, at };
@@ -29,11 +27,8 @@ describe('moved checkouts', () => {
 
   test('spawn from a moved main reuses the worktrees left beside the old location', async () => {
     const f = await spawned(2);
-
     await mkdir(f.at('c'));
-
     await rename(f.main, f.at('c/main'));
-
     const { run } = recording();
 
     const { code, output } = await printed(() =>
@@ -41,13 +36,9 @@ describe('moved checkouts', () => {
     );
 
     assert.equal(code, 0, output);
-
     assert.match(output, /Repaired the move of .*w\/main to .*c\/main/);
-
     assert.ok(output.includes(`${f.slot(1)}: exists`), output);
-
     assert.ok(output.includes(`${f.slot(2)}: exists`), output);
-
     assert.equal(await exists(f.at('c/main-1')), false);
 
     for (const path of [f.at('c/main'), f.slot(1), f.slot(2)])
@@ -56,9 +47,7 @@ describe('moved checkouts', () => {
 
   test('spawn from a worktree whose main moved too repairs first', async () => {
     const f = await spawned(1);
-
     await rename(f.at('w'), f.at('c'));
-
     const { run } = recording();
 
     const { code, output } = await printed(() =>
@@ -66,19 +55,14 @@ describe('moved checkouts', () => {
     );
 
     assert.equal(code, 0, output);
-
     assert.ok(output.includes(`${f.at('c/main-1')}: exists`), output);
   });
 
   test("spawn creates only the slots it can't find", async () => {
     const f = await spawned(2);
-
     await git(f.main, 'worktree', 'remove', f.slot(2));
-
     await mkdir(f.at('c'));
-
     await rename(f.main, f.at('c/main'));
-
     const { run } = recording();
 
     const { output } = await printed(() =>
@@ -86,27 +70,18 @@ describe('moved checkouts', () => {
     );
 
     assert.ok(output.includes(`${f.slot(1)}: exists`), output);
-
     assert.ok(output.includes(`${f.at('c/main-2')}: created`), output);
   });
 
   test('spawn stops when another repository holds a registered path', async () => {
     const f = await spawned(1);
-
     await mkdir(f.at('c'));
-
     await rename(f.main, f.at('c/main'));
-
     await rename(f.slot(1), f.at('away'));
-
     const other = f.at('other');
-
     await git(f.root, 'init', '-b', 'main', other);
-
     await git(other, 'commit', '--allow-empty', '-m', 'other');
-
     await git(other, 'worktree', 'add', '--detach', f.slot(1));
-
     const { run, calls } = recording();
 
     const { code } = await printed(() =>
@@ -114,14 +89,12 @@ describe('moved checkouts', () => {
     );
 
     assert.equal(code, 1);
-
     assert.deepEqual(calls, []);
   });
 
   test('spawn checks registrations even when nothing moved', async () => {
     const f = await spawned(1);
     const other = f.at('other');
-
     await git(f.root, 'init', '-b', 'main', other);
 
     await writeFile(
@@ -131,35 +104,25 @@ describe('moved checkouts', () => {
 
     const { run, calls } = recording();
     const { code } = await printed(() => runSpawn(f.main, 1, f.state, run));
-
     assert.equal(code, 1);
-
     assert.deepEqual(calls, []);
   });
 
   test('an unreadable ledger stops spawn before anything is installed or opened', async () => {
     const f = await spawned(1);
-
     await writeFile(join(f.state, 'directories.json'), '{');
-
     const { run, calls } = recording();
     const { code } = await printed(() => runSpawn(f.main, 1, f.state, run));
-
     assert.equal(code, 1);
-
     assert.deepEqual(calls, []);
-
     await assert.rejects(sessionsIn(f.state)(f.slot(1)), /directories\.json/);
   });
 
   test('outside a repository, a ledger spawn cannot read is named instead of only Git', async () => {
     const root = await scratch('witch-spawn-');
     const state = join(root, 'state');
-
     await mkdir(join(root, 'plain'));
-
     await mkdir(state);
-
     await writeFile(join(state, 'directories.json'), '{');
 
     const errors = vi
@@ -195,9 +158,7 @@ describe('moved checkouts', () => {
     );
 
     assert.ok(output.includes('Could not record the worktrees'), output);
-
     assert.ok(output.includes(`${f.slot(1)}: exists, opened`), output);
-
     assert.equal(code, 1);
   });
 
@@ -216,7 +177,6 @@ describe('moved checkouts', () => {
 
     try {
       await rename(f.at('w'), f.at('c'));
-
       const { run, tabs } = recording();
 
       const { code, output } = await printed(() =>
@@ -224,7 +184,6 @@ describe('moved checkouts', () => {
       );
 
       assert.equal(code, 0, output);
-
       assert.equal(await sessionsIn(f.state)(f.at('c/main-1')), true);
 
       assert.ok(
@@ -240,12 +199,9 @@ describe('moved checkouts', () => {
 
   test('a deleted slot does not stop the others', async () => {
     const f = await spawned(2);
-
     await rm(f.slot(2), { recursive: true });
-
     const { run, installs, tabs } = recording();
     const { output } = await printed(() => runSpawn(f.main, 2, f.state, run));
-
     assert.ok(output.includes(`${f.slot(1)}: exists`), output);
 
     assert.ok(
@@ -256,7 +212,6 @@ describe('moved checkouts', () => {
     );
 
     assert.deepEqual(installs(), [f.slot(1)]);
-
     assert.deepEqual(tabs(), [[f.slot(1)]]);
   });
 
@@ -264,14 +219,10 @@ describe('moved checkouts', () => {
     'spawn after a worktree moved alone reuses it',
     async () => {
       const f = await spawned(1);
-
       await rename(f.slot(1), f.at('w/elsewhere'));
-
       const { run } = recording();
       const { output } = await printed(() => runSpawn(f.main, 1, f.state, run));
-
       assert.ok(output.includes(`${f.at('w/elsewhere')}: exists`), output);
-
       await git(f.at('w/elsewhere'), 'status');
     },
   );
@@ -291,7 +242,6 @@ describe('moved checkouts', () => {
       const run: Run = async (command, args, options) => {
         if (command === 'osascript') {
           await rename(f.slot(1), f.at('w/away'));
-
           await cp(f.at('w/away'), f.slot(1), { recursive: true });
         }
 
@@ -315,21 +265,14 @@ describe('moved checkouts', () => {
     "a moved slot keeps its number and its default name isn't taken twice",
     async () => {
       const f = await spawned(1);
-
       await rename(f.slot(1), f.slot(2));
-
       const once = recording();
       const kept = await printed(() => runSpawn(f.main, 1, f.state, once.run));
-
       assert.ok(kept.output.includes(`${f.slot(2)}: exists`), kept.output);
-
       assert.ok(!kept.output.includes('created'), kept.output);
-
       const twice = recording();
       const both = await printed(() => runSpawn(f.main, 2, f.state, twice.run));
-
       assert.ok(both.output.includes(`${f.slot(2)}: exists`), both.output);
-
       assert.ok(both.output.includes(`${f.main}-2-2: created`), both.output);
 
       assert.equal(

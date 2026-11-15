@@ -34,13 +34,9 @@ test('a peer joining and leaving updates ongoing work without adding user input'
 
   try {
     await within(gate.entered, 5000, 'solo turn');
-
     const b = await start('B');
-
     await a.query();
-
     await until('required policy', () => a.a.contextSteers.length === 1);
-
     assert.match(a.a.contextSteers[0]!, /--claim/);
 
     assert.match(
@@ -49,29 +45,17 @@ test('a peer joining and leaving updates ongoing work without adding user input'
     );
 
     await b.claim('task:peer', 'Peer summary 291');
-
     await a.query();
-
     assert.equal(a.a.contextSteers.length, 1);
-
     assert.doesNotMatch(a.a.contextSteers[0]!, /Peer summary 291/);
-
     assert.equal((await a.claim('task:exports')).kind, 'claimed');
-
     await b.coordinator.close();
-
     await a.query();
-
     await until('solo policy', () => a.a.contextSteers.length === 2);
-
     assert.match(a.a.contextSteers[1]!, /New work needs no claim/);
-
     assert.match(a.a.contextSteers[1]!, /--release/);
-
     assert.deepEqual(a.a.steers, []);
-
     assert.deepEqual(a.coordinator.snapshot.queue, []);
-
     assert.equal(a.a.inputs.length, 1);
 
     assert.deepEqual(
@@ -82,7 +66,6 @@ test('a peer joining and leaving updates ongoing work without adding user input'
     );
   } finally {
     gate.open();
-
     await sending;
   }
 });
@@ -97,7 +80,6 @@ test('a peer arriving during prompt construction reaches the newly started turn'
 
   vi.spyOn(memory, 'snapshot').mockImplementationOnce(async (...args) => {
     entered.resolve();
-
     await release.promise;
 
     return snapshot(...args);
@@ -109,27 +91,17 @@ test('a peer arriving during prompt construction reaches the newly started turn'
 
   try {
     await within(entered.promise, 5000, 'prompt construction');
-
     await start('B');
-
     await a.query();
-
     release.resolve();
-
     await within(gate.entered, 5000, 'native send');
-
     await until('late policy', () => a.a.contextSteers.length === 1);
-
     assert.match(a.a.inputs[0]!.context!, /New work needs no claim/);
-
     assert.match(a.a.contextSteers[0]!, /Claim coordination is required/);
-
     assert.equal(a.a.inputs[0]!.prompt, 'Original request');
   } finally {
     release.resolve();
-
     gate.open();
-
     await sending;
   }
 });
@@ -146,32 +118,21 @@ test('a refused policy steer waits for fresh context on the next user turn', asy
 
   try {
     await within(gate.entered, 5000, 'solo turn');
-
     const b = await start('B');
-
     await a.query();
-
     await until('refused policy', () => steer.mock.calls.length === 1);
-
     await b.claim('task:peer', 'Changed summary');
-
     await a.query();
-
     assert.equal(steer.mock.calls.length, 1);
-
     assert.deepEqual(a.a.contextSteers, []);
-
     assert.deepEqual(a.coordinator.snapshot.queue, []);
   } finally {
     gate.open();
-
     await sending;
   }
 
   assert.equal(a.a.inputs.length, 1);
-
   a.a.refuseSteer = false;
-
   await a.coordinator.send('Next user request');
 
   assert.deepEqual(
@@ -180,7 +141,6 @@ test('a refused policy steer waits for fresh context on the next user turn', asy
   );
 
   assert.match(a.a.inputs[1]!.context!, /Claim coordination is required/);
-
   assert.match(a.a.inputs[1]!.context!, /--claim/);
 });
 
@@ -200,9 +160,7 @@ for (const finishFirst of [false, true]) {
 
       if (args[1]?.contextOnly && first) {
         first = false;
-
         entered.resolve();
-
         await reply.promise;
       }
 
@@ -215,51 +173,33 @@ for (const finishFirst of [false, true]) {
 
     try {
       await within(gate.entered, 5000, 'solo turn');
-
       const b = await start('B');
-
       await a.query();
-
       await within(entered.promise, 5000, 'pending policy reply');
-
       await b.coordinator.close();
-
       await a.query();
-
       assert.equal(a.a.contextSteers.length, 1);
 
       if (finishFirst) {
         gate.open();
-
         await sending;
-
         await a.coordinator.send('Later solo request');
-
         assert.match(a.a.inputs[1]!.context!, /New work needs no claim/);
-
         assert.doesNotMatch(a.a.inputs[1]!.context!, /Control command:/);
-
         reply.resolve();
-
         await nextTick();
-
         assert.equal(a.a.contextSteers.length, 1);
-
         assert.equal(a.a.inputs.length, 2);
       } else {
         reply.resolve();
-
         await until('corrected policy', () => a.a.contextSteers.length === 2);
-
         assert.match(a.a.contextSteers[1]!, /New work needs no claim/);
       }
 
       assert.deepEqual(a.coordinator.snapshot.queue, []);
     } finally {
       reply.resolve();
-
       gate.open();
-
       await sending;
     }
   });
@@ -276,21 +216,13 @@ test('unread coordination context never becomes queued user work', async (t) => 
 
   try {
     await within(gate.entered, 5000, 'solo turn');
-
     await start('B');
-
     await a.query();
-
     await until('context update', () => a.a.contextSteers.length === 1);
-
     await a.coordinator.send('Real user follow-up');
-
     a.a.gate = undefined;
-
     await a.coordinator.interrupt();
-
     await sending;
-
     await until('user follow-up', () => a.a.inputs.length >= 2);
 
     assert.deepEqual(
@@ -301,7 +233,6 @@ test('unread coordination context never becomes queued user work', async (t) => 
     assert.deepEqual(a.coordinator.snapshot.queue, []);
   } finally {
     gate.open();
-
     await sending;
   }
 });
@@ -316,9 +247,7 @@ test('a compaction inside a turn keeps claim policy current', async (t) => {
 
   const compact = async () => {
     const before = a.a.contextSteers.length;
-
     a.a.sessions[0]!.options.onEvent({ type: 'compacted' });
-
     await until('resent context', () => a.a.contextSteers.length > before);
 
     return a.a.contextSteers.at(-1)!;
@@ -326,11 +255,8 @@ test('a compaction inside a turn keeps claim policy current', async (t) => {
 
   try {
     await within(gate.entered, 5000, 'solo turn');
-
     assert.doesNotMatch(await compact(), /Claim coordination is required/);
-
     await start('B');
-
     await a.query();
 
     await until('policy update', () =>
@@ -342,18 +268,14 @@ test('a compaction inside a turn keeps claim policy current', async (t) => {
     );
 
     assert.match(await compact(), /Claim coordination is required/);
-
     assert.deepEqual(a.coordinator.snapshot.queue, []);
   } finally {
     gate.open();
-
     await sending;
   }
 
   await a.coordinator.send('After compaction');
-
   assert.match(a.a.inputs[1]!.context!, /Control command:/);
-
   assert.match(a.a.inputs[1]!.context!, /Claim coordination is required/);
 });
 
@@ -363,13 +285,9 @@ test('clear preserves the same exclusive claim while the native runtime reconnec
   const owner = await f.start('A');
   const peer = await f.start('B');
   const claimed = await owner.claim('task:clear');
-
   assert.equal(claimed.kind, 'claimed');
-
   const before = (await owner.query()).ownClaim;
-
   assert.ok(before);
-
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   owner.a.beforeConnect = holdConnect(entered, release);
@@ -377,18 +295,14 @@ test('clear preserves the same exclusive claim while the native runtime reconnec
 
   try {
     await within(entered.promise, 3000, 'the clear reconnect');
-
     assert.equal((await peer.claim('task:clear')).kind, 'conflict');
-
     assert.deepEqual((await owner.query()).ownClaim, before);
   } finally {
     release.resolve();
-
     await clearing;
   }
 
   assert.equal((await peer.claim('task:clear')).kind, 'conflict');
-
   assert.deepEqual((await owner.query()).ownClaim, before);
 });
 
@@ -397,15 +311,10 @@ test('a model refused while disconnected keeps the exclusive claim', async (t) =
   const f = await unitCoordinationFixture(cleanup);
   const owner = await f.start('A');
   const peer = await f.start('B');
-
   assert.equal((await owner.claim('task:model')).kind, 'claimed');
-
   const before = (await owner.query()).ownClaim;
-
   assert.ok(before);
-
   await owner.a.sessions.at(-1)!.session.close();
-
   owner.a.invalidModel = 'a-typo';
 
   await assert.rejects(
@@ -414,7 +323,6 @@ test('a model refused while disconnected keeps the exclusive claim', async (t) =
   );
 
   assert.equal((await peer.claim('task:model')).kind, 'conflict');
-
   assert.deepEqual((await owner.query()).ownClaim, before);
 });
 
@@ -422,14 +330,10 @@ test('a reconnect that fails before activating keeps the activation and claim', 
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);
   const owner = await f.start('A');
-
   assert.equal((await owner.claim('task:reconnect')).kind, 'claimed');
-
   const binding = await owner.binding();
   const claim = (await owner.query()).ownClaim;
-
   assert.ok(claim);
-
   await owner.a.sessions.at(-1)!.session.close();
 
   vi.spyOn(Workspace.prototype, 'ensureWorktree').mockRejectedValueOnce(
@@ -442,7 +346,6 @@ test('a reconnect that fails before activating keeps the activation and claim', 
   );
 
   assert.deepEqual(await owner.binding(), binding);
-
   assert.deepEqual((await owner.query()).ownClaim, claim);
 });
 
@@ -451,12 +354,9 @@ for (const stage of ['close', 'reconnect'] as const) {
     const cleanup = orderedCleanup(t.onTestFinished);
     const f = await coordinationFixture(cleanup);
     const owner = await f.start('A');
-
     assert.equal((await owner.claim('task:clear')).kind, 'claimed');
-
     const bound = await owner.binding();
     const claim = (await owner.query()).ownClaim;
-
     assert.ok(claim);
 
     if (stage === 'close') owner.a.failClose = true;
@@ -472,7 +372,6 @@ for (const stage of ['close', 'reconnect'] as const) {
 
     owner.a.failClose = false;
     const current = await owner.binding();
-
     assert.notEqual(current.activation, bound.activation);
 
     assert.equal(
@@ -481,11 +380,8 @@ for (const stage of ['close', 'reconnect'] as const) {
     );
 
     assert.deepEqual((await owner.query()).ownClaim, claim);
-
     await owner.coordinator.clear();
-
     assert.notEqual((await owner.binding()).activation, current.activation);
-
     assert.deepEqual((await owner.query()).ownClaim, claim);
   });
 }
@@ -517,24 +413,16 @@ test('bound tool titles use the delivered prefixes, refresh on reconnect and sur
   };
 
   await client.coordinator.send('Read the current bindings');
-
   const context = client.a.inputs.at(-1)!.context!;
   const control = /^Control command: (.+)$/m.exec(context)?.[1];
   const familiar = /using this familiar prefix: ([^\n]+)/.exec(context)?.[1];
-
   assert.ok(control);
-
   assert.ok(familiar);
-
   const { commandPrefixes } = native.options;
-
   assert.deepEqual(commandPrefixes, { control, familiar });
-
   const command = `${control} --claim task:render-title --summary inspect`;
   const title = boundCommandTitle(command, commandPrefixes);
-
   assert.equal(title?.title, 'claim task:render-title');
-
   assert.ok(title);
 
   native.options.onEvent({
@@ -554,17 +442,11 @@ test('bound tool titles use the delivered prefixes, refresh on reconnect and sur
   });
 
   await native.session.close();
-
   await client.coordinator.send('Use the refreshed binding');
-
   const current = client.a.sessions.at(-1)!.options.commandPrefixes;
-
   assert.ok(current);
-
   assert.notEqual(current.control, control);
-
   assert.equal(boundCommandTitle(command, current), undefined);
-
   const nextContext = client.a.inputs.at(-1)!.context!;
 
   assert.equal(
@@ -578,7 +460,6 @@ test('bound tool titles use the delivered prefixes, refresh on reconnect and sur
   );
 
   await client.coordinator.close();
-
   const reopened = await f.start('A', { continue: true });
 
   const row = reopened.coordinator.snapshot.items.find(
@@ -586,11 +467,8 @@ test('bound tool titles use the delivered prefixes, refresh on reconnect and sur
   );
 
   assert.equal(row?.expandedTitle, command);
-
   assert.equal(row?.singleLine, true);
-
   assert.equal(row?.text, 'claimed');
-
   assert.equal(row?.done, true);
 });
 
@@ -639,7 +517,6 @@ for (const name of ['claude', 'codex'] as const) {
 
       try {
         assert.equal((await claim('task:native-exit')).kind, 'claimed');
-
         turn = coordinator.send('initial');
 
         if (name === 'claude') {
@@ -711,17 +588,11 @@ for (const name of ['claude', 'codex'] as const) {
         );
 
         assert.equal(coordinator.pentacle.active, true);
-
         const closed = once(child!, 'close');
-
         assert.equal(child!.kill('SIGKILL'), true);
-
         await within(closed, 3000, 'fixture exit');
-
         await within(turn, 5000, 'settled Witch turn');
-
         assert.equal(coordinator.snapshot.phase, 'idle');
-
         assert.equal(coordinator.snapshot.recovery, undefined);
 
         assert.deepEqual(
@@ -730,7 +601,6 @@ for (const name of ['claude', 'codex'] as const) {
         );
 
         assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
-
         assert.equal(coordinator.pentacle.active, false);
 
         assert.equal(
@@ -748,25 +618,18 @@ for (const name of ['claude', 'codex'] as const) {
         );
 
         assert.equal((await registry.claims()).length, 1);
-
         await coordinator.releaseTask();
-
         assert.deepEqual(await registry.claims(), []);
       } finally {
         if (child?.exitCode === null && child.signalCode === null) {
           const closed = once(child, 'close');
-
           child.kill('SIGKILL');
-
           await within(closed, 3000, 'fixture exit');
         }
 
         await coordinator.close();
-
         await Promise.allSettled([turn]);
-
         assert.ok(child);
-
         assert.ok(child.exitCode !== null || child.signalCode !== null);
       }
     },
@@ -795,7 +658,6 @@ test('native closure preserves finished work and ends running activity once', as
   });
 
   await native.session.close();
-
   native.options.onEvent({ type: 'closed' });
 
   assert.deepEqual(
@@ -828,15 +690,10 @@ test('native closure preserves finished work and ends running activity once', as
   ];
 
   assert.deepEqual(endings(), expected);
-
   native.options.onEvent({ type: 'closed' });
-
   assert.deepEqual(endings(), expected);
-
   await coordinator.send('reconnect');
-
   assert.equal(a.sessions.length, 2);
-
   assert.deepEqual(endings(), expected);
 });
 
@@ -848,21 +705,13 @@ test('coordination context stays before the exact user request and raw steered s
     b = await start('B');
 
   await b.claim('task:peer', 'Distinct peer task');
-
   const input = '  /review alpha\n  beta with spaces';
-
   await a.coordinator.send(input);
-
   const captured = a.a.inputs[0]!;
-
   assert.ok(captured.context!.includes('Distinct peer task'));
-
   assert.ok(captured.context!.includes(join(root, 'B')));
-
   assert.ok(captured.context!.includes((await a.binding()).activation));
-
   assert.equal(captured.prompt, input);
-
   assert.ok(!captured.context!.includes(input));
 
   assert.deepEqual(captured.skill, {
@@ -876,17 +725,12 @@ test('coordination context stays before the exact user request and raw steered s
 
   try {
     await within(gate.entered, 5000, 'held turn');
-
     a.a.replied = true;
-
     await a.coordinator.send(input);
-
     assert.deepEqual(a.a.steers, ['/review alpha\n  beta with spaces']);
-
     assert.deepEqual(a.coordinator.snapshot.queue, []);
   } finally {
     gate.open();
-
     await sending;
   }
 });
@@ -930,14 +774,11 @@ for (const name of ['claude', 'codex'] as const) {
 
       if (!a) {
         cleanup(() => coordinator.close());
-
         await coordinator.initialize(join(root, 'A'));
       }
 
       const b = coordinated ? await start('B') : undefined;
-
       await writeFile(join(root, 'A', 'release'), 'yes');
-
       let previousTurn: string | undefined;
 
       for (const [index, summary] of [
@@ -945,7 +786,6 @@ for (const name of ['claude', 'codex'] as const) {
         'Peer task 29',
       ].entries()) {
         await b?.claim('task:peer', summary);
-
         const prompt = `/review request ${index}\n  exact input`;
         const sending = coordinator.send(prompt);
 
@@ -970,7 +810,6 @@ for (const name of ['claude', 'codex'] as const) {
         );
 
         const input = name === 'claude' ? json : json.params.input;
-
         assert.equal(input[0].type, 'text');
 
         if (index === 0 || a) {
@@ -1004,13 +843,9 @@ for (const name of ['claude', 'codex'] as const) {
 
           if (a) {
             assert.ok(context.includes(summary));
-
             const turn = /^Selection turn: (.+)$/m.exec(context)?.[1];
-
             assert.ok(turn);
-
             assert.notEqual(turn, previousTurn);
-
             previousTurn = turn;
 
             if (index === 0)

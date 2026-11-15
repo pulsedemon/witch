@@ -65,7 +65,6 @@ test('repair with many known directories and conversations stays linear', async 
     );
 
     await mkdir(at('here'));
-
     const store = await StateStore.open(at('state'));
     const memory = await seededMemory(at('state/memory.git'));
 
@@ -87,7 +86,6 @@ test('repairing many conversations past many unrelated moves stays linear', asyn
 
     for (let index = 0; index < 100 * share; index++) {
       await mkdir(at(`old/c${index}`), { recursive: true });
-
       await mkdir(at(`state/conversations/c${index}`), { recursive: true });
 
       await writeFile(
@@ -113,7 +111,6 @@ test('repairing many conversations past many unrelated moves stays linear', asyn
     );
 
     await rename(at('old'), at('new'));
-
     const store = await StateStore.open(at('state'));
     const memory = await seededMemory(at('state/memory.git'));
 
@@ -127,16 +124,13 @@ test('repairing many conversations past many unrelated moves stays linear', asyn
   });
 
   assert.deepEqual(report.blocked, []);
-
   const { records } = await store.records();
-
   assert.ok(records.every(({ cwd }) => cwd.startsWith(at('new/'))));
 });
 
 test('conversations moving to the same place look up its project scope once', async () => {
   const root = await scratch('witch-scale-');
   const at = (path: string) => join(root, path);
-
   await mkdir(at('old'));
 
   const session = {
@@ -166,7 +160,6 @@ test('conversations moving to the same place look up its project scope once', as
   );
 
   await rename(at('old'), at('new'));
-
   const store = await StateStore.open(at('state'));
   const memory = await seededMemory(at('state/memory.git'));
   const looked = vi.spyOn(memory, 'scopePaths');
@@ -189,7 +182,6 @@ test('previewing many moved conversations beside many known directories stays li
 
     for (let index = 0; index < 4000 * share; index++) {
       await mkdir(at(`old/c${index}`), { recursive: true });
-
       await mkdir(at(`state/conversations/c${index}`), { recursive: true });
 
       await writeFile(
@@ -215,7 +207,6 @@ test('previewing many moved conversations beside many known directories stays li
     );
 
     await rename(at('old'), at('new'));
-
     const store = await StateStore.open(at('state'));
     const memory = await seededMemory(at('state/memory.git'));
 

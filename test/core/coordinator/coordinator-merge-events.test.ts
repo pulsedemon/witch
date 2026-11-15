@@ -74,15 +74,10 @@ test('busy and dirty observers publish once to open project peers without starti
   const unrelated = await f.start('C');
   const gate = new TurnGate();
   a.a.gate = gate;
-
   t.onTestFinished(() => gate.open());
-
   const running = a.coordinator.send('author work');
-
   await gate.entered;
-
   await observe(a);
-
   await observe(b);
 
   await until(
@@ -93,29 +88,17 @@ test('busy and dirty observers publish once to open project peers without starti
   );
 
   assert.equal(a.coordinator.snapshot.phase, 'running');
-
   assert.equal(b.coordinator.snapshot.phase, 'idle');
-
   assert.equal(b.a.inputs.length, 0);
-
   assert.equal(unrelated.a.inputs.length, 0);
-
   assert.deepEqual(notices(unrelated.coordinator), []);
-
   assert.equal(notices(a.coordinator)[0]!.id, notices(b.coordinator)[0]!.id);
-
   const late = await f.start('A');
-
   await observe(late);
-
   await late.coordinator.send('late conversation');
-
   assert.deepEqual(events(late.a.inputs.at(-1)!.context!), []);
-
   assert.deepEqual(notices(late.coordinator), []);
-
   gate.open();
-
   await running;
 });
 
@@ -123,21 +106,13 @@ test('native receipts and stable notices survive restart and a runtime switch', 
   const f = await coordinationFixture(t.onTestFinished);
   const a = await f.start('A');
   const b = await f.start('B');
-
   await observe(a);
-
   await until('recipient notice', () => notices(b.coordinator).length === 1);
-
   const prompt = '  continue this task\nkeep the exact request  ';
-
   await b.coordinator.send(prompt);
-
   assert.equal(b.a.inputs.at(-1)!.prompt, prompt);
-
   const [delivered] = events(b.a.inputs.at(-1)!.context!);
-
   assert.deepEqual(delivered!.pullRequest, merged);
-
   assert.equal(delivered!.source, a.coordinator.snapshot.conversation!.id);
 
   assert.match(
@@ -146,7 +121,6 @@ test('native receipts and stable notices survive restart and a runtime switch', 
   );
 
   const id = b.coordinator.snapshot.conversation!.id;
-
   await b.coordinator.close();
 
   const history = (
@@ -165,23 +139,14 @@ test('native receipts and stable notices survive restart and a runtime switch', 
   );
 
   const reopened = await f.start('B', { conversation: id });
-
   await reopened.coordinator.send('after restart');
-
   assert.deepEqual(events(reopened.a.inputs.at(-1)!.context!), []);
-
   assert.equal(notices(reopened.coordinator).length, 1);
-
   await reopened.coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
   assert.equal(reopened.b.inputs.length, 0);
-
   await reopened.coordinator.send('first request on the destination');
-
   assert.deepEqual(events(reopened.b.inputs.at(-1)!.context!), [delivered]);
-
   await reopened.coordinator.send('same runtime again');
-
   assert.deepEqual(events(reopened.b.inputs.at(-1)!.context!), []);
 });
 
@@ -189,18 +154,12 @@ test('a merge arriving during a turn remains pending after that turn completes',
   const f = await coordinationFixture(t.onTestFinished);
   const a = await f.start('A');
   const b = await f.start('B');
-
   await observe(a);
-
   await until('first merge', () => notices(b.coordinator).length === 1);
-
   const gate = new TurnGate();
   b.a.gate = gate;
-
   t.onTestFinished(() => gate.open());
-
   const running = b.coordinator.send('recipient work');
-
   await gate.entered;
 
   const second = {
@@ -211,7 +170,6 @@ test('a merge arriving during a turn remains pending after that turn completes',
   };
 
   await observe(a, second);
-
   await until('second merge', () => notices(b.coordinator).length === 2);
 
   assert.deepEqual(
@@ -220,9 +178,7 @@ test('a merge arriving during a turn remains pending after that turn completes',
   );
 
   gate.open();
-
   await running;
-
   await b.coordinator.send('next turn');
 
   assert.deepEqual(
@@ -234,31 +190,18 @@ test('a merge arriving during a turn remains pending after that turn completes',
 test('interruption and confirmed compaction retain events for the next native turn', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
   const a = await f.start('A');
-
   await observe(a);
-
   await until('merge notice', () => notices(a.coordinator).length === 1);
-
   a.a.interruptNext = true;
-
   await a.coordinator.send('interrupted delivery');
-
   const delivered = events(a.a.inputs.at(-1)!.context!);
-
   await a.coordinator.send('retry');
-
   assert.deepEqual(events(a.a.inputs.at(-1)!.context!), delivered);
-
   await a.coordinator.send('completed delivery');
-
   assert.deepEqual(events(a.a.inputs.at(-1)!.context!), []);
-
   a.a.sessions.at(-1)!.options.onEvent({ type: 'compacted' });
-
   await a.coordinator.send('after compaction');
-
   assert.deepEqual(events(a.a.inputs.at(-1)!.context!), delivered);
-
   assert.equal(notices(a.coordinator).length, 1);
 });
 
@@ -266,23 +209,14 @@ test('conversation and project changes do not inherit another recipient scope', 
   const f = await coordinationFixture(t.onTestFinished);
   const a = await f.start('A');
   const b = await f.start('B');
-
   await observe(a);
-
   await until('merge notice', () => notices(b.coordinator).length === 1);
-
   const recipient = b.coordinator.snapshot.conversation!.id;
-
   await b.coordinator.newConversation();
-
   await b.coordinator.send('new conversation');
-
   assert.deepEqual(events(b.a.inputs.at(-1)!.context!), []);
-
   assert.equal(notices(b.coordinator).length, 0);
-
   await b.coordinator.selectConversation(recipient);
-
   assert.equal(notices(b.coordinator).length, 1);
 
   await git(
@@ -295,7 +229,6 @@ test('conversation and project changes do not inherit another recipient scope', 
   );
 
   await b.coordinator.send('different project');
-
   assert.deepEqual(events(b.a.inputs.at(-1)!.context!), []);
 });
 
@@ -315,9 +248,7 @@ test('an open recipient retains merges while its native activation is reconnecti
     .spyOn(recipient.coordination, 'deactivate')
     .mockImplementation(async () => {
       await deactivate();
-
       deactivated.resolve();
-
       await resume.promise;
     });
 
@@ -347,13 +278,9 @@ test('an open recipient retains merges while its native activation is reconnecti
     );
 
     resume.resolve();
-
     await switching;
-
     assert.equal(notices(recipient.coordinator).length, 1);
-
     assert.equal(recipient.b.inputs.length, 0);
-
     await recipient.coordinator.send('read after reconnect');
 
     assert.deepEqual(
@@ -364,9 +291,7 @@ test('an open recipient retains merges while its native activation is reconnecti
     );
   } finally {
     resume.resolve();
-
     await switching;
-
     closing.mockRestore();
   }
 });
@@ -410,9 +335,7 @@ test('idle origin changes use the current project for recipients and notices', a
   );
 
   assert.equal(notices(recipient.coordinator).length, 1);
-
   assert.equal(recipient.a.inputs.length, 0);
-
   await recipient.coordinator.send('current project work');
 
   assert.deepEqual(
@@ -427,13 +350,9 @@ test('merge notices leave memory recovery and queued user input intact', async (
   const f = await coordinationFixture(t.onTestFinished);
   const a = await f.start('A');
   a.a.interruptNext = true;
-
   await a.coordinator.send('remember-port');
-
   assert.equal(a.coordinator.snapshot.phase, 'recovery');
-
   await a.coordinator.send('queued user request');
-
   await observe(a);
 
   await until(
@@ -442,11 +361,8 @@ test('merge notices leave memory recovery and queued user input intact', async (
   );
 
   assert.equal(a.coordinator.snapshot.phase, 'recovery');
-
   assert.deepEqual(a.coordinator.snapshot.queue, ['queued user request']);
-
   assert.equal(a.a.inputs.length, 1);
-
   await a.coordinator.recoverMemory('discard');
 
   await until(
@@ -486,7 +402,6 @@ for (const name of ['codex', 'claude'] as const) {
               return launch(options.signal);
 
             const directory = join(cwd, 'usage');
-
             mkdirSync(directory, { recursive: true });
 
             return spawn(process.execPath, [executable, 'background'], {
@@ -504,13 +419,11 @@ for (const name of ['codex', 'claude'] as const) {
         if (answered.has(request.id)) continue;
 
         answered.add(request.id);
-
         void recipient.coordinator.respond(request.id, { decision: 'accept' });
       }
     });
 
     t.onTestFinished(stop);
-
     await observe(source);
 
     await until(
@@ -519,11 +432,8 @@ for (const name of ['codex', 'claude'] as const) {
     );
 
     const prompt = '  exact native request  ';
-
     await within(recipient.coordinator.send(prompt), 10_000, 'native turn');
-
     assert.equal(recipient.coordinator.snapshot.phase, 'idle');
-
     assert.equal(recipient.coordinator.snapshot.error, undefined);
 
     if (name === 'codex') {
@@ -603,7 +513,6 @@ test('failed publication retries the captured observation after the source leave
   );
 
   assert.deepEqual(notices(late.coordinator), []);
-
   await recipient.coordinator.send('read recovered observation');
 
   assert.deepEqual(

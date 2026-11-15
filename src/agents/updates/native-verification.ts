@@ -84,20 +84,17 @@ export interface NativeVerificationReport {
 
 async function project(directory: string, spells = false): Promise<string> {
   const cwd = join(directory, 'project');
-
   await mkdir(cwd, { recursive: true, mode: 0o700 });
 
   const instructions =
     'This is a synthetic native compatibility check. Perform only the exact prompt. Do not commit files.\n';
 
   await writeFile(join(cwd, 'AGENTS.md'), instructions);
-
   await writeFile(join(cwd, 'CLAUDE.md'), instructions);
 
   if (spells) {
     for (const source of ['.claude/skills', '.agents/skills']) {
       const path = join(cwd, source, 'probe-spell');
-
       await mkdir(path, { recursive: true });
 
       await writeFile(
@@ -187,9 +184,7 @@ export async function prepareNativeUpdate(
     );
 
     completed(result);
-
     assert.equal(result.text.trim(), marker);
-
     completed(await session.compact());
 
     assert.equal(
@@ -335,7 +330,6 @@ async function checkNativeApprovals(
           pending.push(
             respond(event.request).catch((error) => {
               requestFailure = error;
-
               failure.abort(error);
             }),
           );
@@ -397,7 +391,6 @@ async function checkNativeApprovals(
       await session.close();
     } finally {
       await Promise.allSettled(pending);
-
       await writeJson(join(directory, 'events.json'), events);
     }
   }
@@ -448,13 +441,9 @@ export async function verifyNativeUpdate(
 
   const check = async (name: string, run: () => Promise<unknown>) => {
     options.signal.throwIfAborted();
-
     options.progress(`Checking ${candidate.runtime}: ${name}`);
-
     await run();
-
     report.completed.push(name);
-
     await writeJson(join(options.directory, 'qualification.json'), report);
   };
 

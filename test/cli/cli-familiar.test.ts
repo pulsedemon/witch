@@ -32,7 +32,6 @@ async function fixture(
   existing?: string,
 ) {
   const root = await scratch('witch-review-');
-
   await mkdir(join(root, 'bin'));
 
   await copyFile(
@@ -149,9 +148,7 @@ async function fixture(
         child.kill('SIGTERM');
 
       await within(closed, 4000, 'wrapper cleanup');
-
       await host.close();
-
       assert.deepEqual(errors, []);
     },
   };
@@ -198,15 +195,10 @@ test('the wrapper retries a lost marker, preserves native inputs and saves every
     ]);
 
     assert.equal(launch.prompt, 'Read the supplied plan.');
-
     assert.equal(launch.mark, 'kept');
-
     assert.equal(launch.tmp, process.env.TMPDIR);
-
     await writeFile(join(f.root, 'exit'), 'yes');
-
     assert.equal(await f.closed, 0, f.output().stderr);
-
     assert.equal(f.requests[0]!.deadline, f.requests[1]!.deadline);
 
     assert.deepEqual(f.requests[0]!.action, {
@@ -217,15 +209,10 @@ test('the wrapper retries a lost marker, preserves native inputs and saves every
     });
 
     assert.equal(f.updates().at(-1)!.progress.model, 'claude-response');
-
     assert.equal(f.updates().at(-1)!.progress.tools, 2);
-
     assert.equal(f.updates().at(-1)!.progress.status, 'completed');
-
     const expected = `${'Full review.\n'.repeat(7000)}\n\nStopped the background search.`;
-
     assert.equal(await readFile(join(f.root, 'report.txt'), 'utf8'), expected);
-
     assert.equal((await stat(join(f.root, 'report.txt'))).mode & 0o777, 0o600);
 
     const markers = f
@@ -234,7 +221,6 @@ test('the wrapper retries a lost marker, preserves native inputs and saves every
       .filter((line) => line.startsWith('WITCH_FAMILIAR '));
 
     assert.equal(markers.length, 2);
-
     assert.equal(markers[0], markers[1]);
 
     assert.equal(
@@ -243,7 +229,6 @@ test('the wrapper retries a lost marker, preserves native inputs and saves every
     );
 
     assert.equal(f.output().stderr, 'native stderr\n');
-
     assert.equal(await identifyProcess(launch.pid), undefined);
   } finally {
     await f.close();
@@ -259,7 +244,6 @@ test('a timed-out accepted progress request retries its sequence and sends the t
 
     if (!delayed) {
       delayed = true;
-
       await delay(1800);
     }
 
@@ -281,9 +265,7 @@ test('a timed-out accepted progress request retries its sequence and sends the t
     );
 
     assert.deepEqual(updates[0], updates[1]);
-
     assert.equal(updates[2]!.progress.status, 'completed');
-
     assert.equal(updates[2]!.progress.tools, 2);
   } finally {
     await f.close();
@@ -295,17 +277,11 @@ test('SIGTERM escalates for an unresponsive child and reports stopped without ac
 
   try {
     await f.ready();
-
     const launch = await f.launch();
-
     f.child.kill('SIGTERM');
-
     assert.equal(await within(f.closed, 4000, 'signal escalation'), 130);
-
     assert.equal(f.updates().at(-1)!.progress.status, 'stopped');
-
     assert.match(f.updates().at(-1)!.progress.report!, /stopped \(SIGTERM\)/);
-
     assert.equal(await identifyProcess(launch.pid), undefined);
   } finally {
     await f.close();
@@ -315,15 +291,11 @@ test('SIGTERM escalates for an unresponsive child and reports stopped without ac
 for (const kind of ['permission', 'malformed'] as const)
   test(`a retry wait crossing the deadline preserves the ${kind} reply failure`, async (t) => {
     const directory = await scratch('familiar-retry-deadline-');
-
     await mkdir(join(directory, 'inbox'));
-
     await mkdir(join(directory, 'replies'));
-
     const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
     const originalRead = files.readFile;
     let advance: ReturnType<typeof setTimeout> | undefined;
-
     t.onTestFinished(() => clearTimeout(advance));
 
     vi.spyOn(files, 'readFile').mockImplementation(
@@ -332,7 +304,6 @@ for (const kind of ['permission', 'malformed'] as const)
           return originalRead(...args);
 
         now.mockReturnValue(10_950);
-
         advance = setTimeout(() => now.mockReturnValue(11_001), 0);
 
         if (kind === 'permission')
@@ -353,7 +324,6 @@ for (const kind of ['permission', 'malformed'] as const)
     );
 
     reports.push({ status: 'running' });
-
     const error = await within(failed.promise, 3000, 'original reply failure');
 
     assert.match(
@@ -385,11 +355,8 @@ test('an explicit reporting rejection stops its child and exits failed', async (
 
   try {
     await f.ready();
-
     const launch = await f.launch();
-
     reject.resolve();
-
     assert.equal(await within(f.closed, 4000, 'rejected reporter cleanup'), 1);
 
     assert.match(
@@ -398,11 +365,9 @@ test('an explicit reporting rejection stops its child and exits failed', async (
     );
 
     assert.equal(await identifyProcess(launch.pid), undefined);
-
     assert.equal(f.updates().length, 1);
   } finally {
     reject.resolve();
-
     await f.close();
   }
 });
@@ -412,7 +377,6 @@ test('an error exit overrides a native success result', async () => {
 
   try {
     assert.equal(await f.closed, 1);
-
     assert.equal(f.updates().at(-1)!.progress.status, 'failed');
 
     assert.match(
@@ -433,7 +397,6 @@ test('an exhausted progress timeout leaves the child running and delivers its fi
       return { kind: 'familiar-registered' };
 
     entered.resolve();
-
     await gate.promise;
 
     return { kind: 'familiar-updated' };
@@ -441,22 +404,14 @@ test('an exhausted progress timeout leaves the child running and delivers its fi
 
   try {
     await f.ready();
-
     const launch = await f.launch();
     const native = await identifyProcess(launch.pid);
-
     assert.ok(native);
-
     await within(entered.promise, 3000, 'stalled progress');
-
     await delay(11_000);
-
     assert.equal(f.child.exitCode, null);
-
     assert.deepEqual(await identifyProcess(launch.pid), native);
-
     await writeFile(join(f.root, 'exit'), 'yes');
-
     const expected = 'Full review.\n'.repeat(7000);
 
     await until(
@@ -474,17 +429,12 @@ test('an exhausted progress timeout leaves the child running and delivers its fi
     );
 
     assert.equal(await readFile(join(f.root, 'report.txt'), 'utf8'), expected);
-
     assert.equal(f.updates().at(-1)!.progress.status, 'completed');
-
     assert.equal(f.updates().at(-1)!.progress.report, expected);
-
     assert.equal(await identifyProcess(launch.pid), undefined);
   } finally {
     gate.resolve();
-
     await writeFile(join(f.root, 'exit'), 'yes');
-
     await f.close();
   }
 });
@@ -507,9 +457,7 @@ test('an exhausted final report timeout retains the result and exits failed', as
 
   try {
     assert.equal(await within(f.closed, 14_000, 'final delivery budget'), 1);
-
     const report = await readFile(join(f.root, 'report.txt'), 'utf8');
-
     assert.ok(report.startsWith('Full review.\n'.repeat(7000)));
 
     assert.match(
@@ -528,7 +476,6 @@ test('an exhausted final report timeout retains the result and exits failed', as
     assert.equal(await identifyProcess((await f.launch()).pid), undefined);
   } finally {
     gate.resolve();
-
     await f.close();
   }
 });
@@ -539,7 +486,6 @@ test('a descendant retaining stdout cannot hold the wrapper open after the revie
 
   try {
     assert.equal(await within(f.closed, 3000, 'bounded pipe drain'), 0);
-
     const pid = Number(await readFile(join(f.root, 'descendant.pid'), 'utf8'));
     descendant = await identifyProcess(pid);
 

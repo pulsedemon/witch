@@ -33,9 +33,7 @@ for (const window of ['beginActivity', 'prepareNote'] as const) {
     };
 
     await coordinator.editMemory();
-
     assert.deepEqual(signals, [true]);
-
     assert.equal(coordinator.snapshot.error, undefined);
 
     const subjects = await memory.git(memory.root, [

@@ -124,12 +124,10 @@ export function watchClaimPolicy(
   };
 
   const unsubscribe = source.subscribe(() => void refresh());
-
   void refresh();
 
   return () => {
     stopped = true;
-
     unsubscribe();
   };
 }

@@ -27,7 +27,6 @@ export function registerNativeParticipant(
   if (existing) return existing;
 
   mkdirSync(participantsDirectory(directory), { recursive: true, mode: 0o700 });
-
   const file = participantFile(directory, process.pid);
 
   const descriptor = tryOpenLockedSync(
@@ -55,11 +54,8 @@ export function registerNativeParticipant(
     if (!held) return;
 
     held = false;
-
     participants.delete(directory);
-
     process.removeListener('exit', release);
-
     closeSync(descriptor);
 
     try {
@@ -70,7 +66,6 @@ export function registerNativeParticipant(
   };
 
   participants.set(directory, release);
-
   process.once('exit', release);
 
   return release;
@@ -96,7 +91,6 @@ export function nativeLaunch<T extends ChildProcess>(
   if (!root) return start(launcher);
 
   registerNativeParticipant(directory);
-
   const release = holdRuntime(root, directory);
 
   try {
@@ -109,7 +103,6 @@ export function nativeLaunch<T extends ChildProcess>(
     const done = () => {
       if (held) {
         held = false;
-
         release();
       }
     };

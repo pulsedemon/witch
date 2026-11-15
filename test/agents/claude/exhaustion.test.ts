@@ -49,7 +49,6 @@ async function exhausted(...turns: Step[][]) {
 
   try {
     await f.session.selectModel('claude-sonnet-4-5');
-
     let result;
 
     for (const [index, steps] of turns.entries()) {
@@ -79,7 +78,6 @@ async function exhausted(...turns: Step[][]) {
           );
         else {
           assert.equal(await f.session.steer('also'), true);
-
           let id = '';
 
           await until('steered input', async () => {
@@ -99,7 +97,6 @@ async function exhausted(...turns: Step[][]) {
     }
 
     const interrupted = turns.at(-1)!.includes('interrupt');
-
     assert.equal(result!.status, interrupted ? 'interrupted' : 'failed');
 
     return result!.exhausted;
@@ -143,7 +140,6 @@ test('a native background rejection reports exhaustion once after the ordinary t
 
   try {
     await f.emit(state('idle'));
-
     assert.equal((await f.turn).status, 'completed');
 
     await f.emit(
@@ -178,9 +174,7 @@ for (const [name, frames] of [
 
     try {
       await f.emit(idle);
-
       await f.turn;
-
       await f.emit(state('running'), ...frames, idle);
 
       assert.equal(
@@ -198,14 +192,11 @@ for (const stop of ['interrupt', 'exit'] as const)
 
     try {
       await f.emit(idle);
-
       await f.turn;
-
       await f.emit(state('running'), limit());
 
       if (stop === 'interrupt') {
         await f.session.interrupt();
-
         await f.emit(failed, idle);
       } else {
         f.child.kill();
@@ -229,11 +220,8 @@ test('background exhaustion recovers receipt-proven waiting input without treati
 
   try {
     await f.emit(idle);
-
     await f.turn;
-
     await f.emit(state('running'));
-
     const next = f.session.send('waiting request');
 
     await until(
@@ -242,19 +230,12 @@ test('background exhaustion recovers receipt-proven waiting input without treati
     );
 
     await f.steer('waiting follow-up');
-
     await f.emit(limit(), { ...failed, user_message_uuids: [] });
-
     const outcome = await within(next, 3000, 'waiting input recovery');
-
     assert.equal(outcome.status, 'failed');
-
     assert.equal(outcome.exhausted, true);
-
     assert.equal(outcome.inputUnread, true);
-
     assert.deepEqual(outcome.unread, ['waiting follow-up']);
-
     assert.equal(f.session.closed, true);
 
     assert.equal(
@@ -271,15 +252,10 @@ test('background exhaustion preserves a correlated reply that consumed the waiti
 
   try {
     await f.emit(idle);
-
     await f.turn;
-
     await f.emit(state('running'));
-
     const next = f.session.send('consumed request');
-
     await until('next input sent', async () => (await f.inputs()).length === 2);
-
     const uuid = (await f.inputs())[1]!.uuid!;
 
     await f.emit(
@@ -290,13 +266,9 @@ test('background exhaustion preserves a correlated reply that consumed the waiti
     );
 
     const outcome = await within(next, 3000, 'consumed input');
-
     assert.equal(outcome.status, 'completed');
-
     assert.equal(outcome.text, 'Already handled.');
-
     assert.equal(outcome.inputUnread, undefined);
-
     assert.deepEqual(outcome.unread, []);
   } finally {
     await f.session.close();
@@ -308,27 +280,16 @@ test('unverified waiting input stays failed without a speculative replay', async
 
   try {
     await f.emit(idle);
-
     await f.turn;
-
     await f.emit(state('running'));
-
     const next = f.session.send('uncertain request');
-
     await until('next input sent', async () => (await f.inputs()).length === 2);
-
     await writeFile(join(f.cwd, 'receipt.json'), '[]');
-
     await f.emit(limit(), { ...failed, user_message_uuids: [] });
-
     const outcome = await within(next, 3000, 'unverified input');
-
     assert.equal(outcome.status, 'failed');
-
     assert.match(outcome.error!, /consumption could not be verified/);
-
     assert.equal(outcome.inputUnread, undefined);
-
     assert.equal(outcome.exhausted, undefined);
   } finally {
     await f.session.close();
@@ -340,19 +301,12 @@ test('background work from an automatic review does not switch the parent runtim
 
   try {
     await f.emit(idle);
-
     await f.turn;
-
     const automatic = f.session.send('review', { purpose: 'pr-review' });
-
     await until('review input', async () => (await f.inputs()).length === 2);
-
     const uuid = (await f.inputs())[1]!.uuid!;
-
     await f.emit(lifecycle(uuid, 'started'), result('Reviewed.', [uuid]), idle);
-
     await automatic;
-
     await f.emit(state('running'), limit(), failed, idle);
 
     assert.equal(
@@ -394,18 +348,12 @@ test('background recovery preserves an earlier correlated failure', async () => 
 
   try {
     await f.emit(idle);
-
     await f.turn;
-
     await f.emit(state('running'));
-
     const next = f.session.send('waiting initial');
-
     await until('waiting input', async () => (await f.inputs()).length === 2);
-
     const initial = (await f.inputs())[1]!.uuid!;
     const follow = await f.steer('later follow-up');
-
     await writeFile(join(f.cwd, 'receipt.json'), '[]');
 
     await f.emit(
@@ -424,11 +372,8 @@ test('background recovery preserves an earlier correlated failure', async () => 
     );
 
     const outcome = await within(next, 3000, 'recovery result');
-
     assert.equal(outcome.status, 'failed');
-
     assert.equal(outcome.error, 'Provider rejected initial input.');
-
     assert.equal(outcome.text, 'Follow-up handled.');
   } finally {
     await f.session.close();

@@ -86,9 +86,7 @@ for (const [text, expected] of cases)
 
 async function submit(ui: ReturnType<typeof show>, text: string) {
   ui.stdin.write(text);
-
   await delay(30);
-
   ui.stdin.write(ENTER);
 }
 
@@ -105,16 +103,11 @@ test('embedded commands finish compaction and model application before queued pr
 
   try {
     await delay(70);
-
     f.a.gate = gate;
     const parent = c.send('original parent');
-
     await gate.entered;
-
     await submit(ui, 'please /compact then /model a-big high');
-
     await until('pending row', () => ui.text().includes('Pending: /compact'));
-
     ui.resize(30);
 
     await until('pending row after resize', () =>
@@ -122,11 +115,8 @@ test('embedded commands finish compaction and model application before queued pr
     );
 
     await submit(ui, 'exact later prompt');
-
     await until('queued prose', () => c.snapshot.queue.length === 1);
-
     assert.deepEqual(f.a.steers, []);
-
     assert.deepEqual(f.a.selections, []);
 
     const native = f.a.sessions[0]!.session,
@@ -141,7 +131,6 @@ test('embedded commands finish compaction and model application before queued pr
     };
 
     gate.open();
-
     await parent;
 
     await until(
@@ -150,17 +139,12 @@ test('embedded commands finish compaction and model application before queued pr
     );
 
     assert.deepEqual(received, [['exact later prompt', 'a-big', 'high']]);
-
     assert.equal(c.snapshot.commandsPending, false);
-
     assert.equal(c.snapshot.pendingCompaction, false);
-
     assert.equal(f.a.compactions.length, 1);
   } finally {
     gate.open();
-
     ui.unmount();
-
     await c.close();
   }
 });
@@ -174,37 +158,27 @@ for (const picker of [false, true])
 
     try {
       await c.selectModel({ agent: 'a', id: 'a-big' });
-
       await a.sessions.at(-1)!.session.close();
 
       a.beforeCheck = async () => {
         entered.resolve();
-
         await release.promise;
       };
 
       ui = show(createElement(App, { coordinator: c, onExit: () => {} }));
-
       await delay(70);
-
       await submit(ui, picker ? '/model /compact' : '/model a:a-new /compact');
 
       if (picker) {
         await until('model picker', () => ui!.text().includes('Models ·'));
-
         ui.stdin.write('a-new');
-
         await delay(30);
-
         ui.stdin.write(ENTER);
       }
 
       await within(entered.promise, 3000, 'the model check');
-
       ui.stdin.write('\u001b');
-
       await until('model interrupted', () => a.sessions.at(-1)!.session.closed);
-
       release.resolve();
 
       await until(
@@ -218,7 +192,6 @@ for (const picker of [false, true])
       );
 
       assert.equal(notices.length, 1);
-
       assert.deepEqual(a.compactions, []);
 
       const saved = (await readRecord(root, c.snapshot.conversation!.id))
@@ -230,9 +203,7 @@ for (const picker of [false, true])
       );
     } finally {
       release.resolve();
-
       ui?.unmount();
-
       await c.close();
     }
   });
@@ -246,7 +217,6 @@ test('model and nested effort selection include native application before the fo
 
   coordinator.selectModel = async (...args: unknown[]) => {
     calls.push(['selectModel', ...args]);
-
     await applied.promise;
   };
 
@@ -254,11 +224,8 @@ test('model and nested effort selection include native application before the fo
 
   try {
     await delay(70);
-
     await submit(ui, '/model /compact');
-
     await until('model picker', () => ui.text().includes('Models ·'));
-
     ui.stdin.write(ENTER);
 
     await until('effort picker', () =>
@@ -266,11 +233,8 @@ test('model and nested effort selection include native application before the fo
     );
 
     assert.deepEqual(calls, [['refreshModels']]);
-
     await submit(ui, 'high');
-
     await until('model applying', () => calls.length === 2);
-
     assert.equal(coordinator.snapshot.commandsPending, true);
 
     assert.equal(
@@ -292,7 +256,6 @@ test('model and nested effort selection include native application before the fo
     ]);
   } finally {
     applied.resolve();
-
     ui.unmount();
   }
 });
@@ -304,11 +267,8 @@ for (const key of ['\u001b', '\u0010'])
 
     try {
       await delay(70);
-
       await submit(ui, '/model /compact');
-
       await until('model picker', () => ui.text().includes('Models ·'));
-
       ui.stdin.write(key);
 
       await until(
@@ -323,9 +283,7 @@ for (const key of ['\u001b', '\u0010'])
       if (key === '\u0010') {
         // the Commands picker that replaced Models stays open through the suffix
         assert.ok(ui.text().includes('Commands'));
-
         ui.stdin.write('\u001b');
-
         await until('chat', () => !ui.text().includes('Commands'));
       }
 
@@ -365,20 +323,15 @@ for (const [draft, between] of [
 
     c.clear = async () => {
       cleared++;
-
       await clear();
     };
 
     try {
       await delay(70);
-
       f.a.gate = gate;
       const parent = c.send('ordinary parent');
-
       await gate.entered;
-
       await submit(ui, '/compact');
-
       await until('compact admitted', () => c.snapshot.pendingCompaction);
 
       if (between) await submit(ui, 'fix the failing test');
@@ -392,9 +345,7 @@ for (const [draft, between] of [
       if (draft) ui.stdin.write(draft);
 
       await delay(40);
-
       ui.stdin.write('\u0003');
-
       await parent;
 
       await until(
@@ -406,9 +357,7 @@ for (const [draft, between] of [
       );
 
       await delay(70);
-
       assert.equal(cleared, 0);
-
       assert.deepEqual(f.a.steers, []);
 
       const notices = c.snapshot.items.filter((i) =>
@@ -429,16 +378,12 @@ for (const [draft, between] of [
 
       if (draft) {
         assert.deepEqual(c.snapshot.queue, ['fix the failing test']);
-
         ui.stdin.write(UP);
-
         await delay(40);
-
         assert.deepEqual(c.snapshot.queue, ['fix the failing test']);
 
         for (let i = draft.length; i > 0; i--) {
           ui.stdin.write('\u007f');
-
           await delay(15);
 
           if (i > 1)
@@ -454,7 +399,6 @@ for (const [draft, between] of [
       );
 
       f.a.gate = undefined;
-
       ui.stdin.write(ENTER);
 
       await until(
@@ -463,9 +407,7 @@ for (const [draft, between] of [
       );
 
       assert.equal(f.a.inputs[1]!.prompt, 'fix the failing test');
-
       assert.equal(cleared, 0);
-
       await submit(ui, '/clear');
 
       await until(
@@ -474,9 +416,7 @@ for (const [draft, between] of [
       );
     } finally {
       gate.open();
-
       ui.unmount();
-
       await c.close();
     }
   });
@@ -497,7 +437,6 @@ for (const failure of ['native', 'refusal'] as const)
 
     coordinator.newConversation = async (...args: unknown[]) => {
       calls.push(['newConversation', ...args]);
-
       await stopped.promise;
 
       throw new Error('Stop the current operation first');
@@ -508,11 +447,8 @@ for (const failure of ['native', 'refusal'] as const)
 
     try {
       await delay(70);
-
       await submit(ui, first);
-
       await submit(ui, '/model a-big high /clear');
-
       stopped.resolve(false);
 
       await until(
@@ -544,7 +480,6 @@ for (const failure of ['native', 'refusal'] as const)
       );
     } finally {
       stopped.resolve(false);
-
       ui.unmount();
     }
   });
@@ -558,18 +493,12 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
 
   try {
     await delay(70);
-
     f.a.gate = gate;
     const parent = c.send('original');
-
     await gate.entered;
-
     await submit(ui, '/compact');
-
     await until('pending compact', () => c.snapshot.pendingCompaction);
-
     await submit(ui, 'queued prose');
-
     await submit(ui, '! printf /compact');
 
     await until(
@@ -578,7 +507,6 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
     );
 
     ui.stdin.write('\u0003');
-
     await parent;
 
     await until(
@@ -591,16 +519,11 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
     );
 
     assert.equal(ui.text().includes('Press ↑ to edit queued messages'), false);
-
     ui.stdin.write(UP);
-
     await delay(50);
-
     assert.deepEqual(c.snapshot.queue, ['queued prose', '! printf /compact']);
-
     f.a.gate = undefined;
     f.a.refuseSteer = true;
-
     await submit(ui, 'explicit continuation');
 
     await until(
@@ -612,15 +535,11 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
     );
 
     assert.deepEqual(f.a.shells, [' printf /compact']);
-
     assert.equal(f.a.inputs[1]!.prompt, 'queued prose');
-
     assert.equal(f.a.inputs.length, 4);
   } finally {
     gate.open();
-
     ui.unmount();
-
     await c.close();
   }
 });
@@ -641,7 +560,6 @@ test('/review hands its files to the coordinator, and a failed review cancels th
 
   try {
     await delay(70);
-
     await submit(ui, '/review a.md docs/b.md /clear');
 
     await until('the canceled batch', () =>
@@ -654,7 +572,6 @@ test('/review hands its files to the coordinator, and a failed review cancels th
     );
 
     assert.ok(!calls.some(([name]) => name === 'clear'));
-
     await submit(ui, '/review a.md /clear');
 
     await until('the next batch', () =>
@@ -676,11 +593,8 @@ test('/help draws its section headings in bold violet', async () => {
 
   try {
     await delay(60);
-
     await submit(ui, '/help');
-
     await until('the help page', () => ui.text().includes('COMPOSER'));
-
     assert.ok(ui.frame().includes('\u001b[38;2;168;85;247m\u001b[1mCOMMANDS'));
   } finally {
     ui.unmount();
@@ -693,7 +607,6 @@ test('a page an earlier command in a batch opened stays open while a later one r
 
   try {
     await delay(60);
-
     await submit(ui, '/help /compact');
 
     await until(
@@ -704,15 +617,10 @@ test('a page an earlier command in a batch opened stays open while a later one r
     );
 
     await delay(60);
-
     assert.ok(ui.text().includes('COMPOSER'), 'help after /compact ran');
-
     ui.stdin.write('\u001b');
-
     await until('chat', () => !ui.text().includes('COMPOSER'));
-
     await submit(ui, '/help /model');
-
     await until('the model picker', () => ui.text().includes('Models ·'));
   } finally {
     ui.unmount();

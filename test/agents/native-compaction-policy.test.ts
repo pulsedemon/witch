@@ -65,11 +65,8 @@ test('Claude converts the native buffer into the target and preserves unrelated 
   }));
 
   await policy.configure();
-
   await policy.configure();
-
   assert.equal(sent.length, 1);
-
   assert.equal(sent[0]!.env?.KEEP_SETTING, 'distinct-value');
 
   assert.equal(
@@ -80,11 +77,8 @@ test('Claude converts the native buffer into the target and preserves unrelated 
   );
 
   sample = context(200_000, 167_000);
-
   policy.invalidate();
-
   await policy.configure();
-
   assert.equal(sent.length, 2);
 
   assert.equal(
@@ -110,13 +104,9 @@ test('Claude retries a rejected policy application instead of caching it as appl
   }));
 
   await assert.rejects(policy.configure(), /settings refused/);
-
   refused = false;
-
   await policy.configure();
-
   assert.equal(targets.length, 2);
-
   assert.equal(targets[0], targets[1]);
 });
 
@@ -132,7 +122,6 @@ test('Claude keeps the percentage valid when its native safety reserve compacts 
   }));
 
   await policy.configure();
-
   assert.equal(percentage, '100');
 });
 
@@ -182,9 +171,7 @@ test('Claude lets a failing usage publish reach its caller and keeps a failed co
 test("a usage publish that throws in Claude's background context read leaves no unhandled rejection and a usable session", async () => {
   const unhandled: unknown[] = [];
   const record = (reason: unknown) => unhandled.push(reason);
-
   process.on('unhandledRejection', record);
-
   let thrown = false;
   const f = await launcher();
 
@@ -202,16 +189,12 @@ test("a usage publish that throws in Claude's background context read leaves no 
 
   try {
     await until('the failed publish', () => thrown);
-
     // Node reports a rejection nothing handles as the tick it happened in ends, so one more turn has seen it
     await setImmediate();
-
     assert.deepEqual(unhandled, []);
-
     assert.equal((await session.send('hello')).status, 'completed');
   } finally {
     process.off('unhandledRejection', record);
-
     await session.close();
   }
 });
@@ -225,9 +208,7 @@ test('Claude compact hooks retain the current context reader when an older turn 
 
   const old = policy.bind(async () => 'old context');
   const current = policy.bind(async () => 'current accepted context');
-
   old();
-
   const hook = policy.hooks!.SessionStart![0]!.hooks[0]!;
 
   const input = {
@@ -248,7 +229,6 @@ test('Claude compact hooks retain the current context reader when an older turn 
   });
 
   current();
-
   assert.deepEqual(await hook(input, undefined, options), {});
 });
 
@@ -294,13 +274,9 @@ test('Codex applies the resolved window limit on resume and reloads a smaller mo
       .params as { config: Record<string, unknown> };
 
     assert.equal(initial.config.model_auto_compact_token_limit, 600_000);
-
     assert.equal(initial.config.model_auto_compact_token_limit_scope, 'total');
-
     f.calls.length = 0;
-
     await f.session.selectModel('model-b', 'high');
-
     const sequence = f.calls.map((call) => call.method);
 
     assert.deepEqual(sequence, [
@@ -317,11 +293,8 @@ test('Codex applies the resolved window limit on resume and reloads a smaller mo
     };
 
     assert.equal(resumed.config.model_auto_compact_token_limit, 204_800);
-
     assert.equal(resumed.config.model_reasoning_effort, undefined);
-
     assert.equal(resumed.threadId, 'native-thread');
-
     assert.equal(resumed.model, undefined);
 
     assert.deepEqual(resumed.runtimeWorkspaceRoots, [
@@ -331,9 +304,7 @@ test('Codex applies the resolved window limit on resume and reloads a smaller mo
     ]);
 
     assert.equal(f.session.info.effort, 'high');
-
     f.calls.length = 0;
-
     await f.session.selectModel('model-b', 'low');
 
     assert.deepEqual(
@@ -361,11 +332,8 @@ test('Codex uses the saved model for implicit resume without overriding native m
       .params as { model?: string; config: Record<string, unknown> };
 
     assert.equal(resume.model, undefined);
-
     assert.equal(resume.config.model_auto_compact_token_limit, 600_000);
-
     assert.equal(resume.config.model_reasoning_effort, undefined);
-
     assert.equal(f.session.info.model, 'model-a');
   } finally {
     await close(f.session, f.cwd);
@@ -407,9 +375,7 @@ test('Codex refuses a window change while a command is active without changing t
     );
 
     await emit(commandFrame('still-running'));
-
     f.calls.length = 0;
-
     await assert.rejects(f.session.selectModel('model-b'), /background work/);
 
     await assert.rejects(
@@ -417,12 +383,15 @@ test('Codex refuses a window change while a command is active without changing t
       /background work/,
     );
 
-    assert.equal(f.session.info.model, 'model-a');
+    await assert.rejects(
+      f.session.selectModel('model-a', undefined, 'default'),
+      /background work/,
+    );
 
+    assert.equal(f.session.info.model, 'model-a');
     assert.deepEqual(f.calls, []);
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
-
     await close(f.session, f.cwd);
   }
 });
@@ -433,13 +402,15 @@ test('a failed Codex reload leaves the prompt unsent and retries the policy befo
   try {
     await writeFile(join(f.cwd, 'resume-fail'), '');
 
-    await assert.rejects(f.session.selectModel('model-b'), /resume refused/);
+    await assert.rejects(
+      f.session.selectModel('model-b', undefined, 'default'),
+      /resume refused/,
+    );
 
+    assert.equal(f.session.info.contextWindow, undefined);
     f.calls.length = 0;
     const failed = await f.session.send('keep this prompt');
-
     assert.equal(failed.status, 'failed');
-
     assert.equal(failed.inputUnsent, true);
 
     assert.equal(
@@ -448,7 +419,6 @@ test('a failed Codex reload leaves the prompt unsent and retries the policy befo
     );
 
     await rm(join(f.cwd, 'resume-fail'));
-
     f.calls.length = 0;
     const pending = f.session.send('keep this prompt');
 
@@ -457,17 +427,12 @@ test('a failed Codex reload leaves the prompt unsent and retries the policy befo
     );
 
     const request = f.events.find((event) => event.type === 'request');
-
     assert.ok(request?.type === 'request');
-
     await f.session.respond(request.request.id, { decision: 'accept' });
-
     const result = await within(pending, 2000, 'retried prompt');
-
     assert.equal(result.status, 'completed');
-
+    assert.equal(f.session.info.contextWindow, 'default');
     const methods = f.calls.map((call) => call.method);
-
     assert.ok(methods.indexOf('thread/resume') < methods.indexOf('turn/start'));
 
     const turn = f.calls.find((call) => call.method === 'turn/start')!
@@ -493,26 +458,18 @@ for (const rejected of [false, true]) {
     try {
       const sending = session.send('steerable');
       const steering = session.steer('follower');
-
       assert.deepEqual(await jsonLines(join(f.cwd, 'inputs.jsonl')), []);
 
       if (rejected) {
         ready.reject(new Error('configuration refused'));
-
         assert.equal(await steering, false);
-
         const result = await sending;
-
         assert.equal(result.status, 'failed');
-
         assert.equal(result.inputUnsent, true);
-
         assert.deepEqual(await jsonLines(join(f.cwd, 'inputs.jsonl')), []);
       } else {
         ready.resolve();
-
         assert.equal(await steering, true);
-
         let inputs: { message: { content: string } }[] = [];
 
         await until('initial input followed by steered input', async () => {
@@ -529,12 +486,10 @@ for (const rejected of [false, true]) {
         );
 
         await session.interrupt();
-
         await sending;
       }
     } finally {
       configure.mockRestore();
-
       await session.close();
     }
   });
@@ -556,7 +511,6 @@ test('Codex reloads without the previous override when the selected capacity is 
 
   try {
     calls.length = 0;
-
     await f.session.selectModel('model-b');
 
     assert.deepEqual(
@@ -565,7 +519,6 @@ test('Codex reloads without the previous override when the selected capacity is 
     );
 
     const resumed = calls.at(-1)!.params as { config: Record<string, unknown> };
-
     assert.equal(resumed.config.model_auto_compact_token_limit, undefined);
 
     assert.equal(
@@ -574,7 +527,6 @@ test('Codex reloads without the previous override when the selected capacity is 
     );
 
     calls.length = 0;
-
     await f.session.selectModel('model-b', 'high');
 
     assert.deepEqual(
@@ -604,19 +556,13 @@ test('Claude model selection waits for the new compaction policy before completi
   try {
     const selecting = session.selectModel('claude-b');
     const done = settled(selecting);
-
     await entered.promise;
-
     assert.equal(session.info.model, 'claude-b');
-
     assert.equal(done(), false);
-
     ready.resolve();
-
     await selecting;
   } finally {
     configure.mockRestore();
-
     await session.close();
   }
 });
@@ -627,11 +573,8 @@ for (const action of ['compact', 'shell'] as const) {
 
     try {
       await writeFile(join(f.cwd, 'resume-fail'), '');
-
       await assert.rejects(f.session.selectModel('model-b'), /resume refused/);
-
       await rm(join(f.cwd, 'resume-fail'));
-
       f.calls.length = 0;
 
       const result =
@@ -701,7 +644,6 @@ for (const action of ['compact', 'shell'] as const) {
       );
     } finally {
       await writeFile(join(f.cwd, 'exit'), '');
-
       await close(f.session, f.cwd);
     }
   });
@@ -721,7 +663,6 @@ test('a fresh Codex model change starts a replacement thread and sends the first
   try {
     const originalId = f.session.info.id;
     calls.length = 0;
-
     await f.session.selectModel('model-b', 'high');
 
     assert.deepEqual(
@@ -735,19 +676,12 @@ test('a fresh Codex model change starts a replacement thread and sends the first
     };
 
     assert.equal(started.model, 'model-b');
-
     assert.equal(started.config.model_reasoning_effort, 'high');
-
     assert.equal(started.config.model_auto_compact_token_limit, 204800);
-
     const replacementId = f.session.info.id;
-
     assert.notEqual(replacementId, originalId);
-
     assert.equal(f.session.info.model, 'model-b');
-
     assert.equal(f.session.info.nativeEffort, 'high');
-
     const sending = f.session.send('first prompt on replacement');
 
     await until('replacement prompt approval', () =>
@@ -755,17 +689,11 @@ test('a fresh Codex model change starts a replacement thread and sends the first
     );
 
     const request = events.find((event) => event.type === 'request');
-
     assert.ok(request?.type === 'request');
-
     await f.session.respond(request.request.id, { decision: 'accept' });
-
     const result = await within(sending, 2000, 'replacement prompt');
-
     assert.equal(result.status, 'completed');
-
     const turns = calls.filter((call) => call.method === 'turn/start');
-
     assert.equal(turns.length, 1);
 
     assert.equal(
@@ -849,7 +777,6 @@ test('Claude ignores a foreign completion while preparing the initial input', as
     );
 
     ready.resolve();
-
     let inputs: { uuid: string; message: { content: string } }[] = [];
 
     await until('initial input after foreign completion', async () => {
@@ -859,7 +786,6 @@ test('Claude ignores a foreign completion while preparing the initial input', as
     });
 
     assert.match(inputs[0]!.message.content, /owned request/);
-
     assert.match(inputs[0]!.message.content, /accepted context marker/);
 
     await emit(
@@ -873,17 +799,12 @@ test('Claude ignores a foreign completion while preparing the initial input', as
     );
 
     const result = await within(sending, 2000, 'owned input completion');
-
     assert.equal(result.status, 'completed');
-
     assert.equal(result.text, 'owned result');
-
     assert.notEqual(result.inputUnsent, true);
   } finally {
     ready.resolve();
-
     configure.mockRestore();
-
     await session.close();
   }
 });
@@ -903,23 +824,15 @@ test('failed live Claude preparation returns unread shell context without closin
     );
 
     const result = await session.send('retain original input');
-
     assert.equal(result.status, 'failed');
-
     assert.equal(result.inputUnsent, true);
-
     assert.equal(result.unreadContext?.length, 1);
-
     assert.match(result.unreadContext![0]!, /preparation-context-marker/);
-
     assert.ok(session.takeUnreadContext);
-
     assert.deepEqual(session.takeUnreadContext(), []);
-
     assert.equal(session.closed, false);
   } finally {
     configure.mockRestore();
-
     await session.close();
   }
 });
@@ -973,25 +886,16 @@ for (const stop of ['interrupt', 'close'] as const) {
       const sending = session.send('initial input');
       const steering = session.steer('following input');
       const stopping = session[stop]();
-
       ready.resolve();
-
       const result = await within(sending, 2000, 'unsent interrupted input');
-
       await within(stopping, 2000, 'stop during configuration');
-
       assert.equal(result.status, 'interrupted');
-
       assert.equal(result.inputUnsent, true);
-
       assert.equal(await steering, false);
-
       assert.deepEqual(await jsonLines(join(f.cwd, 'inputs.jsonl')), []);
     } finally {
       ready.resolve();
-
       configure.mockRestore();
-
       await session.close();
     }
   });
@@ -1009,9 +913,7 @@ for (const action of ['send', 'compact', 'shell'] as const) {
 
     try {
       await writeFile(join(f.cwd, 'resume-fail'), '');
-
       await assert.rejects(f.session.selectModel('model-b'), /resume refused/);
-
       await rm(join(f.cwd, 'resume-fail'));
 
       interception = vi
@@ -1019,7 +921,6 @@ for (const action of ['send', 'compact', 'shell'] as const) {
         .mockImplementation(async function (this: JsonRpc, method, params) {
           if (method === 'thread/resume') {
             entered.resolve();
-
             await ready.promise;
           }
 
@@ -1036,15 +937,10 @@ for (const action of ['send', 'compact', 'shell'] as const) {
             : f.session.shell('must not execute');
 
       await entered.promise;
-
       const stopping = f.session.interrupt();
-
       ready.resolve();
-
       const result = await within(operation, 2000, 'interrupted operation');
-
       await within(stopping, 2000, 'reload interruption');
-
       assert.equal(result.status, 'interrupted');
 
       if (action === 'send') assert.equal(result.inputUnsent, true);
@@ -1061,11 +957,8 @@ for (const action of ['send', 'compact', 'shell'] as const) {
       );
     } finally {
       ready.resolve();
-
       interception?.mockRestore();
-
       await writeFile(join(f.cwd, 'exit'), '');
-
       await close(f.session, f.cwd);
     }
   });
@@ -1083,9 +976,7 @@ test('Codex repairs a failed reload before selecting a model with the previous l
     );
 
     await rm(join(f.cwd, 'resume-fail'));
-
     f.calls.length = 0;
-
     await f.session.selectModel('model-a');
 
     assert.deepEqual(
@@ -1100,13 +991,9 @@ test('Codex repairs a failed reload before selecting a model with the previous l
     );
 
     assert.equal(f.session.info.model, 'model-a');
-
     assert.equal(f.session.info.nativeEffort, 'high');
-
     const last = f.calls.at(-1)!.params as { config: Record<string, unknown> };
-
     assert.equal(last.config.model_auto_compact_token_limit, 600000);
-
     const sending = f.session.send('continue on the original model');
 
     await until('recovered model prompt approval', () =>
@@ -1114,9 +1001,7 @@ test('Codex repairs a failed reload before selecting a model with the previous l
     );
 
     const event = f.events.find((event) => event.type === 'request');
-
     assert.ok(event?.type === 'request');
-
     await f.session.respond(event.request.id, { decision: 'accept' });
 
     assert.equal(
@@ -1160,9 +1045,7 @@ test('Codex refuses a window-changing selection until a running familiar complet
     });
 
     f.calls.length = 0;
-
     await assert.rejects(f.session.selectModel('model-b'), /background work/);
-
     assert.equal(f.session.info.model, 'model-a');
 
     assert.equal(
@@ -1185,11 +1068,195 @@ test('Codex refuses a window-changing selection until a running familiar complet
     });
 
     await f.session.selectModel('model-b');
-
     assert.equal(f.session.info.model, 'model-b');
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
+    await close(f.session, f.cwd);
+  }
+});
 
+test('Codex publishes default and maximum usable capacities before a turn and keeps the choice on effort updates', async () => {
+  const calls: RpcMessage[] = [];
+
+  const f = await fixture(undefined, {
+    model: 'model-a',
+    automaticCompaction: true,
+    configuration: { model_context_window: 240_000 },
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'model-a',
+          context_window: 272_000,
+          max_context_window: 872_000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+    onClient: (call) => calls.push(call),
+  });
+
+  try {
+    assert.equal(f.session.usage.contextWindow, 228_000);
+
+    assert.deepEqual(
+      (await f.session.models()).find((model) => model.id === 'model-a')
+        ?.contextWindows,
+      { default: 258_400, maximum: 828_400 },
+    );
+
+    await f.session.selectModel('model-a', undefined, 'default');
+    assert.equal(f.session.info.contextWindow, 'default');
+    assert.equal(f.session.usage.contextWindow, 258_400);
+    await f.session.selectModel('model-a', undefined, 'maximum');
+    assert.equal(f.session.info.contextWindow, 'maximum');
+    assert.equal(f.session.usage.contextWindow, 828_400);
+    calls.length = 0;
+    await f.session.selectModel('model-a', 'high');
+    assert.equal(f.session.info.contextWindow, 'maximum');
+    assert.equal(f.session.usage.contextWindow, 828_400);
+
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ['thread/settings/update'],
+    );
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Codex reloads a changed window even when both compaction thresholds are capped at 600k', async () => {
+  const calls: RpcMessage[] = [];
+
+  const f = await fixture(undefined, {
+    model: 'model-a',
+    resume: 'native-thread',
+    automaticCompaction: true,
+    contextWindow: 'default',
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'model-a',
+          context_window: 800_000,
+          max_context_window: 850_000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+    onClient: (call) => calls.push(call),
+  });
+
+  try {
+    assert.equal(f.session.usage.contextWindow, 760_000);
+    calls.length = 0;
+    await f.session.selectModel('model-a', undefined, 'maximum');
+    assert.equal(f.session.usage.contextWindow, 807_500);
+    assert.equal(f.session.info.contextWindow, 'maximum');
+
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ['thread/unsubscribe', 'thread/resume'],
+    );
+
+    const params = calls.at(-1)!.params as { config: Record<string, unknown> };
+    assert.equal(params.config.model_context_window, 850_000);
+    assert.equal(params.config.model_auto_compact_token_limit, 600_000);
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Codex keeps the applied capacity when resume replays an older turn usage', async () => {
+  const events: AgentEvent[] = [];
+
+  const f = await fixture((event) => events.push(event), {
+    model: 'model-a',
+    resume: 'native-thread',
+    automaticCompaction: true,
+    contextWindow: 'default',
+    mode: 'compaction',
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'model-a',
+          context_window: 800_000,
+          max_context_window: 850_000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+  });
+
+  const emit = frameWriter(f.cwd, (text) =>
+    events.some((event) => event.type === 'notice' && event.text === text),
+  );
+
+  try {
+    await f.session.selectModel('model-a', undefined, 'maximum');
+
+    await emit({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'native-thread',
+        turnId: 'earlier-turn',
+        tokenUsage: {
+          last: { totalTokens: 20_000 },
+          modelContextWindow: 760_000,
+        },
+      },
+    });
+
+    assert.equal(f.session.usage.contextWindow, 807_500);
+    assert.ok(Math.abs(f.session.usage.context! - 2.476780185758514) < 1e-10);
+    assert.equal(f.session.info.contextWindow, 'maximum');
+  } finally {
+    await writeFile(join(f.cwd, 'exit'), '');
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Codex retains native usage when the active model has no catalog capacity', async () => {
+  const events: AgentEvent[] = [];
+
+  const f = await fixture((event) => events.push(event), {
+    model: 'model-a',
+    automaticCompaction: true,
+    mode: 'compaction',
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'other-model',
+          context_window: 800_000,
+          max_context_window: 850_000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+  });
+
+  const emit = frameWriter(f.cwd, (text) =>
+    events.some((event) => event.type === 'notice' && event.text === text),
+  );
+
+  try {
+    await emit({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'native-thread',
+        turnId: 'earlier-turn',
+        tokenUsage: {
+          last: { totalTokens: 80_000 },
+          modelContextWindow: 100_000,
+        },
+      },
+    });
+
+    assert.equal(f.session.usage.context, 80);
+    assert.equal(f.session.usage.contextWindow, 100_000);
+    await f.session.selectModel('model-a');
+    assert.equal(f.session.usage.context, 80);
+    assert.equal(f.session.usage.contextWindow, 100_000);
+  } finally {
+    await writeFile(join(f.cwd, 'exit'), '');
     await close(f.session, f.cwd);
   }
 });

@@ -61,7 +61,6 @@ export function keepAwake(
     );
 
     reported = coordinator.snapshot.conversation;
-
     failed(lost);
   };
 
@@ -77,7 +76,6 @@ export function keepAwake(
     }
 
     holder = child;
-
     child.unref();
 
     child.once('error', (error) => {
@@ -134,14 +132,11 @@ export function keepAwake(
 
   const unsubscribe = coordinator.subscribe(update);
   const unsubscribeJobs = jobs.subscribe(update);
-
   update();
 
   return () => {
     unsubscribe();
-
     unsubscribeJobs();
-
     release();
   };
 }

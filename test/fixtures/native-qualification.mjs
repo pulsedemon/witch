@@ -77,9 +77,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       reply({ data: [], nextCursor: null });
     else if (request.method === 'turn/start') {
       turnId = `turn-${++sequence}`;
-
       reply({ turn: { id: turnId, status: 'inProgress' } });
-
       event('turn/started', { turn: { id: turnId, status: 'inProgress' } });
 
       if (restricted)
@@ -140,9 +138,7 @@ for await (const line of createInterface({ input: process.stdin })) {
         commandEvent('item/completed', 'unexpected-tool', 'unexpected');
 
       commandEvent('item/completed', pending.id, pending.name);
-
       pending = undefined;
-
       finish();
     }
 
@@ -173,9 +169,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (request.method === 'thread/compact/start') {
     reply({});
-
     turnId = `turn-${++sequence}`;
-
     event('turn/started', { turn: { id: turnId, status: 'inProgress' } });
 
     for (const method of ['item/started', 'item/completed'])
@@ -184,9 +178,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     finish();
   } else if (request.method === 'turn/start') {
     turnId = `turn-${++sequence}`;
-
     reply({ turn: { id: turnId, status: 'inProgress' } });
-
     event('turn/started', { turn: { id: turnId, status: 'inProgress' } });
 
     const prompt = request.params.input
@@ -197,7 +189,6 @@ for await (const line of createInterface({ input: process.stdin })) {
 
     if (marker) {
       writeFileSync(join(process.env.CODEX_HOME, 'remembered-marker'), marker);
-
       finish(marker);
     } else if (prompt.includes('before compaction')) {
       if (mode === 'lost-context') finish('WRONG_CONTEXT');
@@ -216,14 +207,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       )[1];
 
       const id = `tool-${sequence}`;
-
       commandEvent('item/started', id, name);
 
       if (mode === 'bypass') {
         writeFileSync(name, name);
-
         commandEvent('item/completed', id, name);
-
         finish();
       } else {
         pending = { id, name };

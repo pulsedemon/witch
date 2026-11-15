@@ -27,7 +27,6 @@ export type NativeScenario =
 
 export function probeApproval(request: UserRequest): UserResponse {
   assert.equal(request.kind, 'approval', request.detail);
-
   const { command } = JSON.parse(request.detail) as { command?: string };
 
   assert.ok(
@@ -79,7 +78,6 @@ export async function nativeScenario(
       what,
       () => {
         options.signal?.throwIfAborted();
-
         abort.signal.throwIfAborted();
 
         if (turnFailure) throw turnFailure;
@@ -91,7 +89,6 @@ export async function nativeScenario(
 
   const observeProbes = async () => {
     options.signal?.throwIfAborted();
-
     abort.signal.throwIfAborted();
 
     if (!nativeProcess) return;
@@ -127,13 +124,11 @@ export async function nativeScenario(
       for (const row of rows)
         if (owned.has(row.parent) && !owned.has(row.pid)) {
           owned.add(row.pid);
-
           added = true;
         }
     }
 
     owned.delete(nativeProcess.pid);
-
     const argumentsByPid = await processArguments([...owned]);
 
     for (const row of rows) {
@@ -166,7 +161,6 @@ export async function nativeScenario(
 
   const onEvent = (event: AgentEvent) => {
     events.push(event);
-
     report(event);
 
     if (event.type === 'request') {
@@ -213,11 +207,8 @@ export async function nativeScenario(
       );
 
       await session.skills();
-
       await session.selectModel(options.model!, 'medium');
-
       assert.equal(session.info.model, options.model);
-
       assert.equal(session.info.effort, 'medium');
 
       const answer = await session.send(
@@ -226,12 +217,10 @@ export async function nativeScenario(
       );
 
       assert.equal(answer.status, 'completed', answer.error);
-
       assert.equal(answer.text.trim(), 'WITCH_CONTEXT_309');
 
       if (adapter.id === 'codex') {
         const shell = await session.shell('printf WITCH_SHELL_309');
-
         assert.equal(shell.status, 'completed', shell.error);
 
         assert.ok(
@@ -253,7 +242,6 @@ export async function nativeScenario(
       );
 
       assert.equal(tool.status, 'completed', tool.error);
-
       assert.match(tool.text.trim(), /(?:^|\n)WITCH_TOOL_DONE_309$/);
 
       if (live)
@@ -263,17 +251,11 @@ export async function nativeScenario(
         );
 
       const compact = await session.compact();
-
       assert.equal(compact.status, 'completed', compact.error);
-
       assert.ok(events.some(({ type }) => type === 'compacted'));
-
       const id = session.info.id;
-
       await session.close();
-
       session = await connect(id);
-
       assert.equal(session.info.id, id);
 
       const resumed = await session.send(
@@ -281,7 +263,6 @@ export async function nativeScenario(
       );
 
       assert.equal(resumed.status, 'completed', resumed.error);
-
       assert.equal(resumed.text.trim(), 'WITCH_RESUMED_309');
     } else if (scenario === 'control') {
       await writeProbe(
@@ -293,7 +274,6 @@ export async function nativeScenario(
 
       const started = events.length;
       const sending = session.send(prompt);
-
       watchTurn(sending);
 
       await waitFor(
@@ -313,14 +293,10 @@ export async function nativeScenario(
       );
 
       const steered = await within(sending, 120000, 'steered native turn');
-
       assert.equal(steered.status, 'completed', steered.error);
-
       assert.match(steered.text, /STEER_309/);
-
       const before = events.length;
       const interrupted = session.send(prompt);
-
       watchTurn(interrupted);
 
       await waitFor(
@@ -335,7 +311,6 @@ export async function nativeScenario(
       if (live) await probeStarted(2);
 
       await session.interrupt();
-
       assert.equal((await interrupted).status, 'interrupted');
     } else if (scenario === 'spell') {
       const skills = await session.skills();
@@ -355,11 +330,8 @@ export async function nativeScenario(
       );
 
       assert.equal(agent.status, 'completed', agent.error);
-
       assert.match(agent.text, /PROBE CAST hi/);
-
       assert.ok(cast(from), 'the agent casts the probe spell');
-
       from = events.length;
 
       const familiar = await session.send(
@@ -382,15 +354,10 @@ export async function nativeScenario(
       from = events.length;
       const prompt = '/probe-spell hello';
       const call = skillCall(prompt, skills);
-
       assert.ok(call, 'the probe spell is listed');
-
       const user = await session.send(prompt, { skill: call });
-
       assert.equal(user.status, 'completed', user.error);
-
       assert.match(user.text, /PROBE CAST hello/);
-
       assert.ok(cast(from), 'the user casts the probe spell');
     } else if (scenario === 'idle-run') {
       // the second run, started by Claude Code after the brew ends, sleeps so a prompt lands inside it
@@ -417,7 +384,6 @@ export async function nativeScenario(
       if (live) await probeStarted(1);
 
       const from = events.length;
-
       await writeFile(join(options.cwd, 'emit'), 'emit');
 
       // the approval comes from the run Claude Code starts once the brew ends, and is answered as it arrives, so the
@@ -436,7 +402,6 @@ export async function nativeScenario(
       );
 
       assert.equal(prompted.status, 'completed', prompted.error);
-
       assert.equal(prompted.text.trim(), 'WITCH_PROMPT_505');
 
       await waitFor(
@@ -458,7 +423,6 @@ export async function nativeScenario(
       );
 
       assert.equal(result.status, 'completed', result.error);
-
       assert.match(result.text, /WITCH_BACKGROUND_309/);
 
       await waitFor(

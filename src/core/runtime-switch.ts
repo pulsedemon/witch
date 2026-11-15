@@ -101,7 +101,6 @@ export class RuntimeSwitch {
   /** ends the forced usage refresh at once; the probe finishes under its own timeout. */
   stop(): void {
     this.stopping?.resolve();
-
     this.clearPending();
   }
 
@@ -206,7 +205,6 @@ export class RuntimeSwitch {
     };
 
     this.pending = request;
-
     this.exhaustedAt.set(request.conversation.agent, Date.now());
 
     return request;
@@ -215,7 +213,6 @@ export class RuntimeSwitch {
   private clearPending(): void {
     const request = this.pending;
     this.pending = undefined;
-
     request?.finished.resolve();
   }
 
@@ -245,6 +242,7 @@ export class RuntimeSwitch {
       await session.selectModel(
         id,
         modelEffort(selection, this.host.snapshot().models),
+        selection.contextWindow,
       );
     } finally {
       this.selecting = false;
@@ -255,6 +253,9 @@ export class RuntimeSwitch {
       model: session.info.model,
       requestedModel: id,
       effort: session.info.effort,
+      ...(session.info.contextWindow && {
+        contextWindow: session.info.contextWindow,
+      }),
     };
   }
 
@@ -298,7 +299,6 @@ export class RuntimeSwitch {
           if (notice === undefined) return;
 
           this.hopped = true;
-
           host.notice(notice);
         },
       },
@@ -326,7 +326,6 @@ export class RuntimeSwitch {
 
     try {
       await recovering;
-
       succeeded = true;
     } finally {
       const request = this.pending;

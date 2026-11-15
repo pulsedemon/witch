@@ -87,17 +87,11 @@ test('cancellation during connection aborts startup and waits for its cleanup', 
   });
 
   assert.equal(turn.busy, true);
-
   await Promise.resolve();
-
   assert.equal(stopped, false);
-
   cleanup.resolve();
-
   await stopping;
-
   assert.equal((await running).status, 'interrupted');
-
   assert.equal(turn.busy, false);
 });
 
@@ -123,11 +117,8 @@ test('startup cleanup failures remain visible after cancellation', async () => {
   );
 
   await entered.promise;
-
   await turn.interrupt();
-
   await rejected;
-
   assert.equal(turn.busy, false);
 });
 
@@ -145,7 +136,6 @@ test('connected cancellation interrupts before close without aborting the native
 
   session.interrupt = vi.fn(async () => {
     assert.equal(connected.signal!.aborted, false);
-
     finished.resolve({ status: 'interrupted', text: '' });
   });
 
@@ -158,17 +148,11 @@ test('connected cancellation interrupts before close without aborting the native
   });
 
   const running = turn.run(open, source, 'answer', undefined, input);
-
   await sending.promise;
-
   const stop = { deadline: 456, restart: true };
-
   await turn.interrupt(stop);
-
   assert.equal((await running).status, 'interrupted');
-
   assert.deepEqual(vi.mocked(session.interrupt).mock.calls, [[stop]]);
-
   assert.deepEqual(vi.mocked(session.close).mock.calls, [[stop]]);
 });
 
@@ -179,23 +163,16 @@ test('cancellation during child close discards an otherwise completed answer', a
 
   session.close = async () => {
     closing.resolve();
-
     await closed.promise;
   };
 
   const turn = new AnswerTurn(options, async () => session);
   const running = turn.run(open, source, 'answer', undefined, input);
-
   await closing.promise;
-
   const stopping = turn.interrupt();
-
   assert.equal(turn.busy, true);
-
   closed.resolve();
-
   await stopping;
-
   assert.deepEqual(await running, { status: 'interrupted', text: '' });
 });
 
@@ -239,16 +216,10 @@ test('a refused interrupt closes the child and joins the pending answer before r
 
   const turn = new AnswerTurn(options, async () => session);
   const running = turn.run(open, source, 'answer', undefined, input);
-
   await sending.promise;
-
   const stop = { deadline: 789 };
-
   await assert.rejects(turn.interrupt(stop), /Native interrupt refused/);
-
   assert.equal((await running).status, 'interrupted');
-
   assert.equal(turn.busy, false);
-
   assert.deepEqual(vi.mocked(session.close).mock.calls[0], [stop]);
 });

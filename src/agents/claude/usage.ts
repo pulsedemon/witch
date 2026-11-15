@@ -157,7 +157,6 @@ export class ClaudeUsage {
     if (this.closed) return;
 
     clearTimeout(this.timer);
-
     this.timer = undefined;
     this.requested = true;
 
@@ -166,9 +165,7 @@ export class ClaudeUsage {
 
   close(options: AgentStopOptions = {}): Promise<void> {
     this.closed = true;
-
     clearTimeout(this.timer);
-
     this.timer = undefined;
     this.requested = false;
 
@@ -211,7 +208,6 @@ export class ClaudeUsage {
       if (!this.closed) {
         this.timer = setTimeout(() => {
           this.timer = undefined;
-
           void this.read('usage');
         }, 60_000);
 
@@ -262,7 +258,6 @@ export class ClaudeUsage {
             // helper failure does not end the conversation; a later poll starts its replacement.
           } finally {
             helper.ended = true;
-
             void this.stop(helper).catch(() => {});
           }
         })();
@@ -281,11 +276,8 @@ export class ClaudeUsage {
   private stop(helper: Helper, deadline = stopDeadline()): Promise<void> {
     return (helper.closing ??= (async () => {
       helper.ended = true;
-
       helper.input.close();
-
       helper.query?.close();
-
       helper.abort.abort();
 
       try {

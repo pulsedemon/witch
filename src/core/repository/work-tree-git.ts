@@ -12,7 +12,6 @@ const run = promisify(execFile);
 
 export const execute: GitRun = async (command, args, { input, ...options }) => {
   const result = run(command, args, options);
-
   // the process failure carries the diagnostic when stdin also closes with EPIPE.
   result.child.stdin?.on('error', () => {}).end(input);
 

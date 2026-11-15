@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentEvent, SessionInfo, TurnResult } from '../agents/types.js';
+import { contextWindowChoiceSchema } from '../agents/types.js';
 import { copilotReviewStateSchema } from './review/copilot-reviews.js';
 import { pullRequestSchema } from './repository/repository.js';
 
@@ -10,6 +11,7 @@ const session = z.object({
   requestedModel: z.string().optional(),
   hasHistory: z.boolean(),
   effort: z.string().optional(),
+  contextWindow: contextWindowChoiceSchema.optional(),
   deliveredRevision: z.string().optional(),
   deliveredInstructionsRevision: z.string().optional(),
   deliveredProject: z.string().optional(),
@@ -218,12 +220,12 @@ export function clearConversationContext(
       model,
       requestedModel: previous?.requestedModel ?? (model || undefined),
       effort: previous?.effort ?? info?.effort ?? info?.nativeEffort,
+      contextWindow: previous?.contextWindow ?? info?.contextWindow,
       hasHistory: false,
     },
   };
 
   delete record.handoff;
-
   delete record.lastTurn;
 }
 
@@ -256,7 +258,6 @@ export function appendedDisplayText(
 
   while (after.sequence > before.sequence) {
     chunks.push(after.text);
-
     after = after.previous!;
   }
 
@@ -275,6 +276,7 @@ export function recordSession(
     id: info.id,
     model: info.model,
     hasHistory: info.hasHistory,
+    ...(info.contextWindow && { contextWindow: info.contextWindow }),
   };
 
   if (previous?.id !== info.id) clearDelivery(conversation.sessions[agent]!);
@@ -301,11 +303,8 @@ export function recordDelivery(
 /** a native session that compacted or was replaced has seen neither the memory snapshot, the fixed instructions nor the delivered events. */
 export function clearDelivery(reference: NativeSession): void {
   delete reference.deliveredRevision;
-
   delete reference.deliveredInstructionsRevision;
-
   delete reference.deliveredMerges;
-
   delete reference.deliveredAnswers;
 }
 
@@ -402,7 +401,6 @@ export function foldDisplayUpdates(
 
     if (index === undefined) {
       indexes.set(update.id, items.length);
-
       items.push(merge(undefined, update));
     } else items[index] = merge(items[index], update);
   }
@@ -412,7 +410,7 @@ export function foldDisplayUpdates(
 
 export const untitled = 'New conversation';
 
-/** copies the source's explicit model and effort when it ran on the same agent. */
+/** a window choice survives even when the native runtime supplied the model. */
 export function createConversation(
   cwd: string,
   agent: string,
@@ -425,17 +423,21 @@ export function createConversation(
     title: untitled,
     cwd,
     agent,
-    sessions: stored?.requestedModel
-      ? {
-          [agent]: {
-            id: '',
-            model: stored.model,
-            requestedModel: stored.requestedModel,
-            hasHistory: false,
-            ...(stored.effort ? { effort: stored.effort } : {}),
-          },
-        }
-      : {},
+    sessions:
+      stored && (stored.requestedModel || stored.contextWindow)
+        ? {
+            [agent]: {
+              id: '',
+              model: stored.model,
+              requestedModel: stored.requestedModel,
+              hasHistory: false,
+              ...(stored.effort ? { effort: stored.effort } : {}),
+              ...(stored.contextWindow && {
+                contextWindow: stored.contextWindow,
+              }),
+            },
+          }
+        : {},
     createdAt: new Date().toISOString(),
   };
 }

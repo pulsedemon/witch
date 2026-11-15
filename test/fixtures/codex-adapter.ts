@@ -40,6 +40,7 @@ export async function fixture(
     automaticCompaction,
     configuration,
     contextCatalog,
+    contextWindow,
   }: {
     effort?: string;
     resume?: string;
@@ -54,6 +55,7 @@ export async function fixture(
     automaticCompaction?: true;
     configuration?: Record<string, unknown>;
     contextCatalog?: typeof readContextCatalog;
+    contextWindow?: SessionOptions['contextWindow'];
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
@@ -80,12 +82,13 @@ export async function fixture(
     }
 
     return child;
-  }, contextCatalog);
+  }, contextCatalog ?? unreportedContextCatalog);
 
   const session = await adapter.connect({
     cwd,
     executable: 'codex',
     model,
+    contextWindow,
     automaticCompaction,
     effort,
     resume,
@@ -99,13 +102,12 @@ export async function fixture(
     commandPrefixes,
   });
 
-  return { session, cwd, child: child! };
+  return { session, cwd, child: child!, adapter };
 }
 
 /** lets a held fixture event go, so a reverted guard can't hang cleanup. */
 export async function close(session: AgentSession, cwd: string) {
   await writeFile(join(cwd, 'release'), 'yes');
-
   await session.close();
 }
 
@@ -188,17 +190,13 @@ export async function controlledFixture(
 
   const emit = async (...batch: RpcMessage[]) => {
     await frames(...batch);
-
     await session.skills();
   };
 
   const reply = async (index: number, response: unknown, kind = 'list') => {
     await appears(join(cwd, `${kind}-${index}.json`));
-
     await write(`${kind}-reply-${index}.json`, response);
-
     await appears(join(cwd, `${kind}-replied-${index}`));
-
     await emit();
   };
 

@@ -18,7 +18,6 @@ async function check(
 
   for (const [path, content] of Object.entries(files)) {
     await mkdir(join(root, path, '..'), { recursive: true });
-
     await writeFile(join(root, path), content);
   }
 
@@ -309,13 +308,9 @@ test('an id quoted in a code span is not an anchor, and one in a tag is', async 
 
 test('a git failure other than a missing repository or origin stops the checks', async () => {
   const root = await scratch('witch-review-checks-');
-
   await execute('git', ['init', '-q'], { cwd: root });
-
   await writeFile(join(root, '.git', 'config'), '[core\n');
-
   await writeFile(join(root, 'plan.md'), 'x\n');
-
   await assert.rejects(checkTargets(root, ['plan.md']), /bad config/);
 });
 
@@ -351,11 +346,8 @@ test('a link title and an encoded space are handled', async () => {
 
 test('a leading slash resolves from the repository root', async () => {
   const root = await scratch('witch-review-checks-');
-
   await execute('git', ['-C', root, 'init', '-q']);
-
   await mkdir(join(root, 'docs'));
-
   await writeFile(join(root, 'README.md'), '# Setup\n');
 
   await writeFile(
@@ -416,17 +408,14 @@ async function committed(
     ]);
 
   await git('init', '-q');
-
   await git('remote', 'add', 'origin', remote);
 
   for (const [path, content] of Object.entries(files)) {
     await mkdir(join(root, path, '..'), { recursive: true });
-
     await writeFile(join(root, path), content);
   }
 
   await git('add', '-A');
-
   await git('commit', '-q', '-m', 'files');
 
   return { root, commit: (await git('rev-parse', 'HEAD')).stdout.trim() };
@@ -452,7 +441,6 @@ test('a blob link to a missing path fails and an unreadable revision is skipped'
 
 test('a blob revision that looks like an option reads nothing and writes nothing', async () => {
   const root = await scratch('witch-review-checks-');
-
   await execute('git', ['-C', root, 'init', '-q']);
 
   await execute('git', [
@@ -633,15 +621,10 @@ test('a citation path that does not exist is skipped', async () => {
 
 test('a cited file that cannot be read stops the checks', async () => {
   const root = await scratch('witch-review-checks-');
-
   await mkdir(join(root, 'src'));
-
   await writeFile(join(root, 'plan.md'), '`close()` at `src/x.ts:2`\n');
-
   await writeFile(join(root, 'src/x.ts'), 'one\nclosed();\n');
-
   await chmod(join(root, 'src/x.ts'), 0o000);
-
   await assert.rejects(checkTargets(root, ['plan.md']), { code: 'EACCES' });
 });
 

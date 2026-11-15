@@ -52,9 +52,7 @@ const secondAnswer =
 async function codexFixture() {
   const root = await scratch('witch-codex-requests-');
   const project = join(root, 'project');
-
   await mkdir(project);
-
   const store = await StateStore.open(join(root, 'state'));
 
   const adapter = new CodexAdapter(
@@ -97,7 +95,6 @@ async function codexFixture() {
 
   const close = async () => {
     await writeFile(join(project, 'release'), 'yes');
-
     await coordinator.close();
   };
 
@@ -110,7 +107,6 @@ for (const completed of [false, true])
 
     try {
       await coordinator.initialize(project);
-
       const sending = coordinator.send('Start');
 
       await until('the native turn', () =>
@@ -158,9 +154,7 @@ for (const completed of [false, true])
       if (completed) await within(sending, 3000, 'the completed turn');
 
       assert.equal(coordinator.snapshot.phase, completed ? 'idle' : 'running');
-
       await writeFile(join(project, 'exit'), '');
-
       await within(sending, 3000, 'the exited turn');
 
       await until('the native exit notice', () =>
@@ -194,7 +188,6 @@ for (const ending of ['answer', 'resolve', 'exit'])
 
     try {
       await coordinator.initialize(project);
-
       const sending = coordinator.send('Start');
 
       await until('the main request', () =>
@@ -241,7 +234,6 @@ for (const ending of ['answer', 'resolve', 'exit'])
       );
 
       await within(sending, 3000, 'the settled turn');
-
       assert.equal(coordinator.snapshot.phase, 'idle');
 
       assert.deepEqual(
@@ -261,7 +253,6 @@ for (const ending of ['answer', 'resolve', 'exit'])
         );
 
         assert.deepEqual(coordinator.snapshot.requests, []);
-
         await coordinator.respond('902', { decision: 'accept' });
 
         await coordinator.respond('903', {
@@ -327,14 +318,12 @@ test('answering retained questions resumes once and preserves the remaining ques
 
   try {
     await coordinator.send('Start');
-
     const original = a.sessions[0]!;
 
     for (const id of ['first', 'second'])
       original.options.onEvent({ type: 'request', request: question(id) });
 
     await original.session.close();
-
     original.options.onEvent({ type: 'closed' });
 
     assert.deepEqual(coordinator.snapshot.requests, [
@@ -350,25 +339,15 @@ test('answering retained questions resumes once and preserves the remaining ques
     ]);
 
     await within(entered.promise, 3000, 'the answer reconnect');
-
     assert.deepEqual(coordinator.snapshot.requests, [question('second')]);
-
     assert.deepEqual(turns(a), [['Start', undefined]]);
-
     release.resolve();
-
     await within(answering, 3000, 'the first answer');
-
     assert.deepEqual(coordinator.snapshot.requests, [question('second')]);
-
     const completed = coordinator.snapshot.completedTurn;
-
     assert.ok(completed);
-
     await coordinator.respond('second', secondResponse);
-
     assert.equal(a.sessions.length, 2);
-
     assert.equal(a.sessions[1]!.options.resume, original.session.info.id);
 
     assert.deepEqual(turns(a), [
@@ -382,15 +361,10 @@ test('answering retained questions resumes once and preserves the remaining ques
     );
 
     assert.deepEqual(a.responses, []);
-
     assert.deepEqual(coordinator.snapshot.requests, []);
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.equal(coordinator.snapshot.error, undefined);
-
     assert.ok(coordinator.snapshot.completedTurn);
-
     assert.notEqual(coordinator.snapshot.completedTurn, completed);
 
     assert.deepEqual(
@@ -401,9 +375,7 @@ test('answering retained questions resumes once and preserves the remaining ques
     );
   } finally {
     release.resolve();
-
     await coordinator.close();
-
     await answering;
   }
 });
@@ -413,34 +385,22 @@ test('a failed reconnect keeps queued answers and unanswered questions', async (
 
   try {
     await coordinator.send('Start');
-
     const original = a.sessions[0]!;
 
     for (const id of ['first', 'second'])
       original.options.onEvent({ type: 'request', request: question(id) });
 
     await original.session.close();
-
     original.options.onEvent({ type: 'closed' });
-
     a.failConnect = true;
-
     await coordinator.respond('first', response);
-
     assert.deepEqual(coordinator.snapshot.queue, [answer]);
-
     assert.deepEqual(coordinator.snapshot.requests, [question('second')]);
-
     assert.deepEqual(turns(a), [['Start', undefined]]);
-
     assert.equal(coordinator.snapshot.error, 'Destination unavailable');
-
     a.failConnect = false;
-
     await coordinator.respond('second', secondResponse);
-
     assert.equal(a.sessions.length, 2);
-
     assert.equal(a.sessions[1]!.options.resume, original.session.info.id);
 
     assert.deepEqual(turns(a), [
@@ -449,17 +409,11 @@ test('a failed reconnect keeps queued answers and unanswered questions', async (
     ]);
 
     assert.equal(a.inputs[1]!.session, original.session.info.id);
-
     assert.deepEqual(a.responses, []);
-
     assert.deepEqual(coordinator.snapshot.queue, []);
-
     assert.deepEqual(coordinator.snapshot.requests, []);
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.equal(coordinator.snapshot.error, undefined);
-
     assert.ok(coordinator.snapshot.completedTurn);
 
     assert.deepEqual(
@@ -478,15 +432,10 @@ test('a model refused while disconnected keeps unanswered questions', async () =
 
   try {
     await coordinator.send('Start');
-
     const original = a.sessions[0]!;
-
     original.options.onEvent({ type: 'request', request: question('kept') });
-
     await original.session.close();
-
     original.options.onEvent({ type: 'closed' });
-
     a.invalidModel = 'a-typo';
 
     await assert.rejects(
@@ -505,33 +454,19 @@ test('handoff discards retained questions from the previous agent', async () => 
 
   try {
     await coordinator.send('Start');
-
     const original = a.sessions[0]!;
-
     original.options.onEvent({ type: 'request', request: question() });
-
     await original.session.close();
-
     original.options.onEvent({ type: 'closed' });
-
     assert.deepEqual(coordinator.snapshot.requests, [question()]);
-
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-
     assert.equal(coordinator.snapshot.conversation!.agent, 'b');
-
     assert.deepEqual(coordinator.snapshot.requests, []);
-
     assert.equal(coordinator.snapshot.error, undefined);
-
     const delivered = [turns(a), turns(b)];
-
     await coordinator.respond('choice', response);
-
     assert.deepEqual([turns(a), turns(b)], delivered);
-
     assert.deepEqual(a.responses, []);
-
     assert.deepEqual(b.responses, []);
   } finally {
     await coordinator.close();
@@ -557,28 +492,17 @@ for (const { failure, failConnect, id, error } of [
 
     try {
       await coordinator.send('Start');
-
       const original = a.sessions[0]!;
-
       original.options.onEvent({ type: 'request', request: question() });
-
       await original.session.close();
-
       original.options.onEvent({ type: 'closed' });
-
       b.failConnect = failConnect;
       b.invalidModel = 'b-typo';
-
       await assert.rejects(coordinator.selectModel({ agent: 'b', id }), error);
-
       assert.equal(coordinator.snapshot.conversation!.agent, 'a');
-
       assert.deepEqual(coordinator.snapshot.requests, [question()]);
-
       await coordinator.respond('choice', response);
-
       assert.deepEqual(turns(a).at(-1), [answer, undefined]);
-
       assert.deepEqual(turns(b), []);
     } finally {
       await coordinator.close();
@@ -591,7 +515,6 @@ for (const departure of ['conversation', 'handoff'])
 
     try {
       await coordinator.send('Start');
-
       const original = a.sessions[0]!;
       const close = original.session.close.bind(original.session);
 
@@ -602,7 +525,6 @@ for (const departure of ['conversation', 'handoff'])
         });
 
         await close();
-
         original.options.onEvent({ type: 'closed' });
       };
 
@@ -610,17 +532,11 @@ for (const departure of ['conversation', 'handoff'])
       else await coordinator.selectModel({ agent: 'b', id: 'b-model' });
 
       assert.deepEqual(coordinator.snapshot.requests, []);
-
       assert.equal(coordinator.snapshot.error, undefined);
-
       const delivered = [turns(a), turns(b)];
-
       await coordinator.respond('late', response);
-
       assert.deepEqual([turns(a), turns(b)], delivered);
-
       assert.deepEqual(a.responses, []);
-
       assert.deepEqual(b.responses, []);
     } finally {
       await coordinator.close();
@@ -634,11 +550,8 @@ test('an async question survives turn completion and its answer starts one norma
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
-
     await within(gate.entered, 2000, 'the question turn');
-
     const { onEvent } = a.sessions.at(-1)!.options;
-
     onEvent({ type: 'request', request: question() });
 
     onEvent({
@@ -647,11 +560,8 @@ test('an async question survives turn completion and its answer starts one norma
     });
 
     gate.open();
-
     await sending;
-
     assert.equal(coordinator.snapshot.phase, 'idle');
-
     assert.deepEqual(coordinator.snapshot.requests, [question()]);
 
     await Promise.all([
@@ -665,7 +575,6 @@ test('an async question survives turn completion and its answer starts one norma
     ]);
 
     assert.deepEqual(a.responses, []);
-
     assert.deepEqual(coordinator.snapshot.requests, []);
 
     assert.deepEqual(
@@ -676,9 +585,7 @@ test('an async question survives turn completion and its answer starts one norma
     );
 
     onEvent({ type: 'request', request: question('later') });
-
     await coordinator.interrupt();
-
     assert.deepEqual(coordinator.snapshot.requests, []);
 
     assert.deepEqual(turns(a), [
@@ -687,7 +594,6 @@ test('an async question survives turn completion and its answer starts one norma
     ]);
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -701,7 +607,6 @@ for (const refuseSteer of [false, true])
       a.gate = gate;
       a.refuseSteer = refuseSteer;
       const sending = coordinator.send('Start');
-
       await within(gate.entered, 2000, 'the active turn');
 
       a.sessions
@@ -709,19 +614,12 @@ for (const refuseSteer of [false, true])
         .options.onEvent({ type: 'request', request: question() });
 
       await coordinator.respond('choice', response);
-
       assert.deepEqual(coordinator.snapshot.requests, []);
-
       assert.deepEqual(a.responses, []);
-
       assert.deepEqual(a.steers, refuseSteer ? [] : [answer]);
-
       assert.deepEqual(coordinator.snapshot.queue, refuseSteer ? [answer] : []);
-
       assert.deepEqual(turns(a), [['Start', undefined]]);
-
       gate.open();
-
       await sending;
 
       assert.deepEqual(
@@ -744,7 +642,6 @@ for (const refuseSteer of [false, true])
       );
     } finally {
       gate.open();
-
       await coordinator.close();
     }
   });
@@ -756,9 +653,7 @@ test('declining an async question leaves other questions open and cancelling int
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
-
     await within(gate.entered, 2000, 'the active turn');
-
     const { onEvent } = a.sessions.at(-1)!.options;
 
     for (const id of ['first', 'second', 'third'])
@@ -772,7 +667,6 @@ test('declining an async question leaves other questions open and cancelling int
     ]);
 
     assert.equal(coordinator.snapshot.phase, 'running');
-
     await coordinator.respond('second', { decision: 'cancel' });
 
     assert.equal(
@@ -781,17 +675,12 @@ test('declining an async question leaves other questions open and cancelling int
     );
 
     await sending;
-
     assert.deepEqual(coordinator.snapshot.requests, []);
-
     assert.deepEqual(a.responses, []);
-
     assert.deepEqual(a.steers, []);
-
     assert.deepEqual(turns(a), [['Start', undefined]]);
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });
@@ -805,19 +694,12 @@ test('a new conversation discards the previous session questions and ignores the
       .options.onEvent({ type: 'request', request: question() });
 
     const previous = coordinator.snapshot.conversation!.id;
-
     await coordinator.newConversation();
-
     assert.notEqual(coordinator.snapshot.conversation!.id, previous);
-
     assert.deepEqual(coordinator.snapshot.requests, []);
-
     await coordinator.respond('choice', response);
-
     assert.deepEqual(turns(a), []);
-
     assert.deepEqual(a.responses, []);
-
     assert.deepEqual(coordinator.snapshot.items, []);
   } finally {
     await coordinator.close();
@@ -831,43 +713,26 @@ test('async questions arriving during cancellation are ignored until the next tu
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
-
     await within(gate.entered, 2000, 'the active turn');
-
     const { onEvent } = a.sessions.at(-1)!.options;
     const interrupting = coordinator.interrupt();
-
     onEvent({ type: 'request', request: question('late') });
-
     assert.deepEqual(coordinator.snapshot.requests, []);
-
     const blocking = { ...question('blocking'), replyAsPrompt: undefined };
-
     onEvent({ type: 'request', request: blocking });
-
     assert.deepEqual(coordinator.snapshot.requests, [blocking]);
-
     await interrupting;
-
     await sending;
-
     assert.deepEqual(coordinator.snapshot.requests, []);
-
     a.gate = gate = new TurnGate();
     const next = coordinator.send('Next');
-
     await within(gate.entered, 2000, 'the next turn');
-
     onEvent({ type: 'request', request: question('next') });
-
     assert.deepEqual(coordinator.snapshot.requests, [question('next')]);
-
     gate.open();
-
     await next;
   } finally {
     gate.open();
-
     await coordinator.close();
   }
 });

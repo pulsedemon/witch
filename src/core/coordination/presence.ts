@@ -108,7 +108,6 @@ export class PresencePublisher {
 
   cancel(): void {
     clearTimeout(this.scheduled);
-
     this.scheduled = undefined;
     this.pending = undefined;
   }

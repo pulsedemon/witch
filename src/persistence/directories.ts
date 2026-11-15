@@ -128,7 +128,6 @@ export async function adoptIdentity(
   // its repository and slot described the directory that was here
   if (!sameIdentity(entry, identity)) {
     delete entry.main;
-
     delete entry.slot;
   }
 
@@ -190,7 +189,6 @@ export async function updateLedger<T>(
     const result = await change(ledger);
     // checked as it's read, so a change the reader would refuse never lands
     const checked = ledgerSchema.parse({ version: 1, ...ledger });
-
     await writeJson(ledgerFile(root), checked);
 
     return result;
@@ -353,7 +351,6 @@ export async function mapper(ledger: Ledger): Promise<Mapping> {
     },
     async unchanged(path, owner) {
       const consulted: number[] = [];
-
       raw(path, owner, consulted);
 
       for (const prefix of prefixes(path)) {
@@ -396,7 +393,6 @@ export async function formerPaths(
       paths.add((current = from + current.slice(to.length)));
 
   paths.delete(path);
-
   const { map } = await mapper(ledger);
 
   return [...paths].filter((former) => map(former) === path);
@@ -464,7 +460,6 @@ export async function findMoves(
 
       if (destination) {
         cases.set(entry, destination);
-
         missing.push(entry);
       }
     }
@@ -503,7 +498,6 @@ export async function findMoves(
     };
 
     moves.push(move);
-
     const parent = dirname(move.from);
     const there = beside.get(parent);
 
@@ -589,7 +583,6 @@ export async function findMoves(
     for (const entry of [...missing]) {
       if (await carried(entry)) {
         missing.splice(missing.indexOf(entry), 1);
-
         progress = true;
 
         continue;
@@ -599,7 +592,6 @@ export async function findMoves(
 
       if (found) {
         settle(entry, found);
-
         progress = true;
       }
     }
@@ -686,7 +678,6 @@ function entryIndex(ledger: Ledger, sources: readonly string[] = []) {
 
     for (const [index, entry] of ledger.entries.entries()) {
       lookups.order.set(entry, index);
-
       add(lookups.at, entry.path, entry);
 
       if (entry.main !== undefined) add(lookups.naming, entry.main, entry);
@@ -715,20 +706,14 @@ function entryIndex(ledger: Ledger, sources: readonly string[] = []) {
         for (const other of at.get(path) ?? [])
           if (other !== entry) {
             dropped.add(other);
-
             place(other, false);
           }
 
         at.get(entry.path)?.delete(entry);
-
         at.set(path, new Set([entry]));
-
         place(entry, false);
-
         renamed.set(entry.path, path);
-
         entry.path = path;
-
         place(entry, true);
       }
 
@@ -740,9 +725,7 @@ function entryIndex(ledger: Ledger, sources: readonly string[] = []) {
       for (const [entries, to] of references)
         for (const entry of entries) {
           naming.get(entry.main!)?.delete(entry);
-
           entry.main = to;
-
           add(naming, to, entry);
         }
     },
@@ -763,9 +746,7 @@ export function relocate(
   relocations: ReadonlyArray<readonly [DirectoryEntry, string]>,
 ): void {
   const index = entryIndex(ledger);
-
   index.relocate(relocations);
-
   index.finish();
 }
 
@@ -800,7 +781,6 @@ export async function resolve(
       };
 
       ledger.moves.push(recorded);
-
       newest.set(key(move), recorded);
     }
 

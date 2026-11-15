@@ -46,13 +46,9 @@ async function holds(
   seen: { answering: boolean },
 ) {
   await refreshed(b);
-
   assert.ok(notice(b, `peer-request/${request.id}`));
-
   await refreshed(b);
-
   assert.equal((await stored(f, request)).attemptedAt, undefined);
-
   assert.equal(seen.answering, false);
 }
 
@@ -64,13 +60,9 @@ test('answer process registration preserves the owner identity and ignores repor
 
   try {
     const before = await readRecord(f.root, id);
-
     assert.ok(before.process);
-
     assert.notEqual(helper.pid, before.process.pid);
-
     await report(helper.pid);
-
     const registered = await readRecord(f.root, id);
 
     assert.deepEqual(
@@ -79,27 +71,17 @@ test('answer process registration preserves the owner identity and ignores repor
     );
 
     assert.deepEqual(registered.process, before.process);
-
     await report(undefined);
-
     const cleared = await readRecord(f.root, id);
-
     assert.equal(cleared.answerProcess, undefined);
-
     assert.deepEqual(cleared.process, before.process);
-
     await b.coordinator.close();
-
     await report(helper.pid);
-
     assert.equal((await readRecord(f.root, id)).answerProcess, undefined);
   } finally {
     await report(undefined);
-
     const closed = once(helper, 'close');
-
     helper.kill('SIGKILL');
-
     await closed;
   }
 });
@@ -120,13 +102,9 @@ test('idle owner answers in one attributed turn', async (t) => {
   };
 
   const request = await ask(a, claim, `Which port? ${secret}`);
-
   await refreshed(b);
-
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-
   const [input] = answerTurns(b);
-
   assert.equal(input!.prompt, answerInstruction);
 
   assert.ok(
@@ -134,9 +112,7 @@ test('idle owner answers in one attributed turn', async (t) => {
   );
 
   assert.equal(supplied[0]!.id, request.id);
-
   assert.equal(supplied[0]!.message, `Which port? ${secret}`);
-
   await assert.rejects(access(input!.answer!.requestFile), { code: 'ENOENT' });
 
   assert.equal(
@@ -157,7 +133,6 @@ test('idle owner answers in one attributed turn', async (t) => {
     assert.ok(!input!.context!.includes(absent), absent);
 
   assert.match(input!.context!, /Read their messages from /);
-
   const items = b.coordinator.snapshot.items;
 
   assert.deepEqual(
@@ -174,12 +149,9 @@ test('idle owner answers in one attributed turn', async (t) => {
   );
 
   assert.equal(b.coordinator.snapshot.completedTurn, undefined);
-
   assert.equal(b.coordinator.snapshot.conversation!.title, untitled);
-
   const asker = a.coordinator.snapshot.conversation!.id;
   const owner = b.coordinator.snapshot.conversation!.id;
-
   assert.notEqual(asker, owner);
 
   assert.ok(
@@ -201,25 +173,15 @@ test('idle owner answers in one attributed turn', async (t) => {
   );
 
   assert.equal(a.a.inputs.length, 0);
-
   await a.coordinator.send('next');
-
   assert.deepEqual(listed(a.a.inputs.at(-1)!.context), [request.id]);
-
   assert.ok(!a.a.inputs.at(-1)!.context!.includes(secret));
-
   await a.coordinator.send('after');
-
   assert.ok(!a.a.inputs.at(-1)!.context!.includes(request.id));
-
   await b.coordinator.send('owner work');
-
   const user = b.a.inputs.at(-1)!;
-
   assert.match(user.context!, /Accepted shared memory/);
-
   assert.equal(user.author, undefined);
-
   assert.deepEqual(listed(user.context), [request.id]);
 
   for (const present of [
@@ -231,7 +193,6 @@ test('idle owner answers in one attributed turn', async (t) => {
     assert.ok(user.context!.includes(present), present);
 
   assert.equal(b.coordinator.snapshot.conversation!.title, 'owner work');
-
   assert.ok(b.coordinator.snapshot.completedTurn);
 });
 
@@ -247,15 +208,10 @@ test('a delivery hold taken during admission still runs the admitted answer turn
   };
 
   const request = await ask(a, claim, 'Held?');
-
   await refreshed(b);
-
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-
   assert.ok(answerTurns(b)[0]!.context!.includes(request.id));
-
   assert.ok((await stored(f, request)).attemptedAt);
-
   release!();
 });
 
@@ -273,30 +229,18 @@ test('pending requests to one owner coalesce into one answer turn', async (t) =>
   const gate = new TurnGate();
   b.a.gate = gate;
   const working = b.coordinator.send('working');
-
   await gate.entered;
-
   const first = await ask(a, claim, 'First?');
   const second = await ask(a, claim, 'Second?');
-
   await refreshed(b);
-
   assert.deepEqual(answerTurns(b), []);
-
   gate.open();
-
   await working;
-
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-
   const [input] = answerTurns(b);
-
   assert.ok(input!.context!.includes(first.id));
-
   assert.ok(input!.context!.includes(second.id));
-
   assert.equal((await stored(f, first)).answer?.message, 'Answer one');
-
   assert.equal((await stored(f, second)).answer?.message, 'Answer two');
 
   assert.ok(
@@ -308,7 +252,6 @@ test('pending requests to one owner coalesce into one answer turn', async (t) =>
   );
 
   await refreshed(b);
-
   assert.equal(answerTurns(b).length, 1);
 });
 
@@ -318,23 +261,14 @@ test('busy owner answers after queued prompts', async (t) => {
   b.a.gate = gate;
   b.a.refuseSteer = true;
   const sends = [b.coordinator.send('one')];
-
   await gate.entered;
-
   sends.push(b.coordinator.send('two'), b.coordinator.send('three'));
-
   await until('queued', () => b.coordinator.snapshot.queue.length === 2);
-
   await ask(a, claim, 'Which branch?');
-
   await refreshed(b);
-
   gate.open();
-
   await Promise.all(sends);
-
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-
   assert.deepEqual(prompts(b), ['one', 'two\nthree', 'answer']);
 });
 
@@ -346,13 +280,9 @@ test('recovery, pending questions and failed turns hold answer turns until resol
   );
 
   b.a.interruptNext = true;
-
   await b.coordinator.send('remember-port');
-
   assert.equal(b.coordinator.snapshot.phase, 'recovery');
-
   await holds(f, b, await ask(a, claim, 'During recovery?'), seen);
-
   await b.coordinator.recoverMemory('accept');
 
   await until(
@@ -372,11 +302,8 @@ test('recovery, pending questions and failed turns hold answer turns until resol
   };
 
   b.a.sessions.at(-1)!.options.onEvent({ type: 'request', request: question });
-
   await holds(f, b, await ask(a, claim, 'During a question?'), seen);
-
   await b.coordinator.respond('question', { decision: 'decline' });
-
   await refreshed(b);
 
   await until(
@@ -386,11 +313,8 @@ test('recovery, pending questions and failed turns hold answer turns until resol
 
   seen.answering = false;
   b.a.failNext = true;
-
   await b.coordinator.send('fails');
-
   await holds(f, b, await ask(a, claim, 'After a failure?'), seen);
-
   await b.coordinator.send('next');
 
   await until(
@@ -423,32 +347,21 @@ test('released claim is never admitted, and a prompt sent meanwhile still runs',
     );
 
     await admission.promise;
-
     const result = attempt.apply(this, args);
-
     results.push(result);
 
     return result;
   });
 
   await refreshed(b);
-
   await until('admission', () => admitting);
-
   const sent = b.coordinator.send('sent during admission');
-
   admission.resolve();
-
   await sent;
-
   await until('user turn', () => prompts(b).length === 1 && settled(b));
-
   assert.deepEqual((await results[0]!).attempted, []);
-
   assert.equal((await stored(f, request)).attemptedAt, undefined);
-
   assert.deepEqual(prompts(b), ['sent during admission']);
-
   assert.deepEqual(b.coordinator.snapshot.queue, []);
 });
 
@@ -457,22 +370,14 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
   const gate = new TurnGate();
   b.a.gate = gate;
   const working = b.coordinator.send('working');
-
   await gate.entered;
-
   const waiting = await ask(a, claim, 'While working?');
-
   await refreshed(b);
-
   await b.coordinator.interrupt();
-
   // an answer turn the hold failed to stop runs through and is seen
   gate.open();
-
   await working;
-
   await holds(f, b, waiting, seen);
-
   await b.coordinator.send('continue');
 
   await until(
@@ -481,17 +386,12 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
   );
 
   assert.deepEqual(prompts(b), ['working', 'continue', 'answer']);
-
   const answering = new TurnGate();
   b.a.gate = answering;
   const interrupted = await ask(a, claim, 'Interrupted?');
-
   await refreshed(b);
-
   await answering.entered;
-
   await b.coordinator.interrupt();
-
   await until('owner settled', () => settled(b));
 
   await assert.rejects(access(answerTurns(b)[1]!.answer!.requestFile), {
@@ -500,9 +400,7 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
 
   b.a.gate = undefined;
   seen.answering = false;
-
   await holds(f, b, await ask(a, claim, 'Later?'), seen);
-
   assert.equal(answerTurns(b).length, 2);
 
   const status = await callControl(await a.binding(), {
@@ -511,11 +409,8 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
   });
 
   assert.equal(status.kind === 'peer-request' && status.status, 'attempted');
-
   await b.coordinator.newConversation();
-
   const fresh = await ask(a, await claimed(b, 'b-next'), 'New conversation?');
-
   await refreshed(b);
 
   await until(
@@ -531,22 +426,14 @@ test('a restart clears the hold but not the attempt', async (t) => {
   const gate = new TurnGate();
   b.a.gate = gate;
   const first = await ask(a, claim, 'First?');
-
   await refreshed(b);
-
   await gate.entered;
-
   await b.coordinator.interrupt();
-
   await until('owner settled', () => settled(b));
-
   const second = await ask(a, claim, 'Second?');
   const conversation = b.coordinator.snapshot.conversation!.id;
-
   await b.coordinator.close({ restart: true });
-
   const restarted = await f.start('B', { conversation });
-
   await refreshed(restarted);
 
   await until(
@@ -555,9 +442,7 @@ test('a restart clears the hold but not the attempt', async (t) => {
   );
 
   const context = answerTurns(restarted)[0]!.context!;
-
   assert.ok(context.includes(second.id));
-
   assert.ok(!context.includes(first.id));
 });
 
@@ -567,23 +452,14 @@ test('a restored queue holds answer turns until the composer takes it, which wak
   b.a.gate = gate;
   b.a.refuseSteer = true;
   const sending = b.coordinator.send('Start');
-
   sending.catch(() => {});
-
   await gate.entered;
-
   await b.coordinator.send('held');
-
   const conversation = b.coordinator.snapshot.conversation!.id;
-
   await b.coordinator.close({ restart: true });
-
   gate.open();
-
   const restarted = await f.start('B', { conversation });
-
   assert.deepEqual(restarted.coordinator.snapshot.queue, ['held']);
-
   const seen = { answering: false };
 
   restarted.coordinator.subscribe(() => {
@@ -591,7 +467,6 @@ test('a restored queue holds answer turns until the composer takes it, which wak
   });
 
   await holds(f, restarted, await ask(a, claim, 'After a restart?'), seen);
-
   // no refresh follows, so only taking the queue can start the answer
   restarted.coordinator.unqueue('held');
 
@@ -630,7 +505,6 @@ test('a closing Witch stamps nothing', async (t) => {
     this: typeof b.coordination,
   ) {
     const result = begin.call(this);
-
     admissions.push(result);
 
     return result;
@@ -638,7 +512,6 @@ test('a closing Witch stamps nothing', async (t) => {
 
   // the admission closes B, so this refresh's own activation check rejects
   await refreshed(b).catch(() => {});
-
   await until('admission', () => admitted !== undefined);
 
   assert.equal(
@@ -647,11 +520,8 @@ test('a closing Witch stamps nothing', async (t) => {
   );
 
   assert.deepEqual(await admissions[0], []);
-
   await closing;
-
   const after = await stored(f, request);
-
   assert.equal(after.attemptedAt, undefined);
 
   assert.equal(
@@ -673,16 +543,13 @@ test('an origin change during admission stamps nothing', async (t) => {
     'attemptPeerRequests',
   ).mockImplementation(async function (this: CoordinationStore, ...args) {
     admitting = true;
-
     await admission.promise;
 
     return attempt.apply(this, args);
   });
 
   const request = await ask(a, claim, 'Same project?');
-
   await refreshed(b);
-
   await until('admission', () => admitting);
 
   await git(
@@ -705,11 +572,8 @@ test('an origin change during admission stamps nothing', async (t) => {
   });
 
   admission.resolve();
-
   await until('owner settled', () => settled(b));
-
   assert.equal((await stored(f, request)).attemptedAt, undefined);
-
   assert.deepEqual(answerTurns(b), []);
 });
 
@@ -731,51 +595,31 @@ test('a prompt sent during an answer turn runs as its own turn after it', async 
     .spyOn(CoordinationStore.prototype, 'attemptPeerRequests')
     .mockImplementation(async function (this: CoordinationStore, ...args) {
       admitting = true;
-
       await admission.promise;
 
       return attempt.apply(this, args);
     });
 
   await ask(a, claim, 'During admission?');
-
   await refreshed(b);
-
   await until('admission', () => admitting);
-
   const duringAdmission = b.coordinator.send('sent during admission');
-
   admission.resolve();
-
   await duringAdmission;
-
   spy.mockRestore();
-
   await until('user turn', () => prompts(b).length === 2 && settled(b));
-
   assert.deepEqual(prompts(b), ['answer', 'sent during admission']);
-
   const gate = new TurnGate();
   b.a.gate = gate;
-
   await ask(a, claim, 'During the turn?');
-
   await refreshed(b);
-
   await gate.entered;
-
   const duringTurn = b.coordinator.send('sent during answer');
-
   await until('queued', () => b.coordinator.snapshot.queue.length === 1);
-
   assert.deepEqual(b.a.steers, []);
-
   gate.open();
-
   await duringTurn;
-
   await until('user turn', () => prompts(b).length === 4 && settled(b));
-
   assert.deepEqual(prompts(b).slice(2), ['answer', 'sent during answer']);
 
   assert.deepEqual(
@@ -786,17 +630,12 @@ test('a prompt sent during an answer turn runs as its own turn after it', async 
   );
 
   assert.equal(completed.size, 2);
-
   const base = new TurnGate();
   b.a.gate = base;
   const working = b.coordinator.send('base');
-
   await base.entered;
-
   await ask(a, claim, 'During a steer?');
-
   await refreshed(b);
-
   const session = b.a.sessions.at(-1)!.session;
   const steer = session.steer;
   const steering = Promise.withResolvers<void>();
@@ -808,46 +647,26 @@ test('a prompt sent during an answer turn runs as its own turn after it', async 
   };
 
   const steered = b.coordinator.send('steered');
-
   base.open();
-
   await working;
-
   await until('owner idle', () => b.coordinator.snapshot.phase === 'idle');
-
   steering.resolve();
-
   await steered;
-
   session.steer = steer;
-
   await until('steered turn', () => prompts(b).length === 7 && settled(b));
-
   assert.deepEqual(prompts(b).slice(4), ['base', 'steered', 'answer']);
-
   assert.deepEqual(b.coordinator.snapshot.queue, []);
-
   const failing = new TurnGate();
   b.a.gate = failing;
   b.a.failNext = true;
-
   await ask(a, claim, 'Fails?');
-
   await refreshed(b);
-
   await failing.entered;
-
   const kept = b.coordinator.send('after failure');
-
   await until('queued', () => b.coordinator.snapshot.queue.length === 1);
-
   failing.open();
-
   await kept;
-
   await until('owner settled', () => settled(b));
-
   assert.deepEqual(b.coordinator.snapshot.queue, ['after failure']);
-
   assert.ok(!prompts(b).includes('after failure'));
 });

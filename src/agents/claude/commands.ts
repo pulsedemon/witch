@@ -92,7 +92,6 @@ export class ClaudeCommands {
       for (const entry of this.entries.values())
         if (entry.listed && !listed.has(entry.id)) {
           entry.listed = false;
-
           this.end(entry, 'stopped');
         }
     } else if (
@@ -110,7 +109,6 @@ export class ClaudeCommands {
 
         if (background && !entry.background) {
           entry.background = true;
-
           this.publish(entry);
         }
 
@@ -144,7 +142,6 @@ export class ClaudeCommands {
 
       if (!previous.background && input.background) {
         previous.background = true;
-
         this.publish(previous);
       }
 
@@ -161,7 +158,6 @@ export class ClaudeCommands {
     };
 
     this.entries.set(entry.id, entry);
-
     this.publish(entry);
 
     return entry;

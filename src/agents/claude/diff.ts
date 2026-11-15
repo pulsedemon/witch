@@ -82,7 +82,6 @@ function escapedMatch(old: string, content: string): string | undefined {
 
     if (code >= 128) {
       escapes.push(length);
-
       length += 6;
 
       pattern +=
@@ -93,7 +92,6 @@ function escapedMatch(old: string, content: string): string | undefined {
           .replace(/[a-f]/g, (letter) => `[${letter}${letter.toUpperCase()}]`);
     } else {
       length++;
-
       pattern += old[index]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
   }
@@ -161,9 +159,7 @@ function replacementText(
 
       if (code >= 128) {
         const hex = matched.slice(offset + 2, offset + 6);
-
         spellings.set(code, hex);
-
         upper += hex.match(/[A-F]/g)?.length ?? 0;
         lower += hex.match(/[a-f]/g)?.length ?? 0;
         offset += 6;

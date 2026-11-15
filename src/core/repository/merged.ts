@@ -354,7 +354,6 @@ async function fastForward(
   progress: CheckoutProgress = {},
 ): Promise<boolean> {
   await fetchRemote(git);
-
   const status = await read(git);
 
   if (status.branch !== base || changed(status)) return false;
@@ -366,9 +365,7 @@ async function fastForward(
 
   progress.head = head;
   progress.target = await git('rev-parse', '@{upstream}');
-
   await git('merge', '--ff-only', '--no-overwrite-ignore', progress.target);
-
   progress.head = progress.target;
   progress.done = true;
 
@@ -669,7 +666,6 @@ async function clean(
       ).catch(stopped);
 
       progress.switchHead = target;
-
       // already at the fetched upstream, so there's nothing to fast-forward
       progress.pull = { head: target, target, done: true };
     } else progress.switchHead = await git('rev-parse', `refs/heads/${base}`);
@@ -794,7 +790,6 @@ async function clean(
   const configured = (progress.configured ??= []);
   const failures = (progress.failures ??= []);
   const pruned = (progress.pruned ??= []);
-
   await reconcilePruning(git, progress, signal);
 
   const readBranches = async (name?: string) =>
@@ -867,7 +862,6 @@ async function clean(
         });
 
         await checkRemote();
-
         refs = await readBranches();
         keptDefault = name;
       }
@@ -924,9 +918,7 @@ async function clean(
       if (error === signal?.reason) throw error;
 
       failures.push(`branch ${name} stayed: ${errorMessage(error).trim()}`);
-
       pruned.push(name);
-
       delete progress.pruning;
 
       continue;
@@ -941,7 +933,6 @@ async function clean(
       configured.push(`branch.${name}`);
 
     pruned.push(name);
-
     delete progress.pruning;
   }
 
@@ -1055,7 +1046,6 @@ async function reconcilePruning(
     progress.failures!.push(`branch ${name} stayed: its last commit changed`);
 
   progress.pruned!.push(name);
-
   delete progress.pruning;
 }
 
@@ -1280,23 +1270,18 @@ async function removePlans(
             (await ignored(git, folder))
           ) {
             signal?.throwIfAborted();
-
             await rm(folder, { recursive: true, force: true });
-
             progress.ledgers.push(folder);
           }
         }
 
         signal?.throwIfAborted();
-
         await rm(plan);
-
         removed.push(plan);
       } catch (error) {
         if (error === signal?.reason) throw error;
 
         stayed.push(plan);
-
         progress.reason ??= errorMessage(error).trim();
       }
     }
@@ -1322,7 +1307,6 @@ export async function refreshInstall(
   }: { signal?: AbortSignal; progress?: InstallProgress } = {},
 ): Promise<string> {
   signal?.throwIfAborted();
-
   const git = gitIn(root, signal);
 
   const failed = (error: unknown): never => {

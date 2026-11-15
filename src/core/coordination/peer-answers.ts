@@ -34,7 +34,6 @@ export async function preparePeerAnswers(
   directory = tmpdir(),
 ): Promise<PeerAnswerBatch> {
   const file = join(directory, `peer-requests-${randomUUID()}.json`);
-
   await writeJson(file, requests);
 
   return { requests, file };

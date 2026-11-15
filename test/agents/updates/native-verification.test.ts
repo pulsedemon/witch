@@ -81,15 +81,10 @@ for (const [mode, expected] of [
       );
 
       assert.equal(report.passed, false);
-
       assert.equal(report.build, 'checked-build');
-
       assert.equal(report.previous.digest, prepared.previous.digest);
-
       assert.equal(report.candidate.digest, candidate.digest);
-
       assert.match(report.error, expected);
-
       assert.ok(report.diagnostic);
 
       assert.equal(
@@ -133,17 +128,11 @@ test('controlled Claude launches keep hooks and user MCP out while preserving is
     );
 
     assert.ok(observed);
-
     assert.ok(observed.args.includes('--setting-sources=project'));
-
     assert.ok(observed.args.includes('--strict-mcp-config'));
-
     assert.ok(observed.args.includes('{"disableAllHooks":true}'));
-
     assert.equal(observed.env.CLAUDE_CONFIG_DIR, join(f.directory, 'config'));
-
     assert.equal(observed.env.CLAUDE_SECURESTORAGE_CONFIG_DIR, '');
-
     assert.equal(observed.env.DISABLE_AUTOUPDATER, '1');
   } finally {
     f.updates.close();
@@ -182,7 +171,6 @@ for (const kind of ['answer', 'sandbox'] as const) {
     );
 
     await chmod(executable, 0o700);
-
     const abort = new AbortController();
 
     const directory =
@@ -216,9 +204,7 @@ for (const kind of ['answer', 'sandbox'] as const) {
         .map(Number);
 
       assert.equal(children.length, 2);
-
       abort.abort(new Error('Qualification cancelled'));
-
       await within(refused, 3000, 'qualification cancellation');
 
       const evidence = JSON.parse(
@@ -254,9 +240,7 @@ for (const kind of ['answer', 'sandbox'] as const) {
       }
 
       await running.catch(() => {});
-
       await refused.catch(() => {});
-
       f.updates.close();
     }
   });

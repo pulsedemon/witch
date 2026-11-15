@@ -17,7 +17,6 @@ process.env.PATH = `${git}${delimiter}${process.env.PATH}`;
 beforeEach((context) => {
   context.onTestFinished(() => {
     vi.restoreAllMocks();
-
     vi.useRealTimers();
   });
 });

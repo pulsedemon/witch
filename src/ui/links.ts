@@ -207,7 +207,6 @@ function bareLinks(text: string, cwd: string): string {
     }
 
     output += fileLinks(text.slice(offset, match.index), cwd);
-
     // linkify-it keeps a sentence's punctuation when a closing quote or paren follows it
     const punctuation = /[.,;!?]*$/.exec(match.text)![0].length;
 
@@ -251,7 +250,6 @@ function pieces(text: string): string[] {
         end;
 
     result.push(text.slice(start, end));
-
     start = end;
   }
 
@@ -275,7 +273,6 @@ function linked(text: string, cwd: string, target?: string) {
   for (const token of tokenize(text)) {
     if (token.type === 'ansi' && token.code.startsWith('\u001b]8;')) {
       flush();
-
       const separator = token.code.indexOf(';', 4);
       const terminator = token.code.endsWith('\u001b\\') ? 2 : 1;
       target = token.code.slice(separator + 1, -terminator) || undefined;
@@ -351,9 +348,7 @@ export function linkifyAppend(
   if (end) {
     const prefix = linked(text.slice(0, end), cwd, target);
     complete = prefix.text.split('\n');
-
     complete.pop();
-
     target = prefix.target;
   }
 

@@ -20,11 +20,8 @@ test('errors without funding leave the required body rows visible', () => {
   });
 
   assert.equal(lines.length, 2);
-
   assert.equal(errors.length, 7);
-
   assert.match(errors.at(-1)!, /more rows$/);
-
   assert.equal(1 + lines.length + errors.length + 14, 24);
 });
 
@@ -70,7 +67,6 @@ test('tiny footer errors leave the full raw-unit funding height and reserved bod
     ]);
 
     assert.equal(errors.length, expectedErrors);
-
     assert.equal(1 + lines.length + errors.length + bodyRows, 13);
 
     if (expectedErrors) assert.match(errors.at(-1)!, /more rows$/);
@@ -105,7 +101,6 @@ for (const [width, balance] of [
     );
 
     assert.deepEqual(lines, [...balance, 'Details: /delegation']);
-
     assert.ok(lines.every((line) => stringWidth(line) <= width));
   });
 }
@@ -213,7 +208,6 @@ test('a model or effort carrying a link sequence shows as plain text', () => {
   );
 
   assert.ok(!first!.includes('\u001b]8;;'), JSON.stringify(first));
-
   assert.equal(stripAnsi(first!), 'MODEL | HIGH | 0M');
 });
 
@@ -253,7 +247,6 @@ test('limits turn yellow at 70% and red at 90%, a past reset shows dim with its 
   );
 
   assert.ok(first.includes('5H 69% '), first);
-
   assert.ok(first.includes('\u001b[2m7D 70%  0M OLD\u001b[22m'), first);
 
   const [yellow] = statusLines(
@@ -266,18 +259,14 @@ test('limits turn yellow at 70% and red at 90%, a past reset shows dim with its 
   );
 
   assert.ok(yellow.includes('7D \u001b[33m70%\u001b[39m'), yellow);
-
   assert.ok(first.includes('30D \u001b[31m90%\u001b[39m'), first);
 
   const bar = (context: number) =>
     statusLines({ usage: { context }, cwd: '/w' }, now)[1];
 
   assert.ok(!bar(39).includes('\u001b[38;2'));
-
   assert.ok(bar(45).includes('\u001b[38;2;255;255;128m'));
-
   assert.ok(bar(55).includes('\u001b[38;2;255;128;0m'));
-
   assert.ok(bar(60).includes('\u001b[38;2;255;0;0m'));
 });
 
@@ -312,19 +301,12 @@ test('a merged pull request says so in magenta, a closed one plainly, checks get
   };
 
   const pr = (...args: Parameters<typeof line>) => stripAnsi(line(...args));
-
   assert.ok(pr('MERGED').includes('| main | PR#3 MERGED |'));
-
   assert.ok(line('MERGED').includes('\u001b[35mMERGED\u001b[39m'));
-
   assert.ok(pr('CLOSED').includes('| PR#3 CLOSED |'));
-
   assert.ok(pr('OPEN', 'failing').includes('| PR#3 ✗ |'));
-
   assert.ok(pr('OPEN', 'pending').includes('| PR#3 … |'));
-
   assert.ok(pr('OPEN', 'passing').includes('| PR#3 ✓ |'));
-
   assert.ok(pr('OPEN', 'none').includes('| PR#3 NO CHECKS |'));
 
   assert.ok(

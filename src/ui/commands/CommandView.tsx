@@ -68,11 +68,8 @@ export function useCommandViews({
   useEffect(
     () => () => {
       disposed.current = true;
-
       batches.close();
-
       pickerWait.current?.resolve(false);
-
       pickerWait.current = undefined;
     },
     [batches],
@@ -84,7 +81,6 @@ export function useCommandViews({
 
   const openPage = (next: View) => {
     setPageScroll(pageStart);
-
     setView(next);
   };
 
@@ -140,9 +136,7 @@ export function useCommandViews({
   const dismissPicker = (success = true) => {
     const waiting = pickerWait.current;
     pickerWait.current = undefined;
-
     waiting?.resolve(success);
-
     setView({ kind: 'chat' });
   };
 
@@ -150,14 +144,10 @@ export function useCommandViews({
     if (disposed.current) return Promise.resolve(false);
 
     pickerWait.current?.resolve(true);
-
     const waiting = Promise.withResolvers<boolean>();
     pickerWait.current = waiting;
-
     pickerInput.current?.set({ value: '', cursor: 0 });
-
     setQuery('');
-
     setSelection(0);
 
     setView({
@@ -171,7 +161,6 @@ export function useCommandViews({
 
         // a nested picker owns the visible wait while this action still awaits its result
         pickerWait.current = undefined;
-
         setView({ kind: 'chat' });
 
         void (async () => {
@@ -179,7 +168,6 @@ export function useCommandViews({
             waiting.resolve((await choose(id)) !== false);
           } catch (error) {
             coordinator.report(error);
-
             waiting.resolve(false);
           }
         })();
@@ -337,7 +325,6 @@ export function useCommandViews({
       case 'model':
         if (argument) {
           const [id, effort] = argument.split(/\s+/);
-
           await selectModel(id!, effort);
         } else {
           if (!(await coordinator.refreshModels()) || !active()) return false;
@@ -410,14 +397,12 @@ export function useCommandViews({
 
       case 'restart':
         batches.cancel(false);
-
         onRestart?.();
 
         break;
 
       case 'exit':
         batches.cancel(false);
-
         onExit();
 
         break;
@@ -449,7 +434,6 @@ export function useCommandViews({
 
   const changeQuery = (text: string) => {
     setQuery(text);
-
     setSelection(0);
   };
 

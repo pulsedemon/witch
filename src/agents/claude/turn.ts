@@ -79,7 +79,6 @@ export async function recoverInput(
 ): Promise<TurnResult> {
   try {
     await input.flush();
-
     const receipt = await query.interrupt();
     const unread = receipt?.still_queued;
     const inputUnread = unread?.includes(turn.initialInput!) ?? false;

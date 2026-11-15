@@ -53,28 +53,19 @@ test('a snapshot reads its captured commit when the branch advances after enumer
   };
 
   const snapshot = await f.memory.snapshot(f.before, f.workspace.root, f.scope);
-
   assert.notEqual(await f.workspace.revision(), f.before);
-
   assert.ok(snapshot.includes('Global preference 17.\n'));
-
   assert.ok(snapshot.includes('Project preference 29.\n'));
-
   assert.doesNotMatch(snapshot, /Later global|Later project/);
 });
 
 test('snapshots and standalone text and byte reads reject a committed symlink index', async () => {
   const f = await context();
   const index = 'global/MEMORY.md';
-
   await rm(join(f.workspace.root, index));
-
   await symlink('kept.md', join(f.workspace.root, index));
-
   await f.memory.git(f.workspace.root, ['add', '--all']);
-
   await f.memory.git(f.workspace.root, ['commit', '-m', 'legacy symlink']);
-
   const revision = await f.workspace.revision();
 
   await assert.rejects(
@@ -83,15 +74,12 @@ test('snapshots and standalone text and byte reads reject a committed symlink in
   );
 
   await assert.rejects(f.memory.read(revision, index), /regular files/);
-
   await assert.rejects(f.memory.readBytes(revision, index), /regular files/);
 });
 
 test('an unrelated project commit produces no memory update', async () => {
   const f = await context();
-
   await save(f.workspace, { 'projects/other/note.md': 'Other project 71.' });
-
   assert.equal(await f.snapshot(f.before), '');
 });
 
@@ -100,11 +88,8 @@ for (const changed of ['global', 'project'] as const) {
     const f = await context();
     const file = changed === 'global' ? 'global/MEMORY.md' : f.projectIndex;
     const replacement = `${changed} replacement 41.\n`;
-
     await save(f.workspace, { [file]: replacement });
-
     await writeFile(join(f.workspace.root, file), 'Uncommitted value 67.');
-
     const update = await f.snapshot(f.before);
 
     assert.ok(
@@ -112,13 +97,9 @@ for (const changed of ['global', 'project'] as const) {
     );
 
     assert.doesNotMatch(update, /Uncommitted value 67/);
-
     assert.doesNotMatch(update, /Global preference 17|Project preference 29/);
-
     assert.match(update, /replace only their named scopes/);
-
     assert.match(update, /Other current scopes are unchanged/);
-
     assert.doesNotMatch(update, /supersedes all earlier/);
   });
 }
@@ -191,7 +172,6 @@ test('reversed changes still invalidate delivered intermediate memory', async ()
   });
 
   const update = await f.snapshot(f.before);
-
   assert.ok(update.includes('Project preference 29.\n'));
 
   assert.ok(
@@ -211,9 +191,7 @@ test('reversed changes still invalidate delivered intermediate memory', async ()
 
 test('deleting an index withdraws its previous essentials while reference notes remain', async () => {
   const f = await context();
-
   await save(f.workspace, { [f.projectIndex]: null });
-
   const update = await f.snapshot(f.before);
 
   assert.ok(
@@ -251,14 +229,12 @@ test('index limits count UTF-8 bytes and preserve complete inline or referenced 
     { body: 'é'.repeat(3001), bytes: 6002, inline: false },
   ]) {
     await save(f.workspace, { [f.projectIndex]: body });
-
     const snapshot = await f.snapshot();
     const file = join(f.workspace.root, f.projectIndex);
 
     if (inline) assert.ok(snapshot.includes(`${file}\n${body}`));
     else {
       assert.ok(snapshot.includes(`${file}\n(${bytes} bytes)`));
-
       assert.ok(!snapshot.includes(body.slice(0, 100)));
 
       assert.match(
@@ -284,11 +260,8 @@ test('many notes produce bounded baselines and complete reference invalidation o
   );
 
   await save(f.workspace, { ...notes, 'global/kept.md': null });
-
   const baseline = await f.snapshot();
-
   assert.match(baseline, /Global preference 17/);
-
   assert.match(baseline, /Project preference 29/);
 
   assert.doesNotMatch(
@@ -303,9 +276,7 @@ test('many notes produce bounded baselines and complete reference invalidation o
     );
 
     assert.match(snapshot, /missing notes no longer apply/);
-
     assert.doesNotMatch(snapshot, /note-0\.md|Changed or deleted notes/);
-
     assert.ok(Buffer.byteLength(snapshot, 'utf8') < 2000);
   }
 
@@ -320,9 +291,7 @@ test('many notes produce bounded baselines and complete reference invalidation o
 test('a filename with Unicode and control characters remains identifiable in a change notice', async () => {
   const f = await context();
   const file = 'global/café\tline\nquote".md';
-
   await save(f.workspace, { [file]: 'Reference body 101.' });
-
   const update = await f.snapshot(f.before);
 
   assert.ok(

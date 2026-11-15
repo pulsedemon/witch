@@ -10,11 +10,12 @@ import { scratch } from './scratch.js';
 import { exists } from './within.js';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
-let compiled: Promise<string> | undefined;
+const compiled = buildCli();
+// keep the shared build outside each CLI behavior check's deadline
+await compiled;
 
-/** the run's one build of the CLI, made by the first worker that asks for it. */
 export function compiledCli(): Promise<string> {
-  return (compiled ??= buildCli());
+  return compiled;
 }
 
 async function buildCli(): Promise<string> {

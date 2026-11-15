@@ -82,7 +82,6 @@ export class ClaudeContext {
       if (model === undefined || current() !== model) return;
 
       this.observe(value);
-
       const percentage = z.number().safeParse(value.percentage);
       const capacity = z.number().safeParse(value.maxTokens);
 

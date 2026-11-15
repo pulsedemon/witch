@@ -28,7 +28,6 @@ async function mount(element: ReactElement) {
 const press = (stdin: { write: (data: string) => unknown }, data: string) =>
   act(async () => {
     stdin.write(data);
-
     await delay(0);
   });
 
@@ -36,7 +35,6 @@ const press = (stdin: { write: (data: string) => unknown }, data: string) =>
 const escape = (stdin: { write: (data: string) => unknown }) =>
   act(async () => {
     stdin.write('\u001b');
-
     await delay(30);
   });
 
@@ -79,25 +77,15 @@ for (const width of [1, 2]) {
 
     try {
       await press(ui.stdin, '\u001b[D');
-
       assert.match(ui.lastFrame() ?? '', /o/);
-
       await press(ui.stdin, 'X\u001b[D');
-
       assert.match(ui.lastFrame() ?? '', /X/);
-
       await press(ui.stdin, '\u001b[3~');
-
       assert.match(ui.lastFrame() ?? '', /o/);
-
       assert.doesNotMatch(ui.lastFrame() ?? '', /X/);
-
       await press(ui.stdin, 'Y\u001b[D');
-
       assert.match(ui.lastFrame() ?? '', /Y/);
-
       await press(ui.stdin, '\r');
-
       assert.deepEqual(sent, ['!echYo']);
     } finally {
       await unmount(ui);
@@ -123,15 +111,10 @@ test('the terminal composer keeps a bracketed paste unsent until Enter', async (
 
   try {
     await press(ui.stdin, '\u001b[200~first\nsecond\u001b[201~');
-
     assert.deepEqual(sent, []);
-
     assert.match(ui.lastFrame() ?? '', /first/);
-
     assert.match(ui.lastFrame() ?? '', /second/);
-
     await press(ui.stdin, '\r');
-
     assert.deepEqual(sent, ['first\nsecond']);
   } finally {
     await unmount(ui);
@@ -158,15 +141,10 @@ test('pasted controls are removed without hiding or dropping following text', as
 
   try {
     await press(ui.stdin, '\u001b[200~ab\u009bcde\u001b[201~');
-
     assert.equal(ui.lastFrame()?.split('\n')[0], 'abcde');
-
     assert.deepEqual(changes.at(-1), ['abcde', 5]);
-
     assert.deepEqual(sent, []);
-
     await press(ui.stdin, '\u001b[13u');
-
     assert.deepEqual(sent, ['abcde']);
   } finally {
     await unmount(ui);
@@ -195,11 +173,8 @@ test('filtered pastes preserve Unicode and line breaks at the current cursor', a
   try {
     const pasted = 'a\u0000b\u009bc\u0007d\t中\r\nr\rs\n👩‍💻';
     const expected = 'Labcd\t中\nr\ns\n👩‍💻R';
-
     await press(ui.stdin, '\u001b[D');
-
     await press(ui.stdin, `\u001b[200~${pasted}\u001b[201~`);
-
     assert.deepEqual(changes.at(-1), [expected, expected.length - 1]);
 
     assert.deepEqual(ui.lastFrame()?.split('\n').slice(0, 4), [
@@ -217,7 +192,6 @@ test('filtered pastes preserve Unicode and line breaks at the current cursor', a
     ]);
 
     await press(ui.stdin, '\u001b[13u');
-
     assert.deepEqual(sent, ['Labcd\t中\nr\ns\n👩‍💻XR']);
   } finally {
     await unmount(ui);
@@ -248,11 +222,8 @@ test('a paste goes to onPaste with the text before the cursor, and its replaceme
     for (let i = 0; i < 5; i++) await press(ui.stdin, '\u001b[D');
 
     await press(ui.stdin, '\u001b[200~/tmp/shot.png\u001b[201~');
-
     assert.deepEqual(changes.at(-1), ['look [Image #1] here', 15]);
-
     await press(ui.stdin, '\u001b[200~more\u001b[201~');
-
     assert.deepEqual(changes.at(-1), ['look [Image #1]more here', 19]);
 
     assert.deepEqual(pastes, [
@@ -285,9 +256,7 @@ test('typed text never goes to onPaste', async () => {
 
   try {
     await press(ui.stdin, '/tmp/shot.png');
-
     assert.deepEqual(changes.at(-1), ['/tmp/shot.png', 13]);
-
     assert.deepEqual(pastes, []);
   } finally {
     await unmount(ui);
@@ -319,15 +288,10 @@ test('a paste after a shell ! goes in as written without onPaste, even when a re
 
   try {
     await press(ui.stdin, '\u001b[200~/tmp/a.png\u001b[201~');
-
     assert.deepEqual(changes.at(-1), ['!open /tmp/a.png', 16]);
-
     await act(async () => input.current!.set({ value: '!ls', cursor: 0 }));
-
     await press(ui.stdin, '\u001b[200~/tmp/b.png\u001b[201~');
-
     assert.deepEqual(changes.at(-1), ['!/tmp/b.pngls', 11]);
-
     assert.deepEqual(pastes, []);
   } finally {
     await unmount(ui);
@@ -359,7 +323,6 @@ test('the visible terminal cursor reaches the current insertion point without an
       callback: (error?: Error | null) => void,
     ) {
       this.output += chunk.toString();
-
       callback();
     }
   }
@@ -397,7 +360,6 @@ test('the visible terminal cursor reaches the current insertion point without an
 
   try {
     await press(stdin, 'abc');
-
     assert.equal(await column(), '6');
 
     await rerender(
@@ -410,11 +372,8 @@ test('the visible terminal cursor reaches the current insertion point without an
     );
 
     await press(stdin, 'a abcdefghi');
-
     await press(stdin, '\u001b[D'.repeat(6));
-
     assert.equal(await column(), '4');
-
     assert.ok(stdout.output.includes('\u001b[2A\u001b[4G'));
 
     for (const [text, width, end, left] of [
@@ -439,15 +398,10 @@ test('the visible terminal cursor reaches the current insertion point without an
       );
 
       await press(stdin, `\u001b[200~${text}\u001b[201~`);
-
       assert.equal(await column(), end);
-
       await press(stdin, '\u001b[D');
-
       assert.equal(await column(), left);
-
       await press(stdin, '\r');
-
       assert.deepEqual(submitted, [text]);
     }
 
@@ -463,7 +417,6 @@ test('the visible terminal cursor reaches the current insertion point without an
 
     // Up from the end of `cd` lands before the newline that ends `ab`
     await press(stdin, '\u001b[200~ab\ncd\u001b[201~\u001b[A');
-
     await ui.waitUntilRenderFlush();
 
     const moves = [
@@ -503,17 +456,11 @@ test('native secret questions mask the display and preserve commas in a single a
 
   try {
     await ready();
-
     await press(ui.stdin, '\u001b[200~red, green\u001b[201~');
-
     assert.ok(!ui.frames.some((frame) => frame.includes('red, green')));
-
     assert.ok(ui.lastFrame()?.includes('•••'));
-
     await press(ui.stdin, '\r');
-
     await press(ui.stdin, '1, 3');
-
     await press(ui.stdin, '\r');
 
     assert.deepEqual(answers, [
@@ -543,9 +490,7 @@ test("a question's answer fills the request's width", async () => {
 
   try {
     await ready();
-
     await press(ui.stdin, 'q'.repeat(41));
-
     assert.match(ui.lastFrame() ?? '', /(?<!q)q{40}(?!q)/);
   } finally {
     await unmount(ui);
@@ -616,20 +561,15 @@ test('MCP form submissions validate required fields, types and constraints befor
       if (text) await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
 
       await press(ui.stdin, '\r');
-
       assert.deepEqual(sent, []);
-
       assert.match(ui.lastFrame() ?? '', error);
 
       if (!text) {
         await press(ui.stdin, `\u001b[200~${JSON.stringify(valid)}\u001b[201~`);
-
         await press(ui.stdin, '\r');
-
         assert.deepEqual(sent, [{ decision: 'accept', content: valid }]);
       } else {
         await escape(ui.stdin);
-
         assert.deepEqual(sent, [{ decision: 'decline' }]);
       }
     } finally {
@@ -666,25 +606,15 @@ for (const [width, height] of [
 
     try {
       await ready();
-
       const invalid = JSON.stringify({ [property]: 123 });
-
       await press(ui.stdin, `\u001b[200~${invalid}\u001b[201~`);
-
       await press(ui.stdin, '\r');
-
       assert.deepEqual(sent, []);
-
       assert.match(ui.lastFrame() ?? '', /must be\s+string/);
-
       await press(ui.stdin, '\u007f'.repeat(invalid.length));
-
       const content = { [property]: '123' };
-
       await press(ui.stdin, `\u001b[200~${JSON.stringify(content)}\u001b[201~`);
-
       await press(ui.stdin, '\r');
-
       assert.deepEqual(sent, [{ decision: 'accept', content }]);
     } finally {
       await unmount(ui);
@@ -710,15 +640,10 @@ test('an MCP form whose schema cannot be compiled says so instead of blaming the
 
   try {
     await ready();
-
     await press(ui.stdin, '\r');
-
     assert.deepEqual(sent, []);
-
     const frame = ui.lastFrame() ?? '';
-
     assert.match(frame, /The request's schema can't be used: Invalid regular/);
-
     assert.doesNotMatch(frame, /matching the requested fields/);
   } finally {
     await unmount(ui);
@@ -746,11 +671,8 @@ test('an MCP form whose schema names draft-07 validates the answer', async () =>
 
   try {
     await ready();
-
     await press(ui.stdin, '\r');
-
     assert.deepEqual(sent, []);
-
     assert.match(ui.lastFrame() ?? '', /required property 'name'/);
 
     await press(
@@ -759,7 +681,6 @@ test('an MCP form whose schema names draft-07 validates the answer', async () =>
     );
 
     await press(ui.stdin, '\r');
-
     assert.deepEqual(sent, [{ decision: 'accept', content: { name: 'Ada' } }]);
   } finally {
     await unmount(ui);
@@ -786,7 +707,6 @@ test('a validation error quoting a schema property name cannot carry a link of i
 
   try {
     await ready();
-
     await press(ui.stdin, '\r');
 
     // the body shows the schema as JSON, where the URL is visible text and links as such
@@ -795,7 +715,6 @@ test('a validation error quoting a schema property name cannot carry a link of i
       .find((line) => line.includes('required property'));
 
     assert.match(error ?? '', /required property 'name/);
-
     assert.ok(!error?.includes('\u001b]8;;'), JSON.stringify(error));
   } finally {
     await unmount(ui);
@@ -820,9 +739,7 @@ test('browser elicitation confirms without JSON form content', async () => {
 
   try {
     await ready();
-
     await press(ui.stdin, '\r');
-
     assert.deepEqual(sent, [{ decision: 'accept', content: undefined }]);
   } finally {
     await unmount(ui);
@@ -1045,7 +962,6 @@ test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is dra
     );
 
     mounted.push(ui);
-
     await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
 
     const after = async (reads: readonly string[]) => {
@@ -1071,54 +987,33 @@ test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is dra
     ]);
 
     assert.equal(await tab.after(CMD_LEFT), 18);
-
     // the start of a row stays put rather than reaching the row above
     assert.equal(await tab.after(CMD_LEFT), 18);
-
     assert.equal(await tab.after(CMD_RIGHT), 23);
-
     // a soft row ends before its trailing space, past which the cursor is drawn on the next row
     assert.equal(await tab.after([...left(9), ...CMD_RIGHT]), 17);
-
     assert.equal(await tab.after(CMD_LEFT), 6);
-
     assert.equal(await tab.after([...left(2), ...CMD_LEFT]), 2);
-
     assert.equal(await tab.after(CMD_RIGHT), 5);
-
     // a word longer than the row breaks with no space to stop before, and wide characters fill it at five
     const long = await typed(10, '中'.repeat(8));
-
     assert.deepEqual(long.frame()?.slice(0, 2), ['中中中中中', '中中中']);
-
     assert.equal(await long.after(CMD_LEFT), 5);
-
     assert.equal(await long.after([...left(1), ...CMD_RIGHT]), 5);
-
     // the tab's cells span the row break, and the row that starts inside it takes the whole tab
     const split = await typed(6, 'abcd\tx');
-
     assert.deepEqual(split.frame()?.slice(0, 2), ['abcd', '  x']);
-
     assert.equal(await split.after(CMD_LEFT), 4);
-
     // a full-width line above another gets no cursor cell, so its end is drawn on its own row
     const full = await typed(10, 'abcdefghij\nx');
-
     assert.deepEqual(full.frame()?.slice(0, 2), ['abcdefghij', 'x']);
-
     assert.equal(await full.after([...left(2), ...CMD_LEFT]), 0);
-
     assert.equal(await full.after(CMD_RIGHT), 10);
-
     // the cursor cell after a full last row wraps onto a row of its own, so the full row ends before its trailing space
     const last = await typed(10, 'abcdefghi ');
-
     assert.equal(await last.after([...left(3), ...CMD_RIGHT]), 9);
-
     // inside a row's trailing spaces, Cmd+→ never moves left
     const spaced = await typed(10, 'abcdef    ghij kl');
-
     assert.deepEqual(spaced.frame()?.slice(0, 2), ['abcdef', 'ghij kl']);
 
     assert.equal(

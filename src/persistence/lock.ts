@@ -171,7 +171,6 @@ export async function lockedFiles(
 
   // report the process failure even when stdin also fails with EPIPE.
   result.child.stdin?.on('error', () => {}).end(`${files.join('\0')}\0`);
-
   const { stdout } = await result;
 
   const states = z

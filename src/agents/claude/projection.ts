@@ -79,7 +79,6 @@ export class ClaudeProjection {
           if (listed.has(id)) continue;
 
           this.workflows.delete(id);
-
           const subagent = this.subagents.get(id);
 
           if (subagent?.status === 'running')
@@ -87,13 +86,11 @@ export class ClaudeProjection {
         }
 
         this.listed = listed;
-
         this.settledHolder();
       } else if (message.subtype === 'task_notification') {
         if (this.late(message)) return;
 
         this.workflows.delete(message.task_id);
-
         const subagent = this.subagents.get(message.task_id);
 
         if (subagent) this.subagent({ ...subagent, status: message.status });
@@ -115,9 +112,7 @@ export class ClaudeProjection {
       ) {
         const text = event.delta.text;
         const id = this.currentMessage;
-
         this.messages()?.append(id, text);
-
         this.options.onEvent({ type: 'text', id, text });
       }
     } else if (
@@ -133,7 +128,6 @@ export class ClaudeProjection {
 
       if (text) {
         this.messages()?.replace(id, text);
-
         this.options.onEvent({ type: 'text', id, text, replace: true });
       }
 
@@ -255,7 +249,6 @@ export class ClaudeProjection {
 
   private subagent(subagent: Subagent): void {
     this.subagents.set(subagent.id, subagent);
-
     this.options.onEvent({ type: 'subagent', subagent });
   }
 
@@ -281,7 +274,6 @@ export class ClaudeProjection {
       if (name === undefined) continue;
 
       this.pendingCasts.delete(uuid);
-
       this.cast([{ id: uuid, name }]);
     }
   }

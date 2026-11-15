@@ -182,9 +182,7 @@ export class WorkTreeChanges {
 
       if (checkout && !checkout.state.baseline) {
         const baseline = await this.snapshot(checkout);
-
         await this.reclaim(checkout);
-
         checkout.state.baseline = baseline;
       }
     });
@@ -227,9 +225,7 @@ export class WorkTreeChanges {
       }
 
       checkout.state.objectsChanged = true;
-
       await rm(absorption.env.GIT_INDEX_FILE, { force: true });
-
       await this.git(absorption, ['read-tree', baseline.tree]);
 
       await this.git(
@@ -240,9 +236,7 @@ export class WorkTreeChanges {
       );
 
       const tree = (await this.git(absorption, ['write-tree'])).trim();
-
       await this.reclaim(checkout, tree);
-
       checkout.state.baseline = { ...baseline, tree };
     });
   }
@@ -260,7 +254,6 @@ export class WorkTreeChanges {
 
       if (!baseline) {
         await this.reclaim(checkout);
-
         checkout.state.baseline = snapshot;
 
         return none;
@@ -347,12 +340,10 @@ export class WorkTreeChanges {
         );
 
         budget -= cost(file);
-
         files.push(file);
       }
 
       await this.reclaim(checkout);
-
       checkout.state.baseline = snapshot;
 
       return { files, withHead, more: entries.length - shown.length };
@@ -524,7 +515,6 @@ export class WorkTreeChanges {
     if (state?.identity !== identity) {
       if (!this.checkouts.size) {
         await mkdir(this.directory, { recursive: true });
-
         // storage inside the checkout must stay out of its own snapshots.
         await writeFile(join(this.directory, '.gitignore'), '*\n');
       }
@@ -550,12 +540,10 @@ export class WorkTreeChanges {
       };
 
       await mkdir(join(state.directory, 'objects'), { recursive: true });
-
       this.checkouts.set(top, state);
     }
 
     const store = join(state.directory, 'objects');
-
     const inherited = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
 
     return {
@@ -580,7 +568,6 @@ export class WorkTreeChanges {
       return await this.refresh(checkout);
     } catch (error) {
       checkout.state.source = undefined;
-
       checkout.state.metadata.clear();
 
       throw error;
@@ -705,7 +692,6 @@ export class WorkTreeChanges {
 
     if (reset) {
       await this.resetIndex(checkout);
-
       entries = state.tracked;
     }
 
@@ -715,7 +701,6 @@ export class WorkTreeChanges {
 
     for (const path of paths) {
       this.closing.signal.throwIfAborted();
-
       let contained = true;
 
       for (
@@ -865,14 +850,11 @@ export class WorkTreeChanges {
 
   private async resetIndex(checkout: Checkout): Promise<void> {
     const copy = checkout.env.GIT_INDEX_FILE!;
-
     await rm(copy, { force: true });
 
     try {
       const { atime, mtime } = await stat(checkout.index);
-
       await copyFile(checkout.index, copy);
-
       await utimes(copy, atime, mtime);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;

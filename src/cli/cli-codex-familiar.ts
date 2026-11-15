@@ -98,13 +98,11 @@ export async function runCodexFamiliar(
 
   const fail = (error: unknown) => {
     failure ??= errorMessage(error);
-
     close();
   };
 
   const stop = () => {
     stopped = true;
-
     close();
   };
 
@@ -114,7 +112,6 @@ export async function runCodexFamiliar(
     if (requests.has(input.id)) return;
 
     const pending = { input, resolved: false, work: Promise.resolve() };
-
     requests.set(input.id, pending);
 
     pending.work = (async () => {
@@ -153,7 +150,6 @@ export async function runCodexFamiliar(
           throw new Error(`Unexpected familiar request reply: ${outcome.kind}`);
 
         action = { kind: 'familiar-request-poll', run, id: input.id };
-
         await delay(100);
       }
     })().catch((error: unknown) => {
@@ -168,7 +164,6 @@ export async function runCodexFamiliar(
       progress = { ...progress, model: event.info.model };
     else if (event.type === 'tool' && !event.done && !event.append) {
       tools.add(event.id);
-
       progress = { ...progress, tools: tools.size, activity: event.title };
     } else if (event.type === 'notice' && event.transient)
       progress = {
@@ -214,9 +209,7 @@ export async function runCodexFamiliar(
   };
 
   process.on('SIGINT', stop);
-
   process.on('SIGTERM', stop);
-
   let report = '';
   let status: FamiliarProgress['status'] = 'failed';
   let registered = false;
@@ -224,14 +217,10 @@ export async function runCodexFamiliar(
 
   try {
     await registerFamiliar(binding, run, name, 'codex', () => stopped);
-
     registered = true;
-
     reports.push(progress);
-
     heartbeat = setInterval(() => reports.push(progress), 2000);
     let prompt = '';
-
     process.stdin.setEncoding('utf8');
 
     for await (const chunk of process.stdin) prompt += chunk as string;
@@ -291,7 +280,6 @@ export async function runCodexFamiliar(
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
       status = result.status === 'interrupted' ? 'stopped' : result.status;
-
       await save();
 
       if (result.status !== 'completed') break;
@@ -320,15 +308,12 @@ export async function runCodexFamiliar(
     });
 
     ending = true;
-
     clearInterval(heartbeat);
 
     for (const pending of requests.values()) pending.resolved = true;
 
     await Promise.all([...requests.values()].map((pending) => pending.work));
-
     process.off('SIGINT', stop);
-
     process.off('SIGTERM', stop);
   }
 
@@ -354,7 +339,6 @@ export async function runCodexFamiliar(
       } catch (error) {
         status = stopped ? 'stopped' : 'failed';
         report = [report, errorMessage(error)].filter(Boolean).join('\n\n');
-
         await save();
       }
     }

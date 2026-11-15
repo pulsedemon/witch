@@ -45,7 +45,6 @@ export async function discover(
   ] as const;
 
   await Promise.allSettled(reads);
-
   const [presences, opened] = await Promise.all(reads);
   const { records, unreadable } = await store.records([...opened.keys()]);
 
@@ -115,9 +114,7 @@ export async function discover(
       );
 
       const summaries = unregistered.get(project) ?? [];
-
       summaries.push(conversationSummarySchema.parse(record));
-
       unregistered.set(project, summaries);
     } catch (error) {
       const { code, syscall } = error as NodeJS.ErrnoException;

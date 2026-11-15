@@ -22,7 +22,6 @@ export class NotificationSchedule {
 
   static async open(directory: string): Promise<NotificationSchedule> {
     const boot = z.uuid().parse(await bootSession());
-
     await mkdir(directory, { recursive: true, mode: 0o700 });
 
     return new NotificationSchedule(directory, boot);
