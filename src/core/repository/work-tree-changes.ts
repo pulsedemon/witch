@@ -57,7 +57,7 @@ interface SnapshotState {
   latest?: Baseline;
   source?: string;
   configuration?: string;
-  tracked: Map<string, TreeEntry & { skipped: boolean }>;
+  tracked: Map<string, TreeEntry & { skipped: boolean; unmerged: boolean }>;
   entries: Map<string, TreeEntry>;
   metadata: Map<string, FileState | undefined>;
   attributes: Map<string, string>;
@@ -616,21 +616,33 @@ export class WorkTreeChanges {
     let reset = state.source !== source;
 
     if (reset) {
-      state.tracked = new Map(
-        fields(
-          await this.git(original, ['ls-files', '-s', '-t', '-z'], listBuffer),
-        ).map((row) => {
-          const tab = row.indexOf('\t');
+      const tracked: SnapshotState['tracked'] = new Map();
 
-          const [status, mode, id] = row.slice(0, tab).split(' ') as [
-            string,
-            string,
-            string,
-          ];
+      for (const row of fields(
+        await this.git(original, ['ls-files', '-s', '-t', '-z'], listBuffer),
+      )) {
+        const tab = row.indexOf('\t');
 
-          return [row.slice(tab + 1), { mode, id, skipped: status === 'S' }];
-        }),
-      );
+        const [status, mode, id, stage] = row.slice(0, tab).split(' ') as [
+          string,
+          string,
+          string,
+          string,
+        ];
+
+        const path = row.slice(tab + 1);
+
+        // a gitlink in any merge stage must keep nested filters out of the snapshot.
+        if (tracked.get(path)?.mode !== gitlink)
+          tracked.set(path, {
+            mode,
+            id,
+            skipped: status === 'S',
+            unmerged: stage !== '0',
+          });
+      }
+
+      state.tracked = tracked;
     }
 
     const discovered = new Set(
@@ -692,19 +704,7 @@ export class WorkTreeChanges {
     let entries = state.entries;
 
     if (reset) {
-      const copy = checkout.env.GIT_INDEX_FILE!;
-
-      await rm(copy, { force: true });
-
-      try {
-        const { atime, mtime } = await stat(checkout.index);
-
-        await copyFile(checkout.index, copy);
-
-        await utimes(copy, atime, mtime);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      }
+      await this.resetIndex(checkout);
 
       entries = state.tracked;
     }
@@ -763,67 +763,80 @@ export class WorkTreeChanges {
         selected.add(path);
     }
 
-    const remove = new Set(excluded);
-    const files: string[] = [];
-    const directories: string[] = [];
-    const input: string[] = [];
-    const zero = '0'.repeat(state.hashLength);
+    const unmerged = [...selected].some(
+      (path) => state.tracked.get(path)?.unmerged,
+    );
 
-    for (const path of selected) {
-      const current = metadata.get(path);
-      const entry = entries.get(path);
+    let changed = reset || unmerged;
 
-      const nested =
-        current?.directory &&
-        (await this.fileState(join(checkout.top, path, '.git')));
-
-      if (!current || (current.directory && !nested)) {
-        if (entry) remove.add(path);
-
-        continue;
-      }
-
-      // conversion must see the real index's content, including its CRLF decisions.
-      const originalEntry = state.tracked.get(path);
-
-      if (originalEntry)
-        input.push(`${originalEntry.mode} ${originalEntry.id}\t${path}\0`);
-      else if (entry) remove.add(path);
-
-      (current.directory ? directories : files).push(path);
-    }
-
-    const indexInput =
-      [...remove].map((path) => `0 ${zero}\t${path}\0`).join('') +
-      input.join('');
-
-    if (reset || indexInput.length || files.length || directories.length)
+    if (unmerged) {
       state.objectsChanged = true;
 
-    if (indexInput.length)
-      await this.git(
-        checkout,
-        ['update-index', '-z', '--index-info'],
-        undefined,
-        indexInput,
+      if (!reset) await this.resetIndex(checkout);
+
+      await this.add(checkout);
+    } else {
+      const remove = new Set(excluded);
+      const files: string[] = [];
+      const directories: string[] = [];
+      const input: string[] = [];
+      const zero = '0'.repeat(state.hashLength);
+
+      for (const path of selected) {
+        const current = metadata.get(path);
+        const entry = entries.get(path);
+
+        const nested =
+          current?.directory &&
+          (await this.fileState(join(checkout.top, path, '.git')));
+
+        if (!current || (current.directory && !nested)) {
+          if (entry) remove.add(path);
+
+          continue;
+        }
+
+        // conversion must see the real index's content, including its CRLF decisions.
+        const originalEntry = state.tracked.get(path);
+
+        if (originalEntry)
+          input.push(`${originalEntry.mode} ${originalEntry.id}\t${path}\0`);
+        else if (entry) remove.add(path);
+
+        (current.directory ? directories : files).push(path);
+      }
+
+      const indexInput =
+        [...remove].map((path) => `0 ${zero}\t${path}\0`).join('') +
+        input.join('');
+
+      changed ||= Boolean(
+        indexInput.length || files.length || directories.length,
       );
 
-    if (files.length)
-      await this.git(
-        checkout,
-        ['update-index', '--add', '--remove', '--replace', '-z', '--stdin'],
-        undefined,
-        `${files.join('\0')}\0`,
-      );
+      if (changed) state.objectsChanged = true;
 
-    await this.add(checkout, directories);
+      if (indexInput.length)
+        await this.git(
+          checkout,
+          ['update-index', '-z', '--index-info'],
+          undefined,
+          indexInput,
+        );
+
+      if (files.length)
+        await this.git(
+          checkout,
+          ['update-index', '--add', '--remove', '--replace', '-z', '--stdin'],
+          undefined,
+          `${files.join('\0')}\0`,
+        );
+
+      await this.add(checkout, directories);
+    }
 
     const tree =
-      reset ||
-      indexInput.length ||
-      files.length ||
-      directories.length ||
-      !state.latest
+      changed || !state.latest
         ? (await this.git(checkout, ['write-tree'])).trim()
         : state.latest.tree;
 
@@ -848,6 +861,22 @@ export class WorkTreeChanges {
     state.latest = { tree, head, at };
 
     return state.latest;
+  }
+
+  private async resetIndex(checkout: Checkout): Promise<void> {
+    const copy = checkout.env.GIT_INDEX_FILE!;
+
+    await rm(copy, { force: true });
+
+    try {
+      const { atime, mtime } = await stat(checkout.index);
+
+      await copyFile(checkout.index, copy);
+
+      await utimes(copy, atime, mtime);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
 
   private async fileState(path: string): Promise<FileState | undefined> {
@@ -902,22 +931,31 @@ export class WorkTreeChanges {
     );
   }
 
-  private async add(checkout: Checkout, paths: string[]): Promise<void> {
-    if (!paths.length) return;
+  private async add(checkout: Checkout, paths?: string[]): Promise<void> {
+    if (paths?.length === 0) return;
+
+    const excluded = paths
+      ? []
+      : [...checkout.state.tracked]
+          .filter(([, entry]) => entry.mode === gitlink)
+          .map(([path]) => `:(top,exclude,literal)${path}`);
 
     try {
       await this.git(
         checkout,
         [
-          '--literal-pathspecs',
+          ...(paths ? ['--literal-pathspecs'] : []),
           'add',
           '-A',
           '--ignore-errors',
-          '--pathspec-from-file=-',
-          '--pathspec-file-nul',
+          ...(paths
+            ? ['--pathspec-from-file=-', '--pathspec-file-nul']
+            : excluded.length
+              ? ['--', ':(top)', ...excluded]
+              : []),
         ],
         undefined,
-        `${paths.join('\0')}\0`,
+        paths ? `${paths.join('\0')}\0` : undefined,
       );
     } catch (error) {
       if (exitCode(error) !== 1) throw error;

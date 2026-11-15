@@ -224,7 +224,7 @@ async function filtered() {
     run,
   );
 
-  return { ...fixture, marker, config, second, calls };
+  return { ...fixture, marker, config, second, calls, run };
 }
 
 test('unchanged unstaged and untracked files reuse canonical blobs without index enumeration', async () => {
@@ -1302,3 +1302,104 @@ test('an invalid nested Git directory in a tracked file replacement keeps ignore
     more: 0,
   });
 });
+
+for (const ours of ['lf', 'crlf', 'absent'])
+  test(`unmerged index conversion uses ${ours} from our side and preserves native mode and no-op filtering`, async () => {
+    const fixture = await filtered();
+    const { root, work, git, marker } = fixture;
+    let privateEnv: NodeJS.ProcessEnv | undefined;
+    let tree = '';
+
+    const changes = new WorkTreeChanges(
+      join(root, 'merge-changes'),
+      async (command, args, options) => {
+        const result = await fixture.run(command, args, options);
+
+        if (args.includes('write-tree')) {
+          privateEnv = options.env;
+          tree = result.stdout.trim();
+        }
+
+        return result;
+      },
+    );
+
+    await git('config', 'core.autocrlf', 'false');
+
+    await git('config', 'core.filemode', 'false');
+
+    await writeFile(
+      join(work, '.gitattributes'),
+      '*.txt filter=probe text=auto\n',
+    );
+
+    await writeFile(join(root, 'lf'), 'one:one\n');
+
+    await writeFile(join(root, 'crlf'), 'one:one\r\n');
+
+    const lf = (
+      await git('hash-object', '-w', '--no-filters', join(root, 'lf'))
+    ).stdout.trim();
+
+    const crlf = (
+      await git('hash-object', '-w', '--no-filters', join(root, 'crlf'))
+    ).stdout.trim();
+
+    const records = [
+      `0 ${'0'.repeat(lf.length)}\ta.txt`,
+      `100755 ${lf} 1\ta.txt`,
+      ...(ours === 'absent'
+        ? []
+        : [`100755 ${ours === 'lf' ? lf : crlf} 2\ta.txt`]),
+      `100644 ${ours === 'crlf' ? lf : crlf} 3\ta.txt`,
+    ];
+
+    await fixture.run('git', ['update-index', '-z', '--index-info'], {
+      cwd: work,
+      timeout: 10_000,
+      input: `${records.join('\0')}\0`,
+    });
+
+    await git('init', '-q', join(work, 'unborn'));
+
+    const original = await readFile(join(work, '.git', 'index'));
+
+    await writeFile(join(work, 'a.txt'), 'one\r\n');
+
+    await changes.watch(work);
+
+    const count = (await readFile(marker)).length;
+
+    assert.deepEqual((await changes.read(work)).files, []);
+
+    assert.equal((await readFile(marker)).length, count);
+
+    const indexed = await execute('git', ['ls-tree', tree, '--', 'a.txt'], {
+      cwd: work,
+      timeout: 10_000,
+      env: privateEnv,
+    });
+
+    assert.match(indexed.stdout, /^100755 blob [0-9a-f]+\ta\.txt\n$/);
+
+    await writeFile(join(work, 'a.txt'), 'one\n');
+
+    assert.deepEqual(
+      (await changes.read(work)).files.map((file) =>
+        file.hunks.flatMap((hunk) => hunk.lines),
+      ),
+      ours === 'crlf' ? [['-one:one\r', '+one:one']] : [],
+    );
+
+    const stable = (await readFile(marker)).length;
+
+    assert.deepEqual((await changes.read(work)).files, []);
+
+    assert.equal((await readFile(marker)).length, stable);
+
+    changes.close();
+
+    await changes.settled();
+
+    assert.deepEqual(await readFile(join(work, '.git', 'index')), original);
+  });
