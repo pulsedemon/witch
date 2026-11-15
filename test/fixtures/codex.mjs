@@ -934,6 +934,83 @@ for await (const line of lines) {
 
     reply({ turn: { id: 'turn-1' } });
 
+    if (familiar === 'nested-markers') {
+      const markers = JSON.parse(
+        readFileSync(file('marker-input.json'), 'utf8'),
+      );
+
+      const item = (id) => ({
+        type: 'commandExecution',
+        id,
+        command: 'nested wrapper',
+        cwd: process.cwd(),
+        processId: null,
+        status: 'inProgress',
+      });
+
+      const output = (id, delta) =>
+        notify('item/commandExecution/outputDelta', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          itemId: id,
+          delta,
+        });
+
+      for (const id of ['nested-a', 'nested-b'])
+        notify('item/started', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          item: item(id),
+        });
+
+      notify('item/started', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        item: {
+          type: 'mcpToolCall',
+          id: 'read',
+          server: 'fixture',
+          tool: 'read',
+          arguments: {},
+        },
+      });
+
+      output('read', markers.noncommand);
+      output('nested-a', markers.valid.slice(0, 19));
+      output('nested-b', 'ordinary command output\n' + markers.foreign);
+      output('nested-a', markers.valid.slice(19));
+      output('nested-b', 'x'.repeat(4097));
+      output('nested-b', markers.discarded + markers.recovered);
+
+      void held().then(() => {
+        for (const id of ['nested-a', 'nested-b'])
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              ...item(id),
+              status: 'completed',
+              exitCode: 0,
+              aggregatedOutput: markers.valid + markers.recovered,
+            },
+          });
+
+        notify('item/completed', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          item: {
+            type: 'agentMessage',
+            id: 'result',
+            text: 'Nested markers finished.',
+          },
+        });
+
+        finish('completed');
+      });
+
+      continue;
+    }
+
     if (familiar && prompt !== 'hold') {
       notify('model/rerouted', {
         threadId: 'native-thread',
