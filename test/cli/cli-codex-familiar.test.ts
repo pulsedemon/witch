@@ -14,6 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 import { codexArguments } from '../../src/cli/cli-codex-familiar.js';
+import { familiarMarker } from '../../src/agents/familiar-report.js';
 import { parseCommand } from '../../src/cli/cli-control.js';
 import type { UserResponse } from '../../src/agents/types.js';
 import { ControlHost } from '../../src/persistence/control.js';
@@ -212,6 +213,7 @@ syncBuiltinESMExports();
 
   return {
     root,
+    binding,
     report,
     child,
     closed,
@@ -401,6 +403,62 @@ test("a Codex familiar lists its spells before its turn and reports its own and 
       { id: `native-thread/turn-1/${path}`, name: 'a' },
       { id: `child-thread/child-turn-1/${path}`, name: 'a' },
     ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a Codex familiar relays only live bound command markers', async () => {
+  const f = await fixture({ mode: 'nested-markers', openStdin: true });
+
+  const marker = () => ({
+    version: 1 as const,
+    conversation: f.binding.conversation,
+    activation: f.binding.activation,
+    run: randomUUID(),
+  });
+
+  const valid = familiarMarker(marker());
+  const recovered = familiarMarker(marker());
+  const foreign = familiarMarker({ ...marker(), activation: randomUUID() });
+  const noncommand = familiarMarker(marker());
+  const discarded = familiarMarker(marker());
+
+  try {
+    await writeFile(
+      join(f.root, 'marker-input.json'),
+      JSON.stringify({ valid, recovered, foreign, noncommand, discarded }),
+    );
+
+    f.child.stdin.end();
+
+    await until('bound markers before command completion', () =>
+      f.output().stdout.includes(recovered),
+    );
+
+    assert.equal(f.output().stdout.split(valid).length - 1, 1);
+    assert.equal(f.child.exitCode, null);
+    assert.equal(f.output().stdout.includes('Saved report:'), false);
+    assert.equal(f.output().stdout.includes('ordinary command output'), false);
+
+    for (const ignored of [foreign, noncommand, discarded])
+      assert.equal(f.output().stdout.includes(ignored), false);
+
+    await writeFile(join(f.root, 'release'), 'finish');
+    assert.equal(await within(f.closed, 8000, 'nested marker completion'), 0);
+
+    for (const expected of [valid, recovered])
+      assert.equal(
+        f
+          .output()
+          .stdout.split('\n')
+          .filter((line) => line === expected.trim()).length,
+        1,
+      );
+
+    assert.equal(await readFile(f.report, 'utf8'), 'Nested markers finished.');
+    assert.equal(f.updates().at(-1)!.status, 'completed');
+    assert.equal(await identifyProcess((await f.launch()).pid), undefined);
   } finally {
     await f.close();
   }
