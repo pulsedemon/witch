@@ -218,8 +218,10 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
 
     write(text);
 
+    // Enter written before the app reads the text arrives in the same chunk and is inserted as a newline.
+    // the transcript repeats earlier prompts, so only the composer's own row shows this one was read
     await wait('composer text', () =>
-      stripAnsi(output.slice(start)).includes(text),
+      stripAnsi(output.slice(start)).includes(`┃ ${text}`),
     );
 
     write('\r');
