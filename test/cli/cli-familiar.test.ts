@@ -235,7 +235,7 @@ test('the wrapper retries a lost marker, preserves native inputs and saves every
   }
 });
 
-test('a timed-out accepted progress request retries its sequence and sends the terminal snapshot after it', async () => {
+test('a slow accepted progress reply is not republished and the terminal snapshot follows it', async () => {
   let delayed = false;
 
   const f = await fixture('success', async (request) => {
@@ -252,21 +252,22 @@ test('a timed-out accepted progress request retries its sequence and sends the t
 
   try {
     assert.equal(
-      await within(f.closed, 5000, 'retry completion'),
+      await within(f.closed, 5000, 'slow reply completion'),
       0,
       f.output().stderr,
     );
 
     const updates = f.updates();
+    const sequences = updates.map((action) => action.sequence);
+    assert.equal(sequences[0], 0);
 
     assert.deepEqual(
-      updates.map((action) => action.sequence),
-      [0, 0, 1],
+      sequences,
+      [...new Set(sequences)].sort((a, b) => a - b),
     );
 
-    assert.deepEqual(updates[0], updates[1]);
-    assert.equal(updates[2]!.progress.status, 'completed');
-    assert.equal(updates[2]!.progress.tools, 2);
+    assert.equal(updates.at(-1)!.progress.status, 'completed');
+    assert.equal(updates.at(-1)!.progress.tools, 2);
   } finally {
     await f.close();
   }
@@ -303,8 +304,8 @@ for (const kind of ['permission', 'malformed'] as const)
         if (!String(args[0]).startsWith(join(directory, 'replies')))
           return originalRead(...args);
 
-        now.mockReturnValue(10_950);
-        advance = setTimeout(() => now.mockReturnValue(11_001), 0);
+        now.mockReturnValue(30_950);
+        advance = setTimeout(() => now.mockReturnValue(31_001), 0);
 
         if (kind === 'permission')
           throw Object.assign(new Error('EACCES: reply unreadable'), {
@@ -408,7 +409,7 @@ test('an exhausted progress timeout leaves the child running and delivers its fi
     const native = await identifyProcess(launch.pid);
     assert.ok(native);
     await within(entered.promise, 3000, 'stalled progress');
-    await delay(11_000);
+    await delay(32_000);
     assert.equal(f.child.exitCode, null);
     assert.deepEqual(await identifyProcess(launch.pid), native);
     await writeFile(join(f.root, 'exit'), 'yes');
@@ -439,6 +440,39 @@ test('an exhausted progress timeout leaves the child running and delivers its fi
   }
 });
 
+test('registration and the final report succeed when the host answers after 10 s', async () => {
+  const f = await fixture('success', async (request) => {
+    if (
+      request.action.kind === 'familiar-register' ||
+      (request.action.kind === 'familiar-update' &&
+        request.action.progress.status !== 'running')
+    )
+      await delay(11_000);
+
+    return {
+      kind:
+        request.action.kind === 'familiar-register'
+          ? 'familiar-registered'
+          : 'familiar-updated',
+    };
+  });
+
+  try {
+    assert.equal(
+      await within(f.closed, 48_000, 'slow host completion'),
+      0,
+      f.output().stderr,
+    );
+
+    assert.doesNotMatch(
+      await readFile(join(f.root, 'report.txt'), 'utf8'),
+      /Familiar reporting failed/,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
 test('an exhausted final report timeout retains the result and exits failed', async () => {
   const gate = Promise.withResolvers<void>();
 
@@ -456,7 +490,7 @@ test('an exhausted final report timeout retains the result and exits failed', as
   });
 
   try {
-    assert.equal(await within(f.closed, 14_000, 'final delivery budget'), 1);
+    assert.equal(await within(f.closed, 36_000, 'final delivery budget'), 1);
     const report = await readFile(join(f.root, 'report.txt'), 'utf8');
     assert.ok(report.startsWith('Full review.\n'.repeat(7000)));
 
