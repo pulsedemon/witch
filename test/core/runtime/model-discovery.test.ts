@@ -12,6 +12,7 @@ import { scratch } from '../../fixtures/scratch.js';
 import { within } from '../../fixtures/within.js';
 import { untimed } from '../../fixtures/limits.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';
+import { unreportedContextCatalog } from '../../fixtures/codex-adapter.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
 
 async function discovery(
@@ -69,7 +70,10 @@ async function discovery(
 
           return start(options.signal);
         })
-      : new CodexAdapter((_, _cwd, signal) => start(signal));
+      : new CodexAdapter(
+          (_, _cwd, signal) => start(signal),
+          unreportedContextCatalog,
+        );
 
   return {
     children,

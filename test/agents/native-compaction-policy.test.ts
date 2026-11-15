@@ -417,6 +417,11 @@ test('Codex refuses a window change while a command is active without changing t
       /background work/,
     );
 
+    await assert.rejects(
+      f.session.selectModel('model-a', undefined, 'default'),
+      /background work/,
+    );
+
     assert.equal(f.session.info.model, 'model-a');
 
     assert.deepEqual(f.calls, []);
@@ -433,7 +438,12 @@ test('a failed Codex reload leaves the prompt unsent and retries the policy befo
   try {
     await writeFile(join(f.cwd, 'resume-fail'), '');
 
-    await assert.rejects(f.session.selectModel('model-b'), /resume refused/);
+    await assert.rejects(
+      f.session.selectModel('model-b', undefined, 'default'),
+      /resume refused/,
+    );
+
+    assert.equal(f.session.info.contextWindow, undefined);
 
     f.calls.length = 0;
     const failed = await f.session.send('keep this prompt');
@@ -465,6 +475,8 @@ test('a failed Codex reload leaves the prompt unsent and retries the policy befo
     const result = await within(pending, 2000, 'retried prompt');
 
     assert.equal(result.status, 'completed');
+
+    assert.equal(f.session.info.contextWindow, 'default');
 
     const methods = f.calls.map((call) => call.method);
 
@@ -1187,6 +1199,215 @@ test('Codex refuses a window-changing selection until a running familiar complet
     await f.session.selectModel('model-b');
 
     assert.equal(f.session.info.model, 'model-b');
+  } finally {
+    await writeFile(join(f.cwd, 'exit'), '');
+
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Codex publishes default and maximum usable capacities before a turn and keeps the choice on effort updates', async () => {
+  const calls: RpcMessage[] = [];
+
+  const f = await fixture(undefined, {
+    model: 'model-a',
+    automaticCompaction: true,
+    configuration: { model_context_window: 240_000 },
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'model-a',
+          context_window: 272_000,
+          max_context_window: 872_000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+    onClient: (call) => calls.push(call),
+  });
+
+  try {
+    assert.equal(f.session.usage.contextWindow, 228_000);
+
+    assert.deepEqual(
+      (await f.session.models()).find((model) => model.id === 'model-a')
+        ?.contextWindows,
+      { default: 258_400, maximum: 828_400 },
+    );
+
+    await f.session.selectModel('model-a', undefined, 'default');
+
+    assert.equal(f.session.info.contextWindow, 'default');
+
+    assert.equal(f.session.usage.contextWindow, 258_400);
+
+    await f.session.selectModel('model-a', undefined, 'maximum');
+
+    assert.equal(f.session.info.contextWindow, 'maximum');
+
+    assert.equal(f.session.usage.contextWindow, 828_400);
+
+    calls.length = 0;
+
+    await f.session.selectModel('model-a', 'high');
+
+    assert.equal(f.session.info.contextWindow, 'maximum');
+
+    assert.equal(f.session.usage.contextWindow, 828_400);
+
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ['thread/settings/update'],
+    );
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Codex reloads a changed window even when both compaction thresholds are capped at 600k', async () => {
+  const calls: RpcMessage[] = [];
+
+  const f = await fixture(undefined, {
+    model: 'model-a',
+    resume: 'native-thread',
+    automaticCompaction: true,
+    contextWindow: 'default',
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'model-a',
+          context_window: 800_000,
+          max_context_window: 850_000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+    onClient: (call) => calls.push(call),
+  });
+
+  try {
+    assert.equal(f.session.usage.contextWindow, 760_000);
+
+    calls.length = 0;
+
+    await f.session.selectModel('model-a', undefined, 'maximum');
+
+    assert.equal(f.session.usage.contextWindow, 807_500);
+
+    assert.equal(f.session.info.contextWindow, 'maximum');
+
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ['thread/unsubscribe', 'thread/resume'],
+    );
+
+    const params = calls.at(-1)!.params as { config: Record<string, unknown> };
+
+    assert.equal(params.config.model_context_window, 850_000);
+
+    assert.equal(params.config.model_auto_compact_token_limit, 600_000);
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Codex keeps the applied capacity when resume replays an older turn usage', async () => {
+  const events: AgentEvent[] = [];
+
+  const f = await fixture((event) => events.push(event), {
+    model: 'model-a',
+    resume: 'native-thread',
+    automaticCompaction: true,
+    contextWindow: 'default',
+    mode: 'compaction',
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'model-a',
+          context_window: 800_000,
+          max_context_window: 850_000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+  });
+
+  const emit = frameWriter(f.cwd, (text) =>
+    events.some((event) => event.type === 'notice' && event.text === text),
+  );
+
+  try {
+    await f.session.selectModel('model-a', undefined, 'maximum');
+
+    await emit({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'native-thread',
+        turnId: 'earlier-turn',
+        tokenUsage: {
+          last: { totalTokens: 20_000 },
+          modelContextWindow: 760_000,
+        },
+      },
+    });
+
+    assert.equal(f.session.usage.contextWindow, 807_500);
+
+    assert.ok(Math.abs(f.session.usage.context! - 2.476780185758514) < 1e-10);
+
+    assert.equal(f.session.info.contextWindow, 'maximum');
+  } finally {
+    await writeFile(join(f.cwd, 'exit'), '');
+
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Codex retains native usage when the active model has no catalog capacity', async () => {
+  const events: AgentEvent[] = [];
+
+  const f = await fixture((event) => events.push(event), {
+    model: 'model-a',
+    automaticCompaction: true,
+    mode: 'compaction',
+    contextCatalog: async () => ({
+      models: [
+        {
+          slug: 'other-model',
+          context_window: 800_000,
+          max_context_window: 850_000,
+          effective_context_window_percent: 95,
+        },
+      ],
+    }),
+  });
+
+  const emit = frameWriter(f.cwd, (text) =>
+    events.some((event) => event.type === 'notice' && event.text === text),
+  );
+
+  try {
+    await emit({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'native-thread',
+        turnId: 'earlier-turn',
+        tokenUsage: {
+          last: { totalTokens: 80_000 },
+          modelContextWindow: 100_000,
+        },
+      },
+    });
+
+    assert.equal(f.session.usage.context, 80);
+
+    assert.equal(f.session.usage.contextWindow, 100_000);
+
+    await f.session.selectModel('model-a');
+
+    assert.equal(f.session.usage.context, 80);
+
+    assert.equal(f.session.usage.contextWindow, 100_000);
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
 

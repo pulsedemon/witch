@@ -4,10 +4,15 @@ import type { ControlBinding } from '../persistence/control.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import type { CommandPrefixes } from './tool-title.js';
 
+export const contextWindowChoiceSchema = z.enum(['default', 'maximum']);
+
+export type ContextWindowChoice = z.infer<typeof contextWindowChoiceSchema>;
+
 export interface Model {
   id: string;
   label: string;
   efforts: string[];
+  contextWindows?: { default: number; maximum: number };
 }
 
 /** a native skill or command run by sending `/name args`; the composer offers it after `/` unless it is `builtin`. */
@@ -43,6 +48,7 @@ export interface SessionInfo {
   hasHistory: boolean;
   /** the requested effort in force; undefined when none was requested. */
   effort?: string;
+  contextWindow?: ContextWindowChoice;
   /** the effort the agent reports in force, its own default included. */
   nativeEffort?: string;
 }
@@ -359,10 +365,14 @@ export interface AgentSession {
   ): Promise<boolean>;
 
   /**
-   * an omitted effort keeps the one in force; `null` resets it where the native agent can. refused during a turn
-   * unless it has `replied`.
+   * an omitted effort or window choice keeps the one in force; `null` resets effort where the native agent can.
+   * refused during a turn unless it has `replied`.
    */
-  selectModel(model: string, effort?: string | null): Promise<void>;
+  selectModel(
+    model: string,
+    effort?: string | null,
+    contextWindow?: ContextWindowChoice,
+  ): Promise<void>;
 
   /** refuses a new choice the runtime would accept now and fail at the next turn; restoring a model the session already ran skips it. */
   checkModel?(model: string): Promise<void>;
@@ -399,6 +409,7 @@ export interface SessionOptions {
   executable: string;
   resume?: string;
   model?: string;
+  contextWindow?: ContextWindowChoice;
   /** the effort to start with; omitted keeps the native default. */
   effort?: string;
   memoryDirectories: string[];

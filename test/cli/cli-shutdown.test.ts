@@ -27,7 +27,13 @@ async function check(
   action: 'escape' | 'exit' | 'restart',
 ) {
   const root = await scratch(`witch-${runtime}-${action}-`);
-  const cli = await compiledCli();
+
+  const cli = await within(
+    compiledCli(),
+    100,
+    'CLI build prepared before the test deadline',
+  );
+
   const project = join(root, 'project');
   const bin = join(root, 'bin');
   const restartGate = join(root, 'restart');

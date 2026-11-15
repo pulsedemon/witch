@@ -6,7 +6,7 @@ import { cleanScratch, scratch } from './scratch.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
-    /** the run's directory where `compiledCli` builds `dist` on first use. */
+    /** the shared CLI build directory for this run. */
     cliBuild: string;
   }
 }
