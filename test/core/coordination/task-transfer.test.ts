@@ -176,7 +176,7 @@ for (const { budget, wait } of [
         field: 'transfer',
         deadline: 1000 + budget,
         request: async (expires) => {
-          expiries.push(expires);
+          expiries.push(expires());
 
           throw new Error('Request refused');
         },
@@ -190,6 +190,52 @@ for (const { budget, wait } of [
 
     assert.deepEqual(expiries, [1000 + wait]);
   });
+
+test('a request that is slow to record still gives the owner 8 s from the write', async () => {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+  let recorded = 0;
+  let reads = 0;
+
+  await assert.rejects(
+    awaitTransfer({
+      conversation: 'requester',
+      activation: 'activation',
+      reference: 'task:shared',
+      field: 'transfer',
+      deadline: 31_000,
+      request: async (expires) => {
+        now.mockReturnValue(10_000);
+        recorded = expires();
+
+        return {
+          id: 'claim',
+          owner: { conversation: 'owner', project: 'project' },
+          references: ['task:shared'],
+          summary: 'Shared work',
+          createdAt: 0,
+          transfer: {
+            to: { conversation: 'requester', project: 'project' },
+            activation: 'activation',
+            process: { pid: 1, started: 'then' },
+            expires: recorded,
+          },
+        };
+      },
+      title: async () => 'Owner',
+      admit: () => {},
+      read: async () => {
+        reads++;
+
+        return { ledger: { claims: [], selections: [] } };
+      },
+      withdraw: async () => undefined,
+    }),
+    /task:shared was released/,
+  );
+
+  assert.equal(recorded, 18_000);
+  assert.equal(reads, 1);
+});
 
 test('an owner whose handover fails shows why until one succeeds', async (t) => {
   const { a, b, tick, requested } = await transfer(t);

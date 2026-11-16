@@ -702,7 +702,7 @@ async function transferFixture(
                 (entry) => entry.owner.conversation === owner.conversation,
               )!,
             },
-        { activation, process: requester, expires },
+        { activation, process: requester, expires: () => expires },
         Date.now() + 5000,
         verify,
       ),
@@ -749,7 +749,7 @@ test('a captured automatic conflict cannot take a retained main claim after its 
       {
         activation: (await f.hold()).activation,
         process: f.requester,
-        expires: Date.now() + 5000,
+        expires: () => Date.now() + 5000,
       },
       Date.now() + 5000,
       verify,
@@ -783,7 +783,7 @@ test('an automatic transfer still follows a conflict caused only by a requested 
     {
       activation: (await f.hold()).activation,
       process: f.requester,
-      expires: Date.now() + 5000,
+      expires: () => Date.now() + 5000,
     },
     Date.now() + 5000,
     verify,
@@ -860,7 +860,7 @@ test('automatic transfer never follows a released reference onto a replacement c
     f.store.requestTransfer(
       taker,
       { field: 'automaticTransfer', claim: original, input },
-      { activation, process: f.requester, expires: Date.now() + 5000 },
+      { activation, process: f.requester, expires: () => Date.now() + 5000 },
       Date.now() + 5000,
       verify,
     ),
@@ -884,7 +884,7 @@ test('automatic transfer refuses a claim that moved since the conflict', async (
       {
         activation: (await f.hold()).activation,
         process: identity,
-        expires: Date.now() + 5000,
+        expires: () => Date.now() + 5000,
       },
       Date.now() + 5000,
       verify,
@@ -911,7 +911,7 @@ for (const field of ['transfer', 'automaticTransfer'] as const)
         {
           activation: (await f.hold()).activation,
           process: identity,
-          expires: Date.now() + 5000,
+          expires: () => Date.now() + 5000,
         },
         Date.now() + 5000,
         verify,
