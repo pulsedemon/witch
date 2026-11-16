@@ -107,7 +107,8 @@ export class Reviewers {
 
     const groups: number[] = [];
     const diagnostics = reviewers.map(() => '');
-    // kept apart from stderr, which can still arrive after the exit
+    const drained: Promise<void>[] = [];
+    // a signal name, kept apart from the stream's text
     const killed: (NodeJS.Signals | null)[] = reviewers.map(() => null);
 
     const exits = reviewers.map(
@@ -122,6 +123,10 @@ export class Reviewers {
           if (child.pid) groups.push(child.pid);
 
           child.stderr.setEncoding('utf8');
+
+          drained.push(
+            new Promise((drain) => child.stderr.once('close', () => drain())),
+          );
 
           child.stderr.on('data', (chunk: string) => {
             diagnostics[index] = (diagnostics[index] + chunk).slice(-2000);
@@ -142,6 +147,7 @@ export class Reviewers {
     let stopping: Promise<void> | undefined;
     // a stop that misses its deadline ends the run even while a command still hasn't exited
     const missed = Promise.withResolvers<never>();
+    const aborted = Promise.withResolvers<void>();
 
     const abort = () => {
       stopping ??= stopGroups(
@@ -152,6 +158,7 @@ export class Reviewers {
       );
 
       stopping.catch(missed.reject);
+      aborted.resolve();
     };
 
     signal.addEventListener('abort', abort, { once: true });
@@ -175,6 +182,13 @@ export class Reviewers {
         const deadline = stopDeadline();
         await beforeDeadline(gone(groups, deadline, signal), deadline);
       }
+
+      // a stop or the deadline ends this wait for output still in the pipe after the exit, since a descendant outside
+      // the group can keep stderr open
+      await beforeDeadline(
+        Promise.race([Promise.all(drained), aborted.promise]),
+        stopDeadline(),
+      ).catch(() => {});
 
       if (stopping) await stopping;
 
