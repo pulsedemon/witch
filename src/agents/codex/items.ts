@@ -30,6 +30,20 @@ export const fileChanges = z.array(
   }),
 );
 
+export function fileChangeKey(
+  threadId: string,
+  turnId: string,
+  itemId: string,
+): string {
+  return JSON.stringify([threadId, turnId, itemId]);
+}
+
+export const fileChangeIdentity = z.object({
+  threadId: z.string(),
+  turnId: z.string(),
+  itemId: z.string(),
+});
+
 const mcpCall = z.object({
   server: z.string(),
   tool: z.string(),
