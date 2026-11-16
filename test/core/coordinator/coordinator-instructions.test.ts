@@ -278,6 +278,11 @@ test("the fixed instructions keep the checkout on an open pull request's branch"
       rule,
       /work you are asked to do afterwards may still take the checkout off a merged branch when it needs to/,
     );
+
+    assert.match(
+      rule,
+      /The cleanup also removes a gitignored plan in docs\/superpowers\/plans or docs\/plans written for that branch alone: one whose branch-creating git commands, with the name unquoted as in `git switch -c fix\/x`, and \*\*Branch:\*\* `fix\/x` lines name only that branch\. Its notice names a gitignored plan that mentions the branch but stays\./,
+    );
   } finally {
     await f.coordinator.close();
   }
