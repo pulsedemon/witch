@@ -941,7 +941,7 @@ test('while the agent works, activity sits below a separator against the compose
   };
 
   const activity =
-    /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (CONJURING|SCRYING|BREWING|DIVINING|INCANTING|SUMMONING|HEXING|TRANSMUTING) \| (\d+)S \| ESC TO INTERRUPT$/;
+    /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (CONJURING|SCRYING|BREWING|DIVINING|INCANTING|SUMMONING|HEXING|TRANSMUTING) \| (\d+)S \| ESC TO INTERRUPT \| QUIET \d+S$/;
 
   try {
     await until('the activity row', () => activity.exec(row())?.[2] === '0');

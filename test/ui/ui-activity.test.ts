@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { test, vi } from 'vitest';
 import type { UserRequest } from '../../src/agents/types.js';
+import type { DisplayItem } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
 import { TurnGate } from '../fixtures/agent.js';
 import { unitFixture } from '../fixtures/coordinator.js';
@@ -171,5 +172,193 @@ test('a new operation resets the activity before its next tick when the UI batch
   } finally {
     ui.unmount();
     vi.useRealTimers();
+  }
+});
+
+const at = (milliseconds: number) => new Date(milliseconds).toISOString();
+
+const said = (text: string, when: number): DisplayItem => ({
+  id: 'turn/a/said',
+  kind: 'assistant',
+  title: 'a',
+  text,
+  cwd: '/work',
+  at: at(when),
+});
+
+const call = (name: string, when: number, done = true): DisplayItem => ({
+  id: `turn/a/${name}`,
+  kind: 'tool',
+  title: name,
+  text: '',
+  cwd: '/work',
+  done,
+  at: at(when),
+});
+
+test('the working row counts quiet time from the agent’s last update and names what runs', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+  vi.setSystemTime(400_000);
+
+  const items = [
+    said('Merging main now.', 160_000),
+    call('git merge origin/main', 175_000),
+  ];
+
+  const { app, coordinator } = fake({
+    phase: 'running',
+    activityStartedAt: 100_000,
+    items,
+  });
+
+  const ui = show(createElement(App, { coordinator: app, onExit() {} }));
+
+  const row = () =>
+    ui
+      .text()
+      .split('\n')
+      .find((line) => line.includes('QUIET'))
+      ?.trim() ?? '';
+
+  try {
+    await until('a quiet turn', () =>
+      row().endsWith('| 5M00S | ESC TO INTERRUPT | QUIET 3M45S'),
+    );
+
+    coordinator.publish({
+      items: [...items, call('pnpm check', 400_000, false)],
+    });
+
+    await until('a running tool', () =>
+      row().endsWith('| QUIET 0S | RUNNING pnpm check'),
+    );
+
+    vi.setSystemTime(470_000);
+    vi.advanceTimersByTime(100);
+
+    await until('the quiet count advancing', () =>
+      row().endsWith('| QUIET 1M10S | RUNNING pnpm check'),
+    );
+
+    coordinator.publish({ requests: [approval] });
+
+    await until(
+      'the approval replaces the row',
+      () => row() === '' && ui.text().includes(approval.title),
+    );
+
+    vi.setSystemTime(500_000);
+    coordinator.publish({ requests: [] });
+
+    await until('the quiet count kept across the approval', () =>
+      row().endsWith('| QUIET 1M40S | RUNNING pnpm check'),
+    );
+  } finally {
+    ui.unmount();
+    vi.useRealTimers();
+  }
+});
+
+test('the agent’s latest message stays above the tool window while a diff fills the transcript', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+  vi.setSystemTime(1_000_000);
+
+  const { app } = fake({
+    phase: 'running',
+    activityStartedAt: 100_000,
+    pendingCompaction: true,
+    queue: ['after this'],
+    items: [
+      said(
+        'Main also received a formatting sweep.\nI’m integrating it.',
+        159_000,
+      ),
+      {
+        ...call('git merge --no-commit origin/main', 775_000),
+        diff: [
+          {
+            path: '/work/a.txt',
+            kind: 'update',
+            hunks: [
+              {
+                oldStart: 1,
+                newStart: 1,
+                lines: Array.from({ length: 80 }, (_, i) => `+line ${i + 1}`),
+              },
+            ],
+          },
+        ],
+      },
+      call('cat a.txt', 775_000),
+      call('cat b.txt', 775_000),
+    ],
+  });
+
+  const ui = show(createElement(App, { coordinator: app, onExit() {} }));
+  const lines = () => ui.text().split('\n');
+
+  const top = () =>
+    lines().findIndex((line) => line.trimStart().startsWith('TOOLS'));
+
+  try {
+    await until('the tool window', () => top() > 0);
+    const transcript = lines().slice(0, top() - 3);
+    // the message itself is out of view, above the diff its turn made
+    assert.ok(transcript.every((line) => !line.includes('formatting sweep')));
+    assert.match(transcript.join('\n'), /\+ ✓ 2 tools/);
+
+    assert.deepEqual(
+      lines()
+        .slice(top() - 3, top())
+        .map((line) => line.trim()),
+      [
+        '14M01S AGO · Main also received a formatting sweep. I’m integrating it.',
+        'Pending: /compact',
+        '❯ after this',
+      ],
+    );
+  } finally {
+    ui.unmount();
+    vi.useRealTimers();
+  }
+});
+
+test('a working phase that is not the agent’s run leaves the message row to the transcript', async () => {
+  const { app, coordinator } = fake({
+    phase: 'compacting',
+    items: [
+      {
+        id: 'reading',
+        kind: 'assistant',
+        cwd: '/work',
+        text: Array.from(
+          { length: 160 },
+          (_, i) => `source line ${i + 1}`,
+        ).join('\n'),
+      },
+    ],
+  });
+
+  const ui = show(createElement(App, { coordinator: app, onExit() {} }));
+
+  /** rows between the transcript's last text and the tool window: its closing blank row, then the message row when reserved. */
+  const between = () => {
+    const lines = ui.text().split('\n');
+    const top = lines.findIndex((line) => line.trimStart().startsWith('TOOLS'));
+    const last = lines.findIndex((line) => line.trim() === 'source line 160');
+
+    return top < 0 || last < 0 ? undefined : top - last - 1;
+  };
+
+  try {
+    await until(
+      'the transcript against the tool window',
+      () => between() === 1,
+    );
+
+    coordinator.publish({ phase: 'running' });
+    await until('the message row in the agent’s run', () => between() === 2);
+  } finally {
+    ui.unmount();
   }
 });
