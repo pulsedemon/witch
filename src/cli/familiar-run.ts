@@ -7,11 +7,12 @@ import type {
 } from '../agents/familiar-report.js';
 import type { TaskStatus } from '../agents/types.js';
 import { errorMessage } from '../errors.js';
-import { callControl, ControlTimeoutError } from '../persistence/control.js';
+import {
+  callControl,
+  controlWindow,
+  ControlTimeoutError,
+} from '../persistence/control.js';
 import type { ControlBinding, ControlResult } from '../persistence/control.js';
-
-/** how long a familiar keeps trying to register or deliver a report; a host answering one request at a time can fall seconds behind under heavy load. */
-const familiarWindow = 30_000;
 
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
 export class FamiliarReports {
@@ -83,12 +84,12 @@ export class FamiliarReports {
   }
 }
 
-/** waits up to `familiarWindow` on one request, publishing another only after a failure that isn't a timeout, then throws the last failure. */
+/** waits up to `controlWindow` on one request, publishing another only after a failure that isn't a timeout, then throws the last failure. */
 export async function callFamiliar(
   binding: ControlBinding,
   action: FamiliarAction,
 ): Promise<Exclude<ControlResult, { kind: 'error' }>> {
-  const deadline = Date.now() + familiarWindow;
+  const deadline = Date.now() + controlWindow;
 
   for (;;) {
     let outcome: ControlResult;
@@ -150,7 +151,8 @@ export async function registerFamiliar(
     run,
   });
 
-  const deadline = Date.now() + familiarWindow;
+  // every registration attempt shares one window
+  const deadline = Date.now() + controlWindow;
 
   for (;;) {
     if (stopped()) throw new Error('Familiar stopped before launch.');

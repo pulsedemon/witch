@@ -210,10 +210,13 @@ async function read(
 
 export class ControlTimeoutError extends Error {}
 
+/** how long a control request waits by default; a host answering one request at a time can fall seconds behind under heavy load. */
+export const controlWindow = 30_000;
+
 export async function callControl(
   binding: ControlBinding,
   action: CoordinationAction | FamiliarAction,
-  deadline = Date.now() + 10_000,
+  deadline = Date.now() + controlWindow,
 ): Promise<ControlResult> {
   const request = controlRequestSchema.parse({
     version: 1,
