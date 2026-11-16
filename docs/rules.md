@@ -34,7 +34,7 @@ Claude completion follows native idle once the connection has reported session s
 
 Explicit interruption and closure share a deadline through [Coordinator](../src/core/coordinator.ts) and the adapters. [Shutdown](../src/agents/shutdown.ts) owns the budget and targeted process escalation. Codex restart retains its existing teardown policy. Normal turns and background work have no deadline.
 
-`/clear` requires idle and no queued prompts, as `/new` does. [SessionLink.clear](../src/core/session-link.ts) starts a fresh native session inside the same conversation, retaining its claim, scratch, memory workspace, model and effort. It discards both runtimes' saved context, pending handoff and unread command output, and the old ordinary-turn outcome. The next turn receives shared memory and Witch's instructions again. [Issue #43](https://github.com/pulsedemon/witch/issues/43) owns changes to busy-conversation policy.
+`/clear` requires idle and no queued prompts, as `/new` does. [SessionLink.clear](../src/core/session-link.ts) starts a fresh native session inside the same conversation, retaining its claim, scratch, memory workspace, model and effort. It discards both runtimes' saved context, pending handoff and unread command output, and the old ordinary-turn outcome. The next turn receives shared memory and Witch's instructions again.
 
 ### Witch commands and compaction
 
