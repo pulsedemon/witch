@@ -349,8 +349,8 @@ const fallback = 60_000;
  * and one `interval`. elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
  * loses a file once it is replaced by rename. each read shows until the next; a failed one leaves its field out, and a
  * pull request read that failed for a reason nobody expects says why in `pullRequestFailure`. the pull request of a
- * branch the checkout left stays in `followed`, read by its URL every 90 seconds, until it closes, the checkout returns
- * to its branch or `unfollow` drops it.
+ * branch the checkout left stays in `followed`, an open one read by its URL every 90 seconds, until it closes, the
+ * checkout returns to its branch, `unfollow` drops it or the project changes.
  */
 export class RepositoryWatch {
   snapshot?: Repository;
@@ -373,6 +373,9 @@ export class RepositoryWatch {
   /** the checked-out branch's own pull request as last read, which a later failed or empty read leaves. */
   private kept?: Reading;
   private readonly followed: Reading[] = [];
+  /** the order each branch was last left in, which `followed` keeps, newest first. */
+  private readonly left = new Map<string, number>();
+  private departures = 0;
   /** branches left with no pull request read, each with when its read by name last ran. */
   private readonly names = new Map<string, number>();
   /** when each URL last left `followed` for good, so a read begun before that can't bring it back. */
@@ -810,14 +813,24 @@ export class RepositoryWatch {
     return index >= 0;
   }
 
-  /** a newer read of a pull request already followed replaces it in place, and an older one is dropped. */
+  /**
+   * a newer read of a pull request already followed replaces it in place, and an older one is dropped. a new one sorts
+   * by when its branch was left, however late its read found it.
+   */
   private follow(reading: Reading): void {
     const index = this.followed.findIndex(
       ({ value }) => value.url === reading.value.url,
     );
 
-    if (index < 0) this.followed.unshift(reading);
-    else if (this.followed[index]!.started <= reading.started)
+    if (index < 0) {
+      const order = ({ value }: Reading) => this.left.get(value.branch) ?? 0;
+
+      const later = this.followed.filter(
+        (entry) => order(entry) > order(reading),
+      );
+
+      this.followed.splice(later.length, 0, reading);
+    } else if (this.followed[index]!.started <= reading.started)
       this.followed[index] = reading;
   }
 
@@ -840,6 +853,8 @@ export class RepositoryWatch {
     this.names.delete(branch);
 
     if (left === 'HEAD') return;
+
+    this.left.set(left, ++this.departures);
 
     if (kept && kept.value.state !== 'CLOSED') this.follow(kept);
 
@@ -945,8 +960,12 @@ export class RepositoryWatch {
           const value = await this.withChecks(await this.view(url), report);
 
           accepted.push(() => {
-            // one removed while its read ran stays removed
-            if (!this.followed.some((entry) => entry.value.url === url)) return;
+            const current = this.followed.find(
+              (entry) => entry.value.url === url,
+            );
+
+            // one removed while its read ran stays removed, and one read again since keeps that newer answer
+            if (!current || current.started > started) return;
 
             if (value.state !== 'CLOSED')
               this.follow({ value, started, at: Date.now() });
