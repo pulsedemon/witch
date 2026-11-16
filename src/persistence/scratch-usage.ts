@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import type { ProcessIdentity } from '../core/state.js';
 import { within } from '../paths.js';
@@ -255,13 +254,6 @@ export async function inspectScratch(
   );
 
   try {
-    const canonical = await Promise.all(
-      candidates.map(async (candidate) => ({
-        ...candidate,
-        directory: await realpath(candidate.directory),
-      })),
-    );
-
     const format = 'pid=,ppid=,uid=,stat=,lstart=,ucomm=';
 
     const before = await ps(format, undefined, {
@@ -293,19 +285,12 @@ export async function inspectScratch(
 
     const after = await ps(format, undefined, { timeout: scratchProbeTimeout });
 
-    const results = classifyScratch(canonical, {
+    return classifyScratch(candidates, {
       before,
       after,
       commands: commands.value,
       files: opened.value.stdout,
     });
-
-    return new Map(
-      candidates.map(({ directory }, index) => [
-        directory,
-        results.get(canonical[index]!.directory) ?? 'unknown',
-      ]),
-    );
   } catch {
     return unknown;
   }
