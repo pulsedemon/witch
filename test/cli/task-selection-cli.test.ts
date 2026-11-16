@@ -26,7 +26,7 @@ function invoke(
 ) {
   const operation = execute('/bin/zsh', ['-c', `${prefix} ${args} --json`], {
     cwd,
-    timeout: 30000,
+    timeout: 45_000,
   });
 
   const child = operation.child;
@@ -175,7 +175,8 @@ test('waiting helpers leave the host responsive beyond a request deadline and st
     async () => (await f.registry.state()).selections.length === 3,
   );
 
-  await delay(11000);
+  // longer than one request's window, so only a fresh request can still be waiting
+  await delay(31_000);
   assert.equal(secondDone, false);
   assert.equal(thirdDone, false);
 

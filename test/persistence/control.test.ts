@@ -353,10 +353,14 @@ test('a missing host reply leaves the result unknown and keeps the published req
   await exchange(bound);
 
   await assert.rejects(
-    callControl(bound, {
-      kind: 'claim',
-      input: { reference: 'task:kept', summary: 'Unknown outcome' },
-    }),
+    callControl(
+      bound,
+      {
+        kind: 'claim',
+        input: { reference: 'task:kept', summary: 'Unknown outcome' },
+      },
+      Date.now() + 500,
+    ),
     (error: unknown) => {
       assert.ok(error instanceof ControlTimeoutError);
 
@@ -375,6 +379,39 @@ test('a missing host reply leaves the result unknown and keeps the published req
     ).length,
     1,
   );
+});
+
+test('a reply the host holds past 10 s reaches a call on the default window', async () => {
+  const bound = await binding();
+  const real = Date.now.bind(Date);
+  let held = 0;
+  vi.spyOn(Date, 'now').mockImplementation(() => real() + held);
+
+  const host = await ControlHost.open(
+    bound.directory,
+    async () => {
+      held = 11_000;
+
+      return { kind: 'released' };
+    },
+    (error) => {
+      throw error;
+    },
+  );
+
+  try {
+    await watching(bound.directory);
+
+    const result = await within(
+      callControl(bound, { kind: 'release', claim: randomUUID() }),
+      5000,
+      'the held reply',
+    );
+
+    assert.equal(result.kind, 'released');
+  } finally {
+    await host.close();
+  }
 });
 
 for (const { code, expired } of [

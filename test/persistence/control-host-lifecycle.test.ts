@@ -453,7 +453,12 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
   );
 
   await host.drain();
-  const calling = callControl(bound, { kind: 'release', claim: randomUUID() });
+
+  const calling = callControl(
+    bound,
+    { kind: 'release', claim: randomUUID() },
+    Date.now() + 10_000,
+  );
 
   try {
     await until('client reply read', () => clientWaiting);
