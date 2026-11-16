@@ -691,9 +691,6 @@ export function App({
 
   /** Enter runs the selected command or skill, and inserts a file without sending; a send starts browsing again at the newest. */
   const submitComposer = (text: string) => {
-    // a view opened earlier in this read isn't rendered yet, so Enter still reaches the composer, which keeps its draft
-    if (viewRef.current.kind !== 'chat') return false;
-
     const open = liveListFor(bufferRef.current);
 
     if (open?.kind === 'file') {
