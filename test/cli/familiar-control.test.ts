@@ -272,7 +272,7 @@ test('only a supporting session receives familiar instructions and the exact use
 
   assert.match(
     rule,
-    /with the plan, the request and the files needed to check it, asking each to report as a finding any plan step that asks the user for a decision the request, the applicable rules or the evidence settles, and wait for every one to finish/,
+    /with the plan, the request, the rules that apply and the files needed to check it, asking each to report as a finding any plan step that asks the user for a decision the request, the applicable rules or the evidence settles, and wait for every one to finish/,
   );
 
   assert.match(
