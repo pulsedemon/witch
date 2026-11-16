@@ -265,7 +265,13 @@ test('a detached head reads no pull request', async () => {
               '--ignore-submodules=dirty',
             ]
           : args[0] === 'rev-parse'
-            ? ['rev-parse', '--symbolic-full-name', '@{-1}']
+            ? [
+                'rev-parse',
+                '--verify',
+                '--quiet',
+                '--symbolic-full-name',
+                '@{-1}',
+              ]
             : ['config', '-z', '--name-only', '--show-scope', '--list'],
       );
 

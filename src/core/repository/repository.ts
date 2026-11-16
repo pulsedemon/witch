@@ -888,15 +888,15 @@ export class RepositoryWatch {
     try {
       const { stdout } = await this.run(
         'git',
-        ['rev-parse', '--symbolic-full-name', '@{-1}'],
+        ['rev-parse', '--verify', '--quiet', '--symbolic-full-name', '@{-1}'],
         { cwd: this.cwd, timeout: 10_000 },
       );
 
       name = /^refs\/heads\/(.+)$/.exec(stdout.trim())?.[1];
       this.recalled = true;
     } catch (error) {
-      // Git exits with a status when there is no previous branch. a failed spawn or a timeout is asked again
-      this.recalled = typeof (error as { code?: unknown }).code === 'number';
+      // with --verify --quiet, Git exits 1 when there is no previous branch. any other failure is asked again
+      this.recalled = (error as { code?: unknown }).code === 1;
 
       if (!this.recalled) failure = `previous branch: ${reason(error)}`;
     } finally {

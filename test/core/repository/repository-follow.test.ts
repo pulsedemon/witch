@@ -92,8 +92,8 @@ function harness(
 
       if (args[0] === 'rev-parse') {
         if (previous === undefined)
-          throw Object.assign(new Error('fatal: no previous branch'), {
-            code: 128,
+          throw Object.assign(new Error('Command failed: git rev-parse'), {
+            code: 1,
           });
 
         return {
@@ -882,40 +882,41 @@ test("a read by name that began before its pull request was unfollowed can't bri
   assert.equal(followed(), undefined);
 });
 
-test('a failed read of the branch checked out before startup is reported and asked again', async (t) => {
-  let asked = 0;
+for (const code of ['EMFILE', 128] as const)
+  test(`a failed read of the branch checked out before startup is reported and asked again: ${code}`, async (t) => {
+    let asked = 0;
 
-  const { watch, step, named, followed } = harness(
-    t.onTestFinished,
-    (selector, branch) =>
-      selector === 'feat/x' ? pr('OPEN') : none(selector || branch),
-    {
-      branch: 'main',
-      previous: () => {
-        if (++asked === 1)
-          throw Object.assign(new Error('spawn git EMFILE'), {
-            code: 'EMFILE',
-          });
+    const { watch, step, named, followed } = harness(
+      t.onTestFinished,
+      (selector, branch) =>
+        selector === 'feat/x' ? pr('OPEN') : none(selector || branch),
+      {
+        branch: 'main',
+        previous: () => {
+          if (++asked === 1)
+            throw Object.assign(new Error('spawn git EMFILE'), {
+              code,
+            });
 
-        return 'refs/heads/feat/x';
+          return 'refs/heads/feat/x';
+        },
       },
-    },
-  );
+    );
 
-  await settle();
+    await settle();
 
-  assert.equal(
-    watch.snapshot?.followedFailure,
-    'previous branch: spawn git EMFILE',
-  );
+    assert.equal(
+      watch.snapshot?.followedFailure,
+      'previous branch: spawn git EMFILE',
+    );
 
-  assert.deepEqual(named(), []);
-  await step();
-  assert.deepEqual(followed(), ['#7 OPEN']);
-  assert.equal(watch.snapshot?.followedFailure, undefined);
-  await step();
-  assert.equal(asked, 2);
-});
+    assert.deepEqual(named(), []);
+    await step();
+    assert.deepEqual(followed(), ['#7 OPEN']);
+    assert.equal(watch.snapshot?.followedFailure, undefined);
+    await step();
+    assert.equal(asked, 2);
+  });
 
 test('a branch named like an option is not read by name', async (t) => {
   const { state, step, wait, named } = harness(

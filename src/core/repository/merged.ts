@@ -287,7 +287,8 @@ async function fastForward(
 
   if (left(await read(git))) return false;
 
-  // without --verify, rev-parse echoes a base named like an option back instead of resolving it
+  // --end-of-options keeps a base named like an option from being read as a flag, and --verify keeps rev-parse from
+  // echoing that separator ahead of the commit
   const target = await git(
     'rev-parse',
     '--verify',
