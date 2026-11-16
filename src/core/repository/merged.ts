@@ -667,9 +667,13 @@ async function clean(
       // a stacked pull request's base can exist only on the merged branch's remote
       if (gitDir !== commonDir || (holder && holder !== top))
         progress.detached = (await refHead(git, base).catch(stopped))
-          ? await git('rev-parse', '--abbrev-ref', `${base}@{upstream}`).catch(
-              stopped,
-            )
+          ? await git(
+              'rev-parse',
+              '--abbrev-ref',
+              '--verify',
+              '--end-of-options',
+              `${base}@{upstream}`,
+            ).catch(stopped)
           : `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
     }
 
@@ -730,6 +734,7 @@ async function clean(
       const target = await git(
         'rev-parse',
         '--verify',
+        '--end-of-options',
         `${upstream}^{commit}`,
       ).catch(stopped);
 
