@@ -660,9 +660,9 @@ test("a native session closing leaves Witch's reviewers running", async (t) => {
   assert.equal(end?.text, 'Full review.\n'.repeat(7000));
 });
 
-/** a writer that leaves the reviewer's group, so the kill after the exit can't reach it, and marks `<ready>.exited` once its shell is gone. */
+/** a writer that leaves the reviewer's group, so the kill after the exit can't reach it, and runs `after` once its shell is gone. */
 const detached = (ready: string, after: string) =>
-  `perl -MPOSIX -e 'setsid; open my $f, ">", $ARGV[0]; print $f $$; close $f; select undef, undef, undef, 0.05 while kill 0, $ARGV[1]; open $f, ">", "$ARGV[0].exited"; close $f; ${after}' ${quote(ready)} $$ & until [ -s ${quote(ready)} ]; do sleep 0.05; done; exit 3`;
+  `perl -MPOSIX -e 'setsid; open my $f, ">", $ARGV[0]; print $f $$; close $f; select undef, undef, undef, 0.05 while kill 0, $ARGV[1]; ${after}' ${quote(ready)} $$ & until [ -s ${quote(ready)} ]; do sleep 0.05; done; exit 3`;
 
 test('stderr written after a command exits still reaches its diagnostics', async () => {
   const root = await scratch('witch-reviewers-');
@@ -693,6 +693,21 @@ test('a stop ends the wait for stderr a descendant holds open', async () => {
   const root = await scratch('witch-reviewers-');
   const ready = join(root, 'ready');
   const controller = new AbortController();
+  const kill = process.kill.bind(process);
+  let cleaned = false;
+
+  // the run waits on stderr right after its probe finds the reviewer's group gone
+  const spy = vi
+    .spyOn(process, 'kill')
+    .mockImplementation((pid: number, signal?: string | number) => {
+      try {
+        return kill(pid, signal);
+      } catch (error) {
+        if (pid < 0 && signal === 0) cleaned = true;
+
+        throw error;
+      }
+    });
 
   try {
     const running = new Reviewers(() => {}).run({
@@ -714,19 +729,12 @@ test('a stop ends the wait for stderr a descendant holds open', async () => {
       () => {},
     );
 
-    await until('the exited shell', () =>
-      readFile(`${ready}.exited`).then(
-        () => true,
-        () => false,
-      ),
-    );
-
-    // past the group's cleanup, so the run is waiting on the writer's stderr
-    await delay(300);
+    await until("the group's cleanup", () => cleaned);
     assert.equal(ended, false);
     controller.abort(new NativeStop({ deadline: performance.now() + 500 }));
     await within(running, 2000, 'the stopped run');
   } finally {
+    spy.mockRestore();
     const writer = Number(await readFile(ready, 'utf8').catch(() => ''));
 
     if (writer) process.kill(writer, 'SIGKILL');

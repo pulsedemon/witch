@@ -562,16 +562,16 @@ test('a prompt queued behind a ! command stays queued when a hold releases into 
     shell.open();
     await within(reply.entered, 2000, 'the gated reply');
     coordinator.holdPromptDelivery()();
-    // the skipped steer has no event to wait on
-    await delay(100);
+    // admitted after the release's steering attempt, so that attempt is over
+    await coordinator.send('D');
     assert.deepEqual(a.steers, []);
-    assert.deepEqual(coordinator.snapshot.queue, ['C']);
+    assert.deepEqual(coordinator.snapshot.queue, ['C', 'D']);
     reply.open();
     await within(sending, 5000, 'the queued turns');
 
     assert.deepEqual(turns(a), [
       ['!ls', undefined],
-      ['C', undefined],
+      ['C\nD', undefined],
     ]);
   } finally {
     shell.open();
