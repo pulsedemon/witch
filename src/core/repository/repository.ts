@@ -725,7 +725,11 @@ export class RepositoryWatch {
     if (read?.branch === branch) {
       const reading = { value: read, started, at: Date.now() };
 
-      if (this.branch === branch) this.kept = reading;
+      // a read by URL taken back on a return to the branch can be newer than this one
+      if (this.branch === branch) {
+        if (this.kept?.value.url !== read.url || this.kept.started <= started)
+          this.kept = reading;
+      }
       // the checkout left during the read, so this is the read its leaving had none of
       else if (
         read.state !== 'CLOSED' &&
@@ -1028,6 +1032,13 @@ export class RepositoryWatch {
           });
         } catch (error) {
           report(error);
+
+          if (unavailable(error)) {
+            // as for the names: gh has no answer right now, so the rest wait out the interval too
+            for (const other of this.followed) other.at = started;
+
+            break;
+          }
         }
       }
 

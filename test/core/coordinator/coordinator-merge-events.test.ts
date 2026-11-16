@@ -543,7 +543,16 @@ test("a followed pull request's merge is announced from another branch", async (
       repositoryRead({
         branch: 'main',
         pullRequestProject: await projectOf(source),
-        followed: [merged],
+        // an open one is followed too, and is no merge to announce
+        followed: [
+          {
+            ...merged,
+            state: 'OPEN',
+            number: 19,
+            url: `${merged.url.slice(0, -2)}19`,
+          },
+          merged,
+        ],
         followedProject: await projectOf(followedPeer),
       }),
     );

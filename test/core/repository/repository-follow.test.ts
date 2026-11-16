@@ -967,3 +967,77 @@ test('leaving a detached head reads nothing by name', async (t) => {
   assert.deepEqual(named(), [url7]);
   assert.deepEqual(followed(), ['#7 OPEN']);
 });
+
+test("an older read of the branch can't replace a newer reading taken back on a return to it", async (t) => {
+  const held = Promise.withResolvers<string>();
+  let reads = 0;
+
+  const { state, step, wait, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) => {
+      if (selector === url7) return pr('MERGED');
+
+      if (selector !== '' || branch !== 'feat/x')
+        return none(selector || branch);
+
+      reads += 1;
+
+      return reads === 1
+        ? pr('OPEN')
+        : reads === 2
+          ? held.promise
+          : new Promise<string>(() => {});
+    },
+  );
+
+  await settle();
+  await wait(90_000);
+  assert.equal(reads, 2);
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(followed(), ['#7 MERGED']);
+  state.branch = 'feat/x';
+  await step();
+  held.resolve(pr('OPEN'));
+  await settle();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(followed(), ['#7 MERGED']);
+});
+
+test('while gh has no answer, the pull requests followed cost one read by URL per interval', async (t) => {
+  let down = false;
+
+  const { state, step, wait, named } = harness(
+    t.onTestFinished,
+    (selector, branch) => {
+      if (down) return unavailable();
+
+      const name = selector.startsWith('https://') ? undefined : branch;
+
+      return name === 'main'
+        ? none(name)
+        : pr('OPEN', {
+            number: selector.endsWith('/1') || name === 'feat/a' ? 1 : 2,
+            branch:
+              selector.endsWith('/1') || name === 'feat/a'
+                ? 'feat/a'
+                : 'feat/b',
+          });
+    },
+    { branch: 'feat/a' },
+  );
+
+  await settle();
+  state.branch = 'feat/b';
+  await step();
+  state.branch = 'main';
+  await step();
+  down = true;
+  await wait(180_000);
+
+  assert.deepEqual(
+    named().filter((selector) => selector.startsWith('https://')).length,
+    2,
+  );
+});

@@ -345,6 +345,13 @@ test('a followed pull request shows when the branch has none of its own', () => 
 
   assert.ok(line({ followed: [pullRequest(3)] }).includes('| main | PR#3 ✓ |'));
 
+  // the first is the one whose branch was left most recently
+  assert.ok(
+    line({ followed: [pullRequest(3), pullRequest(6)] }).includes(
+      '| main | PR#3 ✓ |',
+    ),
+  );
+
   assert.ok(
     line({
       pullRequest: pullRequest(4, 'MERGED'),
