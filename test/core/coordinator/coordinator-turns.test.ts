@@ -264,6 +264,40 @@ test('pending command context stays with its conversation', async () => {
   }
 });
 
+test('a queued prompt held as its row publishes keeps pending command context once', async () => {
+  const { coordinator, a } = await unitFixture();
+
+  try {
+    await recoverCommandContext(coordinator, a);
+    let release: (() => void) | undefined;
+    // the hold publishes, which calls this listener again before `release` is assigned
+    let holding = false;
+
+    const unsubscribe = coordinator.subscribe(() => {
+      if (
+        holding ||
+        !coordinator.snapshot.items.some(
+          ({ kind, text }) => kind === 'user' && text === 'held',
+        )
+      )
+        return;
+
+      holding = true;
+      release = coordinator.holdPromptDelivery();
+    });
+
+    await coordinator.send('held');
+    unsubscribe();
+    assert.deepEqual(coordinator.snapshot.queue, ['held']);
+    assert.equal(a.inputs.length, 0);
+    release!();
+    await until('the held turn', () => a.inputs.length === 1);
+    assert.equal(a.inputs[0]!.context!.split(savedCommand).length - 1, 1);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 for (const identical of [false, true]) {
   test(`disconnect appends local records to recovered conversation context (${identical ? 'identical records' : 'distinct records'})`, async () => {
     const { coordinator, a } = await unitFixture();

@@ -480,7 +480,12 @@ export class PromptDelivery {
   /** the prompts queued behind a queued turn's prompt join that turn; a `!` command and what follows it wait. */
   steerQueued(): Promise<void> {
     const steering = this.admitting.then(async () => {
-      if (this.deliveryHeld || this.host.halted()) return;
+      if (
+        this.deliveryHeld ||
+        this.host.halted() ||
+        this.turns.answeringCommand
+      )
+        return;
 
       const followers = joining(this.host.snapshot().queue);
       const taken = followers.map((prompt) => ({ prompt }));
