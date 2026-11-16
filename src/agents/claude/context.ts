@@ -90,7 +90,7 @@ export class ClaudeContext {
         ...(capacity.success
           ? {
               contextWindow: capacity.data,
-              // Claude Code lists no `[1m]` ids, and `claude-fable-5-2` runs at 200k without one
+              // Claude Code lists no `[1m]` ids, so the 1M form of a model that runs below 1M is spelled from its id
               longContext:
                 model && capacity.data < 1_000_000 && !model.endsWith('[1m]')
                   ? `${model}[1m]`
