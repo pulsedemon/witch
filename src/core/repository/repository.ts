@@ -868,7 +868,12 @@ export class RepositoryWatch {
     if (kept && kept.value.state !== 'CLOSED') this.follow(kept);
 
     // a branch whose pull request closed or merged can have a newer one
-    if (kept?.value.state !== 'OPEN') this.names.set(left, -Infinity);
+    if (kept?.value.state !== 'OPEN') this.queue(left);
+  }
+
+  /** queues a read by name, unless `gh` would take the name for a flag, which Git's own commands refuse to create. */
+  private queue(name: string): void {
+    if (!name.startsWith('-')) this.names.set(name, -Infinity);
   }
 
   /** the branch checked out before this one, which a restart on the base would otherwise forget. */
@@ -904,7 +909,7 @@ export class RepositoryWatch {
 
     if (!name || name === this.branch) return;
 
-    this.names.set(name, -Infinity);
+    this.queue(name);
     this.readFollowed();
   }
 

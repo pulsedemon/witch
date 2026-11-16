@@ -242,6 +242,34 @@ for (const detach of [false, true])
     assert.deepEqual(await branches(checkout), ['feat/y', 'feat/z', 'main']);
   });
 
+test('a finished cleanup waits for the base only when the install refresh it resumes was interrupted in this checkout', async () => {
+  const { checkout, other, tip } = await merged();
+  await git(checkout, 'switch', '-c', 'feat/y');
+  await merge(other, 'feat/x');
+  const progress: MergeCleanup = {};
+
+  const run = () =>
+    cleanUpMerge(checkout, pullRequest(tip), idle, { progress });
+
+  const done = {
+    text: '#7 merged: left feat/y checked out, deleted branch feat/x.',
+    cleaned: true,
+  };
+
+  assert.deepEqual(await run(), done);
+  // Witch's install elsewhere, which this checkout's branch has no say in
+  progress.install = { root: other };
+  assert.deepEqual(await run(), done);
+
+  progress.install = {
+    root: await git(checkout, 'rev-parse', '--show-toplevel'),
+  };
+
+  assert.equal(await run(), 'changed');
+  await git(checkout, 'switch', 'main');
+  assert.deepEqual(await run(), done);
+});
+
 test('a left branch stays when it moved or a worktree holds it', async () => {
   {
     const { checkout, other, tip } = await merged();

@@ -916,3 +916,17 @@ test('a failed read of the branch checked out before startup is reported and ask
   await step();
   assert.equal(asked, 2);
 });
+
+test('a branch named like an option is not read by name', async (t) => {
+  const { state, step, wait, named } = harness(
+    t.onTestFinished,
+    (selector, branch) => none(selector || branch),
+    { branch: '-x' },
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  await wait(90_000);
+  assert.deepEqual(named(), []);
+});

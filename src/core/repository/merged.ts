@@ -1,15 +1,14 @@
 import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
-import { readFile, readdir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from '../../errors.js';
 import type { Memory } from '../../memory/memory.js';
 import { within } from '../../paths.js';
-import { unlessGone } from '../../persistence/json.js';
 import { tryOpenLocked } from '../../persistence/lock.js';
 import { runs } from '../../persistence/process.js';
 import type { StateStore } from '../../persistence/store.js';
+import { branchInOperation, operationIn } from './branch-operations.js';
 import { runCommand } from './command.js';
 import { retainedDefaultBranch } from './head-retention.js';
 import { escapeRegExp, removePlans } from './merged-plans.js';
@@ -409,16 +408,17 @@ export async function cleanUpMerge(
   }
 }
 
-/** wraps a failure before the deletion in the cleanup's sentence. an abort passes through. */
+/** wraps a failure in the cleanup's sentence, which says by default that the branch wasn't deleted yet. an abort passes through. */
 const stopping =
-  ({ number, branch }: PullRequest, signal?: AbortSignal) =>
+  (
+    { number, branch }: PullRequest,
+    signal?: AbortSignal,
+    did = `#${number} merged, but its cleanup failed before deleting ${branch}`,
+  ) =>
   (error: unknown): never => {
     if (error === signal?.reason) throw error;
 
-    throw new Error(
-      `#${number} merged, but its cleanup failed before deleting ${branch}: ${errorMessage(error).trim()}`,
-      { cause: error },
-    );
+    throw new Error(`${did}: ${errorMessage(error).trim()}`, { cause: error });
   };
 
 interface HeadRemote {
@@ -542,7 +542,15 @@ async function removeLeftovers(
 ): Promise<{ plans: string; kept: string }> {
   // branch -D would drop it too, and a later branch of the same name would inherit its upstream
   const hasConfig =
-    progress.unset === undefined && (await hasBranchConfig(git, branch));
+    progress.unset === undefined &&
+    (await hasBranchConfig(git, branch).catch((error: unknown) => {
+      if (error === signal?.reason) throw error;
+
+      throw new Error(
+        `${did}, but could not read its config: ${errorMessage(error)}`,
+        { cause: error },
+      );
+    }));
 
   const unset = (progress.unset ??= hasConfig
     ? await git('config', '--remove-section', `branch.${branch}`).then(
@@ -1003,7 +1011,15 @@ async function cleanLeft(
   signal?: AbortSignal,
 ): ReturnType<typeof clean> {
   const { number, branch, commit, base } = pullRequest;
-  const stopped = stopping(pullRequest, signal);
+
+  // a run that resumes after its deletion can't say the branch is still there
+  const stopped = progress.deleted?.includes(branch)
+    ? stopping(
+        pullRequest,
+        signal,
+        `#${number} merged and branch ${branch} was deleted, but the rest of its cleanup failed`,
+      )
+    : stopping(pullRequest, signal);
 
   const look = async () => {
     const status = await read(git).catch(stopped);
@@ -1016,9 +1032,12 @@ async function cleanLeft(
 
   if (changed(status)) return 'changed';
 
-  // a finished cleanup is here again for its install refresh, which resumes only on the base
+  // a finished cleanup is here again for its install refresh. one interrupted in this very checkout waits for it to be
+  // back on the base, where a refresh elsewhere resumes at once
   if (progress.result)
-    return progress.install && status.branch !== base
+    return progress.install?.root !== undefined &&
+      progress.install.root === progress.plans?.root &&
+      status.branch !== base
       ? 'changed'
       : progress.result;
 
@@ -1177,7 +1196,13 @@ async function cleanLeft(
   // the base's own ref, so a run interrupted inside the fast-forward still counts it after the checkout went elsewhere
   const advanced =
     progress.baseHead !== undefined &&
-    (await refHead(git, base)) !== progress.baseHead;
+    (await refHead(git, base).catch(
+      stopping(
+        pullRequest,
+        signal,
+        `#${number} merged: ${did(onBase)}${removed}${kept && ` (${kept})`}, but ${base} couldn't be read`,
+      ),
+    )) !== progress.baseHead;
 
   return (progress.result = {
     text: gone
@@ -1299,47 +1324,6 @@ async function removePrunedConfig(
       `config section branch.${name} stayed: ${errorMessage(error).trim()}`,
     );
   }
-}
-
-/** whether the Git directory `admin`, a checkout's own, holds a rebase or bisect of `name`. */
-async function operationIn(admin: string, name: string): Promise<boolean> {
-  const [merge, apply, bisect, updates] = await Promise.all(
-    [
-      'rebase-merge/head-name',
-      'rebase-apply/head-name',
-      'BISECT_START',
-      'rebase-merge/update-refs',
-    ].map((file) => unlessGone(readFile(join(admin, file), 'utf8'))),
-  );
-
-  return (
-    [merge, apply, bisect].some(
-      (branch) =>
-        branch?.replace(/\n+$/, '').replace(/^refs\/heads\//, '') === name,
-    ) ||
-    !!updates
-      ?.split('\n')
-      .some((ref, index) => index % 3 === 0 && ref === `refs/heads/${name}`)
-  );
-}
-
-/** keep branches owned by rebase or bisect; their detached HEADs are absent from %(worktreepath). */
-async function branchInOperation(
-  common: string,
-  name: string,
-): Promise<boolean> {
-  const worktrees = join(common, 'worktrees');
-
-  const admins = [
-    common,
-    ...((await unlessGone(readdir(worktrees))) ?? []).map((entry) =>
-      join(worktrees, entry),
-    ),
-  ];
-
-  for (const admin of admins) if (await operationIn(admin, name)) return true;
-
-  return false;
 }
 
 /**
