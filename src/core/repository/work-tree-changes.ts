@@ -2,6 +2,7 @@ import {
   copyFile,
   lstat,
   mkdir,
+  readFile,
   readdir,
   rm,
   stat,
@@ -12,6 +13,7 @@ import {
 import { delimiter, dirname, join, relative, sep } from 'node:path';
 import { hunks, wholeFile } from '../../agents/file-diff.js';
 import { errorMessage } from '../../errors.js';
+import { unlessGone } from '../../persistence/json.js';
 import type { FileDiff } from '../../agents/types.js';
 import { statusEnv } from './repository.js';
 import { execute } from './work-tree-git.js';
@@ -19,7 +21,7 @@ import type { GitRun } from './work-tree-git.js';
 
 export interface Changes {
   files: FileDiff[];
-  /** changed files left unlisted because they match a `HEAD` that other commits moved. */
+  /** changed files left unlisted because they match other commits at a moved `HEAD` or a newly observed merge head. */
   withHead: number;
   /** files past the hundredth. */
   more: number;
@@ -28,6 +30,7 @@ export interface Changes {
 interface Baseline {
   tree: string;
   head?: string;
+  mergeHeads: string[];
   /** when the snapshot began, in seconds, before its `HEAD` was read. */
   at: number;
 }
@@ -35,6 +38,7 @@ interface Baseline {
 interface Checkout {
   top: string;
   index: string;
+  mergeHeadPath: string;
   env: NodeJS.ProcessEnv;
   state: SnapshotState;
 }
@@ -298,6 +302,27 @@ export class WorkTreeChanges {
         withHead = changed - entries.length;
       }
 
+      for (const head of snapshot.mergeHeads) {
+        if (
+          baseline.mergeHeads.includes(head) ||
+          (await this.localCommits(checkout, baseline, head))
+        )
+          continue;
+
+        const dirty = new Set(
+          fields(await list('--name-only', head, snapshot.tree)),
+        );
+
+        const changed = entries.length;
+
+        entries = entries.filter(
+          ({ path }) =>
+            checkout.state.tracked.get(path)?.unmerged || dirty.has(path),
+        );
+
+        withHead += changed - entries.length;
+      }
+
       const shown = entries.slice(0, fileBudget);
       // counting reads each file's content, so only the files a row can list are counted
       const counts = new Map<string, FileDiff['unshown']>();
@@ -350,7 +375,7 @@ export class WorkTreeChanges {
     });
   }
 
-  /** whether only commits made since the baseline moved `HEAD`, judged by their dates. */
+  /** whether `head` descends from the baseline through only new commits, judged by their dates. */
   private async localCommits(
     checkout: Checkout,
     baseline: Baseline,
@@ -503,9 +528,10 @@ export class WorkTreeChanges {
         )
       ).stdout.replace(/\n$/, '');
 
-    const [index, objects] = await Promise.all([
+    const [index, objects, mergeHeadPath] = await Promise.all([
       path('index'),
       path('objects'),
+      path('MERGE_HEAD'),
     ]);
 
     const objectDirectory = await stat(objects, { bigint: true });
@@ -549,6 +575,7 @@ export class WorkTreeChanges {
     return {
       top,
       index,
+      mergeHeadPath,
       state,
       env: {
         ...env,
@@ -591,6 +618,12 @@ export class WorkTreeChanges {
     } catch (error) {
       if (exitCode(error) !== 1) throw error;
     }
+
+    const mergeHeads = (
+      (await unlessGone(readFile(checkout.mergeHeadPath, 'utf8'))) ?? ''
+    )
+      .split('\n')
+      .filter(Boolean);
 
     const original = {
       ...checkout,
@@ -843,7 +876,7 @@ export class WorkTreeChanges {
     state.configuration = configuration;
     state.attributes = attributes;
     state.metadata = metadata;
-    state.latest = { tree, head, at };
+    state.latest = { tree, head, mergeHeads, at };
 
     return state.latest;
   }
