@@ -367,6 +367,28 @@ test('a bisect this checkout starts from the merged branch during the fetch wait
   assert.equal(await git(checkout, 'rev-parse', 'feat/x'), tip);
 });
 
+test('a turn that starts in the checkout during the fetch stops the cleanup before it deletes anything', async () => {
+  const { checkout, other, tip } = await merged();
+  await git(checkout, 'switch', 'main');
+  const main = await git(checkout, 'rev-parse', 'main');
+  await merge(other, 'feat/x');
+  let calls = 0;
+
+  assert.equal(
+    await cleanUpMerge(checkout, pullRequest(tip), async () => ++calls === 2),
+    undefined,
+  );
+
+  assert.equal(await git(checkout, 'rev-parse', 'feat/x'), tip);
+
+  assert.equal(
+    await git(checkout, 'config', 'branch.feat/x.merge'),
+    'refs/heads/feat/x',
+  );
+
+  assert.equal(await git(checkout, 'rev-parse', 'main'), main);
+});
+
 test('a checkout that goes back to the merged branch during the fetch keeps it', async () => {
   const { checkout, other, tip } = await merged();
   await merge(other, 'feat/x');
