@@ -894,7 +894,8 @@ export class RepositoryWatch {
       const due = (at: number) => now - at >= reread;
 
       for (const [name, at] of [...this.names]) {
-        if (!due(at)) continue;
+        // the checkout can return to a branch, or the project change, while an earlier read runs
+        if (!due(at) || !this.names.has(name)) continue;
 
         const started = Date.now();
         this.names.set(name, started);
@@ -925,7 +926,7 @@ export class RepositoryWatch {
       }
 
       for (const entry of [...this.followed]) {
-        if (!due(entry.at)) continue;
+        if (!due(entry.at) || !this.followed.includes(entry)) continue;
 
         const started = Date.now();
         entry.at = started;

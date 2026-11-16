@@ -377,22 +377,30 @@ export function watchConflicts(
     if (conflict && !shown(conflictNotice(conflict)))
       coordinator.notice(conflictNotice(conflict), conversation.cwd, false);
 
-    const failure = status?.pullRequestFailure;
-    const text = `Can't read this branch's pull request: ${failure}`;
+    /** posts a read failure unless its notice for that same failure still shows, and returns the failure reported. */
+    const report = (what: string, failure?: string, last?: string) => {
+      if (failure === undefined) return last;
 
-    if (failure !== undefined && !(failure === reported && shown(text))) {
-      reported = failure;
+      const text = `Can't read ${what}: ${failure}`;
+
+      if (failure === last && shown(text)) return last;
+
       coordinator.notice(text, conversation.cwd, false);
-    }
 
-    const left = status?.followedFailure;
-    const leftText = `Can't read a pull request this checkout left: ${left}`;
+      return failure;
+    };
 
-    if (left === undefined || (left === reportedLeft && shown(leftText)))
-      return;
+    reported = report(
+      "this branch's pull request",
+      status?.pullRequestFailure,
+      reported,
+    );
 
-    reportedLeft = left;
-    coordinator.notice(leftText, conversation.cwd, false);
+    reportedLeft = report(
+      'a pull request this checkout left',
+      status?.followedFailure,
+      reportedLeft,
+    );
   };
 
   const schedule = () => {
