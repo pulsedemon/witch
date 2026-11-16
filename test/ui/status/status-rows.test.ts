@@ -320,6 +320,46 @@ test('a merged pull request says so in magenta, a closed one plainly, checks get
   );
 });
 
+test('a followed pull request shows when the branch has none of its own', () => {
+  const pullRequest = (number: number, state: 'OPEN' | 'MERGED' = 'OPEN') => ({
+    number,
+    url: `https://x.test/${number}`,
+    state,
+    branch: `feat/${number}`,
+    commit: 'a1b2c3',
+    base: 'main',
+    ...(state === 'OPEN' ? { checks: 'passing' as const } : {}),
+  });
+
+  const line = (fields: Parameters<typeof repositoryRead>[0]) =>
+    stripAnsi(
+      statusLines(
+        {
+          usage: {},
+          cwd: '/w',
+          repository: repositoryRead({ branch: 'main', ...fields }),
+        },
+        now,
+      )[1]!,
+    );
+
+  assert.ok(line({ followed: [pullRequest(3)] }).includes('| main | PR#3 ✓ |'));
+
+  assert.ok(
+    line({
+      pullRequest: pullRequest(4, 'MERGED'),
+      followed: [pullRequest(3)],
+    }).includes('| main | PR#4 MERGED |'),
+  );
+
+  assert.ok(
+    line({
+      conflict: { pullRequest: pullRequest(5) },
+      followed: [pullRequest(3)],
+    }).includes('| main | PR#5 CONFLICT |'),
+  );
+});
+
 test('other runtimes follow the live one as percents, dim when not current, and ? with no reading', () => {
   const [first] = statusLines(
     {

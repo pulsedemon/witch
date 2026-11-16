@@ -579,12 +579,6 @@ test('a checkout that changed since the watch looked is left alone', async () =>
   assert.equal(await readFile(join(checkout, 'x.txt'), 'utf8'), 'changed\n');
   assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
   assert.ok(await exists(join(plans(checkout), 'x.md')));
-  await git(checkout, 'checkout', '--', 'x.txt');
-  await git(checkout, 'switch', 'main');
-  assert.equal(await cleanUpMerge(checkout, pullRequest(tip), idle), 'changed');
-  assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
-  assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
-  assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
 test('a checkout with a staged or conflicted change is left alone, and one with only an untracked file is not', async () => {

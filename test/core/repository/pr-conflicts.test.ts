@@ -230,6 +230,44 @@ test('a failure beside a pull request that was read gets one notice until a read
   );
 });
 
+test("a failed read of a followed pull request is reported once, with or without the branch's own", async (t) => {
+  const text =
+    "Can't read a pull request this checkout left: #4: number: missing";
+
+  const left = (fields: Partial<Repository> = {}) =>
+    status({
+      branch: 'main',
+      followed: [pr({ number: 4 })],
+      followedFailure: '#4: number: missing',
+      ...fields,
+    });
+
+  {
+    const stub = stubRepository();
+    const { notices } = fixture(t.onTestFinished, stub.repository);
+    await stub.publish(left());
+    await stub.publish(left({ modified: 1 }));
+    assert.deepEqual(notices, [{ text, save: false }]);
+    await stub.publish(left({ followedFailure: undefined }));
+    assert.equal(notices.length, 1, 'a followed read without one');
+    await stub.publish(left());
+    assert.equal(notices.length, 2, 'the failure came back');
+  }
+
+  const stub = stubRepository();
+  const { notices } = fixture(t.onTestFinished, stub.repository);
+  await stub.publish(left({ pullRequestFailure: 'spawn gh EMFILE' }));
+
+  await stub.publish(
+    left({ pullRequestFailure: 'spawn gh EMFILE', modified: 1 }),
+  );
+
+  assert.deepEqual(
+    notices.map(({ text }) => text),
+    ["Can't read this branch's pull request: spawn gh EMFILE", text],
+  );
+});
+
 test('a merge into the pull request base reads it again, and a pull request that turns conflicting reaches the coordinator', async (t) => {
   vi.useFakeTimers({
     toFake: ['setInterval', 'clearInterval', 'Date'],

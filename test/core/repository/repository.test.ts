@@ -884,11 +884,15 @@ test('the watch reads the pull request once per branch, again when the branch ch
 
   let branch = 'main';
   const reads: string[] = [];
+  const named: string[] = [];
   let fields: string | undefined;
 
   const watch = new RepositoryWatch('/work', async (command, args) => {
     if (command === 'gh') {
-      reads.push(branch);
+      // a branch left with no pull request of its own is read once by name
+      if (args[2] === '--json') reads.push(branch);
+      else named.push(args[2]!);
+
       fields = args.at(-1);
     }
 
@@ -922,12 +926,14 @@ test('the watch reads the pull request once per branch, again when the branch ch
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'feat/x');
     assert.deepEqual(reads, ['main', 'feat/x']);
+    assert.deepEqual(named, ['main']);
     vi.advanceTimersByTime(85_000);
     await delay(20);
     assert.deepEqual(reads, ['main', 'feat/x']);
     vi.advanceTimersByTime(5000);
     await delay(20);
     assert.deepEqual(reads, ['main', 'feat/x', 'feat/x']);
+    assert.deepEqual(named, ['main']);
   } finally {
     watch.close();
   }
@@ -987,12 +993,15 @@ test('a read still running skips the next ticks, and a pull request read for a b
   let branch = 'main';
   const git: PromiseWithResolvers<{ stdout: string }>[] = [];
   const gh: PromiseWithResolvers<{ stdout: string }>[] = [];
+  const selectors: string[] = [];
 
   const watch = new RepositoryWatch('/work', (command, args) => {
     if (args[0] === 'config') return Promise.resolve({ stdout: '' });
 
     const read = Promise.withResolvers<{ stdout: string }>();
     (command === 'gh' ? gh : git).push(read);
+
+    if (command === 'gh') selectors.push(args[2]!);
 
     return read.promise;
   });
@@ -1016,7 +1025,8 @@ test('a read still running skips the next ticks, and a pull request read for a b
     }
 
     assert.equal(watch.snapshot?.branch, 'feat/x');
-    assert.equal(gh.length, 1);
+    // the branch's own read is still running, and leaving main reads main's pull request by name
+    assert.deepEqual(selectors, ['--json', 'main']);
     gh[0]!.resolve({ stdout: view({ state: 'OPEN', statusCheckRollup: [] }) });
     await delay(20);
     assert.equal(watch.snapshot?.pullRequest, undefined);
