@@ -9,7 +9,7 @@ import { castTitle } from '../status/cast.js';
 import type { Graphics } from './images.js';
 import { hyperlink, linkify, linkifyAppend, plain } from '../links.js';
 import type { LinkedAppend } from '../links.js';
-import { normalizeText, wrapLines } from '../wrap.js';
+import { normalizeText, wrapBody, wrapLines } from '../wrap.js';
 
 export interface ScrollAnchor {
   item: string;
@@ -125,14 +125,14 @@ function section(
   let sourceLine = first;
 
   for (const line of text) {
-    const source = trim ? stripAnsi(normalizeText(line)) : undefined;
+    const source = stripAnsi(normalizeText(line));
     let offset = 0;
 
-    for (const row of wrapLines(line, width, trim)) {
+    for (const row of trim
+      ? wrapLines(line, width, true)
+      : wrapBody(line, width)) {
       const plain = stripAnsi(row);
-
-      if (source !== undefined) offset = source.indexOf(plain, offset);
-
+      offset = source.indexOf(plain, offset);
       rows.push({ text: row, anchor: { line: sourceLine, offset } });
       offset += plain.length;
     }

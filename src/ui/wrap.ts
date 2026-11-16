@@ -1,3 +1,4 @@
+import { tokenize } from '@alcalzone/ansi-tokenize';
 import wrapAnsi from 'wrap-ansi';
 import stripAnsi from 'strip-ansi';
 
@@ -23,15 +24,45 @@ export function wrapSourceLines(
     .map((line) => {
       const source = stripAnsi(line);
       let offset = 0;
+      const rows = trim ? wrapLines(line, width, true) : wrapBody(line, width);
 
-      return wrapLines(line, width, trim).map((text) => {
+      return rows.map((text) => {
         const plain = stripAnsi(text);
-        const start = trim ? source.indexOf(plain, offset) : offset;
+        const start = source.indexOf(plain, offset);
         offset = start + plain.length;
 
         return { text, offset: start };
       });
     });
+}
+
+/** rows after a line's first text drop the spaces they broke at; indentation before that text stays. */
+export function wrapBody(line: string, width: number): string[] {
+  let started = false;
+
+  return wrapLines(line, width).flatMap((row) => {
+    if (!started) {
+      started = /\S/u.test(stripAnsi(row));
+
+      return [row];
+    }
+
+    let leading = true;
+
+    const text = tokenize(row)
+      .map((token) => {
+        if (token.type !== 'char') return token.code;
+
+        if (leading && token.value === ' ') return '';
+
+        leading = false;
+
+        return token.value;
+      })
+      .join('');
+
+    return stripAnsi(text) ? [text] : [];
+  });
 }
 
 /** cursor columns and transcript anchors depend on tab expansion and NFC normalization. */

@@ -888,3 +888,39 @@ test('a scroll anchor on a diff line stays on that line when a resize rewraps th
     '3  tail',
   );
 });
+
+test('wrapped body rows drop the space they broke at and keep indentation and copied text', () => {
+  const text = '**abcdefghij klm**\n\n```\n      indented code\n```';
+  const item: DisplayItem = { id: 'a', kind: 'assistant', text, cwd: '/work' };
+  const narrow = new TranscriptLayout().render([item], 10, new Map());
+  const rows = narrow.lines.slice();
+  const plain = rows.map((row) => stripAnsi(row));
+
+  assert.deepEqual(plain.slice(1, -1), [
+    'abcdefghij',
+    'klm',
+    '',
+    '      ',
+    'indented ',
+    'code',
+  ]);
+
+  assert.ok(rows[2]!.includes('\u001b[1m'));
+
+  const copied = plain
+    .map((row, index) => (index ? narrow.joinBefore(index) : '') + row)
+    .join('');
+
+  assert.equal(copied, 'Assistant\nabcdefghij klm\n\n      indented code\n');
+
+  const tight = new TranscriptLayout().render(
+    [{ ...item, text: 'abc def' }],
+    3,
+    new Map(),
+  );
+
+  assert.deepEqual(tight.lines.slice().map(stripAnsi).slice(3, -1), [
+    'abc',
+    'def',
+  ]);
+});
