@@ -380,6 +380,130 @@ test("a held branch read whose checks adjustment fails after the checkout left r
   assert.equal(watch.snapshot?.followedFailure, undefined);
 });
 
+test("a failure handed to the followed pull request doesn't come back as the branch's own when the checkout returns", async (t) => {
+  const url = 'https://github.com/o/r/pull/7';
+  const held = Promise.withResolvers<string>();
+  let reads = 0;
+
+  const { watch, state, step } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === '' && branch === 'feat/x'
+        ? ++reads === 1
+          ? held.promise
+          : new Promise<string>(() => {})
+        : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  held.resolve(view({ number: 7, url, state: 'OPEN', statusCheckRollup: [] }));
+  await settle();
+  assert.match(watch.snapshot?.followedFailure ?? '', /^#7: /);
+  // back before the next read of the branch answers, so only what the held read left can show
+  state.branch = 'feat/x';
+  await step();
+  assert.equal(watch.snapshot?.branch, 'feat/x');
+  assert.equal(watch.snapshot?.pullRequestFailure, undefined);
+});
+
+test('a held branch read that answers closed after the checkout left is not followed', async (t) => {
+  const held = Promise.withResolvers<string>();
+
+  const { state, step, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === '' && branch === 'feat/x'
+        ? held.promise
+        : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  held.resolve(pr('CLOSED'));
+  await settle();
+  assert.equal(followed(), undefined);
+});
+
+test("a read by URL that began before a visit to the branch can't close what the visit read as merged", async (t) => {
+  const held = Promise.withResolvers<string>();
+  let reads = 0;
+
+  const { state, step, wait, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === url7
+        ? held.promise
+        : selector === '' && branch === 'feat/x'
+          ? pr(++reads === 1 ? 'OPEN' : 'MERGED')
+          : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  await wait(90_000);
+  state.branch = 'feat/x';
+  await step();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(followed(), ['#7 MERGED']);
+  // a pull request closed, then reopened and merged
+  held.resolve(pr('CLOSED'));
+  await settle();
+  assert.deepEqual(followed(), ['#7 MERGED']);
+});
+
+test('a pull request found late still sorts by when its branch was left', async (t) => {
+  const held = Promise.withResolvers<string>();
+
+  const { state, step, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/a'
+        ? unavailable()
+        : selector === 'feat/b'
+          ? pr('OPEN', { number: 2, branch: 'feat/b' })
+          : selector === '' && branch === 'feat/a'
+            ? held.promise
+            : none(selector || branch),
+    { branch: 'feat/a' },
+  );
+
+  await settle();
+  state.branch = 'feat/b';
+  await step();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(followed(), ['#2 OPEN']);
+  held.resolve(pr('OPEN', { number: 1, branch: 'feat/a' }));
+  await settle();
+  assert.deepEqual(followed(), ['#2 OPEN', '#1 OPEN']);
+});
+
+test('a read by name that a project change overtakes follows nothing', async (t) => {
+  const held = Promise.withResolvers<string>();
+  let project = 'a';
+
+  const { state, step, named, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/x' ? held.promise : none(selector || branch),
+    { project: async () => project },
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(named(), ['feat/x']);
+  project = 'b';
+  held.resolve(pr('OPEN'));
+  await settle();
+  assert.equal(followed(), undefined);
+});
+
 test('each branch left keeps its own pull request, newest first', async (t) => {
   const { watch, state, step, wait, named, followed } = harness(
     t.onTestFinished,
