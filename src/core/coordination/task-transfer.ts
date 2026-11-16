@@ -77,7 +77,7 @@ export class TransferUnavailable extends Error {
   }
 }
 
-/** how long an owner gets to answer once the request is recorded; a longer request deadline must not hold the requester's other coordination work on an owner that never does. */
+/** the longest an owner gets to answer once the request is recorded; a longer request deadline must not hold the requester's other coordination work on an owner that never does. */
 const patience = 8000;
 
 interface TransferWait<View> {
