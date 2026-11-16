@@ -1,9 +1,8 @@
 name: ci
 
 on:
-  pull_request:
   push:
-    branches: [main]
+    branches: [chore/startup-abort-repro]
 
 permissions:
   contents: read
@@ -16,7 +15,11 @@ jobs:
   verify:
     name: verify
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,9 +46,29 @@ jobs:
           mkdir "$RUNNER_TEMP/cores"
           sudo sysctl --write "kernel.core_pattern=$RUNNER_TEMP/cores/%p.%E"
       - run: pnpm install --frozen-lockfile
-      - run: |
+      - name: Abort from inside
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: |
           ulimit -c unlimited
-          pnpm check
+          node -e 'process.abort()'
+      - name: Abort from outside
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: |
+          ulimit -c unlimited
+          node -e 'console.log("ready"); setInterval(() => {}, 1000)' > "$RUNNER_TEMP/ready" &
+          target=$!
+          # shellcheck disable=SC2016
+          timeout 30 bash -c 'until grep -q ready "$0"; do sleep 0.1; done' "$RUNNER_TEMP/ready"
+          echo "sender $$ target $target"
+          kill -ABRT "$target"
+          wait "$target"
+      - name: Startup loop
+        if: matrix.shard != 1
+        run: |
+          ulimit -c unlimited
+          pnpm exec vitest run test/cli/startup-abort-loop.test.ts
       - name: Report crashed processes
         if: ${{ !cancelled() }}
         run: |
