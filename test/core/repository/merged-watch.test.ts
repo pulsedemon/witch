@@ -2,15 +2,23 @@ import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import type { Coordinator } from '../../../src/core/coordinator.js';
 import type { Snapshot } from '../../../src/core/snapshot.js';
+import { runCommand } from '../../../src/core/repository/command.js';
 import { watchMerges } from '../../../src/core/repository/merge-watch.js';
+import { cleanUpMerge } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
+import { RepositoryWatch } from '../../../src/core/repository/repository.js';
 import type {
   PullRequest,
   Repository,
 } from '../../../src/core/repository/repository.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
-import { repositoryRead } from '../../fixtures/repository.js';
+import { git } from '../../fixtures/git.js';
+import { branches, idle, merge, merged } from '../../fixtures/merged.js';
+import { configureGitEnvironment } from '../../fixtures/merged-environment.js';
+import { repositoryRead, view } from '../../fixtures/repository.js';
+import { until } from '../../fixtures/within.js';
 
+configureGitEnvironment();
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 const status = (
@@ -37,12 +45,28 @@ function fixture(register: RegisterCleanup) {
     coordinator: new Set<() => void>(),
   };
 
+  const unfollowed: string[] = [];
+
   const repository = {
     snapshot: undefined as Repository | undefined,
     subscribe: (listener: () => void) => {
       listeners.repository.add(listener);
 
       return () => listeners.repository.delete(listener);
+    },
+    // as the real watch does, a removal publishes and nothing else does
+    unfollow: (url: string) => {
+      unfollowed.push(url);
+      const followed = repository.snapshot?.followed;
+
+      if (!followed?.some((entry) => entry.url === url)) return;
+
+      const rest = followed.filter((entry) => entry.url !== url);
+      repository.snapshot = { ...repository.snapshot!, followed: rest };
+
+      if (!rest.length) delete repository.snapshot.followed;
+
+      for (const listener of listeners.repository) listener();
     },
   };
 
@@ -106,7 +130,15 @@ function fixture(register: RegisterCleanup) {
   const stop = watchMerges(repository, coordinator, '/install');
   register(stop);
 
-  return { calls, progress, publishRepository, publish, settle, stop };
+  return {
+    calls,
+    progress,
+    unfollowed,
+    publishRepository,
+    publish,
+    settle,
+    stop,
+  };
 }
 
 test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async (t) => {
@@ -310,4 +342,241 @@ test('changing conversations drops an interrupted cleanup before it resumes', as
   await settle('interrupted');
   await publish();
   assert.equal(calls.length, 1);
+});
+
+/** pull request `number`'s merge at `commit`, as `followed` holds it with the checkout on `main`. */
+const left = (commit: string, number = 7): PullRequest => ({
+  ...pr('MERGED', commit),
+  number,
+  url: `https://x.test/${number}`,
+});
+
+const following = (...followed: PullRequest[]) =>
+  status(undefined, { branch: 'main', followed });
+
+test("a followed pull request's merge is cleaned up off its branch and unfollowed once it settles", async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  const { calls, unfollowed, publishRepository, settle } = fixture(
+    t.onTestFinished,
+  );
+
+  await publishRepository(following(left('c1')));
+  assert.deepEqual(calls, [[left('c1'), '/install']]);
+  await settle('changed');
+  await publishRepository();
+  assert.equal(calls.length, 2);
+  await settle(false);
+  vi.advanceTimersByTime(5000);
+  await tick();
+  assert.equal(calls.length, 3);
+  await settle('interrupted');
+  assert.equal(calls.length, 4);
+  assert.deepEqual(unfollowed, []);
+  await settle(true);
+  assert.deepEqual(unfollowed, ['https://x.test/7']);
+  await publishRepository(following(left('c2')));
+  assert.equal(calls.length, 5);
+  await settle(new Error('failed'));
+  assert.deepEqual(unfollowed, ['https://x.test/7', 'https://x.test/7']);
+  await publishRepository();
+  assert.equal(calls.length, 5);
+});
+
+test('a followed cleanup that finds a change after a repository publish during its run runs again without another', async (t) => {
+  const { calls, publishRepository, settle } = fixture(t.onTestFinished);
+  await publishRepository(following(left('c1')));
+  await publishRepository();
+  await settle('changed');
+  assert.equal(calls.length, 2);
+  await settle(true);
+});
+
+test('a merge read on its branch during a turn is still cleaned up once the turn leaves the branch', async (t) => {
+  const { calls, publishRepository, publish, settle } = fixture(
+    t.onTestFinished,
+  );
+
+  await publish({ phase: 'running' });
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await publishRepository(following(left('c1')));
+  assert.equal(calls.length, 0);
+  await publish({ phase: 'idle' });
+  assert.deepEqual(calls, [[left('c1'), '/install']]);
+  await settle(true);
+});
+
+test("a merge cleaned up on its branch and then followed after the cleanup's own switch is unfollowed without a second cleanup", async (t) => {
+  const { calls, unfollowed, publishRepository, settle } = fixture(
+    t.onTestFinished,
+  );
+
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await settle(true);
+  await publishRepository(following(left('c1')));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(unfollowed, ['https://x.test/7', 'https://x.test/7']);
+});
+
+const urls = (calls: [PullRequest, string | undefined][]) =>
+  calls.map(([{ url }]) => url.slice(-1));
+
+test('each merged pull request keeps its own wait, retry and progress', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  {
+    const { calls, publishRepository, settle } = fixture(t.onTestFinished);
+    await publishRepository(following(left('c1'), left('c2', 8)));
+    await settle('changed');
+    await settle(false);
+    vi.advanceTimersByTime(5000);
+    await tick();
+    assert.deepEqual(urls(calls), ['7', '8', '8'], "A 'changed', B false");
+    await settle(false);
+    await publishRepository();
+    assert.deepEqual(urls(calls), ['7', '8', '8', '7']);
+    await settle(true);
+  }
+
+  {
+    const { calls, publishRepository, settle } = fixture(t.onTestFinished);
+    await publishRepository(following(left('c1'), left('c2', 8)));
+    await settle(false);
+    await settle('changed');
+    vi.advanceTimersByTime(5000);
+    await tick();
+    assert.deepEqual(urls(calls), ['7', '8', '7'], "A false, B 'changed'");
+    await settle(true);
+  }
+
+  {
+    const { calls, progress, unfollowed, publishRepository, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(following(left('c1'), left('c2', 8)));
+    await settle('interrupted');
+    await settle('changed');
+    await settle(true);
+    assert.deepEqual(unfollowed, ['https://x.test/8']);
+    assert.deepEqual(urls(calls), ['7', '7', '8', '7'], 'B true');
+    assert.equal(progress[3], progress[0]);
+    await settle(true);
+  }
+
+  {
+    const { calls, progress, publishRepository, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(following(left('c1'), left('c2', 8)));
+    await settle('interrupted');
+    await settle(false);
+    await settle('interrupted');
+    await settle(false);
+    vi.advanceTimersByTime(5000);
+    await tick();
+    await settle(false);
+    await tick();
+    assert.deepEqual(urls(calls), ['7', '7', '8', '8', '7', '8']);
+
+    const runs = (url: string) =>
+      progress.filter((_, index) => urls(calls)[index] === url);
+
+    assert.notEqual(progress[2], progress[0]);
+    assert.ok(runs('7').every((each) => each === progress[0]));
+    assert.ok(runs('8').every((each) => each === progress[2]));
+    await settle(true);
+  }
+
+  {
+    const { calls, unfollowed, publishRepository, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(following(left('c1'), left('c1', 8)));
+    await settle(true);
+    await settle(true);
+    assert.deepEqual(urls(calls), ['7', '8'], 'one head commit');
+    assert.deepEqual(unfollowed, ['https://x.test/7', 'https://x.test/8']);
+  }
+});
+
+test('a merge that lands with the checkout on the base is cleaned up through the watch', async (t) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const { checkout, other, tip } = await merged();
+  let state = 'OPEN';
+
+  const answer = () =>
+    view({
+      number: 7,
+      url: 'https://x.test/7',
+      state,
+      headRefOid: tip,
+      baseRefName: 'main',
+      statusCheckRollup: [],
+    });
+
+  const watch = new RepositoryWatch(
+    checkout,
+    async (command, args, options) => {
+      if (command !== 'gh') return runCommand(command, args, options);
+
+      const selector = args[2] === '--json' ? undefined : args[2];
+
+      // gh reads the checked-out branch's pull request, and lists only open ones by name
+      if (
+        selector === 'https://x.test/7' ||
+        (selector === undefined &&
+          (await git(checkout, 'branch', '--show-current')) === 'feat/x') ||
+        (selector === 'feat/x' && state === 'OPEN')
+      )
+        return { stdout: answer() };
+
+      throw Object.assign(new Error('no pull requests found'), { code: 1 });
+    },
+    undefined,
+    { interval: 50 },
+  );
+
+  t.onTestFinished(() => watch.close());
+
+  const stop = watchMerges(watch, {
+    snapshot: { phase: 'idle', queue: [] } as unknown as Snapshot,
+    subscribe: () => () => {},
+    cleanUpMerge: async (pullRequest, _install, progress = {}) => {
+      const result = await cleanUpMerge(checkout, pullRequest, idle, {
+        progress,
+      });
+
+      return typeof result === 'object' ? true : (result ?? false);
+    },
+  });
+
+  t.onTestFinished(stop);
+  await until("the branch's pull request", () => !!watch.snapshot?.pullRequest);
+  await git(checkout, 'switch', 'main');
+
+  await until(
+    'the pull request followed from main',
+    () =>
+      watch.snapshot?.branch === 'main' &&
+      watch.snapshot.followed?.length === 1,
+  );
+
+  await merge(other, 'feat/x');
+  state = 'MERGED';
+  vi.setSystemTime(Date.now() + 90_000);
+
+  await until(
+    'the cleanup',
+    async () =>
+      watch.snapshot?.followed === undefined &&
+      !(await branches(checkout)).includes('feat/x'),
+  );
+
+  assert.equal(
+    await git(checkout, 'rev-parse', 'main'),
+    await git(other, 'rev-parse', 'HEAD'),
+  );
 });

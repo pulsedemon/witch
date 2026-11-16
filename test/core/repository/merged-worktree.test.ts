@@ -107,30 +107,6 @@ test('a main checkout whose base a linked worktree holds detaches and leaves tha
   assert.equal(await git(holder, 'rev-parse', 'HEAD'), held);
 });
 
-test("a clone's cleanup that first runs while the clone sits on its base still switches to the base on resume", async () => {
-  const { checkout, other, tip } = await merged();
-  await merge(other, 'feat/x');
-  await git(checkout, 'switch', 'main');
-  const progress: MergeCleanup = {};
-
-  assert.equal(
-    await cleanUpMerge(checkout, pullRequest(tip), idle, { progress }),
-    'changed',
-  );
-
-  await git(checkout, 'switch', 'feat/x');
-
-  assert.deepEqual(
-    await cleanUpMerge(checkout, pullRequest(tip), idle, { progress }),
-    {
-      text: '#7 merged: switched to main and pulled, deleted branch feat/x.',
-      cleaned: true,
-    },
-  );
-
-  assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
-});
-
 test("a main checkout's cleanup interrupted before the detach keeps detaching on resume after the worktree lets go of the base", async () => {
   const { root, checkout, other, tip } = await merged();
   const holder = join(root, 'holder');
@@ -349,4 +325,33 @@ test("a worktree whose stacked base exists only on its remote detaches at the re
   );
 
   assert.deepEqual(await branches(checkout), ['main']);
+});
+
+test('a worktree whose base is named like an option detaches at its remote branch', async () => {
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(other, 'push', 'origin', 'main:refs/heads/-base');
+  await git(checkout, 'fetch');
+  // git's porcelain won't name a branch this way, but update-ref will
+  await git(checkout, 'update-ref', 'refs/heads/-base', 'origin/-base');
+  await git(checkout, 'config', 'branch.-base.remote', 'origin');
+  await git(checkout, 'config', 'branch.-base.merge', 'refs/heads/-base');
+  await git(checkout, 'switch', 'main');
+  const tree = join(dirname(checkout), 'tree');
+  await git(checkout, 'worktree', 'add', tree, 'feat/x');
+
+  assert.deepEqual(
+    await cleanUpMerge(tree, { ...pullRequest(tip), base: '-base' }, idle),
+    {
+      text: '#7 merged: detached at origin/-base, deleted branch feat/x.',
+      cleaned: true,
+    },
+  );
+
+  assert.equal(
+    await git(tree, 'rev-parse', 'HEAD'),
+    await git(other, 'rev-parse', 'main'),
+  );
+
+  assert.deepEqual(await branches(checkout), ['-base', 'main']);
 });

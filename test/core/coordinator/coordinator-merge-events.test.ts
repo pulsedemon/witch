@@ -525,6 +525,80 @@ test('failed publication retries the captured observation after the source leave
   assert.equal(source.coordination.snapshot.error, undefined);
 });
 
+const projectOf = async (client: { coordinator: Coordinator }) =>
+  (
+    await client.coordinator.memory.scopePaths(
+      client.coordinator.snapshot.conversation!.cwd,
+    )
+  ).project;
+
+test("a followed pull request's merge is announced from another branch", async (t) => {
+  {
+    const f = await coordinationFixture(t.onTestFinished);
+    const source = await f.start('A');
+    const peer = await f.start('B');
+    const followedPeer = await f.start('C');
+
+    source.coordination.updateRepository(
+      repositoryRead({
+        branch: 'main',
+        pullRequestProject: await projectOf(source),
+        // an open one is followed too, and is no merge to announce
+        followed: [
+          {
+            ...merged,
+            state: 'OPEN',
+            number: 19,
+            url: `${merged.url.slice(0, -2)}19`,
+          },
+          merged,
+        ],
+        followedProject: await projectOf(followedPeer),
+      }),
+    );
+
+    await until(
+      'merge notice',
+      () => notices(followedPeer.coordinator).length === 1,
+    );
+
+    assert.deepEqual(notices(peer.coordinator), []);
+    await followedPeer.coordinator.send('read the merge');
+
+    assert.deepEqual(
+      events(followedPeer.a.inputs.at(-1)!.context!).map(
+        ({ pullRequest: { url, commit } }) => ({ url, commit }),
+      ),
+      [{ url: merged.url, commit: merged.commit }],
+    );
+  }
+
+  const f = await coordinationFixture(t.onTestFinished);
+  const source = await f.start('A');
+  const peer = await f.start('B');
+
+  source.coordination.updateRepository(
+    repositoryRead({
+      branch: 'main',
+      pullRequestProject: await projectOf(source),
+      followed: [merged],
+    }),
+  );
+
+  // merges publish in the order observed, so this one arrives after any the update above recorded
+  const own = { ...merged, number: 18, url: `${merged.url.slice(0, -2)}18` };
+  await observe(source, own);
+  await until('the later merge', () => notices(peer.coordinator).length > 0);
+  await peer.coordinator.send('read the merges');
+
+  assert.deepEqual(
+    events(peer.a.inputs.at(-1)!.context!).map(
+      ({ pullRequest: { url } }) => url,
+    ),
+    [own.url],
+  );
+});
+
 test('a merge publishes and control queries answer while another open conversation has lost its directory', async (t) => {
   const f = await coordinationFixture(t.onTestFinished);
   const source = await f.start('A');

@@ -3,7 +3,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { errorMessage } from '../errors.js';
 import { within } from '../paths.js';
 import { runCommand } from '../core/repository/command.js';
-import { planDirectories } from '../core/repository/merged.js';
+import { planDirectories } from '../core/repository/merged-plans.js';
 import type { Run } from '../core/repository/repository.js';
 import {
   describeMoves,

@@ -103,6 +103,7 @@ test('a turn that ends with a prompt queued runs that prompt before the merge cl
       pullRequest: pullRequest('0'.repeat(40)),
     }) as Repository,
     subscribe: () => () => {},
+    unfollow: () => {},
   };
 
   let stop = () => {};
@@ -226,6 +227,7 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
         pullRequest: pullRequest(tip),
       }) satisfies Repository,
       subscribe: () => () => {},
+      unfollow: () => {},
     };
 
     const first =
@@ -747,7 +749,8 @@ const gate = () => {
 const first = !existsSync(${JSON.stringify(ready)});
 const reconciling = ${JSON.stringify(slowReconcile)} && tool === 'git' && !first &&
   (stage === 'install' ? args[0] === 'rev-parse' && args[1] === 'HEAD' :
-    args.includes('--no-optional-locks') && args.includes('status'));
+    (args.includes('--no-optional-locks') && args.includes('status')) ||
+    (stage === 'delete' && args[0] === 'rev-parse' && args.includes('--verify')));
 if (stage === 'advanced' && tool === 'git' && args.includes('fetch')) {
   const file = ${JSON.stringify(join(root, 'fetch-count'))};
   const n = existsSync(file) ? Number(readFileSync(file, 'utf8')) + 1 : 1;
@@ -914,9 +917,10 @@ for (const [stage, worktree] of [
       commands,
     } = await interruptedCleanup(stage, t.onTestFinished, worktree);
 
-    const repository: { snapshot: Repository; subscribe: () => () => void } = {
+    const repository = {
       snapshot: repositoryRead({ pullRequest: pullRequest(tip) }),
       subscribe: () => () => {},
+      unfollow: () => {},
     };
 
     const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
@@ -1044,6 +1048,7 @@ for (const stage of ['delete', 'install'])
       {
         snapshot: repositoryRead({ pullRequest: pullRequest(tip) }),
         subscribe: () => () => {},
+        unfollow: () => {},
       },
       coordinator,
       install,
@@ -1092,6 +1097,62 @@ for (const stage of ['delete', 'install'])
         calls.filter(([tool]) => tool === 'pnpm'),
         stage === 'delete' ? [] : [['pnpm', 'install', '--frozen-lockfile']],
       );
+    } finally {
+      stop();
+    }
+  });
+
+for (const branch of ['feat/y', 'main'])
+  test(`an interrupted deletion off the merged branch on ${branch} whose check times out names what's left and doesn't resume`, async (t) => {
+    const { coordinator, project, install, tip, entered, stopped, commands } =
+      await interruptedCleanup('delete', t.onTestFinished, false, true);
+
+    await git(project, 'switch', branch);
+    const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
+    const cleanup = coordinator.cleanUpMerge.bind(coordinator);
+
+    coordinator.cleanUpMerge = async (...args) => {
+      const result = await cleanup(...args);
+      results.push(result);
+
+      return result;
+    };
+
+    const stop = watchMerges(
+      {
+        snapshot: repositoryRead({
+          branch,
+          followed: [pullRequest(tip)],
+          followedProject: 'project',
+        }),
+        subscribe: () => () => {},
+        unfollow: () => {},
+      },
+      coordinator,
+      install,
+    );
+
+    try {
+      await entered();
+      await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+      await until('cleanup settles', () => results.length > 0, 500);
+      await stopped();
+      assert.deepEqual(results, [true]);
+      assert.equal(coordinator.snapshot.error, undefined);
+
+      assert.deepEqual(notices(coordinator), [
+        'Merge cleanup interrupted.',
+        `Witch couldn't confirm how far merge cleanup got, so it won't resume. Left to check: deleting feat/x with its config and plans${branch === 'main' ? ', fast-forwarding main' : ''} and whether Witch's checkout needs updating and rebuilding.`,
+      ]);
+
+      assert.equal(
+        (await commands()).filter(
+          ([tool, name]) => tool === 'git' && name === 'update-ref',
+        ).length,
+        1,
+      );
+
+      assert.equal(await git(project, 'branch', '--show-current'), branch);
     } finally {
       stop();
     }

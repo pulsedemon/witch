@@ -241,12 +241,12 @@ test("the fixed instructions keep the checkout on an open pull request's branch"
 
     assert.match(
       rule,
-      /Witch finds the pull request through the checked-out branch: on any other branch it leaves the status line and its merge skips Witch's cleanup/,
+      /Witch handles Copilot's review feedback, conflicts and failed checks for a pull request you still claim only while its branch is checked out\./,
     );
 
     assert.match(
       rule,
-      /Witch stops handling Copilot's review feedback, conflicts and failed checks for a pull request you still claim/,
+      /Merge cleanup keeps following the pull request of a branch the checkout left, and the status line shows it while the checked-out branch has none of its own\. After a restart, that following covers only the branch left last, and only while its pull request is open\. A merge that lands while the checkout is on other work deletes the merged branch and leaves the checkout where it is\./,
     );
 
     assert.match(
@@ -266,7 +266,7 @@ test("the fixed instructions keep the checkout on an open pull request's branch"
 
     assert.match(
       rule,
-      /Once it merges, Witch attempts its cleanup when the conversation is idle with the checkout clean at the merged commit: it moves the checkout to the updated base and deletes the merged branch when its safety checks pass/,
+      /Once it merges, Witch attempts its cleanup when the conversation is idle with the checkout clean: from the merged branch or the base it brings the checkout to the updated base, and it deletes the merged branch when its safety checks pass\./,
     );
 
     assert.match(

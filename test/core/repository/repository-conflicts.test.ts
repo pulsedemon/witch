@@ -245,7 +245,7 @@ test('a detached head reads no pull request', async () => {
     vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'HEAD');
-    assert.equal(calls.length, 4);
+    assert.equal(calls.length, 5);
 
     for (const [command, args, { cwd, timeout, env }] of calls) {
       assert.equal(command, 'git');
@@ -264,7 +264,15 @@ test('a detached head reads no pull request', async () => {
               '--branch',
               '--ignore-submodules=dirty',
             ]
-          : ['config', '-z', '--name-only', '--show-scope', '--list'],
+          : args[0] === 'rev-parse'
+            ? [
+                'rev-parse',
+                '--verify',
+                '--quiet',
+                '--symbolic-full-name',
+                '@{-1}',
+              ]
+            : ['config', '-z', '--name-only', '--show-scope', '--list'],
       );
 
       if (args.includes('status')) {
@@ -274,6 +282,7 @@ test('a detached head reads no pull request', async () => {
     }
 
     assert.equal(calls.filter(([, args]) => args.includes('status')).length, 2);
+    assert.equal(calls.filter(([, args]) => args[0] === 'rev-parse').length, 1);
   } finally {
     watch.close();
   }
