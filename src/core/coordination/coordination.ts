@@ -512,21 +512,28 @@ export class SessionCoordination {
     if (this.state) this.update(this.state);
 
     const active = this.active;
-    const pullRequest = repository?.pullRequest;
+
+    if (!active?.accepting || !repository) return;
+
+    const { pullRequest, pullRequestProject, followed, followedProject } =
+      repository;
 
     if (
-      !active?.accepting ||
-      pullRequest?.state !== 'MERGED' ||
-      repository!.branch !== pullRequest.branch ||
-      repository!.pullRequestProject === undefined
+      pullRequest?.state === 'MERGED' &&
+      repository.branch === pullRequest.branch &&
+      pullRequestProject !== undefined
     )
-      return;
+      this.events.observeMerge(
+        pullRequestProject,
+        active.conversation.id,
+        pullRequest,
+      );
 
-    this.events.observeMerge(
-      repository!.pullRequestProject,
-      active.conversation.id,
-      pullRequest,
-    );
+    if (followedProject === undefined) return;
+
+    for (const left of followed ?? [])
+      if (left.state === 'MERGED')
+        this.events.observeMerge(followedProject, active.conversation.id, left);
   }
 
   /** stamps the active conversation's answerable requests for one answer turn; a failure records itself and admits none. */

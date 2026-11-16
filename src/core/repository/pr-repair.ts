@@ -350,8 +350,9 @@ export function watchConflicts(
   >,
 ): () => void {
   let conflict: Conflict | undefined;
-  /** the read failure the notice was last shown for, until a read works. */
+  /** the read failure each notice was last shown for, until a read works. */
   let reported: string | undefined;
+  let reportedLeft: string | undefined;
   let pending: NodeJS.Immediate | undefined;
   let stopped = false;
 
@@ -377,15 +378,21 @@ export function watchConflicts(
       coordinator.notice(conflictNotice(conflict), conversation.cwd, false);
 
     const failure = status?.pullRequestFailure;
-
-    if (failure === undefined) return;
-
     const text = `Can't read this branch's pull request: ${failure}`;
 
-    if (failure === reported && shown(text)) return;
+    if (failure !== undefined && !(failure === reported && shown(text))) {
+      reported = failure;
+      coordinator.notice(text, conversation.cwd, false);
+    }
 
-    reported = failure;
-    coordinator.notice(text, conversation.cwd, false);
+    const left = status?.followedFailure;
+    const leftText = `Can't read a pull request this checkout left: ${left}`;
+
+    if (left === undefined || (left === reportedLeft && shown(leftText)))
+      return;
+
+    reportedLeft = left;
+    coordinator.notice(leftText, conversation.cwd, false);
   };
 
   const schedule = () => {
@@ -429,6 +436,9 @@ export function watchConflicts(
 
     if (read?.pullRequest && read.pullRequestFailure === undefined)
       reported = undefined;
+
+    if (read?.followed && read.followedFailure === undefined)
+      reportedLeft = undefined;
 
     merged();
     schedule();
