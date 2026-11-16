@@ -105,11 +105,32 @@ export class Reviewers {
 
     for (const { name } of reviewers) this.expected.set(name, {});
 
-    const groups: number[] = [];
+    const live = new Set<number>();
+    const failures: unknown[] = [];
     const diagnostics = reviewers.map(() => '');
     const drained: Promise<void>[] = [];
     // a signal name, kept apart from the stream's text
     const killed: (NodeJS.Signals | null)[] = reviewers.map(() => null);
+    let stopping: Promise<void> | undefined;
+
+    /** kills what an exited wrapper left in its group, such as a native CLI whose wrapper was killed outright. */
+    const cleanUp = async (group: number) => {
+      // after an abort the stop owns escalation, since a shell that forked its command exits on SIGTERM while the
+      // command still has its grace period
+      if (stopping) return;
+
+      try {
+        signalLive(live, group, 'SIGKILL');
+        const deadline = stopDeadline();
+        await beforeDeadline(gone(live, [group], deadline, signal), deadline);
+      } catch (error) {
+        // this deadline can fire before the wait wakes to an abort, and the stop watches the group from then on
+        if (stopping) return;
+
+        live.delete(group);
+        failures.push(error);
+      }
+    };
 
     const exits = reviewers.map(
       ({ command }, index) =>
@@ -120,7 +141,7 @@ export class Reviewers {
             stdio: ['ignore', 'ignore', 'pipe'],
           });
 
-          if (child.pid) groups.push(child.pid);
+          if (child.pid) live.add(child.pid);
 
           child.stderr.setEncoding('utf8');
 
@@ -139,19 +160,19 @@ export class Reviewers {
 
           child.once('exit', (code, ended) => {
             killed[index] = ended;
-            resolve(code);
+            // a failure here would mark the reviewers still running as failed, so the run throws it once all have exited
+            void cleanUp(child.pid!).then(() => resolve(code));
           });
         }),
     );
 
-    let stopping: Promise<void> | undefined;
     // a stop that misses its deadline ends the run even while a command still hasn't exited
     const missed = Promise.withResolvers<never>();
     const aborted = Promise.withResolvers<void>();
 
     const abort = () => {
       stopping ??= stopGroups(
-        groups,
+        live,
         signal.reason instanceof NativeStop
           ? stopDeadline(signal.reason.options.deadline)
           : stopDeadline(),
@@ -174,15 +195,6 @@ export class Reviewers {
     try {
       const codes = await Promise.race([Promise.all(exits), missed.promise]);
 
-      // a wrapper killed outright leaves its native CLI in the group. after an abort the stop owns escalation, since a
-      // shell that forked its command exits on SIGTERM while the command still has its grace period
-      if (!stopping) {
-        for (const group of groups) signalGroup(group, 'SIGKILL');
-
-        const deadline = stopDeadline();
-        await beforeDeadline(gone(groups, deadline, signal), deadline);
-      }
-
       // a stop or the deadline ends this wait for output still in the pipe after the exit, since a descendant outside
       // the group can keep stderr open
       await beforeDeadline(
@@ -191,6 +203,8 @@ export class Reviewers {
       ).catch(() => {});
 
       if (stopping) await stopping;
+
+      if (failures.length) throw failures[0];
 
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
@@ -241,30 +255,51 @@ export class Reviewers {
   }
 }
 
+/** signals a group Witch still watches and forgets it once it has no member, since an empty group's id can be reused. */
+function signalLive(
+  live: Set<number>,
+  group: number,
+  signal: NodeJS.Signals | 0,
+): boolean {
+  if (signalGroup(group, signal)) return true;
+
+  live.delete(group);
+
+  return false;
+}
+
 /** stops the groups the way `terminateChild` stops a native child, rejecting when one outlives the deadline. */
-async function stopGroups(groups: readonly number[], deadline: number) {
-  for (const group of groups) signalGroup(group, 'SIGTERM');
+async function stopGroups(live: Set<number>, deadline: number) {
+  for (const group of live) signalLive(live, group, 'SIGTERM');
 
   try {
-    await beforeDeadline(gone(groups, deadline), graceDeadline(deadline));
+    await beforeDeadline(gone(live, live, deadline), graceDeadline(deadline));
 
     return;
   } catch (error) {
     if (!(error instanceof NativeStopTimeout)) throw error;
   }
 
-  for (const group of groups) signalGroup(group, 'SIGKILL');
+  for (const group of live) signalLive(live, group, 'SIGKILL');
 
-  await beforeDeadline(gone(groups, deadline), deadline);
+  await beforeDeadline(gone(live, live, deadline), deadline);
 }
 
-/** resolves once no group has a member or an abort's stop takes over the wait, rejecting when one still has a member at the deadline. */
+/** resolves once none of `groups` is left in `live` or an abort's stop takes over the wait, rejecting when one still has a member at the deadline. */
 async function gone(
-  groups: readonly number[],
+  live: Set<number>,
+  groups: Iterable<number>,
   deadline: number,
   signal?: AbortSignal,
 ): Promise<void> {
-  while (!signal?.aborted && groups.some((group) => signalGroup(group, 0))) {
+  const watched = [...groups];
+
+  // every group is probed on each pass, so one with members doesn't hide another that emptied
+  while (
+    !signal?.aborted &&
+    watched.filter((group) => live.has(group) && signalLive(live, group, 0))
+      .length
+  ) {
     if (performance.now() >= deadline) throw new NativeStopTimeout();
 
     await delay(25);

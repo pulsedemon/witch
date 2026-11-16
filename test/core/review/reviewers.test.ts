@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import {
+  closeSync,
+  constants,
+  openSync,
+  readFileSync,
+  writeSync,
+} from 'node:fs';
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
 import type { FamiliarAction } from '../../../src/agents/familiar-report.js';
@@ -664,7 +671,7 @@ test("a native session closing leaves Witch's reviewers running", async (t) => {
 const detached = (ready: string, after: string) =>
   `perl -MPOSIX -e 'setsid; open my $f, ">", $ARGV[0]; print $f $$; close $f; select undef, undef, undef, 0.05 while kill 0, $ARGV[1]; ${after}' ${quote(ready)} $$ & until [ -s ${quote(ready)} ]; do sleep 0.05; done; exit 3`;
 
-/** tells when a run's probe finds its reviewer's group gone, which is right before it waits on stderr. */
+/** tells when a signal to the run's reviewer group first answers ESRCH, which is right before the run waits on stderr. */
 function watchCleanup() {
   const kill = process.kill.bind(process);
   let done = false;
@@ -675,7 +682,8 @@ function watchCleanup() {
       try {
         return kill(pid, signal);
       } catch (error) {
-        if (pid < 0 && signal === 0) done = true;
+        if (pid < 0 && (error as NodeJS.ErrnoException).code === 'ESRCH')
+          done = true;
 
         throw error;
       }
@@ -786,5 +794,229 @@ test('the wait for stderr a descendant holds open ends at its deadline', async (
     const writer = Number(await readFile(ready, 'utf8').catch(() => ''));
 
     if (writer) process.kill(writer, 'SIGKILL');
+  }
+});
+
+/**
+ * a reviewer that exits at once beside one that waits on a fifo, with every group signal recorded. while `held`, the
+ * first reviewer's group answers every signal as if it still had a member.
+ */
+async function outlived({ held = false } = {}) {
+  const root = await scratch('witch-reviewers-');
+  const gate = join(root, 'gate');
+  execFileSync('mkfifo', [gate]);
+  const kill = process.kill.bind(process);
+  const sent: [group: number, signal: string | number | undefined][] = [];
+  let settled = false;
+
+  const group = (file: string): number | undefined => {
+    try {
+      return Number(readFileSync(join(root, file), 'utf8')) || undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const spy = vi
+    .spyOn(process, 'kill')
+    .mockImplementation((pid: number, signal?: string | number) => {
+      if (pid >= 0) return kill(pid, signal);
+
+      sent.push([-pid, signal]);
+
+      // read on each call, since the first signal follows the wrapper's exit before this test can learn its pid
+      return (held && -pid === group('first.pid')) || kill(pid, signal);
+    });
+
+  const controller = new AbortController();
+
+  const running = new Reviewers(() => {}).run({
+    cwd: root,
+    reviewers: [
+      {
+        name: 'first',
+        command: 'echo $$ > first.pid',
+        reportFile: join(root, 'first.md'),
+      },
+      {
+        name: 'slow',
+        command: 'echo $$ > slow.pid; read _ < gate',
+        reportFile: join(root, 'slow.md'),
+      },
+    ],
+    signal: controller.signal,
+  });
+
+  void running.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+
+  await until('both reviewers to start', () =>
+    Boolean(group('first.pid') && group('slow.pid')),
+  );
+
+  const first = group('first.pid')!;
+  const slow = group('slow.pid')!;
+
+  return {
+    running,
+    first,
+    slow,
+    sent,
+    settled: () => settled,
+    /** the signals sent to a group from `mark` on. */
+    to: (target: number, mark = 0) =>
+      sent
+        .slice(mark)
+        .filter(([named]) => named === target)
+        .map(([, signal]) => signal),
+    release: () => writeFile(gate, 'go\n'),
+    stop: (deadline: number) =>
+      controller.abort(
+        new NativeStop({ deadline: performance.now() + deadline }),
+      ),
+    letGo: () => {
+      held = false;
+    },
+    async close() {
+      vi.useRealTimers();
+      held = false;
+
+      // releases the slow reviewer only while it still reads the fifo, which a failed test can leave it doing
+      try {
+        const writer = openSync(
+          gate,
+          constants.O_WRONLY | constants.O_NONBLOCK,
+        );
+
+        writeSync(writer, 'go\n');
+        closeSync(writer);
+      } catch {
+        // no reader is left
+      }
+
+      controller.abort(new NativeStop({ deadline: performance.now() + 1000 }));
+      await running.catch(() => {});
+      spy.mockRestore();
+    },
+  };
+}
+
+test('a reviewer that finished is not signalled when a later one exits', async () => {
+  const run = await outlived();
+
+  try {
+    await until('the first reviewer to exit', () => !alive(run.first));
+    const mark = run.sent.length;
+    await run.release();
+    await within(run.running, 3000, 'the run');
+    assert.deepEqual(run.to(run.first, mark), []);
+    assert.ok(run.to(run.slow, mark).includes('SIGKILL'));
+  } finally {
+    await run.close();
+  }
+});
+
+test('an abort does not signal a reviewer that already finished', async () => {
+  const run = await outlived();
+
+  try {
+    await until('the first reviewer to exit', () => !alive(run.first));
+    const mark = run.sent.length;
+    run.stop(3000);
+    await within(run.running, 3000, 'the stopped run');
+    assert.deepEqual(run.to(run.first, mark), []);
+    assert.ok(run.to(run.slow, mark).includes('SIGTERM'));
+  } finally {
+    await run.close();
+  }
+});
+
+test('a group that outlives its kill fails the run once the others exit', async () => {
+  // only the deadline's timer, so the reviewers and this test's waits run in real time
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const run = await outlived({ held: true });
+
+  try {
+    await until("the held group's first probe", () =>
+      run.to(run.first).includes(0),
+    );
+
+    vi.advanceTimersByTime(8000);
+    vi.useRealTimers();
+    await setImmediate();
+    const mark = run.sent.length;
+    assert.equal(run.settled(), false);
+    await run.release();
+
+    await assert.rejects(
+      within(run.running, 3000, 'the failed run'),
+      NativeStopTimeout,
+    );
+
+    assert.deepEqual(run.to(run.first, mark), []);
+  } finally {
+    await run.close();
+  }
+});
+
+test('an abort still fails a run whose group outlived its kill, without signalling that group', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const run = await outlived({ held: true });
+
+  try {
+    await until("the held group's first probe", () =>
+      run.to(run.first).includes(0),
+    );
+
+    vi.advanceTimersByTime(8000);
+    vi.useRealTimers();
+    await setImmediate();
+    const mark = run.sent.length;
+    run.stop(3000);
+
+    await assert.rejects(
+      within(run.running, 3000, 'the stopped run'),
+      NativeStopTimeout,
+    );
+
+    assert.deepEqual(run.to(run.first, mark), []);
+    assert.ok(run.to(run.slow, mark).includes('SIGTERM'));
+  } finally {
+    await run.close();
+  }
+});
+
+test('a cleanup deadline that fires during a stop leaves the group to the stop', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const run = await outlived({ held: true });
+
+  try {
+    await until("the held group's first probe", () =>
+      run.to(run.first).includes(0),
+    );
+
+    const mark = run.sent.length;
+    // the stop's grace and the cleanup's deadline are both pending, and the cleanup's wait hasn't woken to the abort
+    run.stop(1500);
+    vi.advanceTimersByTime(8000);
+    vi.useRealTimers();
+
+    // probes after the escalation show the stop still watches the group
+    await until("the stop's probes after its kill", () => {
+      const signals = run.to(run.first, mark);
+
+      return (
+        signals.slice(signals.indexOf('SIGKILL')).filter((sent) => sent === 0)
+          .length >= 2 && signals.includes('SIGKILL')
+      );
+    });
+
+    assert.equal(run.settled(), false);
+    run.letGo();
+    await within(run.running, 3000, 'the stopped run');
+  } finally {
+    await run.close();
   }
 });
