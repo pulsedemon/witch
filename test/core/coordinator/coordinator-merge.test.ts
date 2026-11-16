@@ -370,7 +370,12 @@ test("a merge cleanup waits while a conversation record can't be read", async ()
       false,
     );
 
-    assert.equal(progress.deferred, "a conversation record can't be read");
+    const [, cause] =
+      progress.deferred?.split(
+        `${join(broken, 'state.json')} can't be read: `,
+      ) ?? [];
+
+    assert.match(cause ?? '', /JSON/);
     assert.deepEqual(notices(coordinator), []);
     await rm(broken, { recursive: true });
 

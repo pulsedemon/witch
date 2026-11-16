@@ -231,9 +231,11 @@ async function peerTurnIn(
   signal?: AbortSignal,
 ): Promise<string | undefined> {
   const { records, unreadable } = await store.records();
+  const [broken] = unreadable;
 
-  // the launch's sweep names it
-  if (unreadable.length) return "a conversation record can't be read";
+  // named with its cause: one that broke after launch missed the launch's sweep
+  if (broken)
+    return `${broken.file} can't be read: ${broken.error.split('\n')[0]}`;
 
   const top = await topLevel(gitIn(cwd, signal));
 
