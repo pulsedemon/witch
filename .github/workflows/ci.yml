@@ -38,5 +38,36 @@ jobs:
           pnpm --version
           git --version
           node -p 'require("node:os").availableParallelism()'
+      - name: Keep core files
+        run: |
+          mkdir "$RUNNER_TEMP/cores"
+          sudo sysctl --write "kernel.core_pattern=$RUNNER_TEMP/cores/%p.%E"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
+      - run: |
+          ulimit -c unlimited
+          pnpm check
+      - name: Report crashed processes
+        if: ${{ !cancelled() }}
+        run: |
+          shopt -s nullglob
+          cores=("$RUNNER_TEMP"/cores/*)
+
+          if (( ${#cores[@]} == 0 )); then
+            echo "no core files"
+            exit 0
+          fi
+
+          sudo apt-get install --yes --no-install-recommends gdb
+
+          for core in "${cores[@]}"; do
+            # %p.%E names each core <pid>.<executable path with ! for />
+            name=${core##*/}
+            executable=${name#*.}
+            executable=${executable//!//}
+            echo "::group::pid ${name%%.*} $executable"
+            gdb --batch --ex "print \$_siginfo" --ex 'info threads' --ex 'thread apply all backtrace' --ex 'info sharedlibrary' "$executable" "$core" || true
+            echo "::endgroup::"
+          done
+
+          # a crash inside a green job goes unread
+          exit 1
