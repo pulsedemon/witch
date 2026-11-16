@@ -30,6 +30,23 @@ interface Sources {
   memory: Memory;
 }
 
+/** the project `directory` belongs to, or undefined when the directory is gone. */
+export async function directoryProject(
+  memory: Memory,
+  directory: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    return (await memory.scopePaths(directory, signal)).project;
+  } catch (error) {
+    const { code, syscall } = error as NodeJS.ErrnoException;
+
+    if (code !== 'ENOENT' || syscall !== 'realpath') throw error;
+
+    return undefined;
+  }
+}
+
 /** `held` is the caller's own publishing activation, whose lock it already holds. */
 export async function discover(
   { registry, store, memory }: Sources,
@@ -105,22 +122,19 @@ export async function discover(
     // a current Witch opening, reconnecting or closing this conversation
     if (holder.coordinated) continue;
 
-    try {
-      const { project } = await memory.scopePaths(
-        record.cwd,
-        deadline === undefined
-          ? undefined
-          : AbortSignal.timeout(checkDeadline(deadline)),
-      );
+    const project = await directoryProject(
+      memory,
+      record.cwd,
+      deadline === undefined
+        ? undefined
+        : AbortSignal.timeout(checkDeadline(deadline)),
+    );
 
-      const summaries = unregistered.get(project) ?? [];
-      summaries.push(conversationSummarySchema.parse(record));
-      unregistered.set(project, summaries);
-    } catch (error) {
-      const { code, syscall } = error as NodeJS.ErrnoException;
+    if (project === undefined) continue;
 
-      if (code !== 'ENOENT' || syscall !== 'realpath') throw error;
-    }
+    const summaries = unregistered.get(project) ?? [];
+    summaries.push(conversationSummarySchema.parse(record));
+    unregistered.set(project, summaries);
   }
 
   return { revision, live, opened, records, unregistered };

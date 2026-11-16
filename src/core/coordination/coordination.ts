@@ -30,7 +30,12 @@ import {
   coordinationContext,
   coordinationInstructions,
 } from './coordination-policy.js';
-import { configStamp, discover, projectDiscovery } from './discovery.js';
+import {
+  configStamp,
+  directoryProject,
+  discover,
+  projectDiscovery,
+} from './discovery.js';
 import { movedNotices, transferRefusal } from './task-transfer.js';
 import type { Discovery } from './discovery.js';
 import { assignGitHubTask } from './github-assignment.js';
@@ -240,11 +245,11 @@ export class SessionCoordination {
           const discovery = await this.discover(++this.revision);
 
           const recipients = await Promise.all(
-            discovery.records.map(async (record) => {
-              const scope = await this.memory.scopePaths(record.cwd);
-
-              return scope.project === project ? record.id : undefined;
-            }),
+            discovery.records.map(async (record) =>
+              (await directoryProject(this.memory, record.cwd)) === project
+                ? record.id
+                : undefined,
+            ),
           );
 
           return recipients.filter((id) => id !== undefined);
