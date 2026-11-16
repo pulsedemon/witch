@@ -304,6 +304,22 @@ test("a legacy Ctrl+P and Enter in one read run the picker's first command", asy
   }
 });
 
+test('a key typed after choosing a command in the same read reaches the composer', async () => {
+  const { ui, calls } = await launched({});
+
+  try {
+    ui.stdin.write('hello');
+    await until('the draft', () => ui.text().includes('┃ hello'));
+    ui.stdin.write(`${CTRL_P}help${ENTER}x`);
+    await until('the help page', () => ui.text().includes('Keyboard help'));
+    ui.stdin.write('\u001b[27u');
+    await until('the typed key', () => ui.text().includes('┃ hellox'));
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('the composer grows with its text up to half the body, sizes a ! command beside its !, and shrinks after a send', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));

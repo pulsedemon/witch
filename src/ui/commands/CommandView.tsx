@@ -162,7 +162,8 @@ export function useCommandViews({
 
         // a nested picker owns the visible wait while this action still awaits its result
         pickerWait.current = undefined;
-        setView({ kind: 'chat' });
+        // chat renders before the rest of Enter's read, so keys typed after the choice reach the composer
+        flushSync(() => setView({ kind: 'chat' }));
 
         void (async () => {
           try {
