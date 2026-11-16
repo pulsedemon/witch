@@ -13,7 +13,7 @@ import type { Workspace } from '../memory/workspace.js';
 import type { Conversation } from './state.js';
 import type { SessionCoordination } from './coordination/coordination.js';
 import { mergeContext } from './repository/merge-events.js';
-import { planDirectories } from './repository/merged.js';
+import { planDirectories } from './repository/merged-plans.js';
 import type { MergeEvent } from './repository/merge-events.js';
 import { answerContext, requestContext } from './coordination/peer-requests.js';
 import type { PeerRequest } from './coordination/peer-requests.js';
