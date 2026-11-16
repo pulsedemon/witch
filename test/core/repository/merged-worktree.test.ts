@@ -326,3 +326,32 @@ test("a worktree whose stacked base exists only on its remote detaches at the re
 
   assert.deepEqual(await branches(checkout), ['main']);
 });
+
+test('a worktree whose base is named like an option detaches at its remote branch', async () => {
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(other, 'push', 'origin', 'main:refs/heads/-base');
+  await git(checkout, 'fetch');
+  // git's porcelain won't name a branch this way, but update-ref will
+  await git(checkout, 'update-ref', 'refs/heads/-base', 'origin/-base');
+  await git(checkout, 'config', 'branch.-base.remote', 'origin');
+  await git(checkout, 'config', 'branch.-base.merge', 'refs/heads/-base');
+  await git(checkout, 'switch', 'main');
+  const tree = join(dirname(checkout), 'tree');
+  await git(checkout, 'worktree', 'add', tree, 'feat/x');
+
+  assert.deepEqual(
+    await cleanUpMerge(tree, { ...pullRequest(tip), base: '-base' }, idle),
+    {
+      text: '#7 merged: detached at origin/-base, deleted branch feat/x.',
+      cleaned: true,
+    },
+  );
+
+  assert.equal(
+    await git(tree, 'rev-parse', 'HEAD'),
+    await git(other, 'rev-parse', 'main'),
+  );
+
+  assert.deepEqual(await branches(checkout), ['-base', 'main']);
+});
