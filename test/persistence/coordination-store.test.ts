@@ -6,7 +6,7 @@ import { constants } from 'node:fs';
 import { access, chmod, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import type {
   ClaimInput,
@@ -702,7 +702,7 @@ async function transferFixture(
                 (entry) => entry.owner.conversation === owner.conversation,
               )!,
             },
-        { activation, process: requester, expires },
+        { activation, process: requester, expires: () => expires },
         Date.now() + 5000,
         verify,
       ),
@@ -749,7 +749,7 @@ test('a captured automatic conflict cannot take a retained main claim after its 
       {
         activation: (await f.hold()).activation,
         process: f.requester,
-        expires: Date.now() + 5000,
+        expires: () => Date.now() + 5000,
       },
       Date.now() + 5000,
       verify,
@@ -783,7 +783,7 @@ test('an automatic transfer still follows a conflict caused only by a requested 
     {
       activation: (await f.hold()).activation,
       process: f.requester,
-      expires: Date.now() + 5000,
+      expires: () => Date.now() + 5000,
     },
     Date.now() + 5000,
     verify,
@@ -793,6 +793,30 @@ test('an automatic transfer still follows a conflict caused only by a requested 
   assert.equal(moved!.id, original.id);
   assert.deepEqual(moved!.references, original.references);
   assert.deepEqual(moved!.owner, taker);
+});
+
+test('a transfer request reads its expiry when it is written, after verification', async (t) => {
+  const f = await transferFixture(orderedCleanup(t.onTestFinished), 'transfer');
+  await claim(f.store);
+  const { activation } = await f.hold();
+  const real = Date.now.bind(Date);
+  let waited = 0;
+  vi.spyOn(Date, 'now').mockImplementation(() => real() + waited);
+  const started = Date.now();
+
+  const requested = await f.store.requestTransfer(
+    taker,
+    { field: 'transfer', reference: 'task:shared' },
+    { activation, process: f.requester, expires: () => Date.now() + 8000 },
+    started + 30_000,
+    async () => {
+      waited = 9000;
+    },
+  );
+
+  const stored = (await f.store.claims())[0]!.transfer!.expires;
+  assert.equal(requested.transfer!.expires, stored);
+  assert.ok(stored >= started + 17_000, String(stored - started));
 });
 
 for (const field of ['transfer', 'automaticTransfer'] as const)
@@ -860,7 +884,7 @@ test('automatic transfer never follows a released reference onto a replacement c
     f.store.requestTransfer(
       taker,
       { field: 'automaticTransfer', claim: original, input },
-      { activation, process: f.requester, expires: Date.now() + 5000 },
+      { activation, process: f.requester, expires: () => Date.now() + 5000 },
       Date.now() + 5000,
       verify,
     ),
@@ -884,7 +908,7 @@ test('automatic transfer refuses a claim that moved since the conflict', async (
       {
         activation: (await f.hold()).activation,
         process: identity,
-        expires: Date.now() + 5000,
+        expires: () => Date.now() + 5000,
       },
       Date.now() + 5000,
       verify,
@@ -911,7 +935,7 @@ for (const field of ['transfer', 'automaticTransfer'] as const)
         {
           activation: (await f.hold()).activation,
           process: identity,
-          expires: Date.now() + 5000,
+          expires: () => Date.now() + 5000,
         },
         Date.now() + 5000,
         verify,

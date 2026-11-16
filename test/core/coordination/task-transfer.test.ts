@@ -4,7 +4,10 @@ import { test, vi } from 'vitest';
 import { callControl } from '../../../src/persistence/control.js';
 import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import type { TransferField } from '../../../src/core/coordination/coordination-state.js';
-import { transferRefusal } from '../../../src/core/coordination/task-transfer.js';
+import {
+  awaitTransfer,
+  transferRefusal,
+} from '../../../src/core/coordination/task-transfer.js';
 import { USAGE_CURRENT_MS } from '../../../src/core/runtime/usage.js';
 import type { Snapshot } from '../../../src/core/snapshot.js';
 import { FixtureAgent, TurnGate } from '../../fixtures/agent.js';
@@ -155,6 +158,83 @@ test('an owner that never reads the ledger times out and leaves no request', asy
 
   assert.deepEqual(await registry.claims(), before);
   assert.equal(b.coordination.snapshot.error, undefined);
+});
+
+for (const { budget, wait } of [
+  { budget: 30_000, wait: 8000 },
+  { budget: 5000, wait: 3000 },
+])
+  test(`a request with ${budget} ms left gives the owner ${wait} ms to answer`, async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const expiries: number[] = [];
+
+    await assert.rejects(
+      awaitTransfer({
+        conversation: 'requester',
+        activation: 'activation',
+        reference: 'task:shared',
+        field: 'transfer',
+        deadline: 1000 + budget,
+        request: async (expires) => {
+          expiries.push(expires());
+
+          throw new Error('Request refused');
+        },
+        title: async () => undefined,
+        admit: () => {},
+        read: async () => ({ ledger: { claims: [], selections: [] } }),
+        withdraw: async () => undefined,
+      }),
+      /Request refused/,
+    );
+
+    assert.deepEqual(expiries, [1000 + wait]);
+  });
+
+test('a request that is slow to record still gives the owner 8 s from the write', async () => {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+  let recorded = 0;
+  let reads = 0;
+
+  await assert.rejects(
+    awaitTransfer({
+      conversation: 'requester',
+      activation: 'activation',
+      reference: 'task:shared',
+      field: 'transfer',
+      deadline: 31_000,
+      request: async (expires) => {
+        now.mockReturnValue(10_000);
+        recorded = expires();
+
+        return {
+          id: 'claim',
+          owner: { conversation: 'owner', project: 'project' },
+          references: ['task:shared'],
+          summary: 'Shared work',
+          createdAt: 0,
+          transfer: {
+            to: { conversation: 'requester', project: 'project' },
+            activation: 'activation',
+            process: { pid: 1, started: 'then' },
+            expires: recorded,
+          },
+        };
+      },
+      title: async () => 'Owner',
+      admit: () => {},
+      read: async () => {
+        reads++;
+
+        return { ledger: { claims: [], selections: [] } };
+      },
+      withdraw: async () => undefined,
+    }),
+    /task:shared was released/,
+  );
+
+  assert.equal(recorded, 18_000);
+  assert.equal(reads, 1);
 });
 
 test('an owner whose handover fails shows why until one succeeds', async (t) => {

@@ -828,7 +828,9 @@ export class CoordinationStore {
   async requestTransfer(
     to: ClaimOwner,
     target: TransferTarget,
-    request: Pick<Transfer, 'activation' | 'process' | 'expires'>,
+    request: Pick<Transfer, 'activation' | 'process'> & {
+      expires: () => number;
+    },
     deadline: number,
     verify: Verify,
   ): Promise<TaskClaim> {
@@ -892,7 +894,7 @@ export class CoordinationStore {
         throw new Error('Another conversation is already taking this task.');
       }
 
-      claim[target.field] = { to, ...request };
+      claim[target.field] = { ...request, to, expires: request.expires() };
 
       return claim;
     });
