@@ -82,6 +82,8 @@ type Destination =
 export class RuntimeSwitch {
   /** a model selection is in flight, so a stop closes the session it would leave half changed. */
   selecting = false;
+  /** the destination is running the continuation, which a prompt sent then doesn't steer. */
+  continuing = false;
   /** a switch activated in this drain step, so another exhaustion stops instead of switching back. */
   private hopped = false;
   private pending?: PendingSwitch;
@@ -274,13 +276,23 @@ export class RuntimeSwitch {
       {
         ...host,
         send: async (prompt, kind, images) => {
-          const result = await host.send(prompt, kind, images);
+          const continuing = kind === 'turn';
+
+          // the switch ends once the destination resumes the task; a cancelled one may already be closing
+          if (continuing && !host.cancelled())
+            host.publish({ phase: 'running' });
+
+          this.continuing = continuing;
+
+          const result = await host
+            .send(prompt, kind, images)
+            .finally(() => (this.continuing = false));
 
           // a `/model` summary can exhaust its source too, and returning there needs later evidence
           if (result.status === 'failed' && result.exhausted)
             this.exhaustedAt.set(host.conversation().agent, Date.now());
 
-          if (kind === 'turn') this.continuation = result;
+          if (continuing) this.continuation = result;
 
           return result;
         },

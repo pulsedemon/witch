@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import type { AccountReading } from '../../../src/agents/types.js';
+import { sessionStatus } from '../../../src/core/coordination/coordination-state.js';
 import type { Coordinator } from '../../../src/core/coordinator.js';
 import { callControl } from '../../../src/persistence/control.js';
 import type { FixtureAgent } from '../../fixtures/agent.js';
@@ -192,6 +193,39 @@ test('a prompt queued behind an exhausted turn runs on the destination after the
       [],
     );
   } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+test('the status shows switching until the destination resumes the task, running while it does and idle once it settles', async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  const refreshing = Promise.withResolvers<void>();
+  const refreshed = Promise.withResolvers<void>();
+  const gate = new TurnGate();
+
+  codex.accountRead = async () => {
+    refreshing.resolve();
+    await refreshed.promise;
+
+    return reading(40)();
+  };
+
+  codex.gate = gate;
+
+  try {
+    claude.exhaust = (prompt) => prompt.includes('Migrate the store');
+    const sending = coordinator.send('Migrate the store');
+    await within(refreshing.promise, 2000, 'the forced refresh');
+    assert.equal(sessionStatus(coordinator.snapshot), 'switching');
+    refreshed.resolve();
+    await within(gate.entered, 2000, 'the continuation');
+    assert.equal(sessionStatus(coordinator.snapshot), 'running');
+    gate.open();
+    await sending;
+    assert.equal(sessionStatus(coordinator.snapshot), 'idle');
+  } finally {
+    refreshed.resolve();
     gate.open();
     await coordinator.close();
   }

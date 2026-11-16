@@ -273,6 +273,7 @@ export class PromptDelivery {
       !this.host.snapshot().answering &&
       !this.host.snapshot().reviewing &&
       !this.turns.repairing &&
+      !this.runtimes.continuing &&
       !this.runtimes.backgroundPending &&
       !this.host.cancelled() &&
       !this.deliveryHeld &&
