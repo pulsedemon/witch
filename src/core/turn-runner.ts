@@ -266,7 +266,24 @@ export class TurnRunner {
       read,
     );
 
-    const session = await this.connectForTurn(scope);
+    let session: AgentSession | undefined;
+
+    try {
+      session = await this.connectForTurn(scope);
+    } catch (error) {
+      if (kind !== 'handoff') throw error;
+
+      // a source that can't reconnect fails its summary, so the handoff rebuilds context from the transcript
+      const failed: TurnResult = {
+        status: 'failed',
+        text: '',
+        error: errorMessage(error),
+      };
+
+      await this.finishActivity(activity, failed);
+
+      return failed;
+    }
 
     if (!session || this.host.cancelled())
       return { status: 'interrupted', text: '' };

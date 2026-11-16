@@ -1136,3 +1136,30 @@ test('a /model switch whose failed summary leaves memory pending keeps the sourc
     await coordinator.close();
   }
 });
+
+test('a /model switch whose source cannot reconnect activates with transcript context', async () => {
+  const { coordinator, a, b } = await handoffFixture();
+
+  try {
+    await a.sessions.at(-1)!.session.close();
+    a.beforeConnect = () => Promise.reject(new Error('Source unavailable'));
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(coordinator.snapshot.error, undefined);
+
+    assert.ok(
+      coordinator.snapshot.items.some(
+        ({ kind, text }) => kind === 'notice' && text === 'Source unavailable',
+      ),
+    );
+
+    await coordinator.send('After the switch');
+    assert.equal(b.inputs.length, 1);
+    assert.equal(b.inputs[0]!.prompt, 'After the switch');
+    assert.match(b.inputs[0]!.context!, /could not summarize/);
+    assert.match(b.inputs[0]!.context!, /User: Start the migration/);
+  } finally {
+    await coordinator.close();
+  }
+});
