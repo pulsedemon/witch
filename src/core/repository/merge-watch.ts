@@ -6,7 +6,7 @@ import type { PullRequest, RepositoryWatch } from './repository.js';
 /** what the watch holds for one merged pull request at one head commit. */
 interface Merge {
   settled?: boolean;
-  /** its cleanup ran since the last repository change, or runs now */
+  /** its cleanup runs now, or waits for a repository change or its retry timer */
   waiting?: boolean;
   timer?: NodeJS.Timeout;
   /** an interrupted cleanup, which resumes from its own progress */

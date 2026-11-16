@@ -52,7 +52,10 @@ export interface Repository {
   followed?: PullRequest[];
   /** the project `followed` was read in. */
   followedProject?: string;
-  /** why the last read of a followed pull request failed unexpectedly, naming what it read. */
+  /**
+   * why the last read for a pull request this checkout left failed unexpectedly: its number or branch with the reason,
+   * `previous branch` for the branch checked out before startup, or a failed project read's own reason.
+   */
   followedFailure?: string;
 }
 
@@ -326,10 +329,12 @@ const missing = (error: unknown) =>
 /** how long a pull request read stands before the next. */
 const reread = 90_000;
 
-/** a pull request with when its read began and ended. */
+/** a pull request as a read found it. */
 interface Reading {
   value: PullRequest;
+  /** when that read began, which orders it against other reads of the same pull request */
   started: number;
+  /** when it was read or its next read was last attempted, which the interval counts from */
   at: number;
 }
 
@@ -376,13 +381,17 @@ export class RepositoryWatch {
   /** the order each branch was last left in, which `followed` keeps, newest first. */
   private readonly left = new Map<string, number>();
   private departures = 0;
-  /** branches left with no pull request read, each with when its read by name last ran. */
+  /** branches left with no pull request read, or with one that merged or closed, each with when its read by name last ran. */
   private readonly names = new Map<string, number>();
   /** when each URL last left `followed` for good, so a read begun before that can't bring it back. */
   private readonly departed = new Map<string, number>();
   /** the last answer of a project read, which everything followed belongs to. */
   private current?: { project?: string };
   private followedFailure?: string;
+  /** whether Git answered for the branch checked out before this one. until it does, each status read asks again. */
+  private recalled = false;
+  private recalling = false;
+  private recallFailure?: string;
   private following?: Promise<void>;
   private requested = false;
   private fetching?: Promise<void>;
@@ -839,7 +848,7 @@ export class RepositoryWatch {
     const left = this.branch;
     this.branch = branch;
 
-    if (left === undefined) void this.recall();
+    if (!this.recalled && !this.recalling) void this.recall();
 
     if (left === undefined || left === branch) return;
 
@@ -864,16 +873,36 @@ export class RepositoryWatch {
 
   /** the branch checked out before this one, which a restart on the base would otherwise forget. */
   private async recall(): Promise<void> {
-    const name = await this.run(
-      'git',
-      ['rev-parse', '--symbolic-full-name', '@{-1}'],
-      { cwd: this.cwd, timeout: 10_000 },
-    ).then(
-      ({ stdout }) => /^refs\/heads\/(.+)$/.exec(stdout.trim())?.[1],
-      () => undefined,
-    );
+    this.recalling = true;
+    let name: string | undefined;
+    let failure: string | undefined;
 
-    if (this.closed || !name || name === this.branch) return;
+    try {
+      const { stdout } = await this.run(
+        'git',
+        ['rev-parse', '--symbolic-full-name', '@{-1}'],
+        { cwd: this.cwd, timeout: 10_000 },
+      );
+
+      name = /^refs\/heads\/(.+)$/.exec(stdout.trim())?.[1];
+      this.recalled = true;
+    } catch (error) {
+      // Git exits with a status when there is no previous branch. a failed spawn or a timeout is asked again
+      this.recalled = typeof (error as { code?: unknown }).code === 'number';
+
+      if (!this.recalled) failure = `previous branch: ${reason(error)}`;
+    } finally {
+      this.recalling = false;
+    }
+
+    if (this.closed) return;
+
+    if (failure !== this.recallFailure) {
+      this.recallFailure = failure;
+      this.publish(this.snapshot);
+    }
+
+    if (!name || name === this.branch) return;
 
     this.names.set(name, -Infinity);
     this.readFollowed();
@@ -914,6 +943,8 @@ export class RepositoryWatch {
 
         const started = Date.now();
         this.names.set(name, started);
+        // a return to the branch drops the name, and leaving again queues it anew for a later read to answer
+        const current = () => this.names.get(name) === started;
 
         try {
           const value = await this.view(name);
@@ -928,13 +959,22 @@ export class RepositoryWatch {
             }));
 
           accepted.push(() => {
+            if (!current()) return;
+
             this.names.delete(name);
 
-            if (open && this.branch !== name)
+            if (
+              open &&
+              this.branch !== name &&
+              started > (this.departed.get(open.url) ?? -Infinity)
+            )
               this.follow({ value: open, started, at: Date.now() });
           });
         } catch (error) {
-          if (missing(error)) accepted.push(() => this.names.delete(name));
+          if (missing(error))
+            accepted.push(() => {
+              if (current()) this.names.delete(name);
+            });
           else if (!unavailable(error))
             failures.push(`${name}: ${reason(error)}`);
         }
@@ -1222,8 +1262,11 @@ export class RepositoryWatch {
           repository.followedProject = this.current.project;
       }
 
-      if (this.followedFailure !== undefined)
-        repository.followedFailure = this.followedFailure;
+      const failure = [this.recallFailure, this.followedFailure]
+        .filter((text) => text !== undefined)
+        .join('; ');
+
+      if (failure) repository.followedFailure = failure;
     }
 
     if (JSON.stringify(repository) === JSON.stringify(this.snapshot)) return;

@@ -58,7 +58,8 @@ function harness(
     project,
   }: {
     branch?: string;
-    previous?: string;
+    /** what `@{-1}` answers, or how asking fails. unset, there is no previous branch. */
+    previous?: string | (() => string);
     project?: () => Promise<string>;
   } = {},
 ) {
@@ -95,7 +96,9 @@ function harness(
             code: 128,
           });
 
-        return { stdout: `${previous}\n` };
+        return {
+          stdout: `${typeof previous === 'function' ? previous() : previous}\n`,
+        };
       }
 
       if (args[0] === 'config') return { stdout: '' };
@@ -821,4 +824,95 @@ test('followed pull requests go when the project changes', async (t) => {
     assert.deepEqual(named(), ['feat/x']);
     assert.equal(followed(), undefined);
   }
+});
+
+test("an older read by name can't answer for the branch's next departure", async (t) => {
+  const first = Promise.withResolvers<string>();
+  let reads = 0;
+
+  const { state, step, named, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/x'
+        ? ++reads === 1
+          ? first.promise
+          : pr('OPEN')
+        : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  state.branch = 'feat/x';
+  await step();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(named(), ['feat/x']);
+  // the pull request was opened after the first read began
+  first.reject(none('feat/x'));
+  await settle();
+  await step();
+  assert.deepEqual(named(), ['feat/x', 'feat/x']);
+  assert.deepEqual(followed(), ['#7 OPEN']);
+});
+
+test("a read by name that began before its pull request was unfollowed can't bring it back", async (t) => {
+  const own = Promise.withResolvers<string>();
+  const byName = Promise.withResolvers<string>();
+
+  const { watch, state, step, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/x'
+        ? byName.promise
+        : selector === '' && branch === 'feat/x'
+          ? own.promise
+          : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  own.resolve(pr('MERGED'));
+  await settle();
+  assert.deepEqual(followed(), ['#7 MERGED']);
+  watch.unfollow(url7);
+  byName.resolve(pr('OPEN'));
+  await settle();
+  assert.equal(followed(), undefined);
+});
+
+test('a failed read of the branch checked out before startup is reported and asked again', async (t) => {
+  let asked = 0;
+
+  const { watch, step, named, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/x' ? pr('OPEN') : none(selector || branch),
+    {
+      branch: 'main',
+      previous: () => {
+        if (++asked === 1)
+          throw Object.assign(new Error('spawn git EMFILE'), {
+            code: 'EMFILE',
+          });
+
+        return 'refs/heads/feat/x';
+      },
+    },
+  );
+
+  await settle();
+
+  assert.equal(
+    watch.snapshot?.followedFailure,
+    'previous branch: spawn git EMFILE',
+  );
+
+  assert.deepEqual(named(), []);
+  await step();
+  assert.deepEqual(followed(), ['#7 OPEN']);
+  assert.equal(watch.snapshot?.followedFailure, undefined);
+  await step();
+  assert.equal(asked, 2);
 });

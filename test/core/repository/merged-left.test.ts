@@ -242,7 +242,7 @@ for (const detach of [false, true])
     assert.deepEqual(await branches(checkout), ['feat/y', 'feat/z', 'main']);
   });
 
-test('a left branch stays when it moved, a worktree holds it or the checkout went back to it', async () => {
+test('a left branch stays when it moved or a worktree holds it', async () => {
   {
     const { checkout, other, tip } = await merged();
     await merge(other, 'feat/x');
