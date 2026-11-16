@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, flushSync } from 'ink';
 import type { Key } from 'ink';
 import { dirname, join } from 'node:path';
 import type { Coordinator } from '../../core/coordinator.js';
@@ -133,11 +133,12 @@ export function useCommandViews({
     return operation().finally(() => setLeaving(undefined));
   };
 
+  /** renders chat before the rest of the key's read, so the keys after Esc or Ctrl+C reach the composer. */
   const dismissPicker = (success = true) => {
     const waiting = pickerWait.current;
     pickerWait.current = undefined;
     waiting?.resolve(success);
-    setView({ kind: 'chat' });
+    flushSync(() => setView({ kind: 'chat' }));
   };
 
   const picker: Picker = (title, entries, choose, custom = false, caption) => {
@@ -496,8 +497,11 @@ export function useCommandViews({
     choose,
     dismissPicker,
     handleKey,
+    /** renders the picker before the rest of Ctrl+P's read, so the keys after it reach the picker. */
     showCommands: () =>
-      picker('Commands', commands, (id) => command(id as CommandName)),
+      flushSync(() =>
+        picker('Commands', commands, (id) => command(id as CommandName)),
+      ),
     submit: (commands: readonly WitchCommand[]) =>
       batches.submit(commands, executeCommand),
   };

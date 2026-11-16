@@ -11,6 +11,7 @@ import {
   fake,
   prompts,
   ENTER,
+  CTRL_P,
   SHIFT_ENTER,
   DOWN,
   UP,
@@ -250,6 +251,54 @@ test('Ctrl+P over an open list gives the picker its keys', async () => {
     );
 
     assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test("Ctrl+P, Down and Enter in one read run the picker's second command, not the draft", async () => {
+  const { ui, calls } = await launched({});
+
+  try {
+    ui.stdin.write('hello');
+    await until('the draft', () => ui.text().includes('┃ hello'));
+    ui.stdin.write(`${CTRL_P}${DOWN}${ENTER}`);
+
+    await until('the conversations picker', () =>
+      ui.text().includes('Conversations'),
+    );
+
+    assert.deepEqual(calls, []);
+    ui.stdin.write('\u001b[27u');
+    await until('the kept draft', () => ui.text().includes('┃ hello'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('Esc in the same read as Ctrl+P gives the composer the keys after it', async () => {
+  const { ui, calls } = await launched({});
+
+  try {
+    ui.stdin.write('hello');
+    await until('the draft', () => ui.text().includes('┃ hello'));
+    ui.stdin.write(`${CTRL_P}\u001b[27ux`);
+    await until('the typed key', () => ui.text().includes('┃ hellox'));
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test("a legacy Ctrl+P and Enter in one read run the picker's first command", async () => {
+  const { ui, calls } = await launched({});
+
+  try {
+    ui.stdin.write('hello');
+    await until('the draft', () => ui.text().includes('┃ hello'));
+    ui.stdin.write('\u0010\r');
+    await until('the command', () => calls.length > 0);
+    assert.deepEqual(calls, [['newConversation', undefined]]);
   } finally {
     ui.unmount();
   }
