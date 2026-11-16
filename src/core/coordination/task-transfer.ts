@@ -77,6 +77,9 @@ export class TransferUnavailable extends Error {
   }
 }
 
+/** how long an owner gets to answer; a longer request deadline must not hold the requester's other coordination work on an owner that never does. */
+const patience = 8000;
+
 interface TransferWait<View> {
   conversation: string;
   activation: string;
@@ -95,7 +98,7 @@ export async function awaitTransfer<View extends { ledger: Ledger }>(
   request: TransferWait<View>,
 ): Promise<{ claim: TaskClaim; view?: View }> {
   // leave time for withdrawal, the final peer refresh and the control reply.
-  const end = request.deadline - 2000;
+  const end = Math.min(request.deadline - 2000, Date.now() + patience);
   const requested = await request.request(end);
 
   try {

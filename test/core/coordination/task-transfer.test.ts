@@ -4,7 +4,10 @@ import { test, vi } from 'vitest';
 import { callControl } from '../../../src/persistence/control.js';
 import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import type { TransferField } from '../../../src/core/coordination/coordination-state.js';
-import { transferRefusal } from '../../../src/core/coordination/task-transfer.js';
+import {
+  awaitTransfer,
+  transferRefusal,
+} from '../../../src/core/coordination/task-transfer.js';
 import { USAGE_CURRENT_MS } from '../../../src/core/runtime/usage.js';
 import type { Snapshot } from '../../../src/core/snapshot.js';
 import { FixtureAgent, TurnGate } from '../../fixtures/agent.js';
@@ -156,6 +159,37 @@ test('an owner that never reads the ledger times out and leaves no request', asy
   assert.deepEqual(await registry.claims(), before);
   assert.equal(b.coordination.snapshot.error, undefined);
 });
+
+for (const { budget, wait } of [
+  { budget: 30_000, wait: 8000 },
+  { budget: 5000, wait: 3000 },
+])
+  test(`a request with ${budget} ms left gives the owner ${wait} ms to answer`, async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const expiries: number[] = [];
+
+    await assert.rejects(
+      awaitTransfer({
+        conversation: 'requester',
+        activation: 'activation',
+        reference: 'task:shared',
+        field: 'transfer',
+        deadline: 1000 + budget,
+        request: async (expires) => {
+          expiries.push(expires);
+
+          throw new Error('Request refused');
+        },
+        title: async () => undefined,
+        admit: () => {},
+        read: async () => ({ ledger: { claims: [], selections: [] } }),
+        withdraw: async () => undefined,
+      }),
+      /Request refused/,
+    );
+
+    assert.deepEqual(expiries, [1000 + wait]);
+  });
 
 test('an owner whose handover fails shows why until one succeeds', async (t) => {
   const { a, b, tick, requested } = await transfer(t);
