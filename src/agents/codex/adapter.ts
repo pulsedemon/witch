@@ -21,7 +21,16 @@ import type { Notification } from './commands.js';
 import { CodexAccount, probeAccountUsage, rateLimits } from './limits.js';
 import type { FamiliarAction, FamiliarOutcome } from '../familiar-report.js';
 import { CodexFamiliars } from './familiars.js';
-import { fileChanges, fileDiffs, itemTool, turnId, untooled } from './items.js';
+import {
+  fileChangeIdentity,
+  fileChangeKey,
+  fileChanges,
+  fileDiffs,
+  itemTool,
+  turnId,
+  untooled,
+} from './items.js';
+import { parseRequest } from './requests.js';
 import { diffLines } from '../file-diff.js';
 import { errorMessage } from '../../errors.js';
 import {
@@ -47,7 +56,6 @@ import type {
   Skill,
   TurnResult,
   Usage,
-  UserRequest,
   UserResponse,
   SendOptions,
 } from '../types.js';
@@ -82,35 +90,12 @@ const tokenUsage = z.object({
   }),
 });
 
-const questionList = z.array(
-  z.object({
-    id: z.string(),
-    question: z.string(),
-    isSecret: z.boolean().optional(),
-    options: z.array(z.object({ label: z.string() })).nullable(),
-  }),
-);
-
 const messageQuestions = z.array(
   z.object({
     title: z.string(),
     options: z.array(z.string()).nullish(),
   }),
 );
-
-function fileChangeKey(
-  threadId: string,
-  turnId: string,
-  itemId: string,
-): string {
-  return JSON.stringify([threadId, turnId, itemId]);
-}
-
-const fileChangeIdentity = z.object({
-  threadId: z.string(),
-  turnId: z.string(),
-  itemId: z.string(),
-});
 
 const mcpStartup = z.object({
   name: stringValue,
@@ -1278,7 +1263,7 @@ class CodexSession implements AgentSession {
     let request;
 
     try {
-      request = this.parseRequest(message);
+      request = parseRequest(message, this.proposals);
     } catch (error) {
       const text = `Witch could not read Codex's ${message.method} request: ${errorMessage(error)}`;
       this.rpc.reject(message.id!, text);
@@ -1297,68 +1282,6 @@ class CodexSession implements AgentSession {
 
     this.requests.set(request.id, message);
     this.options.onEvent({ type: 'request', request });
-  }
-
-  private parseRequest(message: RpcMessage): UserRequest | undefined {
-    const id = String(message.id);
-    const data = object.parse(message.params);
-
-    const request = {
-      id,
-      title: String(
-        data.reason ?? data.message ?? data.command ?? message.method,
-      ),
-      detail: JSON.stringify(data, null, 2),
-      survivesTurn: true,
-    };
-
-    if (message.method === 'item/tool/requestUserInput')
-      return {
-        ...request,
-        kind: 'question',
-        questions: questionList.parse(data.questions).map((question) => ({
-          id: question.id,
-          title: question.question,
-          secret: question.isSecret,
-          options: question.options?.map((option) => option.label) ?? [],
-        })),
-      };
-
-    if (message.method === 'mcpServer/elicitation/request')
-      return {
-        ...request,
-        kind: 'elicitation',
-        url: typeof data.url === 'string' ? data.url : undefined,
-        schema: data.requestedSchema
-          ? object.parse(data.requestedSchema)
-          : undefined,
-      };
-
-    if (message.method === 'item/fileChange/requestApproval') {
-      const identity = fileChangeIdentity.safeParse(data);
-
-      const diff = identity.success
-        ? this.proposals.get(
-            fileChangeKey(
-              identity.data.threadId,
-              identity.data.turnId,
-              identity.data.itemId,
-            ),
-          )?.diff
-        : undefined;
-
-      return { ...request, kind: 'approval', ...(diff ? { diff } : {}) };
-    }
-
-    if (
-      [
-        'item/commandExecution/requestApproval',
-        'item/permissions/requestApproval',
-      ].includes(message.method ?? '')
-    )
-      return { ...request, kind: 'approval' };
-
-    return undefined;
   }
 
   private report(update: Usage): void {
