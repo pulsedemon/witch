@@ -562,7 +562,7 @@ export class SessionLink {
 
           const text =
             (withHead
-              ? `\n… ${withHead} ${plural(withHead)} changed with HEAD`
+              ? `\n… ${withHead} ${plural(withHead)} from other commits`
               : '') + (more ? `\n… ${more} more ${plural(more)} changed` : '');
 
           if ((diff.length || text) && !files.closed)

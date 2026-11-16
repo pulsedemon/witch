@@ -96,6 +96,39 @@ async function contents(directory: string): Promise<Record<string, string>> {
   return found;
 }
 
+async function mergeRepository(conflict = false) {
+  const fixture = await repository({
+    'incoming.txt': 'base\n',
+    'deleted.txt': 'delete me\n',
+    'shared.txt': 'start\n2\n3\n4\n5\n6\n7\n8\nend\n',
+    ...(conflict ? { 'conflict.txt': 'base\n' } : {}),
+  });
+
+  const { work, git, old } = fixture;
+  await git('switch', '-qc', 'incoming');
+  await writeFile(join(work, 'incoming.txt'), 'incoming\n');
+  await writeFile(join(work, 'added.txt'), 'added\n');
+  await rm(join(work, 'deleted.txt'));
+
+  await writeFile(
+    join(work, 'shared.txt'),
+    'start\n2\n3\n4\n5\n6\n7\n8\ntheirs\n',
+  );
+
+  if (conflict) await writeFile(join(work, 'conflict.txt'), 'theirs\n');
+
+  await git('add', '-A');
+  await old('-m', 'incoming');
+  await git('switch', '-q', 'main');
+  await writeFile(join(work, 'shared.txt'), 'ours\n2\n3\n4\n5\n6\n7\n8\nend\n');
+
+  if (conflict) await writeFile(join(work, 'conflict.txt'), 'ours\n');
+
+  await old('-am', 'ours');
+
+  return fixture;
+}
+
 test('an update, an add and a delete come back with their hunks and absolute paths, and an ignored file does not', async () => {
   const { work, git, changes } = await repository({
     'a.txt': 'one\n\nthree\n',
@@ -481,6 +514,231 @@ test('a revert with HEAD unchanged shows, and an edit Git stores identically doe
 
   await writeFile(join(work, 'crlf.txt'), 'one\r\ntwo\r\n');
   assert.deepEqual(await changes.read(work), none);
+});
+
+test('an uncommitted merge counts incoming files and lists local and combined edits', async () => {
+  const { work, git, changes } = await mergeRepository();
+  const head = await git('rev-parse', 'HEAD');
+  const before = await contents(join(work, '.git'));
+  await changes.watch(work);
+  assert.deepEqual(await contents(join(work, '.git')), before);
+  await git('merge', '--no-commit', '--no-ff', 'incoming');
+  assert.equal(await git('rev-parse', 'HEAD'), head);
+
+  assert.equal(
+    await git('rev-parse', 'MERGE_HEAD'),
+    await git('rev-parse', 'incoming'),
+  );
+
+  await writeFile(join(work, 'local.txt'), 'local\n');
+  const merged = await contents(join(work, '.git'));
+  const result = await changes.read(work);
+  assert.equal(result.withHead, 3);
+  assert.equal(result.more, 0);
+
+  assert.deepEqual(changed(work, result), [
+    { path: 'local.txt', kind: 'add', lines: ['+local'] },
+    { path: 'shared.txt', kind: 'update', lines: ['-end', '+theirs'] },
+  ]);
+
+  assert.deepEqual(await changes.read(work), none);
+  assert.deepEqual(await contents(join(work, '.git')), merged);
+});
+
+test('an uncommitted merge keeps conflicts and a later resolution matching the incoming commit visible', async () => {
+  const { work, git, changes } = await mergeRepository(true);
+  const head = await git('rev-parse', 'HEAD');
+  await changes.watch(work);
+
+  await assert.rejects(
+    git('-c', 'merge.conflictStyle=merge', 'merge', '--no-commit', 'incoming'),
+    { code: 1 },
+  );
+
+  assert.equal(await git('rev-parse', 'HEAD'), head);
+
+  assert.equal(
+    await git('rev-parse', 'MERGE_HEAD'),
+    await git('rev-parse', 'incoming'),
+  );
+
+  await writeFile(join(work, 'local.txt'), 'local\n');
+  const result = await changes.read(work);
+  assert.equal(result.withHead, 3);
+  assert.equal(result.more, 0);
+
+  assert.deepEqual(changed(work, result), [
+    {
+      path: 'conflict.txt',
+      kind: 'update',
+      lines: ['+<<<<<<< HEAD', '+=======', '+theirs', '+>>>>>>> incoming'],
+    },
+    { path: 'local.txt', kind: 'add', lines: ['+local'] },
+    { path: 'shared.txt', kind: 'update', lines: ['-end', '+theirs'] },
+  ]);
+
+  await writeFile(join(work, 'conflict.txt'), 'theirs\n');
+  await git('add', 'conflict.txt');
+  const resolved = await changes.read(work);
+  assert.equal(resolved.withHead, 0);
+
+  assert.deepEqual(changed(work, resolved), [
+    {
+      path: 'conflict.txt',
+      kind: 'update',
+      lines: ['-<<<<<<< HEAD', '-ours', '-=======', '->>>>>>> incoming'],
+    },
+  ]);
+});
+
+test('an uncommitted merge lists unresolved paths even when their contents match the incoming commit', async () => {
+  const { work, git, changes } = await mergeRepository(true);
+  await changes.watch(work);
+
+  await assert.rejects(
+    git('-c', 'merge.conflictStyle=merge', 'merge', '--no-commit', 'incoming'),
+    { code: 1 },
+  );
+
+  await writeFile(join(work, 'conflict.txt'), 'theirs\n');
+  const stages = await git('ls-files', '-u', '--', 'conflict.txt');
+  assert.match(stages, / 2\tconflict.txt\n/);
+  assert.match(stages, / 3\tconflict.txt\n/);
+  const before = await contents(join(work, '.git'));
+  const result = await changes.read(work);
+  assert.equal(result.withHead, 3);
+
+  assert.deepEqual(changed(work, result), [
+    { path: 'conflict.txt', kind: 'update', lines: ['-ours', '+theirs'] },
+    { path: 'shared.txt', kind: 'update', lines: ['-end', '+theirs'] },
+  ]);
+
+  assert.deepEqual(await contents(join(work, '.git')), before);
+});
+
+test('an uncommitted merge present at the baseline preserves subsequent edits through absorption', async () => {
+  const { work, git, changes } = await mergeRepository();
+  await git('merge', '--no-commit', '--no-ff', 'incoming');
+  await changes.watch(work);
+  await appendFile(join(work, 'incoming.txt'), 'later\n');
+  const edited = await changes.read(work);
+  assert.equal(edited.withHead, 0);
+
+  assert.deepEqual(changed(work, edited), [
+    { path: 'incoming.txt', kind: 'update', lines: ['+later'] },
+  ]);
+
+  await writeFile(join(work, 'incoming.txt'), 'incoming\n');
+  await writeFile(join(work, 'local.txt'), 'absorbed\n');
+  await changes.absorb(work, [join(work, 'local.txt')]);
+  const restored = await changes.read(work);
+  assert.equal(restored.withHead, 0);
+
+  assert.deepEqual(changed(work, restored), [
+    { path: 'incoming.txt', kind: 'update', lines: ['-later'] },
+  ]);
+});
+
+test('an uncommitted merge of a commit made since the baseline lists its edit', async () => {
+  const { work, git, changes } = await repository();
+  const head = await git('rev-parse', 'HEAD');
+  await changes.watch(work);
+  await git('switch', '-qc', 'incoming');
+  await appendFile(join(work, 'a.txt'), 'local\n');
+  await git('commit', '-qam', 'local');
+  await git('switch', '-q', 'main');
+  await git('merge', '--no-commit', '--no-ff', 'incoming');
+  assert.equal(await git('rev-parse', 'HEAD'), head);
+  const result = await changes.read(work);
+  assert.equal(result.withHead, 0);
+
+  assert.deepEqual(changed(work, result), [
+    { path: 'a.txt', kind: 'update', lines: ['+local'] },
+  ]);
+});
+
+test('an uncommitted merge counts the same incoming files again after an observed abort', async () => {
+  const { work, git, changes } = await mergeRepository();
+  await changes.watch(work);
+  await git('merge', '--no-commit', '--no-ff', 'incoming');
+  assert.equal((await changes.read(work)).withHead, 3);
+  await git('merge', '--abort');
+  const aborted = await changes.read(work);
+  assert.equal(aborted.withHead, 0);
+
+  assert.deepEqual(changed(work, aborted), [
+    { path: 'added.txt', kind: 'delete', lines: ['-added'] },
+    { path: 'deleted.txt', kind: 'add', lines: ['+delete me'] },
+    { path: 'incoming.txt', kind: 'update', lines: ['-incoming', '+base'] },
+    { path: 'shared.txt', kind: 'update', lines: ['-theirs', '+end'] },
+  ]);
+
+  await git('merge', '--no-commit', '--no-ff', 'incoming');
+  assert.equal((await changes.read(work)).withHead, 3);
+});
+
+test('an uncommitted octopus merge counts files from every head without counting shared matches twice', async () => {
+  const { work, git, old, changes } = await repository();
+
+  for (const branch of ['left', 'right']) {
+    await git('switch', '-qc', branch, 'main');
+    await writeFile(join(work, `${branch}.txt`), `${branch}\n`);
+    await writeFile(join(work, 'shared.txt'), 'same\n');
+    await git('add', '-A');
+    await old('-m', branch);
+  }
+
+  await git('switch', '-q', 'main');
+  const head = await git('rev-parse', 'HEAD');
+  await changes.watch(work);
+  await git('merge', '--no-commit', '--no-ff', 'left', 'right');
+  assert.equal(await git('rev-parse', 'HEAD'), head);
+
+  assert.deepEqual(
+    (await readFile(join(work, '.git', 'MERGE_HEAD'), 'utf8'))
+      .trim()
+      .split('\n')
+      .sort(),
+    [
+      (await git('rev-parse', 'left')).trim(),
+      (await git('rev-parse', 'right')).trim(),
+    ].sort(),
+  );
+
+  assert.deepEqual(await changes.read(work), { ...none, withHead: 3 });
+});
+
+test('an uncommitted merge in a linked worktree uses its own merge heads without writing Git state', async () => {
+  const { root, work, git, changes } = await mergeRepository();
+  const linked = join(root, 'linked');
+  const deep = join(linked, 'deep');
+  await git('worktree', 'add', '-q', linked, '-b', 'linked');
+  await mkdir(deep);
+  const before = await contents(join(work, '.git'));
+  await changes.watch(deep);
+  assert.deepEqual(await contents(join(work, '.git')), before);
+  await git('-C', linked, 'merge', '--no-commit', '--no-ff', 'incoming');
+
+  await assert.rejects(git('rev-parse', '-q', '--verify', 'MERGE_HEAD'), {
+    code: 1,
+  });
+
+  assert.equal(
+    await git('-C', linked, 'rev-parse', 'MERGE_HEAD'),
+    await git('rev-parse', 'incoming'),
+  );
+
+  await writeFile(join(linked, 'local.txt'), 'local\n');
+  const merged = await contents(join(work, '.git'));
+  const result = await changes.read(deep);
+  assert.equal(result.withHead, 3);
+
+  assert.deepEqual(changed(linked, result), [
+    { path: 'local.txt', kind: 'add', lines: ['+local'] },
+    { path: 'shared.txt', kind: 'update', lines: ['-end', '+theirs'] },
+  ]);
+
+  assert.deepEqual(await contents(join(work, '.git')), merged);
 });
 
 test('an equal-length edit made in the second the index was written shows', async () => {

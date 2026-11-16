@@ -107,7 +107,7 @@ test("a finished shell command's row gains what changed, keeps its output and su
 
     assert.equal(
       shown.text,
-      'out\n… 2 files changed with HEAD\n… 1 more file changed',
+      'out\n… 2 files from other commits\n… 1 more file changed',
     );
 
     assert.equal(shown.done, true);
@@ -201,11 +201,11 @@ test('only shell commands are read, and counts alone append without a diff', asy
     });
 
     await until('the count', () =>
-      row(coordinator, 'git switch main')!.text.includes('HEAD'),
+      row(coordinator, 'git switch main')!.text.includes('from other commits'),
     );
 
     const counted = row(coordinator, 'git switch main')!;
-    assert.equal(counted.text, 'switched\n… 1 file changed with HEAD');
+    assert.equal(counted.text, 'switched\n… 1 file from other commits');
     assert.equal(counted.diff, undefined);
     // a command that changed nothing leaves its row alone
     command(onEvent, 'ls', 'listing');
