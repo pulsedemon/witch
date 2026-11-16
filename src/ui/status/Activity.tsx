@@ -17,7 +17,15 @@ const verbs = [
 const frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 
 /** the row above the composer while the agent works, since a model can think for many seconds before it shows anything. */
-export function Activity({ startedAt }: { startedAt: number }) {
+export function Activity({
+  startedAt,
+  quietSince,
+  doing,
+}: {
+  startedAt: number;
+  quietSince?: number;
+  doing?: string;
+}) {
   const [start] = useState(Date.now);
 
   const [verb] = useState(
@@ -40,6 +48,13 @@ export function Activity({ startedAt }: { startedAt: number }) {
         colors.hex(accent)(`${frame} ${verb}`),
         colors.dim(elapsed(now - startedAt)),
         colors.dim('ESC TO INTERRUPT'),
+        ...(quietSince === undefined
+          ? []
+          : [
+              // the clock ticks behind an update that just arrived
+              colors.dim(`QUIET ${elapsed(Math.max(0, now - quietSince))}`),
+            ]),
+        ...(doing ? [colors.dim(doing)] : []),
       ])}
     </Text>
   );

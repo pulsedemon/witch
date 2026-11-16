@@ -6,7 +6,13 @@ export const commandWindowRows = 4;
 export function chatLayout(
   height: number,
   width: number,
-  controls: { working: boolean; pending: boolean; list: number; hints: number },
+  controls: {
+    working: boolean;
+    pending: boolean;
+    message: boolean;
+    list: number;
+    hints: number;
+  },
 ) {
   const transcript = Math.min(2, Math.max(0, height - 1));
   let remaining = Math.max(0, height - transcript - 1);
@@ -31,6 +37,8 @@ export function chatLayout(
     hints + (controls.list ? take(Math.min(8, controls.list) - hints) : 0);
 
   const composer = Math.max(1, Math.min(Math.floor(height / 2), remaining + 1));
+  // the agent's latest message takes a row only when the composer's limit leaves one
+  const message = remaining >= composer ? take(Number(controls.message)) : 0;
 
   return {
     minimumRows:
@@ -49,8 +57,17 @@ export function chatLayout(
     commands,
     gap,
     list,
+    message,
     composer,
-    content: height - borderRows - activity - pending - commands - gap - list,
+    content:
+      height -
+      borderRows -
+      activity -
+      pending -
+      commands -
+      gap -
+      list -
+      message,
   };
 }
 

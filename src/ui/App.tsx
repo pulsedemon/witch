@@ -50,7 +50,9 @@ import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import { highlight, selectedText } from './transcript/selection.js';
 import type { Point, RangeEnd } from './transcript/selection.js';
 import { Activity } from './status/Activity.js';
+import { agentActivity } from './status/agent-activity.js';
 import { castTitle, useCasting } from './status/cast.js';
+import { elapsed } from './status/elapsed.js';
 import { Sidebar } from './status/Sidebar.js';
 import { sidebarWidth, usagePlacement } from './status/sidebar-layout.js';
 import type { delegation } from './commands/delegation.js';
@@ -296,6 +298,7 @@ export function App({
 
   const composerPhase = composerOpen(state, leaving);
   const working = agentWorking(state.phase);
+  const agent = agentActivity(state);
 
   const commandEntries = commands.map(({ id, label, aliases }) => ({
     name: id,
@@ -400,6 +403,7 @@ export function App({
   const controls = {
     working,
     pending: state.pendingCompaction,
+    message: agent !== undefined,
     list: list?.items.length ?? 0,
     hints: toolHint.length,
   };
@@ -1075,6 +1079,13 @@ export function App({
                 )}
           </Text>
         </Box>
+        <Box height={fitted.message} overflow="hidden" flexShrink={0}>
+          {agent?.message && (
+            <Text dimColor wrap="truncate-end">
+              {`${elapsed(Math.max(0, statusTime - agent.message.at))} AGO · ${agent.message.text}`}
+            </Text>
+          )}
+        </Box>
         {fitted.pending > 0 && (
           <Text dimColor wrap="truncate-end">
             Pending: /compact
@@ -1109,6 +1120,8 @@ export function App({
             <Activity
               key={state.activityStartedAt}
               startedAt={state.activityStartedAt}
+              quietSince={agent?.quietSince}
+              doing={agent?.doing}
             />
           )}
         </Box>
