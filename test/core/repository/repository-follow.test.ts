@@ -930,3 +930,39 @@ test('a branch named like an option is not read by name', async (t) => {
   await wait(90_000);
   assert.deepEqual(named(), []);
 });
+
+test('while gh has no answer, the branches left cost one read by name per interval', async (t) => {
+  const { state, step, wait, named } = harness(
+    t.onTestFinished,
+    () => unavailable(),
+    { branch: 'feat/a' },
+  );
+
+  await settle();
+  state.branch = 'feat/b';
+  await step();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(named(), ['feat/a', 'feat/b']);
+  await wait(90_000);
+  assert.deepEqual(named(), ['feat/a', 'feat/b', 'feat/a']);
+});
+
+test('leaving a detached head reads nothing by name', async (t) => {
+  const { state, step, wait, named, followed } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === url7 || (selector === '' && branch === 'feat/x')
+        ? pr('OPEN')
+        : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'HEAD';
+  await step();
+  state.branch = 'main';
+  await step();
+  await wait(90_000);
+  assert.deepEqual(named(), [url7]);
+  assert.deepEqual(followed(), ['#7 OPEN']);
+});

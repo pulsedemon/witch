@@ -342,6 +342,31 @@ test("a bisect of the merged branch in the checkout itself waits for it, and the
   );
 });
 
+test('a bisect this checkout starts from the merged branch during the fetch waits for it', async () => {
+  const { checkout, other } = await merged();
+  const base = await git(checkout, 'rev-parse', 'main');
+  const tip = await deeper(checkout);
+  await merge(other, 'feat/x');
+  await git(checkout, 'switch', 'main');
+  let calls = 0;
+
+  const blocked = async () => {
+    if (++calls === 2) {
+      await git(checkout, 'switch', 'feat/x');
+      await git(checkout, 'bisect', 'start', 'feat/x', base);
+    }
+
+    return false;
+  };
+
+  assert.equal(
+    await cleanUpMerge(checkout, pullRequest(tip), blocked),
+    'changed',
+  );
+
+  assert.equal(await git(checkout, 'rev-parse', 'feat/x'), tip);
+});
+
 test('a checkout that goes back to the merged branch during the fetch keeps it', async () => {
   const { checkout, other, tip } = await merged();
   await merge(other, 'feat/x');

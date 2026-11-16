@@ -1062,16 +1062,10 @@ async function cleanLeft(
     };
 
   if (!progress.deleted) {
-    // the checkout is still the branch's while it rebases or bisects it, so its cleanup waits for it to come back
-    if (
-      await operationIn(
-        await git('rev-parse', '--absolute-git-dir').catch(stopped),
-        branch,
-      ).catch(stopped)
-    )
-      return 'changed';
+    const own = await git('rev-parse', '--absolute-git-dir').catch(stopped);
 
-    let policy: Promise<string | undefined> | undefined;
+    // the checkout is still the branch's while it rebases or bisects it, so its cleanup waits for it to come back
+    if (await operationIn(own, branch).catch(stopped)) return 'changed';
 
     const name = await configValue(git, `branch.${branch}.remote`).catch(
       stopped,
@@ -1080,7 +1074,7 @@ async function cleanLeft(
     const remote = await headRemote(
       git,
       pullRequest,
-      () => (policy ??= retainedDefaultBranch(pullRequest, cwd, signal)),
+      () => retainedDefaultBranch(pullRequest, cwd, signal),
       stopped,
       signal,
       name && name !== '.' ? name : undefined,
@@ -1106,6 +1100,9 @@ async function cleanLeft(
       status = await look();
 
       if (changed(status) || status.branch === branch) return 'changed';
+
+      // again: one this checkout started during the fetch is its own to finish, not a worktree's hold
+      if (await operationIn(own, branch).catch(stopped)) return 'changed';
 
       if (await branchInOperation(common, branch).catch(stopped)) return held;
 

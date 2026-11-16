@@ -355,7 +355,8 @@ const fallback = 60_000;
  * loses a file once it is replaced by rename. each read shows until the next; a failed one leaves its field out, and a
  * pull request read that failed for a reason nobody expects says why in `pullRequestFailure`. the pull request of a
  * branch the checkout left stays in `followed`, an open one read by its URL every 90 seconds, until it closes, the
- * checkout returns to its branch, `unfollow` drops it or the project changes.
+ * checkout returns to its branch, `unfollow` drops it or the project changes. while `gh` has no answer for one, it
+ * keeps its last reading.
  */
 export class RepositoryWatch {
   snapshot?: Repository;
@@ -799,6 +800,8 @@ export class RepositoryWatch {
     if (this.current && this.current.project !== project) {
       this.followed.length = 0;
       this.names.clear();
+      this.left.clear();
+      this.departed.clear();
       this.kept = undefined;
     }
 
@@ -982,6 +985,13 @@ export class RepositoryWatch {
             });
           else if (!unavailable(error))
             failures.push(`${name}: ${reason(error)}`);
+          else {
+            // gh has no answer for any name right now, so they all wait out the interval with this one
+            for (const other of this.names.keys())
+              this.names.set(other, started);
+
+            break;
+          }
         }
       }
 
