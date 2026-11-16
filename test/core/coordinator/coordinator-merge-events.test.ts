@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
@@ -523,4 +523,23 @@ test('failed publication retries the captured observation after the source leave
   );
 
   assert.equal(source.coordination.snapshot.error, undefined);
+});
+
+test('a merge publishes and control queries answer while another open conversation has lost its directory', async (t) => {
+  const f = await coordinationFixture(t.onTestFinished);
+  const source = await f.start('A');
+  const recipient = await f.start('B');
+  await f.start('C');
+  await rename(join(f.root, 'C'), join(f.root, 'C-moved'));
+  await observe(source);
+
+  await until(
+    'merge delivered',
+    () => notices(recipient.coordinator).length === 1,
+  );
+
+  assert.deepEqual(
+    (await source.query()).peers.map(({ presence }) => presence.id),
+    [recipient.coordinator.snapshot.conversation!.id],
+  );
 });
