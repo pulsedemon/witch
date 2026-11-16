@@ -1,4 +1,3 @@
-import { tokenize } from '@alcalzone/ansi-tokenize';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import type { DisplayItem } from '../../core/state.js';
@@ -10,7 +9,7 @@ import { castTitle } from '../status/cast.js';
 import type { Graphics } from './images.js';
 import { hyperlink, linkify, linkifyAppend, plain } from '../links.js';
 import type { LinkedAppend } from '../links.js';
-import { normalizeText, wrapLines } from '../wrap.js';
+import { normalizeText, wrapBody, wrapLines } from '../wrap.js';
 
 export interface ScrollAnchor {
   item: string;
@@ -142,35 +141,6 @@ function section(
   }
 
   return { rows, next: sourceLine };
-}
-
-/** rows after a line's first text drop the spaces they broke at; indentation before that text stays. */
-function wrapBody(line: string, width: number): string[] {
-  let started = false;
-
-  return wrapLines(line, width).flatMap((row) => {
-    if (!started) {
-      started = /\S/u.test(stripAnsi(row));
-
-      return [row];
-    }
-
-    let leading = true;
-
-    const text = tokenize(row)
-      .map((token) => {
-        if (token.type !== 'char') return token.code;
-
-        if (leading && token.value === ' ') return '';
-
-        leading = false;
-
-        return token.value;
-      })
-      .join('');
-
-    return stripAnsi(text) ? [text] : [];
-  });
 }
 
 /** a tool's title, with the path it shows linked whole from the field it came from. */

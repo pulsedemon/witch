@@ -141,13 +141,14 @@ export function Request({
 
   const selectedRow =
     question && options[selection] !== undefined
-      ? wrapLines(question.title, width).length +
+      ? wrapSourceLines(question.title, width).flat().length +
         1 +
         options
           .slice(0, selection)
           .reduce(
             (rows, option, index) =>
-              rows + wrapLines(`  ${index + 1}. ${option}`, width).length,
+              rows +
+              wrapSourceLines(`  ${index + 1}. ${option}`, width).flat().length,
             0,
           )
       : undefined;
