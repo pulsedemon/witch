@@ -156,7 +156,7 @@ export function watchMerges(
 
       if (!candidate || !due(candidate)) release(merge);
       else if (merge.held.owner !== owner) {
-        // a wait that outlives a conversation switch says why in the one now open, after its own 15 s
+        // a wait that outlives a conversation switch restarts its 15 s for the one now open. a reason already said isn't repeated
         const kept = merge.held.reason;
         release(merge);
         hold(merge, kept);

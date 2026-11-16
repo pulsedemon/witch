@@ -682,6 +682,15 @@ test('a hold that ends within 15 s says nothing, and reasons that change within 
   }
 });
 
+test('each merged pull request held for the same reason says so', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+  await publish({ phase: 'running' });
+  await publishRepository(following(left('c1'), left('c2', 8)));
+  await advance(15_000);
+  assert.deepEqual(notices, [waits(running), waits(running, 8)]);
+});
+
 test("repository updates during one long turn don't postpone its hold notice", async (t) => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const { notices, publishRepository, publish } = fixture(t.onTestFinished);
@@ -827,13 +836,50 @@ test('a cleanup that ends after the watch stopped starts no hold', async (t) => 
   assert.deepEqual(notices, []);
 });
 
-test('no hold is reported before a conversation opens, for a conversation that left or for a state that just ended', async (t) => {
+test('no hold is reported while a conversation opens or closes, for a conversation that left or for a state that just ended', async (t) => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
   {
     const { notices, publishRepository, publish } = fixture(t.onTestFinished);
     await publish({ conversation: undefined, phase: 'starting' });
     await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(60_000);
+    assert.deepEqual(notices, []);
+  }
+
+  // an open conversation whose files are still opening holds nothing, so its 15 s starts when they are open
+  {
+    const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+    await publish({ phase: 'starting' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(60_000);
+    assert.deepEqual(notices, []);
+    await publish({ phase: 'running' });
+    await advance(14_999);
+    assert.deepEqual(notices, []);
+    await advance(1);
+    assert.deepEqual(notices, [waits(running)]);
+  }
+
+  {
+    const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+    await publish({ phase: 'running' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(14_999);
+    await publish({ phase: 'closing' });
+    await advance(60_000);
+    assert.deepEqual(notices, []);
+  }
+
+  // a wait for a repository update keeps its hold through closing, and still posts nothing
+  {
+    const { notices, publishRepository, publish, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await settle('changed');
+    await publish({ phase: 'closing' });
     await advance(60_000);
     assert.deepEqual(notices, []);
   }
