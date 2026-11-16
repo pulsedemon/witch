@@ -811,3 +811,33 @@ for (const change of ['metadata', 'directory'] as const) {
     }
   });
 }
+
+test('a root opened through a symlinked parent is handed out, resumed and swept under its canonical name', async () => {
+  const real = await scratch('witch-scratch-');
+  const link = join(await scratch('witch-scratch-link-'), 'state');
+  await symlink(real, link);
+  const first = await ScratchSpace.open(link, firstBoot);
+  await first.close();
+  assert.equal(dirname(first.directory), real);
+
+  const resumed = await ScratchSpace.open(link, {
+    ...firstBoot,
+    resume: join(link, basename(first.directory)),
+  });
+
+  await resumed.close();
+  assert.equal(resumed.directory, first.directory);
+  const swept: string[] = [];
+
+  const later = await ScratchSpace.open(link, {
+    boot: async () => bootB,
+    inspect: async (candidates) => {
+      swept.push(...candidates.map(({ directory }) => directory));
+
+      return decisions(candidates, 'used');
+    },
+  });
+
+  await later.close();
+  assert.deepEqual(swept, [first.directory]);
+});

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, readdir, rm } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath, rm } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -80,6 +80,13 @@ async function removeScratch(directory: string): Promise<void> {
 
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+/** resolves the parent only, so a symlink standing in for the root itself is still refused by its lock. */
+async function canonicalChild(path: string): Promise<string> {
+  path = resolve(path);
+
+  return join(await realpath(dirname(path)), basename(path));
 }
 
 async function sweep(
@@ -263,11 +270,13 @@ export class ScratchSpace {
       inspect?: typeof inspectScratch;
     } = {},
   ): Promise<ScratchSpace> {
-    parent = resolve(parent);
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    // agents hold this path as TMPDIR and the sweep looks for it there, so a symlinked spelling would never match
+    parent = await realpath(parent);
     const resumed = options.resume !== undefined;
 
     const directory = resumed
-      ? resolve(options.resume!)
+      ? await canonicalChild(options.resume!)
       : join(parent, randomBytes(6).toString('hex'));
 
     if (dirname(directory) !== parent)
@@ -279,7 +288,6 @@ export class ScratchSpace {
     if (!owner) throw new Error('Cannot identify the scratch owner.');
 
     let requiresBoot = resumed ? true : await scratchRequiresBoot();
-    await mkdir(parent, { recursive: true, mode: 0o700 });
 
     if (!resumed) await mkdir(directory, { mode: 0o700 });
 
