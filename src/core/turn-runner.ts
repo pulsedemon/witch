@@ -115,6 +115,8 @@ interface TurnHost {
 export class TurnRunner {
   /** a repair turn takes no steering, so prompts sent during it queue. */
   repairing = false;
+  /** the turn in flight replies to a `!` command, so the prompts queued behind it wait for a later turn. */
+  answeringCommand = false;
   private readonly pendingContext = new Map<string, string[]>();
 
   constructor(
@@ -302,6 +304,7 @@ export class TurnRunner {
       });
 
       const command = kind === 'turn' ? shellCommand(prompt) : undefined;
+      this.answeringCommand = command !== undefined;
       const handoff = conversation.handoff;
 
       const pendingHandoff =
@@ -435,6 +438,7 @@ export class TurnRunner {
       let result: TurnResult;
       let steering: Promise<void> | undefined;
       let generation = this.link.generation;
+      let sentContext: readonly string[] | undefined;
 
       try {
         const ran =
@@ -444,22 +448,21 @@ export class TurnRunner {
         else {
           if (generation !== this.link.generation) input = await context();
 
-          // a listener can stop the turn as its row publishes; the review's batch then stays retryable
-          if (
-            this.host.cancelled() ||
-            session.closed ||
-            (queued && this.host.deliveryHeld())
-          )
+          // a listener can stop the turn as its row publishes; the review's batch then stays retryable.
+          // a command that ran is already delivered, so a hold taken meanwhile doesn't stop its reply
+          const held =
+            queued && command === undefined && this.host.deliveryHeld();
+
+          if (this.host.cancelled() || session.closed || held)
             result = {
               status: 'interrupted',
               text: '',
-              ...((review || (queued && this.host.deliveryHeld())) && {
-                inputUnsent: true,
-              }),
+              ...((review || held) && { inputUnsent: true }),
             };
           else {
             if (!automatic) this.pendingContext.delete(conversation.id);
 
+            sentContext = pendingContext;
             generation = this.link.generation;
 
             const stopResend = this.resendAfterCompaction(
@@ -538,7 +541,7 @@ export class TurnRunner {
       for (const row of unreadRows(this.host.snapshot().items, shown, result))
         this.host.display({ ...row, text: '', images: [], unread: true });
 
-      if (result.inputUnsent) this.retain(conversation.id, pendingContext);
+      if (result.inputUnsent) this.retain(conversation.id, sentContext);
 
       this.retain(conversation.id, result.unreadContext);
       await this.finishActivity(activity, this.compaction.failure ?? result);
@@ -581,6 +584,8 @@ export class TurnRunner {
 
       return result;
     } finally {
+      this.answeringCommand = false;
+
       try {
         await this.coordination?.endTurn(activity.id);
       } finally {

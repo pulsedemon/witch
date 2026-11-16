@@ -3,8 +3,13 @@ import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ranCommand } from '../../../src/core/prompts.js';
 import { TurnGate } from '../../fixtures/agent.js';
-import { readRecord, turns, unitFixture } from '../../fixtures/coordinator.js';
-import { within } from '../../fixtures/within.js';
+import {
+  notices,
+  readRecord,
+  turns,
+  unitFixture,
+} from '../../fixtures/coordinator.js';
+import { until, within } from '../../fixtures/within.js';
 
 test('an unsent follow-up prompt never reruns an executed command', async () => {
   const { coordinator, a } = await unitFixture();
@@ -461,6 +466,116 @@ test('commands that need idle say familiars or workflows hold the turn, and the 
     await within(sending, 2000, 'the turn');
   } finally {
     gate.open();
+    await coordinator.close();
+  }
+});
+
+test('a ! command whose shell ran gets its reply when a delivery hold arrived meanwhile', async () => {
+  const f = await unitFixture();
+  const gate = new TurnGate();
+
+  try {
+    f.a.gate = gate;
+    const sending = f.coordinator.send('!pnpm test');
+    await within(gate.entered, 2000, 'the gated shell');
+    const release = f.coordinator.holdPromptDelivery();
+    gate.open();
+    await within(sending, 2000, 'the command turn');
+    assert.deepEqual(f.a.shells, ['pnpm test']);
+    assert.deepEqual(turns(f.a), [['!pnpm test', undefined]]);
+    assert.deepEqual(notices(f.coordinator), []);
+    assert.ok(f.coordinator.snapshot.completedTurn);
+    release();
+    await f.coordinator.send('after');
+
+    assert.deepEqual(turns(f.a), [
+      ['!pnpm test', undefined],
+      ['after', undefined],
+    ]);
+
+    assert.deepEqual(f.a.shells, ['pnpm test']);
+  } finally {
+    gate.open();
+    await f.coordinator.close();
+  }
+});
+
+test("a /compact requested while a ! command runs waits for the command's reply", async () => {
+  const f = await unitFixture();
+  const gate = new TurnGate();
+
+  try {
+    await f.coordinator.send('seed');
+    const native = f.a.sessions[0]!.session;
+
+    const compact = native.compact.bind(native),
+      send = native.send.bind(native);
+
+    const order: string[] = [];
+
+    native.compact = () => {
+      order.push('compact');
+
+      return compact();
+    };
+
+    native.send = (...args) => {
+      order.push('send');
+
+      return send(...args);
+    };
+
+    f.a.gate = gate;
+    const sending = f.coordinator.send('!pnpm test');
+    await until('the shell', () => f.a.shells.length === 1);
+    const compacting = f.coordinator.compact();
+    gate.open();
+    await within(sending, 2000, 'the command turn');
+    assert.equal(await within(compacting, 2000, 'the compaction'), true);
+    assert.deepEqual(order, ['send', 'compact']);
+
+    assert.deepEqual(turns(f.a), [
+      ['seed', undefined],
+      ['!pnpm test', undefined],
+    ]);
+
+    assert.deepEqual(notices(f.coordinator), ['Conversation compacted']);
+  } finally {
+    gate.open();
+    await f.coordinator.close();
+  }
+});
+
+test('a prompt queued behind a ! command stays queued when a hold releases into its open turn', async () => {
+  const { coordinator, a } = await unitFixture();
+  const shell = new TurnGate();
+  const reply = new TurnGate();
+
+  try {
+    a.gate = shell;
+    const sending = coordinator.send('!ls');
+    await within(shell.entered, 2000, 'the gated shell');
+    await coordinator.send('C');
+    a.gate = reply;
+    // the reply's turn has replied and a familiar holds it open
+    a.replied = true;
+    shell.open();
+    await within(reply.entered, 2000, 'the gated reply');
+    coordinator.holdPromptDelivery()();
+    // admitted after the release's steering attempt, so that attempt is over
+    await coordinator.send('D');
+    assert.deepEqual(a.steers, []);
+    assert.deepEqual(coordinator.snapshot.queue, ['C', 'D']);
+    reply.open();
+    await within(sending, 5000, 'the queued turns');
+
+    assert.deepEqual(turns(a), [
+      ['!ls', undefined],
+      ['C\nD', undefined],
+    ]);
+  } finally {
+    shell.open();
+    reply.open();
     await coordinator.close();
   }
 });
