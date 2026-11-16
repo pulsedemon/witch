@@ -948,6 +948,7 @@ export class RepositoryWatch {
     try {
       const project = await this.readProject();
       const due = (at: number) => now - at >= reread;
+      const asked = new Set<string>();
 
       for (const [name, at] of [...this.names]) {
         // the checkout can return to a branch, or the project change, while an earlier read runs
@@ -955,6 +956,7 @@ export class RepositoryWatch {
 
         const started = Date.now();
         this.names.set(name, started);
+        asked.add(name);
         // a return to the branch drops the name, and leaving again queues it anew for a later read to answer
         const current = () => this.names.get(name) === started;
 
@@ -990,9 +992,10 @@ export class RepositoryWatch {
           else if (!unavailable(error))
             failures.push(`${name}: ${reason(error)}`);
           else {
-            // gh has no answer for any name right now, so they all wait out the interval with this one
+            // gh has no answer for any name right now, so those not read yet wait out the interval with this one.
+            // one already answered keeps its stamp, which its acceptance checks
             for (const other of this.names.keys())
-              this.names.set(other, started);
+              if (!asked.has(other)) this.names.set(other, started);
 
             break;
           }

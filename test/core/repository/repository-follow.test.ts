@@ -1041,3 +1041,30 @@ test('while gh has no answer, the pull requests followed cost one read by URL pe
     2,
   );
 });
+
+test("a read by name that fails doesn't discard the one answered before it in the same round", async (t) => {
+  let answers = false;
+
+  const { state, step, wait, followed } = harness(
+    t.onTestFinished,
+    (selector) => {
+      if (!answers || selector !== 'feat/a') return unavailable();
+
+      // the next read begins later, as a real one does
+      vi.setSystemTime(Date.now() + 1);
+
+      return pr('OPEN', { number: 1, branch: 'feat/a' });
+    },
+    { branch: 'feat/a' },
+  );
+
+  await settle();
+  state.branch = 'feat/b';
+  await step();
+  state.branch = 'main';
+  await step();
+  // both names now wait out the same interval, so one round reads feat/a and then fails on feat/b
+  answers = true;
+  await wait(90_000);
+  assert.deepEqual(followed(), ['#1 OPEN']);
+});
