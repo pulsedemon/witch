@@ -1,3 +1,50 @@
+diff --git a/build/index.d.ts b/build/index.d.ts
+index 4319a0c1b08babe0bc7327e7bdbed9401fb610ec..ecdd8e2f60cb955fa2d74f716eb01950f4c33dd1 100644
+--- a/build/index.d.ts
++++ b/build/index.d.ts
+@@ -40,4 +40,8 @@ export { default as measureElement } from './measure-element.js';
+ export type { ElementMetrics } from './measure-element.js';
+ export type { DOMElement } from './dom.js';
+ export { kittyFlags, kittyModifiers } from './kitty-keyboard.js';
++/**
++Commits the updates `fn` makes, with their effects, before returning, so input later in the same read reaches what they render.
++*/
++export declare function flushSync<T>(fn: () => T): T;
+ export type { KittyKeyboardOptions, KittyFlagName } from './kitty-keyboard.js';
+diff --git a/build/index.js b/build/index.js
+index cc849f0d5642d763f4a0176ebabe7d20e18979bc..abac65d8ec0a84b9c135c0935b1a608d10027d79 100644
+--- a/build/index.js
++++ b/build/index.js
+@@ -21,4 +21,6 @@ export { default as useWindowSize } from './hooks/use-window-size.js';
+ export { default as useBoxMetrics } from './hooks/use-box-metrics.js';
+ export { default as measureElement } from './measure-element.js';
+ export { kittyFlags, kittyModifiers } from './kitty-keyboard.js';
++import reconciler from './reconciler.js';
++export const flushSync = (fn) => reconciler.flushSyncFromReconciler(fn);
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/build/input-parser.js b/build/input-parser.js
+index 9e62b4f1b2b26ca14da0dc7c9622aaeeb135dc30..def5c6fad830c5201597b80619c55fd398d2a0d5 100644
+--- a/build/input-parser.js
++++ b/build/input-parser.js
+@@ -109,7 +109,7 @@ const parseEscapeSequence = (input, escapeIndex) => {
+         : (controlSequence ?? parseEscapedCodePoint(input, escapeIndex));
+ };
+ /**
+-Split a chunk of non-escape text so that backspace bytes (`0x7F` and `0x08`) and Ctrl+C (`0x03`) become individual events. Ctrl+C must be recognized even when buffered with ordinary text. When a user holds the backspace key, the terminal sends repeated bytes in a single stdin chunk. Without splitting, `parseKeypress` receives the multi-byte string and fails to recognize it as a key event, corrupting the input state.
++Split a chunk of non-escape text so that backspace bytes (`0x7F` and `0x08`), Ctrl+C (`0x03`) and Ctrl+P (`0x10`) become individual events. Ctrl+C and Ctrl+P must be recognized even when buffered with ordinary text. When a user holds the backspace key, the terminal sends repeated bytes in a single stdin chunk. Without splitting, `parseKeypress` receives the multi-byte string and fails to recognize it as a key event, corrupting the input state.
+ 
+ Other control characters like `\r` and `\t` are NOT split because they can legitimately appear inside pasted text.
+ */
+@@ -117,7 +117,7 @@ const splitControlBytes = (text, events) => {
+     let textSegmentStart = 0;
+     for (let index = 0; index < text.length; index++) {
+         const character = text[index];
+-        if (!['\u{7F}', '\u{8}', '\u{3}'].includes(character)) {
++        if (!['\u{7F}', '\u{8}', '\u{3}', '\u{10}'].includes(character)) {
+             continue;
+         }
+         if (index > textSegmentStart) {
 diff --git a/build/output.js b/build/output.js
 index 10a94568e2e9fc005dd383babf36456cb31ef572..9e868b58976f7ed60901550bfcf143c3006d2863 100644
 --- a/build/output.js

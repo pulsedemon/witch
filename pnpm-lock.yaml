@@ -11,7 +11,7 @@ overrides:
 
 patchedDependencies:
   ink@8.0.0:
-    hash: 5728242ad4a011a885032f1823a502f851a8c6649eb9275168e769db2a1e706a
+    hash: d94e7f790a31b1aec79c4b40274c30bebb8f962006c55e214f68c8f9ebb1fa1c
     path: patches/ink@8.0.0.patch
 
 importers:
@@ -44,7 +44,7 @@ importers:
         version: 2.1.1
       ink:
         specifier: 8.0.0
-        version: 8.0.0(patch_hash=5728242ad4a011a885032f1823a502f851a8c6649eb9275168e769db2a1e706a)(@types/react@19.3.0)(react@19.3.0)
+        version: 8.0.0(patch_hash=d94e7f790a31b1aec79c4b40274c30bebb8f962006c55e214f68c8f9ebb1fa1c)(@types/react@19.3.0)(react@19.3.0)
       linkify-it:
         specifier: 5.0.2
         version: 5.0.2
@@ -3362,7 +3362,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
 
-  ink@8.0.0(patch_hash=5728242ad4a011a885032f1823a502f851a8c6649eb9275168e769db2a1e706a)(@types/react@19.3.0)(react@19.3.0):
+  ink@8.0.0(patch_hash=d94e7f790a31b1aec79c4b40274c30bebb8f962006c55e214f68c8f9ebb1fa1c)(@types/react@19.3.0)(react@19.3.0):
     dependencies:
       '@alcalzone/ansi-tokenize': 0.3.1
       ansi-escapes: 7.3.0

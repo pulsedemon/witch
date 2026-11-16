@@ -257,6 +257,7 @@ export const DOWN = '\u001b[B';
 export const UP = '\u001b[A';
 export const LEFT = '\u001b[D';
 export const TAB = '\u001b[9u';
+export const CTRL_P = '\u001b[112;5u';
 
 /** types `command`, submits it and waits for its view to show `text`. */
 export async function openCommand(
