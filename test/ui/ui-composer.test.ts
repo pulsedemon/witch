@@ -311,10 +311,26 @@ test('a key typed after choosing a command in the same read reaches the composer
     ui.stdin.write('hello');
     await until('the draft', () => ui.text().includes('┃ hello'));
     ui.stdin.write(`${CTRL_P}help${ENTER}x`);
-    await until('the help page', () => ui.text().includes('Keyboard help'));
+    await until('the help page', () => ui.text().includes('↑/↓ SCROLL'));
     ui.stdin.write('\u001b[27u');
     await until('the typed key', () => ui.text().includes('┃ hellox'));
     assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('Enter after choosing a page command in the same read keeps the draft', async () => {
+  const { ui, calls } = await launched({});
+
+  try {
+    ui.stdin.write('hello');
+    await until('the draft', () => ui.text().includes('┃ hello'));
+    ui.stdin.write(`${CTRL_P}help${ENTER}${ENTER}`);
+    await until('the help page', () => ui.text().includes('↑/↓ SCROLL'));
+    assert.deepEqual(calls, []);
+    ui.stdin.write('\u001b[27u');
+    await until('the kept draft', () => ui.text().includes('┃ hello'));
   } finally {
     ui.unmount();
   }
