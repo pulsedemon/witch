@@ -154,11 +154,16 @@ function git(repository: Repository): string {
   ].join(' ');
 }
 
-/** a conflict outlasts a failed read of its pull request, which shows it without checks. */
+/**
+ * a conflict outlasts a failed read of its pull request, which shows it without checks. a branch with neither shows
+ * the pull request of the branch the checkout left last.
+ */
 function pullRequest({
-  pullRequest: request,
+  pullRequest: own,
   conflict,
+  followed,
 }: Repository): string | undefined {
+  const request = own ?? (conflict ? undefined : followed?.[0]);
   const shown = request ?? conflict?.pullRequest;
 
   if (!shown) return;

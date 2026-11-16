@@ -48,6 +48,12 @@ export interface Repository {
   pullRequestFailure?: string;
   /** the branch's pull request as last read conflicting, with its base's tip when that read looked it up. */
   conflict?: Conflict;
+  /** open pull requests of branches this checkout left, newest first, and a merged one until its cleanup settles. */
+  followed?: PullRequest[];
+  /** the project `followed` was read in. */
+  followedProject?: string;
+  /** why the last read of a followed pull request failed unexpectedly, naming what it read. */
+  followedFailure?: string;
 }
 
 export interface Conflict {
@@ -311,6 +317,22 @@ function unavailable(error: unknown): boolean {
 const reason = (error: unknown) =>
   error instanceof z.ZodError ? issuesText(error) : errorMessage(error);
 
+/** `gh pr view <branch>` found no pull request, which answers a read by name where any other failure leaves it open. */
+const missing = (error: unknown) =>
+  /no pull requests found/.test(
+    `${String((error as { stderr?: unknown }).stderr ?? '')}\n${errorMessage(error)}`,
+  );
+
+/** how long a pull request read stands before the next. */
+const reread = 90_000;
+
+/** a pull request with when its read began and ended. */
+interface Reading {
+  value: PullRequest;
+  started: number;
+  at: number;
+}
+
 /** how soon a change is read, so one save's several writes take one read. */
 const debounce = 100;
 /**
@@ -326,7 +348,9 @@ const fallback = 60_000;
  * one per `interval`, and a minute without a read starts one, so a change whose event is lost shows within a minute
  * and one `interval`. elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
  * loses a file once it is replaced by rename. each read shows until the next; a failed one leaves its field out, and a
- * pull request read that failed for a reason nobody expects says why in `pullRequestFailure`.
+ * pull request read that failed for a reason nobody expects says why in `pullRequestFailure`. the pull request of a
+ * branch the checkout left stays in `followed`, read by its URL every 90 seconds, until it closes, the checkout returns
+ * to its branch or `unfollow` drops it.
  */
 export class RepositoryWatch {
   snapshot?: Repository;
@@ -344,6 +368,19 @@ export class RepositoryWatch {
   };
   /** a failed read confirms nothing, so it leaves this. */
   private conflict?: { branch: string; conflict: Conflict };
+  /** the branch of the last status read that worked, so a failed read between two branches still counts as leaving. */
+  private branch?: string;
+  /** the checked-out branch's own pull request as last read, which a later failed or empty read leaves. */
+  private kept?: Reading;
+  private readonly followed: Reading[] = [];
+  /** branches left with no pull request read, each with when its read by name last ran. */
+  private readonly names = new Map<string, number>();
+  /** when each URL last left `followed` for good, so a read begun before that can't bring it back. */
+  private readonly departed = new Map<string, number>();
+  /** the last answer of a project read, which everything followed belongs to. */
+  private current?: { project?: string };
+  private followedFailure?: string;
+  private following?: Promise<void>;
   private requested = false;
   private fetching?: Promise<void>;
   private refreshing?: Promise<void>;
@@ -408,6 +445,8 @@ export class RepositoryWatch {
   }
 
   private tick(): void {
+    this.readFollowed();
+
     if (!this.watchers || performance.now() - this.startedAt >= fallback) {
       void this.refresh();
 
@@ -582,6 +621,8 @@ export class RepositoryWatch {
     )
       this.refreshPullRequest();
 
+    if (repository) this.arrive(repository.branch);
+
     const known = this.pullRequest;
 
     if (repository && known?.branch === repository.branch) {
@@ -609,6 +650,8 @@ export class RepositoryWatch {
 
     if (repository && this.due(repository.branch))
       void this.fetchPullRequest(repository.branch);
+
+    this.readFollowed();
   }
 
   private fetchPullRequest(branch: string): Promise<void> {
@@ -620,6 +663,8 @@ export class RepositoryWatch {
     const started = Date.now();
     const commit = this.snapshot?.commit;
     let value: PullRequest | undefined;
+    /** the value before a checkout that moved meanwhile drops it */
+    let read: PullRequest | undefined;
     let project: string | undefined;
     const failures = new Set<string>();
 
@@ -629,34 +674,20 @@ export class RepositoryWatch {
     };
 
     try {
-      project = await this.project?.();
+      project = await this.readProject();
 
-      const view = await this.run(
-        'gh',
-        [
-          'pr',
-          'view',
-          '--json',
-          'number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable,mergedAt',
-        ],
-        { cwd: this.cwd, timeout: 30_000 },
-      ).catch((error: unknown) => {
+      const view = await this.view().catch((error: unknown) => {
         if (!unavailable(error)) throw error;
       });
 
       if (view) {
-        value = parsePullRequest(view.stdout);
-
-        if (
-          value.checks === 'none' &&
-          (await this.checksExpected(value, report))
-        )
-          value.checks = 'pending';
-
+        value = await this.withChecks(view, report);
         const conflict = await this.conflicted(branch, value, report);
 
-        if (this.project && project !== (await this.project()))
+        if (this.project && project !== (await this.readProject()))
           value = undefined;
+
+        read = value;
 
         if (
           this.closed ||
@@ -676,7 +707,27 @@ export class RepositoryWatch {
       this.fetching = undefined;
     }
 
-    const failure = [...failures].join('; ') || undefined;
+    let failure = [...failures].join('; ') || undefined;
+
+    if (read?.branch === branch) {
+      const reading = { value: read, started, at: Date.now() };
+
+      if (this.branch === branch) this.kept = reading;
+      // the checkout left during the read, so this is the read its leaving had none of
+      else if (
+        read.state !== 'CLOSED' &&
+        started > (this.departed.get(read.url) ?? -Infinity)
+      ) {
+        this.follow(reading);
+        this.names.delete(branch);
+
+        if (failure !== undefined)
+          this.followedFailure = `#${read.number}: ${failure}`;
+
+        failure = undefined;
+        this.publish(this.snapshot);
+      }
+    }
 
     this.pullRequest = {
       branch,
@@ -699,6 +750,227 @@ export class RepositoryWatch {
     else repository.pullRequestFailure = failure;
 
     this.publish(repository);
+  }
+
+  /** `gh`'s answer for the checked-out branch's pull request, or for a branch name or URL. rejects with `gh`'s own error. */
+  private async view(selector?: string): Promise<PullRequest> {
+    const { stdout } = await this.run(
+      'gh',
+      [
+        'pr',
+        'view',
+        ...(selector === undefined ? [] : [selector]),
+        '--json',
+        'number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable,mergedAt',
+      ],
+      { cwd: this.cwd, timeout: 30_000 },
+    );
+
+    return parsePullRequest(stdout);
+  }
+
+  /** an empty rollup reads as pending while the head's workflows will report checks. */
+  private async withChecks(
+    value: PullRequest,
+    report: (error: unknown) => void,
+  ): Promise<PullRequest> {
+    if (value.checks === 'none' && (await this.checksExpected(value, report)))
+      value.checks = 'pending';
+
+    return value;
+  }
+
+  /** another project's answer empties everything followed first, so nothing read under one project is used under the next. */
+  private async readProject(): Promise<string | undefined> {
+    const project = await this.project?.();
+
+    if (this.current && this.current.project !== project) {
+      this.followed.length = 0;
+      this.names.clear();
+      this.kept = undefined;
+    }
+
+    this.current = { project };
+
+    return project;
+  }
+
+  /** drops a followed pull request, as once its merge is cleaned up. */
+  unfollow(url: string): void {
+    this.departed.set(url, Date.now());
+
+    if (this.drop(url)) this.publish(this.snapshot);
+  }
+
+  private drop(url: string): boolean {
+    const index = this.followed.findIndex(({ value }) => value.url === url);
+
+    if (index >= 0) this.followed.splice(index, 1);
+
+    return index >= 0;
+  }
+
+  /** a newer read of a pull request already followed replaces it in place, and an older one is dropped. */
+  private follow(reading: Reading): void {
+    const index = this.followed.findIndex(
+      ({ value }) => value.url === reading.value.url,
+    );
+
+    if (index < 0) this.followed.unshift(reading);
+    else if (this.followed[index]!.started <= reading.started)
+      this.followed[index] = reading;
+  }
+
+  /** follows the pull request of the branch a status read shows the checkout left, and takes back the one it returned to. */
+  private arrive(branch: string): void {
+    const left = this.branch;
+    this.branch = branch;
+
+    if (left === undefined) void this.recall();
+
+    if (left === undefined || left === branch) return;
+
+    const kept = this.kept;
+
+    const index = this.followed.findIndex(
+      ({ value }) => value.branch === branch,
+    );
+
+    this.kept = index < 0 ? undefined : this.followed.splice(index, 1)[0];
+    this.names.delete(branch);
+
+    if (left === 'HEAD') return;
+
+    if (kept && kept.value.state !== 'CLOSED') this.follow(kept);
+
+    // a branch whose pull request closed or merged can have a newer one
+    if (kept?.value.state !== 'OPEN') this.names.set(left, -Infinity);
+  }
+
+  /** the branch checked out before this one, which a restart on the base would otherwise forget. */
+  private async recall(): Promise<void> {
+    const name = await this.run(
+      'git',
+      ['rev-parse', '--symbolic-full-name', '@{-1}'],
+      { cwd: this.cwd, timeout: 10_000 },
+    ).then(
+      ({ stdout }) => /^refs\/heads\/(.+)$/.exec(stdout.trim())?.[1],
+      () => undefined,
+    );
+
+    if (this.closed || !name || name === this.branch) return;
+
+    this.names.set(name, -Infinity);
+    this.readFollowed();
+  }
+
+  private readFollowed(): void {
+    const now = Date.now();
+
+    if (
+      this.closed ||
+      this.following ||
+      ![...this.names.values(), ...this.followed.map(({ at }) => at)].some(
+        (at) => now - at >= reread,
+      )
+    )
+      return;
+
+    this.following = this.round(now).finally(() => {
+      this.following = undefined;
+    });
+  }
+
+  /**
+   * reads the pull requests that were due at `now`: a queued branch by name, which follows an open one, and a followed
+   * one by URL. the project is read before and after, and a round that saw it change accepts nothing.
+   */
+  private async round(now: number): Promise<void> {
+    const failures: string[] = [];
+    const accepted: (() => void)[] = [];
+
+    try {
+      const project = await this.readProject();
+      const due = (at: number) => now - at >= reread;
+
+      for (const [name, at] of [...this.names]) {
+        if (!due(at)) continue;
+
+        const started = Date.now();
+        this.names.set(name, started);
+
+        try {
+          const value = await this.view(name);
+
+          const open =
+            value.state === 'OPEN' &&
+            value.branch === name &&
+            this.branch !== name &&
+            (await this.withChecks(value, (error) => {
+              if (!unavailable(error))
+                failures.push(`${name}: ${reason(error)}`);
+            }));
+
+          accepted.push(() => {
+            this.names.delete(name);
+
+            if (open && this.branch !== name)
+              this.follow({ value: open, started, at: Date.now() });
+          });
+        } catch (error) {
+          if (missing(error)) accepted.push(() => this.names.delete(name));
+          else if (!unavailable(error))
+            failures.push(`${name}: ${reason(error)}`);
+        }
+      }
+
+      for (const entry of [...this.followed]) {
+        if (!due(entry.at)) continue;
+
+        const started = Date.now();
+        entry.at = started;
+
+        // a merged one waits for its cleanup, and only its project is checked
+        if (entry.value.state === 'MERGED') continue;
+
+        const { url, number } = entry.value;
+
+        const report = (error: unknown) => {
+          if (!unavailable(error))
+            failures.push(`#${number}: ${reason(error)}`);
+        };
+
+        try {
+          const value = await this.withChecks(await this.view(url), report);
+
+          accepted.push(() => {
+            // one removed while its read ran stays removed
+            if (!this.followed.some((entry) => entry.value.url === url)) return;
+
+            if (value.state !== 'CLOSED')
+              this.follow({ value, started, at: Date.now() });
+            else if (this.drop(url)) this.departed.set(url, Date.now());
+          });
+        } catch (error) {
+          report(error);
+        }
+      }
+
+      if ((await this.readProject()) === project)
+        for (const accept of accepted) accept();
+    } catch (error) {
+      // the project read failed, so everything due waits out another interval
+      for (const [name, at] of this.names)
+        if (now - at >= reread) this.names.set(name, Date.now());
+
+      for (const entry of this.followed)
+        if (now - entry.at >= reread) entry.at = Date.now();
+
+      failures.push(reason(error));
+    }
+
+    this.followedFailure = failures.join('; ') || undefined;
+    this.publish(this.snapshot);
   }
 
   private async checksExpected(
@@ -918,6 +1190,20 @@ export class RepositoryWatch {
       if (this.conflict?.branch === repository.branch)
         repository.conflict = this.conflict.conflict;
       else delete repository.conflict;
+
+      delete repository.followed;
+      delete repository.followedProject;
+      delete repository.followedFailure;
+
+      if (this.followed.length) {
+        repository.followed = this.followed.map(({ value }) => value);
+
+        if (this.current?.project !== undefined)
+          repository.followedProject = this.current.project;
+      }
+
+      if (this.followedFailure !== undefined)
+        repository.followedFailure = this.followedFailure;
     }
 
     if (JSON.stringify(repository) === JSON.stringify(this.snapshot)) return;
