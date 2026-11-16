@@ -246,7 +246,7 @@ test("the fixed instructions keep the checkout on an open pull request's branch"
 
     assert.match(
       rule,
-      /The status line and merge cleanup keep following the pull request of a branch the checkout left, after a restart only the branch left last and only while its pull request is open, and a merge that lands while the checkout is on other work deletes the merged branch and leaves the checkout where it is\./,
+      /Merge cleanup keeps following the pull request of a branch the checkout left, and the status line shows it while the checked-out branch has none of its own\. After a restart that covers only the branch left last, and only while its pull request is open\. A merge that lands while the checkout is on other work deletes the merged branch and leaves the checkout where it is\./,
     );
 
     assert.match(

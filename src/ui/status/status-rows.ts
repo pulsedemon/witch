@@ -156,7 +156,7 @@ function git(repository: Repository): string {
 
 /**
  * a conflict outlasts a failed read of its pull request, which shows it without checks. a branch with neither shows
- * the pull request of the branch the checkout left last.
+ * the pull request followed for the branch the checkout left most recently.
  */
 function pullRequest({
   pullRequest: own,

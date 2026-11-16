@@ -531,7 +531,7 @@ function staying(
 
 /**
  * removes the merged branch's config section and its plans. returns the plans it removed, named, and what stayed with
- * the reason. `did` opens the error for plans it couldn't locate.
+ * the reason. `did` opens the error for a config it couldn't read or plans it couldn't locate.
  */
 async function removeLeftovers(
   git: Git,

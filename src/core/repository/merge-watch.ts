@@ -103,9 +103,9 @@ export function watchMerges(
           merge.continuation = work;
           merge.waiting = false;
         } else if (acted === true) settle();
-        // the status line's next change retries a changed checkout; a timer would fetch every 5 s while the two reads
-        // disagree
         else if (acted === false && !stopped) {
+          // only for a deferred cleanup. a changed checkout waits for the status line's next change, since a timer would
+          // fetch every 5 s while the two reads disagree
           merge.timer = setTimeout(() => {
             merge.timer = undefined;
             merge.waiting = false;

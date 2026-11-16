@@ -764,7 +764,7 @@ export class RepositoryWatch {
     this.publish(repository);
   }
 
-  /** `gh`'s answer for the checked-out branch's pull request, or for a branch name or URL. rejects with `gh`'s own error. */
+  /** `gh`'s answer for the checked-out branch's pull request, or for a branch name or URL. rejects with `gh`'s own error, or a parse error for an answer that isn't a pull request. */
   private async view(selector?: string): Promise<PullRequest> {
     const { stdout } = await this.run(
       'gh',
