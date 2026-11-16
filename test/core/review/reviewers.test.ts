@@ -664,6 +664,26 @@ test("a native session closing leaves Witch's reviewers running", async (t) => {
 const detached = (ready: string, after: string) =>
   `perl -MPOSIX -e 'setsid; open my $f, ">", $ARGV[0]; print $f $$; close $f; select undef, undef, undef, 0.05 while kill 0, $ARGV[1]; ${after}' ${quote(ready)} $$ & until [ -s ${quote(ready)} ]; do sleep 0.05; done; exit 3`;
 
+/** tells when a run's probe finds its reviewer's group gone, which is right before it waits on stderr. */
+function watchCleanup() {
+  const kill = process.kill.bind(process);
+  let done = false;
+
+  const spy = vi
+    .spyOn(process, 'kill')
+    .mockImplementation((pid: number, signal?: string | number) => {
+      try {
+        return kill(pid, signal);
+      } catch (error) {
+        if (pid < 0 && signal === 0) done = true;
+
+        throw error;
+      }
+    });
+
+  return { done: () => done, restore: () => spy.mockRestore() };
+}
+
 test('stderr written after a command exits still reaches its diagnostics', async () => {
   const root = await scratch('witch-reviewers-');
 
@@ -693,21 +713,7 @@ test('a stop ends the wait for stderr a descendant holds open', async () => {
   const root = await scratch('witch-reviewers-');
   const ready = join(root, 'ready');
   const controller = new AbortController();
-  const kill = process.kill.bind(process);
-  let cleaned = false;
-
-  // the run waits on stderr right after its probe finds the reviewer's group gone
-  const spy = vi
-    .spyOn(process, 'kill')
-    .mockImplementation((pid: number, signal?: string | number) => {
-      try {
-        return kill(pid, signal);
-      } catch (error) {
-        if (pid < 0 && signal === 0) cleaned = true;
-
-        throw error;
-      }
-    });
+  const cleanup = watchCleanup();
 
   try {
     const running = new Reviewers(() => {}).run({
@@ -729,12 +735,54 @@ test('a stop ends the wait for stderr a descendant holds open', async () => {
       () => {},
     );
 
-    await until("the group's cleanup", () => cleaned);
+    await until("the group's cleanup", cleanup.done);
     assert.equal(ended, false);
     controller.abort(new NativeStop({ deadline: performance.now() + 500 }));
     await within(running, 2000, 'the stopped run');
   } finally {
-    spy.mockRestore();
+    cleanup.restore();
+    const writer = Number(await readFile(ready, 'utf8').catch(() => ''));
+
+    if (writer) process.kill(writer, 'SIGKILL');
+  }
+});
+
+test('the wait for stderr a descendant holds open ends at its deadline', async () => {
+  const root = await scratch('witch-reviewers-');
+  const ready = join(root, 'ready');
+  const cleanup = watchCleanup();
+  // only the deadline's timer, so the reviewer and this test's waits run in real time
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  try {
+    const running = new Reviewers(() => {}).run({
+      cwd: root,
+      reviewers: [
+        {
+          name: 'r',
+          command: detached(ready, 'select undef, undef, undef, 6'),
+          reportFile: join(root, 'report.md'),
+        },
+      ],
+      signal: new AbortController().signal,
+    });
+
+    await until("the group's cleanup", cleanup.done);
+    vi.advanceTimersByTime(8000);
+    vi.useRealTimers();
+    const [result] = await within(running, 2000, 'the run past its deadline');
+
+    assert.deepEqual(result, {
+      code: 3,
+      diagnostics: `ENOENT: no such file or directory, open '${join(root, 'report.md')}'`,
+      report: '',
+    });
+
+    // the writer still holds stderr open
+    assert.ok(process.kill(Number(await readFile(ready, 'utf8')), 0));
+  } finally {
+    vi.useRealTimers();
+    cleanup.restore();
     const writer = Number(await readFile(ready, 'utf8').catch(() => ''));
 
     if (writer) process.kill(writer, 'SIGKILL');
