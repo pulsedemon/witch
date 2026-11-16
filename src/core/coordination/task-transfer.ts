@@ -77,7 +77,7 @@ export class TransferUnavailable extends Error {
   }
 }
 
-/** how long an owner gets to answer; a longer request deadline must not hold the requester's other coordination work on an owner that never does. */
+/** how long an owner gets to answer once the request is recorded; a longer request deadline must not hold the requester's other coordination work on an owner that never does. */
 const patience = 8000;
 
 interface TransferWait<View> {
@@ -86,7 +86,8 @@ interface TransferWait<View> {
   reference: string;
   field: TransferField;
   deadline: number;
-  request: (expires: number) => Promise<TaskClaim>;
+  /** `expires` is read when the request is written, so a slow write doesn't spend the owner's time. */
+  request: (expires: () => number) => Promise<TaskClaim>;
   title: (conversation: string) => Promise<string | undefined>;
   admit: () => void;
   read: (deadline: number) => Promise<View>;
@@ -98,8 +99,13 @@ export async function awaitTransfer<View extends { ledger: Ledger }>(
   request: TransferWait<View>,
 ): Promise<{ claim: TaskClaim; view?: View }> {
   // leave time for withdrawal, the final peer refresh and the control reply.
-  const end = Math.min(request.deadline - 2000, Date.now() + patience);
-  const requested = await request.request(end);
+  const latest = request.deadline - 2000;
+
+  const requested = await request.request(() =>
+    Math.min(latest, Date.now() + patience),
+  );
+
+  const end = requested[request.field]!.expires;
 
   try {
     const title =
