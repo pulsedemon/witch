@@ -151,7 +151,6 @@ export async function registerFamiliar(
     run,
   });
 
-  // every registration attempt shares one window
   const deadline = Date.now() + controlWindow;
 
   for (;;) {
