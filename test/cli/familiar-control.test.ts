@@ -272,6 +272,16 @@ test('only a supporting session receives familiar instructions and the exact use
 
   assert.match(
     rule,
+    /with the plan, the request, the rules that apply and the files needed to check it, asking each to report as a finding any plan step that asks the user for a decision the request, the applicable rules or the evidence settles, and wait for every one to finish/,
+  );
+
+  assert.match(
+    rule,
+    /Resolve a verified finding of that kind by making the decision in the plan/,
+  );
+
+  assert.match(
+    rule,
     /launch only on a newly returned route that has no reviewer in this round, and in this round don't relaunch one that failed, stopped or was interrupted/,
   );
 

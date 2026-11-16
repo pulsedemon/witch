@@ -143,9 +143,42 @@ test('the fixed instructions take the recommended route past a blocked step and 
       /a reading shown at 100% doesn't establish that by itself, and neither do request-rate throttling or unrelated errors/,
     );
 
+    assert.doesNotMatch(rule, /Ask the user/);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+test('the fixed instructions leave settled decisions to the agent outside the blocked-step rule', async () => {
+  const f = await unitFixture();
+
+  try {
+    await f.coordinator.send('Initial task');
+    const context = f.a.inputs.at(-1)!.context!;
+
+    const rules = context
+      .split('\n\n')
+      .filter((paragraph) => paragraph.startsWith('Make every decision'));
+
+    assert.equal(rules.length, 1, context);
+    const rule = rules[0]!;
+
     assert.match(
       rule,
-      /Ask the user only for product or scope decisions the request and evidence can't settle/,
+      /Make every decision within the task's authorization that the request, the applicable rules or the evidence settles instead of asking the user, and report it with what settled it/,
+    );
+
+    assert.match(rule, /at any point in a task and not only at a blocked step/);
+    assert.match(rule, /Don't plan such a decision as a question for the user/);
+
+    assert.match(
+      rule,
+      /when a plan you or a familiar wrote already asks one, decide it at that step/,
+    );
+
+    assert.match(
+      rule,
+      /Ask the user only for product or scope decisions the request, the rules and the evidence leave open/,
     );
 
     assert.match(
