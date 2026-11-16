@@ -600,7 +600,7 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
     // the space inside the quotes is the last whitespace before the cut
     [
       `${'x'.repeat(1980)}\n"${file}" end`,
-      `vscode://file/work/${file.replace(' ', '%20')}`,
+      `vscode://file/work/${file.replaceAll(' ', '%20')}`,
     ],
     [
       `${'x'.repeat(1990)}<https://example.com/abcdef>end`,
