@@ -21,7 +21,7 @@ interface Merge {
     due?: boolean;
     timer: NodeJS.Timeout;
   };
-  /** consecutive deferred attempts, whatever their reasons */
+  /** consecutive deferred attempts that gave a reason, whatever the reasons */
   deferrals?: number;
   /** reasons already posted */
   told?: Set<string>;
@@ -196,7 +196,6 @@ export function watchMerges(
     merge.timer = undefined;
     merge.waiting = true;
     merge.running = true;
-    release(merge);
 
     const work = merge.continuation ?? {
       request: pullRequest,

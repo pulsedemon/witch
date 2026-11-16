@@ -782,6 +782,27 @@ test('a cleanup deferred three times running says why, whatever the reasons, onc
     await settle(false);
     assert.deepEqual(notices, [waits(locked)]);
   }
+
+  // an interrupted attempt ends the run of deferrals
+  {
+    const { notices, progress, publishRepository, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      progress.at(-1)!.deferred = locked;
+      await settle(false);
+      await advance(5000);
+    }
+
+    await settle('interrupted');
+    assert.equal(progress.length, 4, 'the interrupted cleanup resumes');
+    progress.at(-1)!.deferred = locked;
+    await settle(false);
+    assert.deepEqual(notices, []);
+  }
 });
 
 test('a cleanup that found the checkout in another state says so after 15 s and runs again at the next repository update', async (t) => {
