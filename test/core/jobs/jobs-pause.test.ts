@@ -6,13 +6,14 @@ import type { Row } from '../../../src/core/jobs/jobs.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until } from '../../fixtures/within.js';
 
-/** the read count once it has stayed put for 100 ms, failing after a second. */
+/** the read count once a read has happened and the count has stayed put for 100 ms, failing after a second. */
 async function stopped(reads: () => number): Promise<number> {
   for (const end = Date.now() + 1000; Date.now() < end;) {
     const count = reads();
     await delay(100);
 
-    if (reads() === count) return count;
+    // a stalled loop can end the wait with the first read still in flight
+    if (count && reads() === count) return count;
   }
 
   assert.fail('the reads never stopped');
@@ -193,6 +194,12 @@ test('a job list while paused finds an orphan and resumes the reads', async () =
 
   try {
     jobs.setActive(false);
+
+    // holds the loop past the first tick, as a loaded machine does
+    setImmediate(() => {
+      for (const end = Date.now() + 150; Date.now() < end;);
+    });
+
     const count = await stopped(() => reads);
     rows = [orphanRow(100971)];
 
