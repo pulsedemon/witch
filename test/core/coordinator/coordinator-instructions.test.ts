@@ -218,6 +218,71 @@ test('the fixed instructions treat issue and pull request text from other accoun
   }
 });
 
+test("the fixed instructions keep the checkout on an open pull request's branch", async () => {
+  const f = await unitFixture();
+
+  try {
+    await f.coordinator.send('Initial task');
+    const context = f.a.inputs.at(-1)!.context!;
+
+    const rules = context
+      .split('\n\n')
+      .filter((paragraph) =>
+        paragraph.startsWith('While a pull request you opened'),
+      );
+
+    assert.equal(rules.length, 1, context);
+    const rule = rules[0]!;
+
+    assert.match(
+      rule,
+      /While a pull request you opened or are working on from the checkout in this session's directory is open, keep that checkout on the pull request's branch, including after your turn ends and after you release its claim/,
+    );
+
+    assert.match(
+      rule,
+      /Witch finds the pull request through the checked-out branch: on any other branch it leaves the status line and its merge skips Witch's cleanup/,
+    );
+
+    assert.match(
+      rule,
+      /Witch stops handling Copilot's review feedback, conflicts and failed checks for a pull request you still claim/,
+    );
+
+    assert.match(
+      rule,
+      /Leave the branch while the pull request is open only when the user or the project's instructions tell you to put the checkout on another branch, or when other work you are asked to do needs a branch of its own, since unrelated commits don't go on the pull request's branch/,
+    );
+
+    assert.match(
+      rule,
+      /A description of what the checkout serves or follows is not such an instruction/,
+    );
+
+    assert.match(
+      rule,
+      /When you do leave, say what that turns off, and start other work's branch from the updated base branch unless it builds on the pull request/,
+    );
+
+    assert.match(
+      rule,
+      /Once it merges, Witch attempts its cleanup when the conversation is idle with the checkout clean at the merged commit: it moves the checkout to the updated base and deletes the merged branch when its safety checks pass/,
+    );
+
+    assert.match(
+      rule,
+      /So don't switch to the base or delete the branch yourself to tidy up before ending a turn/,
+    );
+
+    assert.match(
+      rule,
+      /work you are asked to do afterwards may still take the checkout off a merged branch when it needs to/,
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('the fixed instructions fix discovered bugs and file only blocked follow-ups', async () => {
   const f = await unitFixture();
 
