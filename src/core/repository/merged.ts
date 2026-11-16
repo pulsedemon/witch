@@ -43,6 +43,8 @@ interface PlanRemoval {
   /** absolute paths, since two plan directories can hold the same name */
   removed: string[];
   stayed: string[];
+  /** ignored plans that stay while mentioning the merged branch */
+  mentioned: string[];
   ledgers: string[];
   /** the first reason a plan stayed */
   reason?: string;
@@ -744,12 +746,18 @@ async function clean(
   const {
     removed: plans,
     stayed,
+    mentioned,
     reason,
     unlisted,
   } = await removePlans(
     git,
     branch,
-    (progress.plans ??= { removed: [], stayed: [], ledgers: [] }),
+    (progress.plans ??= {
+      removed: [],
+      stayed: [],
+      mentioned: [],
+      ledgers: [],
+    }),
     signal,
   ).catch((error: unknown) => {
     if (error === signal?.reason) throw error;
@@ -768,6 +776,8 @@ async function clean(
   const kept = [
     unset,
     reason && `${named(stayed)} stayed: ${reason}`,
+    mentioned.length &&
+      `${named(mentioned)} stayed: not recognized as for ${branch} alone`,
     unlisted && `plans stayed: ${unlisted}`,
   ]
     .filter(Boolean)
@@ -968,8 +978,12 @@ async function refHead(git: Git, branch: string): Promise<string | undefined> {
   );
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function hasBranchConfig(git: Git, branch: string): Promise<boolean> {
-  const section = `^branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.`;
+  const section = `^branch\\.${escapeRegExp(branch)}\\.`;
 
   return git('config', '--get-regexp', section).then(
     () => true,
@@ -1195,6 +1209,19 @@ function createdBranches(text: string): Set<string> {
 }
 
 /**
+ * the branches a plan declares as its own in prose, such as `**Branch:** \`feat/x\`` or ``Create branch `feat/x` ``, and
+ * not the ones it only refers to. separators stay within the line, so a declaration never reaches the next one.
+ */
+function declaredBranches(text: string): string[] {
+  return Array.from(
+    text.matchAll(
+      /^[ \t>*+-]*(?:\[[ xX]\][ \t]*)?(?:\d+[.)][ \t]*)?\**(?:step \d+:?[ \t]*)?\**(?:create (?:a |the )?(?:new )?)?branch\b[*: \t]*`([^`\s]+)`/gim,
+    ),
+    (match) => match[1]!,
+  );
+}
+
+/**
  * where a checkout keeps the gitignored plans and ledgers its merge cleanup removes with their branch. a repository
  * keeps its plans in whichever of `plans` its own instructions name.
  */
@@ -1204,9 +1231,9 @@ export const planDirectories = {
 } as const;
 
 /**
- * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
- * `plan-path` names it. returns those removed, those it failed to read, check or remove with the first reason, and
- * the first reason a plan directory couldn't be listed.
+ * removes the gitignored plans that create or declare `branch` and no other branch, each with the gitignored ledgers
+ * whose `plan-path` names it. returns those removed, the gitignored ones that stay while mentioning `branch`, those it
+ * failed to read, check or remove with the first reason, and the first reason a plan directory couldn't be listed.
  */
 async function removePlans(
   git: Git,
@@ -1219,7 +1246,13 @@ async function removePlans(
   const top = await topLevel(git);
   progress.root = top;
   const ledgers = join(top, planDirectories.ledgers);
-  const { removed, stayed } = progress;
+  const { removed, stayed, mentioned } = progress;
+
+  // the whole name, so that feat/x-2, feat/x@next, origin/feat/x and feat/x.md don't mention feat/x
+  const mention = new RegExp(
+    `(?<=^|[\\s\`'"(\\[<:*])${escapeRegExp(branch)}(?=$|[\\s\`'"),;:\\]>!?*]|\\.(?:$|[\\s\`'")\\]>*]))`,
+    'm',
+  );
 
   for (const directory of planDirectories.plans) {
     const plans = join(top, directory);
@@ -1233,29 +1266,38 @@ async function removePlans(
       continue;
     }
 
-    for (const name of names) {
+    for (const name of names.sort()) {
       const plan = join(plans, name);
 
       if (
         !name.endsWith('.md') ||
         removed.includes(plan) ||
-        stayed.includes(plan)
+        stayed.includes(plan) ||
+        mentioned.includes(plan)
       )
         continue;
 
       try {
-        // a plan that isn't there, such as a dangling link, creates no branch
-        const created = createdBranches(
-          (await unlessGone(readFile(plan, 'utf8'))) ?? '',
-        );
+        // a plan that isn't there, such as a dangling link, names no branch
+        const text = (await unlessGone(readFile(plan, 'utf8'))) ?? '';
 
-        // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
+        const branches = new Set([
+          ...createdBranches(text),
+          ...declaredBranches(text),
+        ]);
+
         if (
-          created.size !== 1 ||
-          !created.has(branch) ||
+          !(branches.has(branch) || mention.test(text)) ||
           !(await ignored(git, plan))
         )
           continue;
+
+        // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
+        if (branches.size !== 1 || !branches.has(branch)) {
+          mentioned.push(plan);
+
+          continue;
+        }
 
         // the ledgers first, since only the plan leads to them
         for (const ledger of (await unlessGone(readdir(ledgers))) ?? []) {

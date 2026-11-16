@@ -150,7 +150,7 @@ test("a merged branch's checkout switches to the base, and loses the branch, its
   ]);
 
   assert.deepEqual(result, {
-    text: '#7 merged: switched to main and pulled, deleted branches feat/x and feat/old, and plan x.md.',
+    text: '#7 merged: switched to main and pulled, deleted branches feat/x and feat/old, and plan x.md, but plans multi.md, quoted.md, stack.md and y.md stayed: not recognized as for feat/x alone.',
     cleaned: true,
   });
 });
@@ -207,7 +207,7 @@ test('a plan that also creates another branch stays whichever git command create
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
   assert.ok(typeof result === 'object');
 
-  assert.deepEqual((await readdir(plans(checkout))).sort(), [
+  const remaining = [
     'branch.md',
     'bundled.md',
     'checkout-orphan.md',
@@ -234,12 +234,60 @@ test('a plan that also creates another branch stays whichever git command create
     'unnamed.md',
     'worktree-dir.md',
     'worktree.md',
-  ]);
+  ];
+
+  assert.deepEqual((await readdir(plans(checkout))).sort(), remaining);
 
   assert.equal(
     result?.text,
-    '#7 merged: switched to main and pulled, deleted branch feat/x, and plan upper.md.',
+    `#7 merged: switched to main and pulled, deleted branch feat/x, and plan upper.md, but plans ${remaining.slice(0, -1).join(', ')} and ${remaining.at(-1)} stayed: not recognized as for feat/x alone.`,
   );
+});
+
+test('a plan that declares only its branch in prose goes with its ledger, and one that only mentions it or declares another stays and is named', async () => {
+  const { checkout, other, tip } = await merged();
+
+  for (const [name, text] of [
+    ['prose.md', 'Create branch `feat/x` from `main`.\n'],
+    ['bold.md', '**Branch:** `feat/x`\n'],
+    ['based.md', 'Create branch `feat/x` from branch `main`.\n'],
+    [
+      'mixed.md',
+      '`git switch --create=feat/x`\n\nlater\n\n**Branch:** `feat/y`\n',
+    ],
+    ['swapped.md', '**Branch:** `feat/x`\n\nlater\n\n`git switch -c feat/y`\n'],
+    ['unmerged.md', 'exist only on unmerged branch `feat/x`\n'],
+    ['negated.md', 'Work on `feat/y`. Do not create branch `feat/x`.\n'],
+    ['other.md', '**Branch:** `feat/x@next`\n'],
+    ['fork.md', 'push from `pulsedemon/witch:feat/x`\n'],
+    ['period.md', 'it lands `on branch feat/x.`\n'],
+  ] as const)
+    await write(join(plans(checkout), name), text);
+
+  await write(
+    join(checkout, '.superpowers/sdd/prose/plan-path'),
+    'docs/superpowers/plans/prose.md\n',
+  );
+
+  await merge(other, 'feat/x');
+  const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
+
+  assert.deepEqual((await readdir(plans(checkout))).sort(), [
+    'fork.md',
+    'mixed.md',
+    'negated.md',
+    'other.md',
+    'period.md',
+    'swapped.md',
+    'unmerged.md',
+  ]);
+
+  assert.equal(await exists(join(checkout, '.superpowers/sdd/prose')), false);
+
+  assert.deepEqual(result, {
+    text: '#7 merged: switched to main and pulled, deleted branch feat/x, and plans based.md, bold.md and prose.md, but plans fork.md, mixed.md, negated.md, period.md, swapped.md and unmerged.md stayed: not recognized as for feat/x alone.',
+    cleaned: true,
+  });
 });
 
 test("a dangling plan link stays quietly, a plan that can't be read or go with its ledgers stays with them and is named, and so are plans that can't be listed, even when the base can't fast-forward", async () => {
@@ -347,7 +395,7 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
 
     assert.match(
       result?.text ?? '',
-      /^#7 merged: switched to main and pulled, deleted branch feat\/x, and plan c\.md, but plans (a\.md and b\.md|b\.md and a\.md) stayed: EACCES/,
+      /^#7 merged: switched to main and pulled, deleted branch feat\/x, and plan c\.md, but plans a\.md and b\.md stayed: EACCES/,
     );
 
     assert.deepEqual((await readdir(plans(checkout))).sort(), ['a.md', 'b.md']);
