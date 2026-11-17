@@ -564,7 +564,7 @@ test('quotes or a backslash keep a space inside a target name', async (t) => {
   assert.match(h.rounds[0]!.brief, /^- a b\.md\n- c d\.md\n- e f\.md$/m);
 });
 
-test('a name escaped as file completion inserts it is reviewed', async (t) => {
+test('a name quoted as file completion inserts it is reviewed', async (t) => {
   const h = await harness(t);
 
   for (const name of [
@@ -572,12 +572,13 @@ test('a name escaped as file completion inserts it is reviewed', async (t) => {
     "don't.md",
     'say "hi".md',
     'back\\slash.md',
+    'trailing.md ',
   ])
     await writeFile(join(h.cwd, name), 'x\n');
 
   assert.equal(
     await h.coordinator.review(
-      `@My\\ Notes.md @don\\'t.md @say\\ \\"hi\\".md @back\\\\slash.md`,
+      `@"My Notes.md" @"don't.md" @"say "\\""hi"\\"".md" @"back\\slash.md" @"trailing.md "`,
     ),
     true,
   );
@@ -586,7 +587,7 @@ test('a name escaped as file completion inserts it is reviewed', async (t) => {
 
   assert.match(
     h.rounds[0]!.brief,
-    /^- My Notes\.md\n- don't\.md\n- say "hi"\.md\n- back\\slash\.md$/m,
+    /^- My Notes\.md\n- don't\.md\n- say "hi"\.md\n- back\\slash\.md\n- trailing\.md $/m,
   );
 });
 

@@ -133,8 +133,18 @@ test('Tab inserts a file into the middle of a draft', async () => {
   }
 });
 
-test('Tab escapes the characters that would end a file name in a command', async () => {
-  const { ui, calls } = await launched({}, [`docs/My "don't".md`]);
+test('a completed file name that /review would misread is sent in quotes', async () => {
+  const { ui, calls, coordinator } = await launched({}, [
+    `docs/My "don't" a\\b.md `,
+  ]);
+
+  Object.assign(coordinator, {
+    review: async (argument: string) => {
+      calls.push(['review', argument]);
+
+      return true;
+    },
+  });
 
   try {
     ui.stdin.write('/review @do');
@@ -142,10 +152,16 @@ test('Tab escapes the characters that would end a file name in a command', async
     ui.stdin.write(TAB);
 
     await until('the inserted path', () =>
-      ui.text().includes(`┃ /review @docs/My\\ \\"don\\'t\\".md`),
+      ui.text().includes(`┃ /review @"docs/My "\\""don't"\\"" a\\b.md "`),
     );
 
     assert.deepEqual(calls, []);
+    ui.stdin.write(ENTER);
+    await until('the review', () => calls.length > 0);
+
+    assert.deepEqual(calls, [
+      ['review', `@"docs/My "\\""don't"\\"" a\\b.md "`],
+    ]);
   } finally {
     ui.unmount();
   }
