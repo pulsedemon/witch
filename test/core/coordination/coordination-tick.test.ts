@@ -565,7 +565,7 @@ test("a peers request whose ledger read outlasts a tick's bounded read still ans
   assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
 });
 
-test("a peers request still answers when a tick's read gets the ledger late and its probe is killed", async (t) => {
+test("a peers request still answers when a tick's later read has its probe killed at the deadline", async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
   const open = f.store.openConversations.bind(f.store);
   const holding = Promise.withResolvers<void>();
@@ -577,11 +577,10 @@ test("a peers request still answers when a tick's read gets the ledger late and 
       const timeout = args[1]?.timeout;
 
       if (timeout !== undefined && timeout > 5000) {
-        if (args[0] === undefined) await released.promise;
-        else {
-          // the request's reconciliation ends inside the tick's second, so the tick's read gets the ledger
+        // the request's discovery stays open while the tick's read follows the request's own
+        if (args[0] === undefined) {
           holding.resolve();
-          await delay(300);
+          await released.promise;
         }
       } else if (timeout !== undefined && args[0] !== undefined) {
         // execFile kills a probe at its timeout and rejects with the failed command, not with an expiry

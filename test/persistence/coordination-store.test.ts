@@ -1168,22 +1168,15 @@ test('pause records track each recipient and replay only their own retry', async
   assert.deepEqual(await store.pauses('other'), []);
 });
 
-/** a ledger read whose activation probe is killed at the read's deadline, as execFile reports it. */
-async function killedProbe() {
-  const state = await StateStore.open(await scratch('witch-killed-probe-'));
-  const registry = await CoordinationStore.open(state);
+/** a probe killed at its timeout, as execFile reports it. */
+async function killedAtDeadline(options?: {
+  timeout?: number;
+}): Promise<never> {
+  await delay((options?.timeout ?? 0) + 20);
 
-  vi.spyOn(registry, 'activeActivations').mockImplementation(
-    async (_activations, options) => {
-      await delay((options?.timeout ?? 0) + 20);
-
-      throw Object.assign(new Error('Command failed: /usr/bin/perl'), {
-        killed: true,
-      });
-    },
-  );
-
-  return { state, registry };
+  throw Object.assign(new Error('Command failed: /usr/bin/perl'), {
+    killed: true,
+  });
 }
 
 test('a ledger read whose probe is killed at its deadline reports the deadline', async (t) => {
@@ -1191,18 +1184,30 @@ test('a ledger read whose probe is killed at its deadline reports the deadline',
     vi.restoreAllMocks();
   });
 
-  const { registry } = await killedProbe();
+  const registry = await CoordinationStore.open(
+    await StateStore.open(await scratch('witch-killed-probe-')),
+  );
+
+  vi.spyOn(registry, 'activeActivations').mockImplementation(
+    (_activations, options) => killedAtDeadline(options),
+  );
+
   await assert.rejects(registry.state(Date.now() + 200), DeadlineExpired);
 });
 
-test("a ledger read keeps a probe's own failure when another probe is killed at the deadline", async (t) => {
+test("a ledger read keeps a later probe's own failure when an earlier probe is killed at the deadline", async (t) => {
   t.onTestFinished(() => {
     vi.restoreAllMocks();
   });
 
-  const { state, registry } = await killedProbe();
+  const state = await StateStore.open(await scratch('witch-killed-probe-'));
+  const registry = await CoordinationStore.open(state);
 
-  vi.spyOn(state, 'openConversations').mockRejectedValue(
+  vi.spyOn(state, 'openConversations').mockImplementation(
+    (_conversations, options) => killedAtDeadline(options),
+  );
+
+  vi.spyOn(registry, 'activeActivations').mockRejectedValue(
     Object.assign(new Error('EACCES: Could not inspect lock'), {
       code: 'EACCES',
     }),
