@@ -369,3 +369,38 @@ test('a later view of a path whose file changed redraws every block that shows i
   await loaded(graphics);
   assert.deepEqual(drawn(items), [10, 10]);
 });
+
+test('a block keeps its rendering when the image of another path loads', async () => {
+  const directory = await scratch('witch-layout-');
+  await writeFile(join(directory, 'first.png'), png(160, 80));
+  await writeFile(join(directory, 'second.png'), png(160, 80));
+  const graphics = new Graphics(() => {});
+  const layout = new TranscriptLayout(graphics);
+
+  const view = (name: string): DisplayItem => ({
+    id: name,
+    kind: 'user',
+    text: 'look at [Image #1]',
+    cwd: directory,
+    images: [`${name}.png`],
+  });
+
+  const first = view('first');
+  layout.render([first], 100, new Map());
+  await loaded(graphics);
+  const before = layout.render([first], 100, new Map());
+  // the first image's check of its unchanged file
+  await loaded(graphics);
+  const items = [first, view('second')];
+  layout.render(items, 100, new Map());
+  await loaded(graphics);
+  const after = layout.render(items, 100, new Map());
+
+  assert.equal(
+    after.blocks[1]!.slice().filter((line) => line.includes(placeholder))
+      .length,
+    5,
+  );
+
+  assert.equal(after.blocks[0], before.blocks[0]);
+});

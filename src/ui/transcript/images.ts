@@ -18,6 +18,8 @@ export const placeholder = '\u{10EEEE}';
 // read whole into memory and sent to the terminal in one transmission
 const largestFile = 64 * 1024 * 1024;
 const retryDelay = 2_000;
+// a PNG's closing IEND chunk, which a file cut short lacks
+const pngEnd = Buffer.from('0000000049454e44ae426082', 'hex');
 export const imageFile = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
 
 interface Image {
@@ -30,7 +32,7 @@ interface Image {
   placed?: string;
   /** what its file's stat read when it loaded; a `data:` image has none. */
   stamp?: string;
-  /** a check of its file against `stamp` is queued or running. */
+  /** a check of its file against `stamp` is queued and hasn't started. */
   checking?: boolean;
 }
 
@@ -72,7 +74,7 @@ export class Graphics {
    * it can't. a loaded path's file is checked again in the background, and loads again if it changed.
    */
   rows(source: string, cwd: string, columns: number): string[] {
-    const key = source.startsWith('data:') ? source : resolveFile(source, cwd);
+    const key = entryKey(source, cwd);
     const image = this.entries.get(key);
 
     if (
@@ -128,6 +130,13 @@ export class Graphics {
       );
   }
 
+  /** names the image loaded for `source`, so it changes when a changed file's image replaces it; none until one loads. */
+  id(source: string, cwd: string): number | undefined {
+    const image = this.entries.get(entryKey(source, cwd));
+
+    return typeof image === 'object' && 'id' in image ? image.id : undefined;
+  }
+
   /**
    * frees the images this instance sent; the terminal keeps them until then, even after the alternate screen.
    * it also stops the running conversion and drops queued loads, so none writes to the restored terminal.
@@ -172,14 +181,15 @@ export class Graphics {
     shown?: Image,
   ): Promise<void> {
     if (!signal.aborted) {
+      // cleared before the file is read, so a view during the read queues a check of what the file holds after it
+      if (shown) shown.checking = false;
+
       const loaded = await decode(key, signal, shown?.stamp).catch(
         () => undefined,
       );
 
       // a release since it began has restored the terminal, so the load writes and records nothing
       if (!signal.aborted) {
-        if (shown) shown.checking = false;
-
         if (loaded && loaded !== 'unchanged') {
           const id = this.next++;
 
@@ -222,6 +232,9 @@ export class Graphics {
   }
 }
 
+const entryKey = (source: string, cwd: string) =>
+  source.startsWith('data:') ? source : resolveFile(source, cwd);
+
 /**
  * the PNG data for a path or `data:` URL, its size and its file's stamp; none when it isn't an image, and
  * `'unchanged'` when its file still reads `stamp`.
@@ -246,10 +259,11 @@ async function decode(key: string, signal: AbortSignal, stamp?: string) {
     data = await readFile(key, { signal });
   }
 
-  // the terminal decodes only PNG
-  if (!startsLikePng(data)) data = await convertImage(data, 'png', signal);
+  // the terminal decodes only PNG, and draws nothing for one cut short, which the conversion refuses
+  if (!startsLikePng(data) || !data.subarray(-pngEnd.length).equals(pngEnd))
+    data = await convertImage(data, 'png', signal);
 
-  // a truncated file throws here, failing its load
+  // a truncated conversion throws here, failing its load
   const size = { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
 
   return size.width && size.height ? { data, size, stamp: read } : undefined;

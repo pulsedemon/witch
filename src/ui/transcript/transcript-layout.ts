@@ -55,6 +55,8 @@ interface Block {
   complete: Row[];
   lines: TextRows;
   row(index: number): Row | undefined;
+  /** the id of each image it names, as drawn; none for one with no rows yet. */
+  drawn: readonly (number | undefined)[];
   /** the image version it was built for. */
   loads?: number;
 }
@@ -94,6 +96,7 @@ function block(
   viewport: Viewport,
   complete: Row[],
   suffix: Row[],
+  drawn: readonly (number | undefined)[],
 ): Block {
   const count = complete.length;
   const length = count + suffix.length;
@@ -107,6 +110,7 @@ function block(
     complete,
     row,
     lines: textRows(length, (index) => row(index)?.text),
+    drawn,
   };
 }
 
@@ -238,7 +242,7 @@ function ending(
   width: number,
   first: number,
   graphics: Graphics | undefined,
-): Row[] {
+): { rows: Row[]; drawn: (number | undefined)[] } {
   const rendered = section(content.tail, width, false, first);
   const diff = content.diff?.(width) ?? [];
 
@@ -251,7 +255,7 @@ function ending(
   const next = rendered.next;
 
   // empty images keep their source line so later images retain their anchors.
-  return rendered.rows.concat(
+  const ended = rendered.rows.concat(
     diff
       .concat(
         images.map((rows) => rows.map((text, offset) => ({ text, offset }))),
@@ -268,6 +272,13 @@ function ending(
       anchor: { line: next + diff.length + images.length, offset: 0 },
     },
   );
+
+  return {
+    rows: ended,
+    drawn: graphics
+      ? content.images.map((source) => graphics.id(source, content.item.cwd))
+      : [],
+  };
 }
 
 function wrap(
@@ -296,7 +307,13 @@ function wrap(
   const complete = section(content.complete, width, false, head.next);
   const end = ending(content, width, complete.next, graphics);
 
-  return block(content, viewport, head.rows.concat(complete.rows), end);
+  return block(
+    content,
+    viewport,
+    head.rows.concat(complete.rows),
+    end.rows,
+    end.drawn,
+  );
 }
 
 function extend(
@@ -366,7 +383,7 @@ function extend(
 
   const end = ending(prepared, width, complete.next, graphics);
 
-  return block(prepared, viewport, previous.complete, end);
+  return block(prepared, viewport, previous.complete, end.rows, end.drawn);
 }
 
 /** a later diff must not reverse the user's explicit open or closed choice. */
@@ -434,6 +451,19 @@ export class TranscriptLayout {
 
   /** without `graphics`, images stay out of the transcript. */
   constructor(private readonly graphics?: Graphics) {}
+
+  /** whether each image `block` names still has the image it drew; one with no rows yet may have them after any load. */
+  private drawn(block: Block): boolean {
+    return block.drawn.every(
+      (id, index) =>
+        id !== undefined &&
+        id ===
+          this.graphics?.id(
+            block.content.images[index]!,
+            block.content.item.cwd,
+          ),
+    );
+  }
 
   /** `loads` is the image version to draw for; App passes it so that the React Compiler's memo of this call follows it. */
   render(
@@ -512,8 +542,7 @@ export class TranscriptLayout {
       const current =
         previous?.content.item === item
           ? previous.viewport === viewport &&
-            // a load can give an image its rows, or a changed file's new ones
-            (!previous.content.images.length || previous.loads === loads)
+            (previous.loads === loads || this.drawn(previous))
             ? previous
             : wrap(previous.content, viewport, this.graphics)
           : ((previous && extend(previous, item, viewport, this.graphics)) ??

@@ -330,20 +330,61 @@ test('a path whose file changed since it loaded is sent again in place of its fi
   assert.equal(writes.at(-1), '\u001b_Ga=p,U=1,i=2,p=1,c=10,r=10,q=2\u001b\\');
 });
 
-test('a shown image stays when its changed file can no longer load', async () => {
+test('a shown image stays when its changed file is cut short after its PNG header, which is not sent', async (t) => {
   const directory = await scratch('witch-images-');
   const path = join(directory, 'shot.png');
   await writeFile(path, png(160, 80));
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
+  const calls = sips(t, () => new Error('fixture conversion failure'));
   graphics.rows(path, directory, 100);
   await loaded(graphics);
-  await truncate(path, 20);
+  // the signature and the size stay readable
+  await truncate(path, 33);
   const rows = graphics.rows(path, directory, 100);
   assert.equal(rows.length, 5);
   writes.length = 0;
   await loaded(graphics);
+  assert.equal(calls.length, 1);
   assert.deepEqual(graphics.rows(path, directory, 100), rows);
   assert.deepEqual(writes, []);
   assert.equal(graphics.version, 1);
+});
+
+test('a view while a check is reading the file queues another check, so a file completed during a failing read still loads', async (t) => {
+  const directory = await scratch('witch-images-');
+  const path = join(directory, 'shot.png');
+  const second = png(80, 160);
+  await writeFile(path, png(160, 80));
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+  // conversions of the half-written file only, since an earlier test's last check can still reach this spy
+  const conversions: Parameters<typeof childProcess.execFile>[] = [];
+
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+
+  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
+    if (readFileSync(call[1]![3]!, 'utf8') === 'half written')
+      conversions.push(call);
+
+    return new childProcess.ChildProcess();
+  });
+
+  syncBuiltinESMExports();
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  await writeFile(path, 'half written');
+  graphics.rows(path, directory, 100);
+  await vi.waitFor(() => assert.ok(conversions[0]));
+  await writeFile(path, second);
+  writes.length = 0;
+  graphics.rows(path, directory, 100);
+  conversions[0]![3]!(new Error('fixture conversion failure'), '', '');
+  await loaded(graphics, 2);
+  assert.equal(conversions.length, 1);
+  assert.ok(payload(writes) === second.toString('base64'));
+  assert.equal(graphics.version, 2);
 });
