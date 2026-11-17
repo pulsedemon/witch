@@ -96,7 +96,7 @@ test("a web link leaves out a sentence's punctuation before a closing quote or p
   );
 });
 
-test('a URL in minified or escaped JSON links alone, ending at the quote after it, however long the JSON runs', () => {
+test('a URL in minified or escaped JSON links alone, ending at the quote after it, and minified JSON longer than one linkify-it input still links', () => {
   for (const [text, spans] of [
     [
       '{"a":"https://example.com/1","b":"x"}',
