@@ -165,13 +165,12 @@ export class SessionCoordination {
   private claimReleases = new Set<string>();
   private maintaining?: Promise<void>;
   private handing?: Promise<void>;
-  /** a recipient's pause writes, each for the conversation that made it; ticks and deactivation flush them until stored. */
-  private pauseWrites: {
-    conversation: string;
-    kind: 'confirm' | 'resume';
-    pauses: string[];
-  }[] = [];
-  private flushingPauses?: Promise<void>;
+  /** writes that must outlast a busy ledger, each for the conversation that made it; ticks retry them and deactivation tries once more. */
+  private queuedWrites: (
+    | { conversation: string; kind: 'confirm' | 'resume'; pauses: string[] }
+    | { conversation: string; kind: 'answer'; answers: readonly PeerAnswer[] }
+  )[] = [];
+  private flushingWrites?: Promise<void>;
   private ending = false;
   private closed = false;
 
@@ -462,7 +461,7 @@ export class SessionCoordination {
 
     try {
       await quiescing;
-      await this.flushPauseWrites();
+      await this.flushQueuedWrites();
       await this.presence.idle();
       const error = this.failures.get('presence');
 
@@ -589,14 +588,23 @@ export class SessionCoordination {
 
   answerPeers(answers: readonly PeerAnswer[]): Promise<void> {
     return this.serialize(async () => {
-      const active = this.admit();
+      const conversation = this.admit().conversation.id;
 
-      await this.registry.answerPeers(
-        active.conversation.id,
-        answers,
-        Date.now() + 1000,
-        true,
-      );
+      try {
+        await this.registry.answerPeers(
+          conversation,
+          answers,
+          Date.now() + 1000,
+          true,
+        );
+      } catch (error) {
+        if (!(error instanceof DeadlineExpired)) throw error;
+
+        // the turn spent the request's one attempt, so its answers wait for the next tick instead of being dropped
+        this.queuedWrites.push({ conversation, kind: 'answer', answers });
+
+        return;
+      }
 
       await this.refreshEvents();
     });
@@ -604,45 +612,57 @@ export class SessionCoordination {
 
   /** takes the conversation from the caller, since `/clear` and runtime switches leave coordination briefly inactive. */
   confirmPause(conversation: string, pause: string): void {
-    this.queuePauseWrite({ conversation, kind: 'confirm', pauses: [pause] });
+    this.queueWrite({ conversation, kind: 'confirm', pauses: [pause] });
   }
 
   resumePauses(conversation: string, pauses: string[]): void {
-    this.queuePauseWrite({ conversation, kind: 'resume', pauses });
+    this.queueWrite({ conversation, kind: 'resume', pauses });
   }
 
-  private queuePauseWrite(write: SessionCoordination['pauseWrites'][number]) {
-    this.pauseWrites.push(write);
-    void this.flushPauseWrites();
+  private queueWrite(write: SessionCoordination['queuedWrites'][number]) {
+    this.queuedWrites.push(write);
+    void this.flushQueuedWrites();
   }
 
-  /** runs while closing too, without admission, so a resume made just before /restart is stored. */
-  private flushPauseWrites(): Promise<void> {
-    if (!this.pauseWrites.length) return Promise.resolve();
+  /** runs while closing too, without admission, so a resume or answer made just before /restart is stored. */
+  private flushQueuedWrites(): Promise<void> {
+    if (!this.queuedWrites.length) return Promise.resolve();
 
-    this.flushingPauses ??= this.serialize(async () => {
-      while (this.pauseWrites.length) {
-        const { conversation, kind, pauses } = this.pauseWrites[0]!;
+    this.flushingWrites ??= this.serialize(async () => {
+      while (this.queuedWrites.length) {
+        const write = this.queuedWrites[0]!;
+        const { conversation } = write;
         const deadline = Date.now() + 1000;
 
-        if (kind === 'resume')
-          await this.registry.resumeByUser(conversation, pauses, deadline);
+        if (write.kind === 'answer')
+          await this.registry.answerPeers(
+            conversation,
+            write.answers,
+            deadline,
+            true,
+          );
+        else if (write.kind === 'resume')
+          await this.registry.resumeByUser(
+            conversation,
+            write.pauses,
+            deadline,
+          );
         else
-          for (const pause of pauses)
+          for (const pause of write.pauses)
             await this.registry.confirmPause(conversation, pause, deadline);
 
-        this.pauseWrites.shift();
+        this.queuedWrites.shift();
       }
 
-      this.failures.delete('pause-writes');
+      this.failures.delete('queued-writes');
       this.publish(this.snapshot);
     })
-      .catch((error: unknown) => this.fail('pause-writes', error))
+      .catch((error: unknown) => this.fail('queued-writes', error))
       .finally(() => {
-        this.flushingPauses = undefined;
+        this.flushingWrites = undefined;
       });
 
-    return this.flushingPauses;
+    return this.flushingWrites;
   }
 
   beginTurn(turn: string): void {
@@ -1226,7 +1246,7 @@ export class SessionCoordination {
   /** starts its refreshes synchronously, so a caller can read `refreshing` as soon as it returns. */
   private tick(): void {
     void this.maintain();
-    void this.flushPauseWrites();
+    void this.flushQueuedWrites();
     void this.presence.retry();
     void this.events.publishMerges();
     const active = this.active;
@@ -1275,7 +1295,7 @@ export class SessionCoordination {
         'merge-events',
         'peer-requests',
         'pauses',
-        'pause-writes',
+        'queued-writes',
       ].some((key) => this.failures.has(key))
     )
       return;
