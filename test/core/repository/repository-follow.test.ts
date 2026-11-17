@@ -411,6 +411,86 @@ test("a failure handed to the followed pull request doesn't come back as the bra
   assert.equal(watch.snapshot?.pullRequestFailure, undefined);
 });
 
+test("a round that ends after a held branch read handed its failure over doesn't drop it", async (t) => {
+  const url = 'https://github.com/o/r/pull/7';
+  const own = Promise.withResolvers<string>();
+  const byName = Promise.withResolvers<string>();
+
+  const { watch, state, step, named } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/x'
+        ? byName.promise
+        : selector === '' && branch === 'feat/x'
+          ? own.promise
+          : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(named(), ['feat/x']);
+  own.resolve(view({ number: 7, url, state: 'OPEN', statusCheckRollup: [] }));
+  await settle();
+  assert.match(watch.snapshot?.followedFailure ?? '', /^#7: /);
+  byName.reject(none('feat/x'));
+  await settle();
+  assert.match(watch.snapshot?.followedFailure ?? '', /^#7: /);
+});
+
+test("a round that reads only another branch's name keeps a followed pull request's failure", async (t) => {
+  let answer = pr('OPEN');
+
+  const { watch, state, published, step, wait, named } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === url7 || (selector === '' && branch === 'feat/x')
+        ? answer
+        : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  answer = '{}';
+  await wait(90_000);
+  assert.match(watch.snapshot?.followedFailure ?? '', /^#7: /);
+  const failed = published.length;
+  state.branch = 'feat/y';
+  await step();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(named(), [url7, 'main', 'feat/y']);
+
+  assert.ok(
+    published
+      .slice(failed)
+      .every(({ followedFailure }) => followedFailure?.startsWith('#7: ')),
+  );
+});
+
+test('unfollowing a pull request drops the failure of its read', async (t) => {
+  let answer = pr('OPEN');
+
+  const { watch, state, step, wait } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === url7 || (selector === '' && branch === 'feat/x')
+        ? answer
+        : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  answer = '{}';
+  await wait(90_000);
+  assert.match(watch.snapshot?.followedFailure ?? '', /^#7: /);
+  watch.unfollow(url7);
+  assert.equal(watch.snapshot?.followed, undefined);
+  assert.equal(watch.snapshot?.followedFailure, undefined);
+});
+
 test('a held branch read that answers closed after the checkout left is not followed', async (t) => {
   const held = Promise.withResolvers<string>();
 
