@@ -10,12 +10,19 @@ import type { SessionCoordination } from '../../../src/core/coordination/coordin
 import type { SessionPresence } from '../../../src/core/coordination/coordination-state.js';
 import type { PullRequest } from '../../../src/core/repository/repository.js';
 import { callControl } from '../../../src/persistence/control.js';
-import { CoordinationStore } from '../../../src/persistence/coordination.js';
+import {
+  CoordinationStore,
+  DeadlineExpired,
+} from '../../../src/persistence/coordination.js';
 import type { Ledger } from '../../../src/persistence/coordination.js';
 import { identifyProcess } from '../../../src/persistence/process.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';
-import { unitCoordinationFixture, git } from '../../fixtures/coordination.js';
+import {
+  unitCoordinationFixture,
+  git,
+  holdLedger,
+} from '../../fixtures/coordination.js';
 import { record } from '../../fixtures/coordinator.js';
 import { countProbes } from '../../fixtures/probes.js';
 import { until } from '../../fixtures/within.js';
@@ -119,6 +126,9 @@ async function livePeer(
 
 const peers = (coordination: SessionCoordination) =>
   coordination.snapshot.peers.map(({ presence }) => presence.id);
+
+const ledgerFailure = (coordination: SessionCoordination) =>
+  coordination['failures'].get('ledger')?.message;
 
 const otherPresence = (own: SessionPresence): SessionPresence => ({
   ...own,
@@ -558,11 +568,12 @@ test("a peers request whose ledger read outlasts a tick's bounded read still ans
   await holding.promise;
   await f.registry.publish(otherPresence(f.own));
   await tick(f.a.coordination);
-  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
+  assert.match(ledgerFailure(f.a.coordination) ?? '', /expired/);
+  assert.equal(f.a.coordination.snapshot.error, undefined);
   released.resolve();
   const result = await answer;
   assert.equal(result.kind, 'peers', JSON.stringify(result));
-  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
+  assert.equal(f.a.coordination.snapshot.error, undefined);
 });
 
 test("a peers request still answers when a tick's later read has its probe killed at the deadline", async (t) => {
@@ -622,9 +633,60 @@ test("a peers request still answers when a tick's later read has its probe kille
   await f.registry.publish(otherPresence(f.own));
   await tick(f.a.coordination);
   assert.ok(killed, "the tick's read got the ledger");
-  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
+  assert.match(ledgerFailure(f.a.coordination) ?? '', /expired/);
+  assert.equal(f.a.coordination.snapshot.error, undefined);
   released.resolve();
   const result = await answer;
   assert.equal(result.kind, 'peers', JSON.stringify(result));
-  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
+  assert.equal(f.a.coordination.snapshot.error, undefined);
+});
+
+test("a ledger lock held past a tick's read leaves coordination available", async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const { coordination } = f.a;
+  const release = await holdLedger(f.registry);
+
+  try {
+    await f.registry.publish(otherPresence(f.own));
+    await tick(coordination);
+    assert.match(ledgerFailure(coordination) ?? '', /expired/);
+    assert.equal(coordination.snapshot.error, undefined);
+
+    assert.doesNotMatch(
+      (await coordination.context(f.own.project)).context,
+      /Coordination is unavailable/,
+    );
+  } finally {
+    await release();
+  }
+
+  await f.registry.publish(otherPresence(f.own));
+  await tick(coordination);
+  assert.equal(ledgerFailure(coordination), undefined);
+});
+
+test('ledger reads that keep running out of time stay unshown, and another failure shows at once', async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const { coordination } = f.a;
+
+  const state = vi
+    .spyOn(coordination['registry'], 'state')
+    .mockRejectedValue(new DeadlineExpired());
+
+  try {
+    await f.registry.publish(otherPresence(f.own));
+    await tick(coordination);
+    await tick(coordination);
+    assert.ok(state.mock.calls.length >= 2);
+    assert.match(ledgerFailure(coordination) ?? '', /expired/);
+    assert.equal(coordination.snapshot.error, undefined);
+    state.mockRejectedValue(new Error('ledger failed'));
+    await tick(coordination);
+    assert.match(coordination.snapshot.error ?? '', /ledger failed/);
+  } finally {
+    state.mockRestore();
+  }
+
+  await tick(coordination);
+  assert.equal(coordination.snapshot.error, undefined);
 });

@@ -247,6 +247,19 @@ export function unitCoordinationFixture(
   return coordinationFixture(register, assign, true);
 }
 
+/** holds the ledger lock as another session's write would, and returns its release. */
+export async function holdLedger(
+  registry: CoordinationStore,
+): Promise<() => Promise<void>> {
+  const store = registry as unknown as {
+    lock(deadline: number): Promise<FileHandle>;
+  };
+
+  const lock = await store.lock(Date.now() + 10_000);
+
+  return () => lock.close();
+}
+
 /** lets the coordination lock be taken, then moves the clock past the deadline it was given. */
 export function expireAfterLock(): void {
   const store = CoordinationStore.prototype as unknown as {

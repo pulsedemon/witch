@@ -76,6 +76,12 @@ export interface Activation {
 /** lock holders and process exits change no file, so the tick rereads them this often. */
 const rereadInterval = 60_000;
 
+interface Failure {
+  message: string;
+  /** the operation ran out of its own deadline: it is retried, and isn't shown as coordination being down. */
+  expired: boolean;
+}
+
 export interface LedgerView {
   revision: number;
   ledger: Ledger;
@@ -153,9 +159,7 @@ export class SessionCoordination {
     discovery: Discovery;
   };
   private ledger?: LedgerView;
-  private failures = new Map<string, string>();
-  /** whether the standing ledger failure is a read that ran out of time. */
-  private ledgerExpired = false;
+  private failures = new Map<string, Failure>();
   private turn?: SelectionScope;
   private cancellations = new Map<string, SelectionScope>();
   private claimReleases = new Set<string>();
@@ -203,7 +207,7 @@ export class SessionCoordination {
       assign,
       state: () => this.state,
       turn: () => this.turn,
-      presenceFailure: () => this.failures.get('presence'),
+      presenceFailure: () => this.failures.get('presence')?.message,
       failed: (error) => this.fail('selection', error),
       admit: (request) => this.admit(request),
       readLedger: (state) => this.readLedger(state),
@@ -462,7 +466,7 @@ export class SessionCoordination {
       await this.presence.idle();
       const error = this.failures.get('presence');
 
-      if (error) failure = new Error(error);
+      if (error) failure = new Error(error.message);
     } catch (error) {
       failure = error;
     }
@@ -654,7 +658,12 @@ export class SessionCoordination {
   endTurn(turn?: string): Promise<void> {
     this.revokeTurn(turn);
 
-    return this.serialize(() => this.finishCleanup());
+    return this.serialize(() => this.finishCleanup()).catch(
+      (error: unknown) => {
+        // the cancellation stays queued for the next tick
+        if (!(error instanceof DeadlineExpired)) throw error;
+      },
+    );
   }
 
   private revokeTurn(turn?: string): void {
@@ -935,10 +944,7 @@ export class SessionCoordination {
 
       return value;
     } catch (error) {
-      if (accept()) {
-        this.ledgerExpired = error instanceof DeadlineExpired;
-        this.fail('ledger', error);
-      }
+      if (accept()) this.fail('ledger', error);
 
       throw error;
     }
@@ -963,6 +969,12 @@ export class SessionCoordination {
       if (committed) {
         if (!this.ledger || committed.revision > this.ledger.revision)
           this.ledger = committed;
+
+        const view = this.view;
+
+        // a read that runs out of time after this would otherwise leave a claim handed over here showing as owned
+        if (view && this.current(view.active, view.project))
+          this.updateView(view.active, view.project, view.discovery, committed);
 
         if (state) state.ledger = this.ledger;
       }
@@ -1005,14 +1017,7 @@ export class SessionCoordination {
 
     const snapshot = this.updateView(active, active.project, observed, ledger);
 
-    // this request read the ledger itself, so a background read that ran out of time beside it doesn't fail the answer
-    const error = [...this.failures]
-      .flatMap(([source, message]) =>
-        source === 'ledger' && this.ledgerExpired ? [] : [message],
-      )
-      .join('\n');
-
-    return { ...snapshot, error: error || undefined };
+    return { ...snapshot, error: this.error };
   }
 
   private updateView(
@@ -1398,8 +1403,20 @@ export class SessionCoordination {
   }
 
   private fail(source: string, error: unknown): void {
-    this.failures.set(source, errorMessage(error));
+    this.failures.set(source, {
+      message: errorMessage(error),
+      expired: error instanceof DeadlineExpired,
+    });
+
     this.publish(this.snapshot);
+  }
+
+  private get error(): string | undefined {
+    const shown = [...this.failures.values()]
+      .filter(({ expired }) => !expired)
+      .map(({ message }) => message);
+
+    return shown.join('\n') || undefined;
   }
 
   private failDiscovery(error: unknown, revision: number): void {
@@ -1416,10 +1433,7 @@ export class SessionCoordination {
   private publish(snapshot: CoordinationSnapshot): void {
     if (this.closed) return;
 
-    const next = {
-      ...snapshot,
-      error: [...this.failures.values()].join('\n') || undefined,
-    };
+    const next = { ...snapshot, error: this.error };
 
     if (JSON.stringify(next) === JSON.stringify(this.snapshot)) return;
 
