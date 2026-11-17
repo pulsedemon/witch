@@ -13,8 +13,10 @@ import {
   creditCapacity,
   current,
   describeExhaustion,
+  describeReading,
   due,
   headroom,
+  limitsFor,
   over,
   USAGE_CURRENT_MS,
   USAGE_PROBE_MS,
@@ -450,6 +452,28 @@ test('the usage line leaves out runtimes without a window and marks one that is 
       now,
     ),
     'Account usage: Claude Code 5H 24%, 7D 61%; Codex 7D 49%, not current (14 minutes old). A reading older than 10 minutes or past its reset is not current.',
+  );
+});
+
+test('the usage line names a model-only window, and a reading given the windows of one model leaves out those of another', () => {
+  const claude = {
+    limits: [window('7D', 95)],
+    modelLimits: [{ ...window('7D', 96), model: 'Fable' }],
+  };
+
+  assert.equal(
+    usageContext({ claude }, [{ id: 'claude', label: 'Claude Code' }], now),
+    'Account usage: Claude Code 7D 95%, 7D Fable 96%. A reading older than 10 minutes or past its reset is not current.',
+  );
+
+  assert.equal(
+    describeReading(
+      'Claude Code',
+      claude,
+      now,
+      limitsFor(claude, 'claude-opus-5-5'),
+    ),
+    'Claude Code 7D 95%',
   );
 });
 
