@@ -9,6 +9,7 @@ import { test, vi } from 'vitest';
 import type { SessionCoordination } from '../../../src/core/coordination/coordination.js';
 import type { SessionPresence } from '../../../src/core/coordination/coordination-state.js';
 import type { PullRequest } from '../../../src/core/repository/repository.js';
+import { callControl } from '../../../src/persistence/control.js';
 import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import type { Ledger } from '../../../src/persistence/coordination.js';
 import { identifyProcess } from '../../../src/persistence/process.js';
@@ -528,4 +529,35 @@ test("a turn's project read stands in for the context's only while it matches an
   await coordination.context(f.own.project);
   assert.equal(coordination.snapshot.error, undefined);
   assert.notEqual(coordination['active']!.project, f.own.project);
+});
+
+test("a peers request whose ledger read outlasts a tick's bounded read still answers", async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const open = f.store.openConversations.bind(f.store);
+  const holding = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+
+  vi.spyOn(f.store, 'openConversations').mockImplementation(
+    async (...args: Parameters<typeof open>) => {
+      // only the request's reconciliation has more than the tick's second to spend
+      if (args[0] !== undefined && (args[1]?.timeout ?? 0) > 5000) {
+        holding.resolve();
+        await released.promise;
+      }
+
+      return open(...args);
+    },
+  );
+
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+
+  const answer = callControl(await f.a.binding(), { kind: 'peers' });
+  await holding.promise;
+  await f.registry.publish(otherPresence(f.own));
+  await tick(f.a.coordination);
+  released.resolve();
+  const result = await answer;
+  assert.equal(result.kind, 'peers', JSON.stringify(result));
 });

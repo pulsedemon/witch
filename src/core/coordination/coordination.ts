@@ -902,12 +902,12 @@ export class SessionCoordination {
     const accept = () => {
       if (!this.current(active, project)) return false;
 
-      // lock acquisition failures have no locked observation.
-      const observed = revision || ++this.revision;
+      // a read that never got the lock has no place in the read order: the read holding the lock still clears its failure
+      if (!revision) return true;
 
-      if (observed <= this.ledgerObservation) return false;
+      if (revision <= this.ledgerObservation) return false;
 
-      this.ledgerObservation = observed;
+      this.ledgerObservation = revision;
 
       return true;
     };
