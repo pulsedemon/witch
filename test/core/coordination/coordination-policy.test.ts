@@ -249,13 +249,19 @@ const peer: CoordinationSnapshot['peers'][number] = {
   },
 };
 
-/** drives the watcher with hand-written snapshots; `publish` resolves once its steers have settled. */
-function watched(initial: CoordinationSnapshot) {
+const joined: CoordinationSnapshot = { ...solo, peers: [peer] };
+const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+/** drives the watcher with hand-written snapshots; `publish` resolves once its steers have settled, unless `reply` holds one. */
+function watched(
+  initial: CoordinationSnapshot,
+  reply: () => Promise<boolean> = () => Promise.resolve(true),
+) {
   const steers: string[] = [];
   const listeners = new Set<() => void>();
   const source = { snapshot: initial };
 
-  const stop = watchClaimPolicy(
+  const watch = watchClaimPolicy(
     {
       get snapshot() {
         return source.snapshot;
@@ -271,19 +277,37 @@ function watched(initial: CoordinationSnapshot) {
     (text) => {
       steers.push(text);
 
-      return Promise.resolve(true);
+      return reply();
     },
   );
 
   return {
     steers,
-    stop,
+    stop: () => watch?.stop(),
     publish: async (snapshot: CoordinationSnapshot) => {
       source.snapshot = snapshot;
 
       for (const listener of listeners) listener();
 
-      await new Promise((resolve) => setImmediate(resolve));
+      await settled();
+    },
+    delivered: async (snapshot: CoordinationSnapshot) => {
+      watch?.delivered(snapshot);
+      await settled();
+    },
+  };
+}
+
+/** holds the watcher's first steer until `settle` answers it; later steers are accepted. */
+function heldSteer() {
+  const first = Promise.withResolvers<boolean>();
+  const replies = [first.promise];
+
+  return {
+    reply: () => replies.shift() ?? Promise.resolve(true),
+    settle: async (accepted: boolean) => {
+      first.resolve(accepted);
+      await settled();
     },
   };
 }
@@ -291,7 +315,7 @@ function watched(initial: CoordinationSnapshot) {
 test('a turn that starts on a failure gets no update when it recovers alone', async () => {
   const turn = watched({ ...solo, error: 'Coordination request expired.' });
   await turn.publish(solo);
-  turn.stop?.();
+  turn.stop();
   assert.deepEqual(turn.steers, []);
 });
 
@@ -300,7 +324,7 @@ test('owners that vanish during a failure are released only once it clears', asy
   await turn.publish({ ...solo, error: 'Coordination request expired.' });
   assert.deepEqual(turn.steers, []);
   await turn.publish(solo);
-  turn.stop?.();
+  turn.stop();
   assert.equal(turn.steers.length, 1);
   assert.match(turn.steers[0]!, /Discovery found no other live session/);
 });
@@ -333,7 +357,7 @@ test('an owner listed beside a failure enables claims at once and is named', asy
     error: 'Coordination request expired.',
   });
 
-  turn.stop?.();
+  turn.stop();
   assert.equal(turn.steers.length, 1);
   const [header, status, owners] = turn.steers[0]!.split('\n');
   assert.equal(header, 'Witch coordination update:');
@@ -341,4 +365,46 @@ test('an owner listed beside a failure enables claims at once and is named', asy
   assert.match(owners!, /peer-session/);
   assert.match(owners!, /task:projects\/p:reserved/);
   assert.match(owners!, /legacy-session/);
+});
+
+test('delivered context that carried the current policy sends nothing', async () => {
+  const turn = watched(solo);
+  await turn.publish(joined);
+  await turn.delivered(joined);
+  turn.stop();
+  assert.equal(turn.steers.length, 1);
+});
+
+test('context delivered during a refused steer is followed by the current policy', async () => {
+  const steer = heldSteer();
+  const turn = watched(solo, steer.reply);
+  await turn.publish(joined);
+  await turn.delivered(solo);
+  await steer.settle(false);
+  turn.stop();
+  assert.equal(turn.steers.length, 2);
+
+  for (const text of turn.steers)
+    assert.match(
+      text,
+      /^Witch coordination update:\nClaim coordination is required/,
+    );
+});
+
+test('context delivered during an accepted steer is followed by the current policy', async () => {
+  const steer = heldSteer();
+  const turn = watched(joined, steer.reply);
+  await turn.publish(solo);
+  // the later record matches the steer, which must not settle what the agent read last
+  await turn.delivered(joined);
+  await turn.delivered(solo);
+  await steer.settle(true);
+  turn.stop();
+  assert.equal(turn.steers.length, 2);
+
+  for (const text of turn.steers)
+    assert.match(
+      text,
+      /^Witch coordination update:\nDiscovery found no other live session/,
+    );
 });

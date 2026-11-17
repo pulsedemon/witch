@@ -10,6 +10,7 @@ import { test, vi } from 'vitest';
 import { writeJson } from '../../../src/persistence/json.js';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../../../src/agents/claude/adapter.js';
+import type { TurnResult } from '../../../src/agents/types.js';
 import { CodexAdapter } from '../../../src/agents/codex/adapter.js';
 import { unreportedContextCatalog } from '../../fixtures/codex-adapter.js';
 import { boundCommandTitle } from '../../../src/agents/tool-title.js';
@@ -279,6 +280,197 @@ test('a compaction inside a turn keeps claim policy current', async (t) => {
   await a.coordinator.send('After compaction');
   assert.match(a.a.inputs[1]!.context!, /Control command:/);
   assert.match(a.a.inputs[1]!.context!, /Claim coordination is required/);
+});
+
+const claimsRequired =
+  /^Witch coordination update:\nClaim coordination is required/;
+
+const resent = 'Witch context, sent again after';
+
+type CoordinationFixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;
+
+/** joins a peer while `build` restores context that has already captured the solo claim policy; returns once `updated`. */
+async function joinDuringRestoration(
+  { memory, start }: CoordinationFixture,
+  a: Awaited<ReturnType<CoordinationFixture['start']>>,
+  build: () => void,
+  updated: () => boolean,
+) {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const snapshot = memory.snapshot.bind(memory);
+
+  vi.spyOn(memory, 'snapshot').mockImplementationOnce(async (...args) => {
+    entered.resolve();
+    await release.promise;
+
+    return snapshot(...args);
+  });
+
+  try {
+    build();
+    await within(entered.promise, 5000, 'restored context');
+    await start('B');
+    await a.query();
+    await until('policy update', updated);
+  } finally {
+    release.resolve();
+  }
+}
+
+for (const refusals of [0, 1])
+  test(
+    refusals
+      ? 'a resend admitted on its second attempt with an older policy is followed by the current one'
+      : 'a peer that joins while resent context is being built still leaves claims required',
+    async (t) => {
+      const cleanup = orderedCleanup(t.onTestFinished);
+      const f = await unitCoordinationFixture(cleanup);
+      const a = await f.start();
+      const native = a.a.sessions[0]!;
+      const steer = native.session.steer.bind(native.session);
+      let refused = 0;
+
+      native.session.steer = async (prompt, options) =>
+        prompt.startsWith(resent) && refused++ < refusals
+          ? false
+          : steer(prompt, options);
+
+      const gate = new TurnGate();
+      a.a.gate = gate;
+      const sending = a.coordinator.send('Current task');
+
+      try {
+        await within(gate.entered, 5000, 'solo turn');
+
+        await joinDuringRestoration(
+          f,
+          a,
+          () => native.options.onEvent({ type: 'compacted' }),
+          () => a.a.contextSteers.some((text) => claimsRequired.test(text)),
+        );
+
+        await until('stale resend', () =>
+          a.a.contextSteers.some((text) => text.startsWith(resent)),
+        );
+
+        const stale = a.a.contextSteers.findIndex((text) =>
+          text.startsWith(resent),
+        );
+
+        assert.match(a.a.contextSteers[stale]!, /New work needs no claim/);
+        await until('correction', () => a.a.contextSteers.length > stale + 1);
+        assert.match(a.a.contextSteers.at(-1)!, claimsRequired);
+      } finally {
+        gate.open();
+        await sending;
+      }
+    },
+  );
+
+test('a peer that joins while a compaction hook reads context still leaves claims required', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await unitCoordinationFixture(cleanup);
+  const a = await f.start();
+  const native = a.a.sessions[0]!;
+  let reader: (() => Promise<string | undefined>) | undefined;
+
+  native.session.restoreCompactionContext = (read) => {
+    reader = read;
+
+    return () => undefined;
+  };
+
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Current task');
+
+  try {
+    await within(gate.entered, 5000, 'solo turn');
+    let restored: Promise<string | undefined> | undefined;
+
+    await joinDuringRestoration(
+      f,
+      a,
+      () => (restored = reader!()),
+      () => a.a.contextSteers.some((text) => claimsRequired.test(text)),
+    );
+
+    assert.match((await restored)!, /New work needs no claim/);
+    const before = a.a.contextSteers.length;
+    native.options.onEvent({ type: 'compacted' });
+    await until('correction', () => a.a.contextSteers.length > before);
+    assert.match(a.a.contextSteers.at(-1)!, claimsRequired);
+    assert.ok(!a.a.contextSteers.some((text) => text.startsWith(resent)));
+  } finally {
+    gate.open();
+    await sending;
+  }
+});
+
+test("a compaction hook's older policy is corrected once a manual compaction admits steers", async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await unitCoordinationFixture(cleanup);
+  const a = await f.start();
+  const native = a.a.sessions[0]!;
+  const completed = Promise.withResolvers<TurnResult>();
+  const steer = native.session.steer.bind(native.session);
+  let reader: (() => Promise<string | undefined>) | undefined;
+  let refused = 0;
+
+  native.session.restoreCompactionContext = (read) => {
+    reader = read;
+
+    return () => undefined;
+  };
+
+  native.session.compactDuringTurn = () => completed.promise;
+
+  native.session.steer = async (prompt, options) => {
+    if (a.a.refuseSteer && options?.contextOnly) refused++;
+
+    return steer(prompt, options);
+  };
+
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Current task');
+  let compacting: Promise<boolean> | undefined;
+
+  try {
+    await within(gate.entered, 5000, 'solo turn');
+    a.a.replied = true;
+    // Claude refuses steering while its manual compaction runs
+    a.a.refuseSteer = true;
+    compacting = a.coordinator.compact();
+    let restored: Promise<string | undefined> | undefined;
+
+    await joinDuringRestoration(
+      f,
+      a,
+      () => (restored = reader!()),
+      () => refused > 0,
+    );
+
+    assert.match((await restored)!, /New work needs no claim/);
+    const attempts = refused;
+    native.options.onEvent({ type: 'compacted' });
+    await nextTick();
+    assert.equal(refused, attempts);
+    a.a.refuseSteer = false;
+    completed.resolve({ status: 'completed', text: '' });
+
+    await until('correction', () =>
+      claimsRequired.test(a.a.contextSteers.at(-1) ?? ''),
+    );
+
+    assert.ok(!a.a.contextSteers.some((text) => text.startsWith(resent)));
+  } finally {
+    completed.resolve({ status: 'completed', text: '' });
+    gate.open();
+    await sending;
+    await compacting;
+  }
 });
 
 test('a coordination failure and its recovery inside a solo turn send no policy update', async (t) => {

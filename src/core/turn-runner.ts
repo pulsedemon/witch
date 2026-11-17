@@ -8,7 +8,11 @@ import type { ConversationStore } from '../persistence/store.js';
 import { endActivity, type Activity } from './activity.js';
 import { compactSession, type Compaction } from './compaction.js';
 import type { SessionCoordination } from './coordination/coordination.js';
-import { watchClaimPolicy } from './coordination/coordination-policy.js';
+import {
+  watchClaimPolicy,
+  type ClaimPolicyWatch,
+} from './coordination/coordination-policy.js';
+import type { CoordinationSnapshot } from './coordination/coordination-state.js';
 import type { CopilotReviewController } from './review/copilot-review-controller.js';
 import {
   reviewInstruction,
@@ -318,8 +322,8 @@ export class TurnRunner {
         ? undefined
         : this.pendingContext.get(conversation.id);
 
-      // a resend inside the turn reads the current claim policy and omits the parts that describe output above its prompt
-      const context = async (resent = false) =>
+      // a resend inside the turn carries its own read of the claim policy and omits the parts that describe output above its prompt
+      const context = async (resent?: { coordination: typeof coordination }) =>
         nativePrompt({
           prompt,
           memory: this.memory,
@@ -327,11 +331,9 @@ export class TurnRunner {
           scope,
           revision: activity.baseRevision,
           reference: conversation.sessions[conversation.agent]!,
-          forceContext: resent,
+          forceContext: !!resent,
           pendingHandoff,
-          coordination: resent
-            ? await this.coordination?.context(scope.project)
-            : coordination,
+          coordination: resent ? resent.coordination : coordination,
           pendingContext: resent ? undefined : pendingContext,
           command: resent ? undefined : command,
           familiarCommand:
@@ -464,10 +466,19 @@ export class TurnRunner {
 
             sentContext = pendingContext;
             generation = this.link.generation;
+            let watch: ClaimPolicyWatch | undefined = undefined;
 
             const stopResend = this.resendAfterCompaction(
               session,
-              async () => (await context(true)).context,
+              async () => {
+                const current = await this.coordination?.context(scope.project);
+
+                return {
+                  text: (await context({ coordination: current })).context,
+                  policy: current?.snapshot,
+                };
+              },
+              (policy) => watch?.delivered(policy),
             );
 
             const sending = session.send(input.prompt, {
@@ -487,7 +498,7 @@ export class TurnRunner {
               images,
             });
 
-            const stopPolicy = watchClaimPolicy(
+            watch = watchClaimPolicy(
               this.coordination,
               kind === 'turn' ? coordination?.snapshot : undefined,
               (text) =>
@@ -501,7 +512,7 @@ export class TurnRunner {
               steering = this.host.steerQueued();
 
             result = await sending.finally(() => {
-              stopPolicy?.();
+              watch?.stop();
               stopResend();
             });
 
@@ -597,26 +608,27 @@ export class TurnRunner {
   /** native hooks restore context before continuation; a context-only steer covers missing hook restoration. */
   private resendAfterCompaction(
     session: AgentSession,
-    context: () => Promise<string | undefined>,
+    context: () => Promise<{ text?: string; policy?: CoordinationSnapshot }>,
+    delivered: (policy: CoordinationSnapshot) => void,
   ): () => void {
     let stopped = false;
-    let restored = false;
+    let restored: { policy?: CoordinationSnapshot } | undefined;
 
     const live = () =>
       !stopped && !this.host.cancelled() && this.link.session === session;
 
     const stopHook = session.restoreCompactionContext?.(async () => {
-      const text = await context();
+      const { text, policy } = await context();
 
       if (!live()) return;
 
-      restored = text !== undefined;
+      restored = text === undefined ? undefined : { policy };
 
       return text;
     });
 
     const resend = async () => {
-      const text = await context();
+      const { text, policy } = await context();
 
       if (!text || !live()) return;
 
@@ -627,16 +639,26 @@ export class TurnRunner {
         );
 
       // Claude takes no steer until a manual compaction completes
-      if (await steer()) return;
+      let accepted = await steer();
 
-      await this.compaction.busy;
+      if (!accepted) {
+        await this.compaction.busy;
+        accepted = live() && (await steer());
+      }
 
-      if (live()) await steer();
+      if (accepted && policy) delivered(policy);
     };
 
     const unsubscribe = this.link.onCompacted(() => {
       if (restored) {
-        restored = false;
+        const { policy } = restored;
+        restored = undefined;
+
+        // the hook's context is in place by now, and Claude takes no correction until a manual compaction completes
+        if (policy)
+          void Promise.resolve(this.compaction.busy).then(() => {
+            if (live()) delivered(policy);
+          });
 
         return;
       }
