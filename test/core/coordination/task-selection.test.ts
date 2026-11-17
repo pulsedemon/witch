@@ -14,6 +14,7 @@ import {
   unitCoordinationFixture,
   git,
   holdLedger,
+  holdLedgerPast,
   pauseDiscovery,
 } from '../../fixtures/coordination.js';
 import { record } from '../../fixtures/coordinator.js';
@@ -571,6 +572,34 @@ test('switching away releases a suggestion even when native close rejects', asyn
   a.a.failClose = true;
   await a.coordinator.newConversation();
   a.a.failClose = false;
+
+  assert.notEqual(
+    a.coordinator.snapshot.conversation!.id,
+    turn.binding.conversation,
+  );
+
+  assert.deepEqual(await f.registry.claims(), []);
+});
+
+test('switching away under a held ledger lock reports no failure and releases the suggestion', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await unitCoordinationFixture(cleanup);
+  const a = await f.start();
+
+  const turn = await selectionTurn(cleanup, a),
+    choice = await turn.select();
+
+  await turn.recommend(choice.ticket.id);
+  await turn.finish();
+  const release = await holdLedgerPast(f.registry);
+
+  try {
+    await a.coordinator.newConversation();
+  } finally {
+    await release();
+  }
+
+  assert.equal(a.coordinator.snapshot.error, undefined);
 
   assert.notEqual(
     a.coordinator.snapshot.conversation!.id,

@@ -260,6 +260,49 @@ export async function holdLedger(
   return () => lock.close();
 }
 
+/** holds the ledger lock while 1.5 s pass for every wait that starts under it. the first wait with budget left after that gets the lock. */
+export async function holdLedgerPast(
+  registry: CoordinationStore,
+): Promise<() => Promise<void>> {
+  const unlock = await holdLedger(registry);
+
+  const store = CoordinationStore.prototype as unknown as {
+    lock(deadline: number): Promise<FileHandle>;
+  };
+
+  const lock = store.lock;
+  const now = Date.now;
+  let offset = 0;
+  let held = true;
+  let releasing: Promise<void> | undefined;
+
+  const release = () =>
+    (releasing ??= unlock().then(() => {
+      held = false;
+    }));
+
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now() + offset);
+
+  const locking = vi.spyOn(store, 'lock').mockImplementation(function (
+    this: unknown,
+    deadline: number,
+  ) {
+    if (held) {
+      offset += 1500;
+
+      if (deadline > Date.now()) setImmediate(() => void release());
+    }
+
+    return lock.call(this, deadline);
+  });
+
+  return async () => {
+    await release();
+    locking.mockRestore();
+    clock.mockRestore();
+  };
+}
+
 /** lets the coordination lock be taken, then moves the clock past the deadline it was given. */
 export function expireAfterLock(): void {
   const store = CoordinationStore.prototype as unknown as {
