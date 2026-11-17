@@ -12,7 +12,7 @@ const urls = new LinkifyIt();
 
 /** whether linkify-it's hostname pattern would try both readings of each `xn--` label in `text`, doubling its work with every one. */
 function backtracks(text: string): boolean {
-  return (text.match(/xn--/gi)?.length ?? 0) > 10;
+  return (text.match(/xn--/gi)?.length ?? 0) > 4;
 }
 
 /** the links linkify-it finds, leaving out any line that `backtracks`. no link crosses a line, so a later line never changes an earlier one's links. */
@@ -258,12 +258,14 @@ function bareLinks(text: string, cwd: string): string {
 
 interface Piece {
   text: string;
-  /** set when the piece is not searched for links: the address the whole piece links to, or null to draw it as plain text. */
-  url?: string | null;
+  /** drawn as it is, without a search for links. */
+  plain: boolean;
 }
 
-// the longest link drawn past the cap. wrapping repeats a link's address on every row, so its cost grows with the square of this
-const longestLink = 4096;
+// the longest run with no separator that is searched as one piece. linkify-it's search of a piece and the wrapping of a link in it both cost the square of its length
+const longestRun = 4096;
+// the characters linkify-it reads no link across. `\s` is not the same set: it has U+FEFF, which a link can hold
+const separator = /[\p{Z}\p{Cc}]/u;
 
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
@@ -274,7 +276,7 @@ function pieces(text: string): Piece[] {
 
   for (let start = 0; start < text.length;) {
     let end = Math.min(start + 2000, text.length);
-    let url: Piece['url'];
+    let plain = false;
 
     const after = (separator: RegExp) => {
       let cut = end;
@@ -295,170 +297,47 @@ function pieces(text: string): Piece[] {
         .find((cut) => cut > start);
 
       if (boundary) end = boundary;
-      else ({ end, url } = unbroken(text, start, end));
+      else ({ end, plain } = unbroken(text, start, end));
     }
 
-    result.push({ text: text.slice(start, end), url });
+    result.push({ text: text.slice(start, end), plain });
     start = end;
   }
 
   return result;
 }
 
-// linkify-it reads these pairs as part of a link's path only when both ends are present
-const closing: Record<string, string> = {
-  '(': ')',
-  '[': ']',
-  '{': '}',
-  "'": "'",
-  '"': '"',
-};
-
-// the longest start of a web link before its path: a scheme, a user name and password, a hostname and a port
-const longestAuthority = 8 + 51 + 253 + 6;
-// whether a link's path, or its end, comes within that length of its scheme
-const authority = new RegExp(`^[^/?#]{0,${longestAuthority}}(?:[/?#]|$)`);
-// the characters linkify-it reads no link across. `\s` is not the same set: it has U+FEFF, which a link's paired part can hold
-const separator = /[\p{Z}\p{Cc}]/u;
-// linkify-it leaves this punctuation out of a link only when nothing follows it
-const dangling = /^[-.,;!?]*$/;
-
-/** the closing end a link read as `matched` can still be waiting for, given the character after it. */
-function pending(matched: string, next: string | undefined) {
-  // linkify-it takes a lone apostrophe into a link, so its pair can come after the character that ended the link
-  return (
-    closing[next ?? ''] ?? (matched.split("'").length % 2 ? undefined : "'")
-  );
-}
-
 /**
- * whether a link that linkify-it read from `start` and ended at `stop` can be longer in the whole text. `read` is where the text it was given stopped short of a separator, if it did.
- * measuring a link scans up to `limit`, so this rules out the links that scan would only confirm.
- */
-function cutShort(
-  text: string,
-  start: number,
-  stop: number,
-  read: number | undefined,
-  limit: number,
-): boolean {
-  if (read !== undefined && dangling.test(text.slice(stop, read))) return true;
-
-  const closer = pending(text.slice(start, stop), text[stop]);
-
-  if (!closer) return false;
-
-  // a paired part holds no separator, so one that meets a separator before its closing end is not part of the link
-  const inside = text.slice(stop + 1, limit);
-  const close = inside.indexOf(closer);
-
-  return !separator.test(close < 0 ? inside : inside.slice(0, close));
-}
-
-/** up to `length` characters from `from` that a link can be in: they end at the first separator. `open` when the length ran out before one. */
-function reach(text: string, from: number, length: number) {
-  const bounded = text.slice(from, from + length);
-  const at = bounded.search(separator);
-
-  return at < 0
-    ? { text: bounded, open: from + length < text.length }
-    : { text: bounded.slice(0, at), open: false };
-}
-
-/** the piece as plain text to the next separator after `at`. */
-function plainRun(text: string, at: number): { end: number; url: null } {
-  const boundary = new RegExp(separator, 'gu');
-  boundary.lastIndex = at;
-
-  return { end: boundary.exec(text)?.index ?? text.length, url: null };
-}
-
-/**
- * where a piece with no boundary to cut at ends: before the first web link that can run past the cap, or after it when it starts the piece.
- * that link is measured from its start alone, since linkify-it's search of a long piece rescans it for each scheme inside.
- * when its whole length cannot be established the run stays plain text, so no part of it links to a shorter address.
+ * where a piece with no boundary to cut at ends, and whether it is drawn plain.
+ * a run that ends within `longestRun` is one piece, so linkify-it reads a link in it whole.
+ * a longer run stays plain from where a web link starts in it, so no part of the link goes to a shorter address.
  */
 function unbroken(
   text: string,
   start: number,
   end: number,
-): Pick<Piece, 'url'> & { end: number } {
+): { end: number; plain: boolean } {
   // a newline after a backslash is no boundary to `pieces`, and no link crosses it, so each line is decided alone
   const line = text.slice(start, end).lastIndexOf('\n') + 1;
 
-  if (line) return { end: start + line };
+  if (line) return { end: start + line, plain: false };
 
-  // read past the cap so a link that starts just before it is recognized
-  const ahead = reach(text, end, longestAuthority);
-  const window = text.slice(start, end) + ahead.text;
-  const read = ahead.open ? start + window.length : undefined;
+  // one character past the longest run, where a separator still ends a run of that length
+  const reach = start + longestRun + 1;
+  const stop = text.slice(end, reach).search(separator);
 
-  if (backtracks(window)) return plainRun(text, end);
+  if (stop >= 0) return { end: end + stop, plain: false };
 
-  let searched = 0;
+  if (reach > text.length) return { end: text.length, plain: false };
 
-  for (const link of urls.match(window) ?? []) {
-    const from = start + link.index;
-    const stop = start + link.lastIndex;
+  // read a scheme's length past the cut, so a link that starts just before it is seen
+  if (!/https?:\/\/|www\./i.test(text.slice(start, end + 8)))
+    return { end, plain: false };
 
-    if (from >= end) break;
+  const boundary = new RegExp(separator, 'gu');
+  boundary.lastIndex = reach;
 
-    searched = link.lastIndex;
-
-    if (
-      !webLink.test(link.raw) ||
-      (stop <= end && !cutShort(text, from, stop, read, from + longestLink))
-    )
-      continue;
-
-    if (link.index) return { end: from };
-
-    // one character more than a link may have, so a longer one measures as too long
-    const { text: rest, open } = reach(text, from, longestLink + 1);
-    // a `www.` link has no scheme of its own, so it is measured as the `//` form of the `http://` address linkify-it gives it
-    const scheme = link.url.slice(0, -link.raw.length);
-    const afterScheme = scheme ? 0 : link.schema.length;
-
-    // linkify-it's work on a hostname grows with its length for each `xn--` label, so one longer than any real one is not measured
-    if (
-      backtracks(rest) ||
-      !authority.test(rest.slice(scheme ? 0 : afterScheme + 2))
-    )
-      return plainRun(text, end);
-
-    const length =
-      afterScheme +
-      urls.testSchemaAt(rest, scheme ? '//' : link.schema, afterScheme);
-
-    const measured = from + length;
-
-    // where the measured text ran out can cut the link short as the read can, and no later text is looked at to rule that out
-    const unknown =
-      open &&
-      (dangling.test(rest.slice(length)) ||
-        pending(rest.slice(0, length), text[measured]) !== undefined);
-
-    if (length > longestLink || unknown)
-      return plainRun(text, Math.max(end, measured));
-
-    const linkEnd = measured - sentenceEnd(rest.slice(0, length));
-
-    if (linkEnd > end)
-      return { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
-  }
-
-  // linkify-it finds no link where the read ends inside a hostname, so a web link that starts before the cap and shows no path stays plain
-  const unfinished = [
-    ...window.slice(searched, end - start).matchAll(/https?:\/\/|www\./gi),
-  ].at(-1);
-
-  return ahead.open &&
-    unfinished &&
-    !/[/?#]/.test(
-      window.slice(searched + unfinished.index + unfinished[0].length),
-    )
-    ? plainRun(text, end)
-    : { end };
+  return { end: boundary.exec(text)?.index ?? text.length, plain: true };
 }
 
 function linked(text: string, cwd: string, target?: string) {
@@ -470,11 +349,7 @@ function linked(text: string, cwd: string, target?: string) {
       ? hyperlink(buffer, target, cwd)
       : pieces(buffer)
           .map((piece) =>
-            piece.url === undefined
-              ? bareLinks(piece.text, cwd)
-              : piece.url === null
-                ? piece.text
-                : hyperlink(piece.text, piece.url, cwd),
+            piece.plain ? piece.text : bareLinks(piece.text, cwd),
           )
           .join('');
 

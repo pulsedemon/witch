@@ -644,80 +644,54 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
   assert.equal(linkify(unbroken, '/work'), unbroken);
 });
 
-test('a web link that crosses the 2000-character cut in text with no boundary links to its whole address, and a file reference keeps its own target', () => {
+test('a run with no boundary to cut at is searched whole up to 4096 characters, so a link across the 2000-character cut keeps its address', () => {
   const tail = `/download?token=${'a1b2'.repeat(752)}`;
   const short = 'https://example.com/abcdef';
 
   for (const [text, targets] of [
     [`https://example.com${tail}`, [`https://example.com${tail}`]],
     [`www.example.com${tail}`, [`http://www.example.com${tail}`]],
+    [`example.com${tail} end`, [`http://example.com${tail}`]],
     [
       `${'x'.repeat(1500)} https://example.com${tail} then src/main.ts`,
       [`https://example.com${tail}`, 'vscode://file/work/src/main.ts'],
     ],
-    // the first link crosses the cut, so the piece ends before it
+    // the first of two links crosses the cut
     [`${'x)('.repeat(660)}${short})(${short}`, [short, short]],
+    // the cut falls right after `https://`
+    [
+      `${'x)('.repeat(664)}https://example.com/${'a'.repeat(1500)}`,
+      [`https://example.com/${'a'.repeat(1500)}`],
+    ],
     // the sentence's full stop stays outside the link
     [
       `https://example.com/${'https://example.com/a;'.repeat(150)}b.`,
       [`https://example.com/${'https://example.com/a;'.repeat(150)}b`],
     ],
-    // the cut falls right after `https://`, and inside `www.example.com`
+    // parts of a link that close past the cut: parentheses holding another link, a query in parentheses, apostrophes
     [
-      `${'x)('.repeat(664)}https://example.com${tail}`,
-      [`https://example.com${tail}`],
-    ],
-    [
-      `${'x)('.repeat(665)}www.example.com${tail}`,
-      [`http://www.example.com${tail}`],
-    ],
-    // the outer link's parentheses hold another link, which starts before the cut and then after it
-    ...[1900, 1990].map(
-      (run) =>
-        [
-          `https://example.com/a(${'b'.repeat(run)}https://example.org/c${'d'.repeat(200)})e end`,
-          [
-            `https://example.com/a(${'b'.repeat(run)}https://example.org/c${'d'.repeat(200)})e`,
-          ],
-        ] as const,
-    ),
-    // a user name and a 247-character hostname put the path past the first 261 characters
-    [
-      `${'x)('.repeat(659)}https://${'u'.repeat(50)}@${`${'h'.repeat(60)}.`.repeat(4)}com/${'p'.repeat(3000)}`,
+      `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(200)})e end`,
       [
-        `https://${'u'.repeat(50)}@${`${'h'.repeat(60)}.`.repeat(4)}com/${'p'.repeat(3000)}`,
+        `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(200)})e`,
       ],
     ],
-    // a user name and password leave the hostname unfinished 261 characters past the cut
     [
-      `${'x)('.repeat(663)}https://${'u'.repeat(43)}:999999@${`${'h'.repeat(60)}.`.repeat(3)}${'h'.repeat(29)}-${'h'.repeat(30)}.com/${'p'.repeat(3000)}`,
-      [
-        `https://${'u'.repeat(43)}:999999@${`${'h'.repeat(60)}.`.repeat(3)}${'h'.repeat(29)}-${'h'.repeat(30)}.com/${'p'.repeat(3000)}`,
-      ],
+      `https://example.com?(${'a'.repeat(3000)})`,
+      [`https://example.com?(${'a'.repeat(3000)})`],
     ],
-    // U+FEFF is whitespace to JavaScript and not a separator to linkify-it, before the cut and after it
+    [
+      `https://o'brien@example.com/a'b)c${'x'.repeat(3000)}'d`,
+      [`https://o'brien@example.com/a'b)c${'x'.repeat(3000)}'d`],
+    ],
+    // U+FEFF is whitespace to JavaScript and not a separator to linkify-it
     [
       `https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`,
       [`https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`],
     ],
-    [
-      `https://example.com/a(${'b'.repeat(3000)}\uFEFFc)`,
-      [`https://example.com/a(${'b'.repeat(3000)}\uFEFFc)`],
-    ],
-    // linkify-it takes the first apostrophe into the link and stops at the bracket, with the pair past what is read
-    [
-      `https://example.com/a'b)c${'x'.repeat(3000)}'d`,
-      [`https://example.com/a'b)c${'x'.repeat(3000)}'d`],
-    ],
-    // the closing apostrophe is past what is read
-    [
-      `https://example.com/a'/${'b'.repeat(3000)}'end`,
-      [`https://example.com/a'/${'b'.repeat(3000)}'end`],
-    ],
-    // a file reference outranks the bare domain linkify-it reads it as, and still ends at the cut
+    // a file reference outranks the bare domain linkify-it reads it as
     [
       `server.py/${'a/'.repeat(993)}b.ts/more.ts`,
-      [`vscode://file/work/server.py/${'a/'.repeat(993)}b.ts`],
+      [`vscode://file/work/server.py/${'a/'.repeat(993)}b.ts/more.ts`],
     ],
   ] as const) {
     const output = linkify(text, '/work');
@@ -731,44 +705,38 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
   }
 });
 
-test('hostnames with many `xn--` labels are left unlinked instead of read both ways, and a few still link', () => {
+test('text with more than four `xn--` labels on a line is left unlinked instead of read both ways, and other lines still link', () => {
   // linkify-it doubles its work with each label when the hostname ends badly: 24 of them took minutes
   const labels = 'xn--a.'.repeat(24);
-  const short = `https://${labels}${'b.'.repeat(100)}b_`;
-  assert.equal(linkify(short, '/work'), short);
-  const start = `https://${'a.'.repeat(1200)}${labels}`;
 
-  for (const long of [
-    // the labels come after what is read past the cut
-    `${start}${'b.'.repeat((4000 - start.length - 4) / 2)}com.${'b.'.repeat(1000)}b_`,
-    // what is read ends in a full stop, and the labels are spread through the hostname after it
-    `https://a${'a.'.repeat(1200)}${`xn--a.${'b.'.repeat(90)}`.repeat(18)}b_`,
-    // ten labels are searched, in a hostname longer than any real one
-    `https://${'b.'.repeat(700)}${'xn--a.'.repeat(10)}${'b.'.repeat(2800)}b_`,
-    // soft hyphens stretch a hostname until the read ends on a hyphen inside it, where linkify-it finds no link
-    `https://${`a${'\u00AD'.repeat(59)}.`.repeat(37)}a${'\u00AD'.repeat(50)}b-b.com/download?token=${'x'.repeat(1000)}`,
-    // more than ten labels only once the read past the cut is counted
-    `https://example.com/${'a'.repeat(1950)}${'xn--'.repeat(11)}${'b'.repeat(1000)}`,
+  for (const plain of [
+    `https://${labels}${'b.'.repeat(100)}b_`,
+    // the labels are past the cut, in a run searched as one piece
+    `https://example.com/${'a'.repeat(1950)}${'xn--'.repeat(5)}${'b'.repeat(1000)}`,
   ])
-    assert.equal(linkify(long, '/work'), long);
+    assert.equal(linkify(plain, '/work'), plain);
 
-  // a later line with many labels changes no earlier line's link, below the cut or across it
+  // a line with many labels changes no other line's link, before it or after it, below the cut or across it
   for (const length of [100, 2100, 3000]) {
     const url = `https://example.com/${'a'.repeat(length - 20)}`;
 
-    assert.deepEqual(
-      linkSpans(linkify(`${url}\n${'xn--a.'.repeat(11)}com/`, '/work')).map(
-        (span) => span.target,
-      ),
-      [url],
-    );
+    for (const text of [`${url}\n${labels}com/`, `${labels}com/\n${url}`]) {
+      const output = linkify(text, '/work');
+
+      assert.deepEqual(
+        linkSpans(output).map((span) => span.target),
+        [url],
+      );
+
+      assert.equal(stripAnsi(output), text);
+    }
   }
 
   // a backslash before the newline hides it from the search for a boundary, and the lines are still decided apart
   assert.deepEqual(
     linkSpans(
       linkify(
-        `https://example.com/a\\\n${'xn--'.repeat(11)}${'b'.repeat(2400)}`,
+        `https://example.com/a\\\n${'xn--'.repeat(5)}${'b'.repeat(2400)}`,
         '/work',
       ),
     ).map((span) => span.target),
@@ -783,7 +751,7 @@ test('hostnames with many `xn--` labels are left unlinked instead of read both w
   );
 });
 
-test('a link longer than 4096 characters stays plain text to the end of its run, and one of exactly 4096 links whole', () => {
+test('a piece with no boundary within 4096 characters stays plain text when a web link starts in it, and is cut as before when none does', () => {
   const longest = `https://example.com/${'a'.repeat(4076)}`;
   assert.equal(longest.length, 4096);
 
@@ -792,43 +760,21 @@ test('a link longer than 4096 characters stays plain text to the end of its run,
       `${longest} then src/main.ts`,
       [longest, 'vscode://file/work/src/main.ts'],
     ],
-    // measuring reads 4097 characters, which stops inside the query and before the closing bracket
-    [
-      `${longest.slice(0, -1)}?token=x then src/main.ts`,
-      ['vscode://file/work/src/main.ts'],
-    ],
-    [
-      `https://example.com/${'a'.repeat(3000)}(${'b'.repeat(9000)})e then src/main.ts`,
-      ['vscode://file/work/src/main.ts'],
-    ],
-    // a quoted part opens past the cut and closes past what is measured
-    [
-      `https://example.com/${'a'.repeat(3000)}"${'b'.repeat(9000)}"end then src/main.ts`,
-      ['vscode://file/work/src/main.ts'],
-    ],
-    // linkify-it reads an angle bracket inside a paired part, so the run does not end there
-    [
-      `https://example.com/a(${'b'.repeat(9000)}<https://example.org/tail)e then src/main.ts`,
-      ['vscode://file/work/src/main.ts'],
-    ],
-    // an apostrophe already in the link has its pair past what is measured
-    [
-      `https://example.com/${'a'.repeat(2900)}'b)c${'x'.repeat(2000)}'end then src/main.ts`,
-      ['vscode://file/work/src/main.ts'],
-    ],
-    // a paired part opens before the cut and closes past what is measured
-    ...['()', '[]', "''"].map(
-      ([open, close]) =>
-        [
-          `https://example.com/a${open}${'b'.repeat(9000)}${close}e then src/main.ts`,
-          ['vscode://file/work/src/main.ts'],
-        ] as const,
-    ),
-    // the second address is in the same run, so it is not linked as if it were the first one's end
+    // one character more, and a second address in the same run is not linked as if it were the first one's end
     [
       `${longest}a)(https://example.org/tail then src/main.ts`,
       ['vscode://file/work/src/main.ts'],
     ],
+    // the run is counted from where its piece starts, which is at the cut here, so this link is read whole
+    [
+      `${'x)('.repeat(700)}https://example.com/${'a'.repeat(3000)} then src/main.ts`,
+      [
+        `https://example.com/${'a'.repeat(3000)}`,
+        'vscode://file/work/src/main.ts',
+      ],
+    ],
+    // no web link, so the file at the end of the run still links
+    [`${'x'.repeat(4500)})(src/main.ts`, ['vscode://file/work/src/main.ts']],
   ] as const) {
     const output = linkify(text, '/work');
 
