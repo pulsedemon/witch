@@ -392,6 +392,7 @@ test('an answer whose write runs out of time waiting for the ledger is recorded 
     },
   );
 
+  const writes = vi.spyOn(b.coordination['registry'], 'answerPeers');
   const request = await ask(a, claim, 'Which port?');
 
   const held = async () => {
@@ -412,7 +413,7 @@ test('an answer whose write runs out of time waiting for the ledger is recorded 
 
     await held();
     // an immediate retry would hold the turn's end for another deadline
-    assert.equal(b.coordination['flushingWrites'], undefined);
+    assert.equal(writes.mock.calls.length, 1);
 
     assert.ok(
       !b.coordinator.snapshot.items.some(
