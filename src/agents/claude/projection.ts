@@ -17,8 +17,10 @@ export class ClaudeProjection {
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
   private readonly reportMessages = new Map<string, string>();
-  /** the text and tool ids each main-thread frame belongs to, by the frame's uuid, which is how Claude Code names what a refusal fallback withdraws. every frame of a message lists the message's text id, since a refused message goes whole. */
+  /** the text and tool events each main-thread frame produced, by the frame's uuid, which is how Claude Code names what a refusal fallback withdraws. */
   private readonly produced = new Map<string, string[]>();
+  /** the frame whose text each message's row shows. a fallback's replacement can keep the refused message's id, and withdrawing the refused frames must leave its text. */
+  private readonly textFrames = new Map<string, string>();
 
   constructor(
     private readonly options: Pick<
@@ -125,19 +127,20 @@ export class ClaudeProjection {
       const id = message.message.id;
       this.retract(message.supersedes ?? []);
 
-      this.produced.set(message.uuid, [
-        id,
-        ...message.message.content.flatMap((block) =>
-          block.type === 'tool_use' ? [block.id] : [],
-        ),
-      ]);
-
       const text = message.message.content
         .filter((block) => block.type === 'text')
         .map((block) => block.text)
         .join('\n');
 
+      this.produced.set(message.uuid, [
+        ...(text ? [id] : []),
+        ...message.message.content.flatMap((block) =>
+          block.type === 'tool_use' ? [block.id] : [],
+        ),
+      ]);
+
       if (text) {
+        this.textFrames.set(id, message.uuid);
         this.messages()?.replace(id, text);
         this.options.onEvent({ type: 'text', id, text, replace: true });
       }
@@ -272,7 +275,11 @@ export class ClaudeProjection {
   }
 
   private retract(uuids: readonly string[]): void {
-    const ids = uuids.flatMap((uuid) => this.produced.get(uuid) ?? []);
+    const ids = uuids.flatMap((uuid) =>
+      (this.produced.get(uuid) ?? []).filter(
+        (id) => (this.textFrames.get(id) ?? uuid) === uuid,
+      ),
+    );
 
     for (const uuid of uuids) this.produced.delete(uuid);
 

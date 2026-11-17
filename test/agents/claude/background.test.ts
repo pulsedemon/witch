@@ -969,6 +969,9 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
       assistant('frame-tool', 'refused', [
         { type: 'tool_use', id: 'refused-tool', name: 'Read', input: {} },
       ]),
+      assistant('frame-second-tool', 'refused', [
+        { type: 'tool_use', id: 'second-tool', name: 'Read', input: {} },
+      ]),
       {
         type: 'user',
         uuid: 'frame-result',
@@ -976,33 +979,47 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
         message: {
           role: 'user',
           content: [
-            { type: 'tool_result', tool_use_id: 'refused-tool', content: '' },
+            { type: 'tool_result', tool_use_id: 'second-tool', content: '' },
           ],
         },
       },
       {
-        ...assistant('frame-replacement', 'replacement', [
+        // a server-side fallback's replacement keeps the refused message's id
+        ...assistant('frame-replacement', 'refused', [
           { type: 'text', text: 'replacement' },
         ]),
-        supersedes: ['frame-text', 'frame-tool'],
+        supersedes: ['frame-text'],
       },
+      assistant('frame-stitched', 'stitched', [
+        { type: 'text', text: 'stitched partial' },
+      ]),
+      // a replacement that names nothing it supersedes
+      assistant('frame-restitched', 'stitched', [
+        { type: 'text', text: 'stitched whole' },
+      ]),
       fallback({ scope: 'local', fallback_model: 'claude-side' }),
     );
 
-    assert.deepEqual(retracted(), [['refused', 'refused-tool']]);
+    assert.deepEqual(retracted(), [['refused']]);
     assert.deepEqual(models(), before);
     assert.notEqual(context(), undefined);
 
     await f.emit(
       fallback({
         scope: 'session',
-        retracted_message_uuids: ['frame-text', 'frame-tool', 'frame-result'],
+        retracted_message_uuids: [
+          'frame-text',
+          'frame-tool',
+          'frame-result',
+          'frame-stitched',
+        ],
       }),
     );
 
+    // the second tool goes by its result's frame alone, and both replacements' text stays
     assert.deepEqual(retracted(), [
-      ['refused', 'refused-tool'],
-      ['refused-tool'],
+      ['refused'],
+      ['refused-tool', 'second-tool'],
     ]);
 
     assert.deepEqual(models(), [...before, 'claude-fallback']);
@@ -1030,6 +1047,7 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
     assert.equal(outcome.status, 'failed');
     assert.doesNotMatch(outcome.text, /refused partial/);
     assert.match(outcome.text, /replacement/);
+    assert.match(outcome.text, /stitched whole/);
   } finally {
     await f.session.close();
   }
