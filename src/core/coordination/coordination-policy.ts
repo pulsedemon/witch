@@ -1,13 +1,36 @@
+import { sessionList, unregisteredList } from './coordination-state.js';
 import type { CoordinationSnapshot } from './coordination-state.js';
 import type { SessionCoordination } from './coordination.js';
 
-function requiresClaim(snapshot: CoordinationSnapshot): boolean {
+function listsOwners(snapshot: CoordinationSnapshot): boolean {
   return (
-    snapshot.error !== undefined ||
     snapshot.peers.length > 0 ||
     snapshot.reservations.length > 0 ||
     snapshot.unregistered.length > 0
   );
+}
+
+function requiresClaim(snapshot: CoordinationSnapshot): boolean {
+  return snapshot.error !== undefined || listsOwners(snapshot);
+}
+
+/** names what a mid-turn update enabling claims was sent for. */
+function ownersLine(snapshot: CoordinationSnapshot): string {
+  return [
+    ...(snapshot.peers.length
+      ? [
+          `Sessions: ${sessionList(snapshot.peers.map(({ presence }) => presence))}`,
+        ]
+      : []),
+    ...(snapshot.reservations.length
+      ? [
+          `Reservations: ${snapshot.reservations.map(({ claim }) => claim.references.join(', ')).join('; ')}`,
+        ]
+      : []),
+    ...(snapshot.unregistered.length
+      ? [`Unregistered sessions: ${unregisteredList(snapshot.unregistered)}`]
+      : []),
+  ].join('. ');
 }
 
 function coordinationStatus(snapshot: CoordinationSnapshot): string {
@@ -78,15 +101,21 @@ export function coordinationInstructions(
   ].join('\n');
 }
 
+/**
+ * steers a changed claim requirement into the running turn. it follows listed owners only: a
+ * failure alone sends nothing, and a requirement a failure caused lasts until the next turn's context.
+ */
 export function watchClaimPolicy(
-  coordination: SessionCoordination | undefined,
+  coordination:
+    | Pick<SessionCoordination, 'snapshot' | 'subscribe' | 'commandPrefixes'>
+    | undefined,
   initial: CoordinationSnapshot | undefined,
   steer: (text: string) => Promise<boolean>,
 ): (() => void) | undefined {
   if (!coordination || !initial) return;
 
   const source = coordination;
-  let attempted = requiresClaim(initial);
+  let attempted = listsOwners(initial);
   let stopped = false;
   let running = false;
 
@@ -98,9 +127,14 @@ export function watchClaimPolicy(
     try {
       while (!stopped) {
         const snapshot = source.snapshot;
-        const required = requiresClaim(snapshot);
+        const required = listsOwners(snapshot);
 
-        if (required === attempted) break;
+        // a failed snapshot that lists no owner cannot show that the owners left
+        if (
+          (snapshot.error !== undefined && !required) ||
+          required === attempted
+        )
+          break;
 
         attempted = required;
 
@@ -108,6 +142,7 @@ export function watchClaimPolicy(
           [
             'Witch coordination update:',
             coordinationStatus(snapshot),
+            ...(required ? [ownersLine(snapshot)] : []),
             coordinationInstructions(
               snapshot,
               source.commandPrefixes().control,
