@@ -249,8 +249,14 @@ const peer: CoordinationSnapshot['peers'][number] = {
   },
 };
 
-/** drives the watcher with hand-written snapshots; `publish` resolves once its steers have settled. */
-function watched(initial: CoordinationSnapshot) {
+const joined: CoordinationSnapshot = { ...solo, peers: [peer] };
+const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+/** drives the watcher with hand-written snapshots; `publish` resolves once its steers have settled, unless `reply` holds one. */
+function watched(
+  initial: CoordinationSnapshot,
+  reply: () => Promise<boolean> = () => Promise.resolve(true),
+) {
   const steers: string[] = [];
   const listeners = new Set<() => void>();
   const source = { snapshot: initial };
@@ -271,7 +277,7 @@ function watched(initial: CoordinationSnapshot) {
     (text) => {
       steers.push(text);
 
-      return Promise.resolve(true);
+      return reply();
     },
   );
 
@@ -283,7 +289,25 @@ function watched(initial: CoordinationSnapshot) {
 
       for (const listener of listeners) listener();
 
-      await new Promise((resolve) => setImmediate(resolve));
+      await settled();
+    },
+    delivered: async (snapshot: CoordinationSnapshot) => {
+      watch?.delivered(snapshot);
+      await settled();
+    },
+  };
+}
+
+/** holds the watcher's first steer until `settle` answers it; later steers are accepted. */
+function heldSteer() {
+  const first = Promise.withResolvers<boolean>();
+  const replies = [first.promise];
+
+  return {
+    reply: () => replies.shift() ?? Promise.resolve(true),
+    settle: async (accepted: boolean) => {
+      first.resolve(accepted);
+      await settled();
     },
   };
 }
@@ -341,4 +365,46 @@ test('an owner listed beside a failure enables claims at once and is named', asy
   assert.match(owners!, /peer-session/);
   assert.match(owners!, /task:projects\/p:reserved/);
   assert.match(owners!, /legacy-session/);
+});
+
+test('delivered context that carried the current policy sends nothing', async () => {
+  const turn = watched(solo);
+  await turn.publish(joined);
+  await turn.delivered(joined);
+  turn.stop();
+  assert.equal(turn.steers.length, 1);
+});
+
+test('context delivered during a refused steer is followed by the current policy', async () => {
+  const steer = heldSteer();
+  const turn = watched(solo, steer.reply);
+  await turn.publish(joined);
+  await turn.delivered(solo);
+  await steer.settle(false);
+  turn.stop();
+  assert.equal(turn.steers.length, 2);
+
+  for (const text of turn.steers)
+    assert.match(
+      text,
+      /^Witch coordination update:\nClaim coordination is required/,
+    );
+});
+
+test('context delivered during an accepted steer is followed by the current policy', async () => {
+  const steer = heldSteer();
+  const turn = watched(joined, steer.reply);
+  await turn.publish(solo);
+  // the later record matches the steer, which must not settle what the agent read last
+  await turn.delivered(joined);
+  await turn.delivered(solo);
+  await steer.settle(true);
+  turn.stop();
+  assert.equal(turn.steers.length, 2);
+
+  for (const text of turn.steers)
+    assert.match(
+      text,
+      /^Witch coordination update:\nDiscovery found no other live session/,
+    );
 });
