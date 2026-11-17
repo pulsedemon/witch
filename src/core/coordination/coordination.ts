@@ -463,7 +463,12 @@ export class SessionCoordination {
       await quiescing;
       await this.flushQueuedWrites();
       await this.presence.idle();
-      const error = this.failures.get('presence');
+      const queued = this.failures.get('queued-writes');
+
+      const error =
+        this.failures.get('presence') ??
+        // no tick follows while closing, so a write whose last flush failed is reported instead of retried
+        (this.ending && !queued?.expired ? queued : undefined);
 
       if (error) failure = new Error(error.message);
     } catch (error) {
