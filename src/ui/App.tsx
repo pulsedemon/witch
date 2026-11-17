@@ -624,7 +624,7 @@ export function App({
     return true;
   };
 
-  /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces its token and a space already after it. */
+  /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces its token and a space already after it. a path `/review` would misread goes in double quotes. */
   const complete = (open: CompletionList) => {
     const index = selectedIn(open, listIndexRef.current);
     const { value } = bufferRef.current;
@@ -633,8 +633,9 @@ export function App({
       const text = `/${open.items[index]!.name} `;
       composer.current?.set({ value: text, cursor: text.length });
     } else {
-      // unescaped, /review reads a space or a quote in the path as the end of the name
-      const text = `@${open.items[index]!.replace(/[\s"'\\]/g, '\\$&')} `;
+      const path = open.items[index]!;
+      // bare, /review ends the name at a space or a quote and drops a backslash; inside quotes only `"` needs writing as `"\""`
+      const text = `@${/[\s"'\\]/.test(path) ? `"${path.replaceAll('"', '"\\""')}"` : path} `;
       const rest = value.slice(open.end).replace(/^ /, '');
 
       composer.current?.set({
