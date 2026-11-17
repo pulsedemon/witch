@@ -53,6 +53,68 @@ test('a tool row keeps the path its title shows and its expanded title through i
   }
 });
 
+test('text, tool and cast rows retracted in a later turn, a message with a row in each turn included, leave the transcript and stay gone after a reopen, and an id that names no row adds none', async () => {
+  const { coordinator, a, reopen } = await unitFixture();
+  const gate = new TurnGate();
+  let reopened: Coordinator | undefined;
+
+  const texts = (items: readonly DisplayItem[]) =>
+    items.map(({ text }) => text);
+
+  try {
+    await coordinator.send('first');
+    const { onEvent } = a.sessions.at(-1)!.options;
+    onEvent({ type: 'text', id: 'refused', text: 'refused partial' });
+
+    onEvent({
+      type: 'tool',
+      id: 'open',
+      title: 'Read  a.ts',
+      text: 'refused open call',
+      done: false,
+    });
+
+    onEvent({ type: 'spell', cast: { id: 'open', name: 'refused-skill' } });
+
+    onEvent({
+      type: 'tool',
+      id: 'finished',
+      title: 'Read  b.ts',
+      text: 'refused finished call',
+      done: true,
+    });
+
+    onEvent({ type: 'text', id: 'replacement', text: 'replacement' });
+    a.gate = gate;
+    const turn = coordinator.send('second');
+    await within(gate.entered, 2000, 'the second turn');
+    // a message still streaming when the turn starts gets a second row under the new activity
+    onEvent({ type: 'text', id: 'refused', text: 'refused tail' });
+    const before = texts(coordinator.snapshot.items);
+
+    onEvent({
+      type: 'retracted',
+      ids: ['refused', 'open', 'finished', 'never sent'],
+    });
+
+    const kept = before.filter((text) => !text.includes('refused'));
+    assert.equal(kept.length, before.length - 5);
+    assert.ok(kept.includes('replacement'));
+    assert.deepEqual(texts(coordinator.snapshot.items), kept);
+    gate.open();
+    await turn;
+    const settled = texts(coordinator.snapshot.items);
+    assert.deepEqual(settled.slice(0, kept.length), kept);
+    await coordinator.close();
+    reopened = await reopen();
+    assert.deepEqual(texts(reopened.snapshot.items), settled);
+  } finally {
+    gate.open();
+    await coordinator.close();
+    await reopened?.close();
+  }
+});
+
 test('an unfinished tool keeps its original row through idle and later turns', async () => {
   const { coordinator, a, reopen } = await unitFixture();
   const first = new TurnGate();

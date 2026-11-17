@@ -926,6 +926,139 @@ test('native exit settles a turn with unacknowledged input', async () => {
   }
 });
 
+test("a refusal fallback withdraws the refused leg's text and tools, by a replacement's supersedes and by the notice, and moves the session to the fallback model with its context sample dropped, back on a revert and not at all when a subagent fell back or the model is already in force", async () => {
+  const f = await background();
+
+  const assistant = (uuid: string, id: string, content: unknown[]) => ({
+    type: 'assistant',
+    uuid,
+    parent_tool_use_id: null,
+    message: { id, role: 'assistant', model: 'claude-a', content },
+  });
+
+  const fallback = (fields: object) => ({
+    type: 'system',
+    subtype: 'model_refusal_fallback',
+    trigger: 'refusal',
+    direction: 'retry',
+    original_model: 'claude-a',
+    fallback_model: 'claude-fallback',
+    request_id: null,
+    content: '',
+    ...fields,
+  });
+
+  const models = () =>
+    f.events.flatMap((e) => (e.type === 'info' ? [e.info.model] : []));
+
+  const retracted = () =>
+    f.events.flatMap((e) => (e.type === 'retracted' ? [e.ids] : []));
+
+  const context = () =>
+    f.events.findLast((e) => e.type === 'usage')?.usage.context;
+
+  try {
+    const before = models();
+    assert.notEqual(await f.session.contextUsage(), undefined);
+    assert.notEqual(context(), undefined);
+
+    await f.emit(
+      assistant('frame-text', 'refused', [
+        { type: 'text', text: 'refused partial' },
+      ]),
+      assistant('frame-tool', 'refused', [
+        { type: 'tool_use', id: 'refused-tool', name: 'Read', input: {} },
+      ]),
+      assistant('frame-second-tool', 'refused', [
+        { type: 'tool_use', id: 'second-tool', name: 'Read', input: {} },
+      ]),
+      {
+        type: 'user',
+        uuid: 'frame-result',
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'second-tool', content: '' },
+          ],
+        },
+      },
+      {
+        // a server-side fallback's replacement keeps the refused message's id
+        ...assistant('frame-replacement', 'refused', [
+          { type: 'text', text: 'replacement' },
+        ]),
+        supersedes: ['frame-text'],
+      },
+      assistant('frame-dropped', 'dropped', [
+        { type: 'text', text: 'dropped partial' },
+      ]),
+      assistant('frame-stitched', 'stitched', [
+        { type: 'text', text: 'stitched partial' },
+      ]),
+      // a replacement that names nothing it supersedes
+      assistant('frame-restitched', 'stitched', [
+        { type: 'text', text: 'stitched whole' },
+      ]),
+      fallback({ scope: 'local', fallback_model: 'claude-side' }),
+    );
+
+    assert.deepEqual(retracted(), [['refused']]);
+    assert.deepEqual(models(), before);
+    assert.notEqual(context(), undefined);
+
+    await f.emit(
+      fallback({
+        scope: 'session',
+        retracted_message_uuids: [
+          'frame-text',
+          'frame-tool',
+          'frame-result',
+          'frame-dropped',
+          'frame-stitched',
+        ],
+      }),
+    );
+
+    // the second tool goes by its result's frame alone, and both replacements' text stays
+    assert.deepEqual(retracted(), [
+      ['refused'],
+      ['refused-tool', 'second-tool', 'dropped'],
+    ]);
+
+    assert.deepEqual(models(), [...before, 'claude-fallback']);
+    assert.equal(context(), undefined);
+    // a notice naming the model already in force leaves its context sample alone
+    assert.notEqual(await f.session.contextUsage(), undefined);
+    await f.emit(fallback({ scope: 'session' }));
+    assert.deepEqual(models(), [...before, 'claude-fallback']);
+    assert.notEqual(context(), undefined);
+
+    await f.emit(
+      // an older CLI names no scope and means the session
+      fallback({ direction: 'revert' }),
+      {
+        type: 'result',
+        subtype: 'error_during_execution',
+        is_error: true,
+        errors: ['fixture failure'],
+      },
+      state('idle'),
+    );
+
+    assert.deepEqual(models(), [...before, 'claude-fallback', 'claude-a']);
+    const outcome = await within(f.turn, 2000, 'failed result');
+    assert.equal(outcome.status, 'failed');
+    assert.doesNotMatch(outcome.text, /refused partial/);
+    // nothing replaced this one, so only its retraction takes it out of the result
+    assert.doesNotMatch(outcome.text, /dropped partial/);
+    assert.match(outcome.text, /replacement/);
+    assert.match(outcome.text, /stitched whole/);
+  } finally {
+    await f.session.close();
+  }
+});
+
 test('successful native results do not rejoin the accumulated turn text', async () => {
   const f = await background();
   const text = vi.spyOn(TurnText.prototype, 'text', 'get');

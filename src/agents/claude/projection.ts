@@ -17,6 +17,10 @@ export class ClaudeProjection {
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
   private readonly reportMessages = new Map<string, string>();
+  /** the text and tool events each main-thread frame produced, by the frame's uuid, which is how Claude Code names what a refusal fallback withdraws. */
+  private readonly produced = new Map<string, string[]>();
+  /** the frame whose text each message's row shows. a fallback's replacement can keep the refused message's id, and withdrawing the refused frames must leave its text. */
+  private readonly textFrames = new Map<string, string>();
 
   constructor(
     private readonly options: Pick<
@@ -96,7 +100,8 @@ export class ClaudeProjection {
         if (subagent) this.subagent({ ...subagent, status: message.status });
 
         this.settledHolder();
-      }
+      } else if (message.subtype === 'model_refusal_fallback')
+        this.retract(message.retracted_message_uuids ?? []);
     } else if (
       message.type === 'stream_event' &&
       message.parent_tool_use_id === null
@@ -120,13 +125,22 @@ export class ClaudeProjection {
       message.parent_tool_use_id === null
     ) {
       const id = message.message.id;
+      this.retract(message.supersedes ?? []);
 
       const text = message.message.content
         .filter((block) => block.type === 'text')
         .map((block) => block.text)
         .join('\n');
 
+      this.produced.set(message.uuid, [
+        ...(text ? [id] : []),
+        ...message.message.content.flatMap((block) =>
+          block.type === 'tool_use' ? [block.id] : [],
+        ),
+      ]);
+
       if (text) {
+        this.textFrames.set(id, message.uuid);
         this.messages()?.replace(id, text);
         this.options.onEvent({ type: 'text', id, text, replace: true });
       }
@@ -209,6 +223,14 @@ export class ClaudeProjection {
       // use each result's own report block, replacing result text with its diff.
       const diff = reportedDiff(message.tool_use_result, this.options.cwd);
 
+      if (message.uuid)
+        this.produced.set(
+          message.uuid,
+          message.message.content.flatMap((block) =>
+            block.type === 'tool_result' ? [block.tool_use_id] : [],
+          ),
+        );
+
       for (const block of message.message.content) {
         if (block.type !== 'tool_result') continue;
 
@@ -250,6 +272,22 @@ export class ClaudeProjection {
   private subagent(subagent: Subagent): void {
     this.subagents.set(subagent.id, subagent);
     this.options.onEvent({ type: 'subagent', subagent });
+  }
+
+  private retract(uuids: readonly string[]): void {
+    const ids = uuids.flatMap((uuid) =>
+      (this.produced.get(uuid) ?? []).filter(
+        (id) => (this.textFrames.get(id) ?? uuid) === uuid,
+      ),
+    );
+
+    for (const uuid of uuids) this.produced.delete(uuid);
+
+    if (!ids.length) return;
+
+    for (const id of ids) this.messages()?.delete(id);
+
+    this.options.onEvent({ type: 'retracted', ids: [...new Set(ids)] });
   }
 
   private cast(casts: Cast[]): void {

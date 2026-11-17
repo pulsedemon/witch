@@ -78,6 +78,29 @@ test('display history keeps streamed deltas without duplicating final messages',
   }
 });
 
+test('a retraction right behind a streamed append removes the row from saved history', async (t) => {
+  const store = await StateStore.open(await scratch('witch-history-'));
+  const held = await store.create(conversation('retracted'));
+  t.onTestFinished(() => held.close());
+
+  const refused = {
+    id: 'refused',
+    kind: 'assistant',
+    cwd: '/project',
+  } as const;
+
+  await Promise.all([
+    held.append({ id: 'kept', kind: 'notice', cwd: '/project', text: 'kept' }),
+    held.append({ ...refused, text: 'partial' }),
+    held.append({ ...refused, text: '', retracted: true }),
+  ]);
+
+  assert.deepEqual(
+    (await held.items()).map(({ id }) => id),
+    ['kept'],
+  );
+});
+
 test('a history burst writes one replacement and settles its appends', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-burst-'));
   const held = await store.create(conversation('burst'));
@@ -633,6 +656,26 @@ for (const [path, reduce] of [
           done: true,
         },
         { id: 'n', kind: 'notice', text: 'new', cwd: '/p' },
+      ],
+    );
+  });
+
+  test(`${path}: a retraction removes its row and no other, one naming no row changes nothing, and a later update under its id starts a new row`, () => {
+    const row = { kind: 'assistant', cwd: '/p' } as const;
+
+    assert.deepEqual(
+      reduce([
+        { ...row, id: 'a', text: 'first' },
+        { ...row, id: 'b', text: 'refused' },
+        { ...row, id: 'c', text: 'last' },
+        { ...row, id: 'b', text: '', retracted: true },
+        { ...row, id: 'unknown', text: '', retracted: true },
+        { ...row, id: 'b', text: 'again' },
+      ]),
+      [
+        { ...row, id: 'a', text: 'first' },
+        { ...row, id: 'c', text: 'last' },
+        { ...row, id: 'b', text: 'again' },
       ],
     );
   });

@@ -1044,6 +1044,20 @@ class ClaudeSession implements AgentSession {
 
         this.options.onEvent({ type: 'info', info: this.info });
         this.mcp.refresh();
+      } else if (message.subtype === 'model_refusal_fallback') {
+        // a subagent's or side question's fallback leaves the session's model alone
+        if (message.scope === 'local') return;
+
+        const model =
+          message.direction === 'revert'
+            ? message.original_model
+            : message.fallback_model;
+
+        if (model === this.info.model) return;
+
+        this.report(this.context.invalidate());
+        this.info = { ...this.info, model };
+        this.options.onEvent({ type: 'info', info: this.info });
       } else if (message.subtype === 'compact_boundary') {
         if (message.session_id !== this.info.id) return;
 

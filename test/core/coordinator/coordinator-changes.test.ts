@@ -170,6 +170,30 @@ test('an interrupt during the baseline wait starts no native session', async () 
   }
 });
 
+test("a change read that settles after its command's row was retracted adds no row", async () => {
+  const watcher = new Watcher();
+  const { coordinator, a } = await fixture(undefined, undefined, true, watcher);
+
+  try {
+    await coordinator.send('first');
+    const { onEvent } = a.sessions.at(-1)!.options;
+    const read = Promise.withResolvers<Changes>();
+    watcher.reads = [read.promise];
+    command(onEvent, 'refused');
+    onEvent({ type: 'retracted', ids: ['refused'] });
+    const rows = coordinator.snapshot.items.map(({ id }) => id);
+    read.resolve({ files: [], withHead: 1, more: 0 });
+    await setImmediate();
+
+    assert.deepEqual(
+      coordinator.snapshot.items.map(({ id }) => id),
+      rows,
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('only shell commands are read, and counts alone append without a diff', async () => {
   const watcher = new Watcher();
   const { coordinator, a } = await fixture(undefined, undefined, true, watcher);

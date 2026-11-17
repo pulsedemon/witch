@@ -9,6 +9,10 @@ export class TurnText {
     this.messages.set(id, text);
   }
 
+  delete(id: string): void {
+    this.messages.delete(id);
+  }
+
   get text(): string {
     return [...this.messages.values()].join('\n\n');
   }

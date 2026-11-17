@@ -504,6 +504,28 @@ export class SessionLink {
       if (this.live(agent)) host.publish({ nativeRunning: event.running });
     } else if (event.type === 'spell') {
       host.display(castRow(event.cast, conversation.cwd));
+    } else if (event.type === 'retracted') {
+      for (const id of event.ids) {
+        // found by suffix: a row can belong to an earlier activity, and a message streamed across a turn's start has one in each.
+        // a withdrawn Skill call takes its cast row along
+        const rows = host
+          .snapshot()
+          .items.filter(
+            (item) =>
+              item.id.endsWith(`/${agent}/${id}`) || item.id === `spell/${id}`,
+          );
+
+        for (const row of rows)
+          host.display({
+            id: row.id,
+            kind: row.kind,
+            text: '',
+            cwd: row.cwd,
+            retracted: true,
+          });
+
+        tools.delete(id);
+      }
     } else {
       let id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
 
@@ -565,7 +587,11 @@ export class SessionLink {
               ? `\n… ${withHead} ${plural(withHead)} from other commits`
               : '') + (more ? `\n… ${more} more ${plural(more)} changed` : '');
 
-          if ((diff.length || text) && !files.closed)
+          // a row retracted while the read ran stays gone
+          const shown = () =>
+            this.host.snapshot().items.some((item) => item.id === id);
+
+          if ((diff.length || text) && !files.closed && shown())
             this.host.display({
               id,
               kind: 'tool',
