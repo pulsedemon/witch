@@ -759,6 +759,17 @@ test('hostnames with many `xn--` labels are left unlinked instead of read both w
     );
   }
 
+  // a backslash before the newline keeps both lines in one piece, and the first still links
+  assert.deepEqual(
+    linkSpans(
+      linkify(
+        `https://example.com/a\\\n${'xn--'.repeat(11)}${'b'.repeat(2400)}`,
+        '/work',
+      ),
+    ).map((span) => span.target),
+    ['https://example.com/a\\'],
+  );
+
   assert.deepEqual(
     linkSpans(
       linkify('https://xn--bcher-kva.example/a xn--80ak6aa92e.com', '/work'),

@@ -374,6 +374,11 @@ function unbroken(
   start: number,
   end: number,
 ): Pick<Piece, 'url'> & { end: number } {
+  // a newline after a backslash is no boundary to `pieces`, and no link crosses it, so each line is decided alone
+  const line = text.lastIndexOf('\n', end - 1) + 1;
+
+  if (line > start) return { end: line };
+
   // read past the cap so a link that starts just before it is recognized
   const ahead = reach(text, end, longestAuthority);
   const window = text.slice(start, end) + ahead.text;
