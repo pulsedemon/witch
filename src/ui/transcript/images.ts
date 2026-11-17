@@ -70,8 +70,9 @@ export class Graphics {
   };
 
   /**
-   * the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none until it loads, or when
-   * it can't. a loaded path's file is checked again in the background, and loads again if it changed.
+   * the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none until it first loads, or
+   * when that load fails. a loaded path's file is checked again in the background: a changed file loads again, and
+   * one that can't load keeps the rows it had.
    */
   rows(source: string, cwd: string, columns: number): string[] {
     const key = entryKey(source, cwd);
