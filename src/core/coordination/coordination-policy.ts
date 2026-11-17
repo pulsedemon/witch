@@ -104,7 +104,7 @@ export function coordinationInstructions(
 export interface ClaimPolicyWatch {
   stop(): void;
 
-  /** the agent now holds context built from `snapshot`; an update follows when its requirement is not the current one. */
+  /** the agent now holds context built from `snapshot`; the watcher steers the current requirement when that one differs, by its usual rules. */
   delivered(snapshot: CoordinationSnapshot): void;
 }
 

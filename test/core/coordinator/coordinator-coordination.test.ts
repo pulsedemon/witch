@@ -453,9 +453,10 @@ test("a compaction hook's older policy is corrected once a manual compaction adm
     );
 
     assert.match((await restored)!, /New work needs no claim/);
+    const attempts = refused;
     native.options.onEvent({ type: 'compacted' });
     await nextTick();
-    assert.equal(a.a.contextSteers.length, 0);
+    assert.equal(refused, attempts);
     a.a.refuseSteer = false;
     completed.resolve({ status: 'completed', text: '' });
 
