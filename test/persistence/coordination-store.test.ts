@@ -1168,14 +1168,18 @@ test('pause records track each recipient and replay only their own retry', async
   assert.deepEqual(await store.pauses('other'), []);
 });
 
-/** a probe killed at its timeout, as execFile reports it. */
-async function killedAtDeadline(options?: {
-  timeout?: number;
-}): Promise<never> {
+/** a probe that fails once its timeout has passed, as execFile reports it: killed, or exited by itself with `exit`. */
+async function failedAtDeadline(
+  options?: { timeout?: number },
+  exit?: number,
+): Promise<never> {
   await delay((options?.timeout ?? 0) + 20);
 
   throw Object.assign(new Error('Command failed: /usr/bin/perl'), {
     killed: true,
+    ...(exit === undefined
+      ? { code: null, signal: 'SIGKILL' }
+      : { code: exit, signal: null }),
   });
 }
 
@@ -1189,7 +1193,7 @@ test('a ledger read whose probe is killed at its deadline reports the deadline',
   );
 
   vi.spyOn(registry, 'activeActivations').mockImplementation(
-    (_activations, options) => killedAtDeadline(options),
+    (_activations, options) => failedAtDeadline(options),
   );
 
   await assert.rejects(registry.state(Date.now() + 200), DeadlineExpired);
@@ -1204,7 +1208,7 @@ test("a ledger read keeps a later probe's own failure when an earlier probe is k
   const registry = await CoordinationStore.open(state);
 
   vi.spyOn(state, 'openConversations').mockImplementation(
-    (_conversations, options) => killedAtDeadline(options),
+    (_conversations, options) => failedAtDeadline(options),
   );
 
   vi.spyOn(registry, 'activeActivations').mockRejectedValue(
@@ -1214,4 +1218,20 @@ test("a ledger read keeps a later probe's own failure when an earlier probe is k
   );
 
   await assert.rejects(registry.state(Date.now() + 200), /EACCES/);
+});
+
+test('a ledger read keeps the failure of a probe that exited by itself as its timeout fired', async (t) => {
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+
+  const registry = await CoordinationStore.open(
+    await StateStore.open(await scratch('witch-killed-probe-')),
+  );
+
+  vi.spyOn(registry, 'activeActivations').mockImplementation(
+    (_activations, options) => failedAtDeadline(options, 255),
+  );
+
+  await assert.rejects(registry.state(Date.now() + 200), /Command failed/);
 });

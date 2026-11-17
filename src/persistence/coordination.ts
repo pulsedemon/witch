@@ -1151,8 +1151,13 @@ export class CoordinationStore {
       probe.status === 'rejected' ? [probe.reason as unknown] : [],
     );
 
+    // `killed` alone also marks a probe that exited by itself as its timeout fired
     const killed = (error: unknown) =>
-      error instanceof Error && 'killed' in error && error.killed === true;
+      error instanceof Error &&
+      'killed' in error &&
+      error.killed === true &&
+      'signal' in error &&
+      error.signal === 'SIGKILL';
 
     // a probe killed at its timeout rejects as a failed command; alone, that failure is the deadline's
     if (deadline !== undefined && failed.length && failed.every(killed))

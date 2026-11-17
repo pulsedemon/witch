@@ -589,6 +589,7 @@ test("a peers request still answers when a tick's later read has its probe kille
 
         throw Object.assign(new Error('Command failed: /usr/bin/perl'), {
           killed: true,
+          signal: 'SIGKILL',
         });
       }
 
