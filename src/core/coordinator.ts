@@ -226,11 +226,11 @@ export class Coordinator {
         workspace: () => this.workspace!,
         snapshot: () => this.snapshot,
         cancelled: () => this.cancelled,
-        exhausted: (session) => {
+        exhausted: (session, limit) => {
           if (this.delivery.automaticHeld || this.pauses.held || this.closed)
             return;
 
-          this.runtimes.backgroundExhausted(session);
+          this.runtimes.backgroundExhausted(session, limit);
           this.delivery.drainAfter();
         },
         publish: (update) => this.publish(update),

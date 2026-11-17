@@ -422,7 +422,7 @@ export class PromptDelivery {
           result.exhausted &&
           // an Escape as the turn fails stops the switch too
           !this.host.cancelled() &&
-          (await this.runtimes.continueAfterExhaustion()) &&
+          (await this.runtimes.continueAfterExhaustion(result.limit)) &&
           !this.host.halted()
         )
           continue;

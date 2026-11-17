@@ -22,6 +22,7 @@ import { notices } from '../../fixtures/coordinator.js';
 import {
   continuation,
   exhaustion,
+  models,
   reading,
 } from '../../fixtures/coordinator-exhaustion.js';
 
@@ -70,6 +71,71 @@ test('an exhausted turn continues in the same drain step on the newest comparabl
 
     assert.equal(conversation.id, id);
     await assert.rejects(store.claim(id), /open in another Witch instance/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+/** a Claude labelled apart from its id, on Fable, whose exhausted turns report Fable's weekly limit without credits. */
+function fableLimited(claude: FixtureAgent) {
+  claude.label = 'Claude Code';
+  claude.catalog.push(...models(['claude-fable-5-2']));
+
+  claude.latest = async () => ({
+    opus: 'claude-opus-5-5',
+    sonnet: 'claude-sonnet-5-5',
+    fable: 'claude-fable-5-2',
+  });
+
+  claude.exhaustLimit = {
+    window: '7D',
+    model: 'Fable',
+    resetsAt: Math.floor(Date.now() / 1000) + 2 * 86_400 + 3 * 3600 + 1800,
+    credits: 'out of credits',
+  };
+}
+
+const fableUsedUp =
+  "Claude Code's Fable 7D limit is used up (resets in 2d3h; credits unavailable: out of credits)";
+
+test('a switch names the limit the source ran into', async () => {
+  const { coordinator, claude } = await exhaustion(fableLimited);
+
+  try {
+    await coordinator.selectModel({ agent: 'claude', id: 'claude-fable-5-2' });
+    claude.exhaust = (prompt) => prompt.includes('Migrate the store');
+    await coordinator.send('Migrate the store');
+    assert.equal(coordinator.snapshot.conversation!.agent, 'codex');
+
+    assert.ok(
+      notices(coordinator).includes(
+        `${fableUsedUp}. Continuing on codex · gpt-6.1-astra: codex 7D 40% has room`,
+      ),
+      notices(coordinator).join('\n'),
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a blocked switch names the limit too', async () => {
+  const { coordinator, claude } = await exhaustion((claude, codex) => {
+    fableLimited(claude);
+    codex.accountRead = reading(100);
+  });
+
+  try {
+    await coordinator.selectModel({ agent: 'claude', id: 'claude-fable-5-2' });
+    claude.exhaust = (prompt) => prompt.includes('Migrate the store');
+    await coordinator.send('Migrate the store');
+    assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
+
+    assert.ok(
+      notices(coordinator).includes(
+        `${fableUsedUp} and no other runtime can continue: codex 7D 100% has no room. The conversation stays on Claude Code.`,
+      ),
+      notices(coordinator).join('\n'),
+    );
   } finally {
     await coordinator.close();
   }

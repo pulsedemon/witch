@@ -6,6 +6,7 @@ import type {
   AgentEvent,
   AgentSession,
   AgentStopOptions,
+  ExhaustedLimit,
 } from '../agents/types.js';
 import type { MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
@@ -53,7 +54,7 @@ interface LinkHost {
 
   cancelled(): boolean;
 
-  exhausted(session: AgentSession): void;
+  exhausted(session: AgentSession, limit?: ExhaustedLimit): void;
 
   publish(update: Partial<Snapshot>): void;
 
@@ -345,7 +346,7 @@ export class SessionLink {
               this.host.record() === conversation &&
               !this.host.cancelled()
             )
-              this.host.exhausted(this.connected);
+              this.host.exhausted(this.connected, event.limit);
 
             return;
           }

@@ -84,6 +84,30 @@ test('background exhaustion continues completed work with reports before queued 
   }
 });
 
+test("a background exhaustion's switch names the limit its event carried", async () => {
+  const { coordinator, codex, emit } = await completedForBackground();
+
+  try {
+    emit({ type: 'running', running: true });
+    emit({ type: 'exhausted', limit: { window: '5H' } });
+    emit({ type: 'running', running: false });
+
+    await until(
+      'background continuation',
+      () => codex.inputs.length === 1 && coordinator.snapshot.phase === 'idle',
+    );
+
+    assert.ok(
+      notices(coordinator).includes(
+        "claude's 5H limit is used up. Continuing on codex · gpt-6.1-astra: codex 7D 40% has room",
+      ),
+      notices(coordinator).join('\n'),
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a pending compact runs on the destination after background continuation', async () => {
   const { coordinator, claude, codex, emit } = await completedForBackground();
 

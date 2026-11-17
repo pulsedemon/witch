@@ -4,6 +4,7 @@ import type {
   AccountReading,
   AgentSession,
   AgentStopOptions,
+  ExhaustedLimit,
   Funding,
   Limit,
 } from '../../agents/types.js';
@@ -172,6 +173,24 @@ export function describeReading(
     parts.push(describe(fundingText(account.funding), [account.funding]));
 
   return `${name} ${parts.join(', ')}`;
+}
+
+/** the clause a switch notice opens with; without a window it says only that `name` ran out. */
+export function describeExhaustion(
+  name: string,
+  limit: ExhaustedLimit | undefined,
+  now: number,
+): string {
+  if (!limit?.window) return `${name} is out of usage`;
+
+  const left = untilReset(limit.resetsAt, now);
+
+  const details = [
+    ...(left ? [`resets in ${left}`] : []),
+    ...(limit.credits ? [`credits unavailable: ${limit.credits}`] : []),
+  ];
+
+  return `${name}'s ${limit.model ? `${limit.model} ` : ''}${limit.window} limit is used up${details.length ? ` (${details.join('; ')})` : ''}`;
 }
 
 /** dynamic account observations for the next turn. */
