@@ -189,28 +189,30 @@ function sentenceEnd(text: string): number {
 }
 
 /**
- * linkify-it's matches from `start`, each ended at a raw double quote, which no URL holds.
+ * linkify-it's matches with no raw double quote, which no URL holds.
  * linkify-it pairs quotes inside a path, so minified JSON would join a URL to the keys after it.
  */
 function webMatches(
   text: string,
-  start = 0,
 ): Pick<Match, 'index' | 'lastIndex' | 'text' | 'url'>[] {
+  const matches = urls.match(text) ?? [];
+
+  if (!matches.some((match) => match.text.includes('"'))) return matches;
+
+  // splitting moves no other link: linkify-it treats a quote beside a link like the start or end of its input
   const result: ReturnType<typeof webMatches> = [];
+  let start = 0;
 
-  for (const match of urls.match(text.slice(start)) ?? []) {
-    const quote = match.text.indexOf('"');
-    const cut = quote < 0 ? 0 : match.text.length - quote;
-    const lastIndex = start + match.lastIndex - cut;
+  for (const segment of text.split('"')) {
+    for (const match of urls.match(segment) ?? [])
+      result.push({
+        index: start + match.index,
+        lastIndex: start + match.lastIndex,
+        text: match.text,
+        url: match.url,
+      });
 
-    result.push({
-      index: start + match.index,
-      lastIndex,
-      text: match.text.slice(0, match.text.length - cut),
-      url: match.url.slice(0, match.url.length - cut),
-    });
-
-    if (cut) return result.concat(webMatches(text, lastIndex));
+    start += segment.length + 1;
   }
 
   return result;
