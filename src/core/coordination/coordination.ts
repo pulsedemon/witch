@@ -93,6 +93,9 @@ export interface RequestState {
   discovery?: { revision: number; promise: Promise<Discovery> };
 }
 
+/** how long activation waits for other sessions' ledger writes, since a failure here fails the conversation's opening. */
+const activationBudget = 10_000;
+
 /** one conversation owns mutations until quiesced; presence disappears only while its conversation lock is held. */
 export class SessionCoordination {
   snapshot: CoordinationSnapshot = emptySnapshot;
@@ -394,12 +397,15 @@ export class SessionCoordination {
     this.publish(emptySnapshot);
 
     try {
+      const deadline = Date.now() + activationBudget;
+      const state: RequestState = { deadline };
+
       for (const claim of await this.registry.claims()) {
         if (claim.owner.conversation === conversation.id && !claim.process)
           await this.registry.adoptClaim(
             claim.owner,
             this.process,
-            Date.now() + 1000,
+            deadline,
             async () => {
               if (this.ending || this.closed || this.active !== active)
                 throw new Error('Coordination is closing.');
@@ -415,7 +421,7 @@ export class SessionCoordination {
           this.claimReleases.add(claim.owner.conversation);
       }
 
-      await this.retireProject(active);
+      await this.retireProject(active, state);
       await this.presence.publish(active);
 
       if (this.ending || this.closed)
@@ -758,7 +764,12 @@ export class SessionCoordination {
   releaseConversation(conversation: string): Promise<void> {
     this.claimReleases.add(conversation);
 
-    return this.serialize(() => this.finishCleanup());
+    return this.serialize(() => this.finishCleanup()).catch(
+      (error: unknown) => {
+        // the release stays queued for the next activation or tick; closing has neither
+        if (this.closed || !(error instanceof DeadlineExpired)) throw error;
+      },
+    );
   }
 
   private async retireProject(
