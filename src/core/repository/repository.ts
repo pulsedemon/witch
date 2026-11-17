@@ -43,6 +43,8 @@ export interface Repository {
   /** entries, so a wholly untracked directory counts once. */
   untracked: number;
   pullRequest?: PullRequest;
+  /** the branch's last read answered that it has no pull request, or `HEAD` is detached. unset while a read is pending or failed. */
+  pullRequestAbsent?: true;
   pullRequestProject?: string;
   /** why the branch's last pull request read, or its checks or base tip read, failed unexpectedly; unset once they work or while `gh` has no answer. */
   pullRequestFailure?: string;
@@ -320,7 +322,7 @@ function unavailable(error: unknown): boolean {
 const reason = (error: unknown) =>
   error instanceof z.ZodError ? issuesText(error) : errorMessage(error);
 
-/** `gh pr view <branch>` found no pull request, which answers a read by name where any other failure leaves it open. */
+/** `gh pr view` found no pull request, which answers a read where any other failure leaves it open. */
 const missing = (error: unknown) =>
   /no pull requests found/.test(
     `${String((error as { stderr?: unknown }).stderr ?? '')}\n${errorMessage(error)}`,
@@ -392,6 +394,7 @@ export class RepositoryWatch {
     /** when the read began, so a merge recorded while it ran counts as after it */
     started: number;
     value?: PullRequest;
+    absent: boolean;
     project?: string;
     failure?: string;
   };
@@ -662,8 +665,12 @@ export class RepositoryWatch {
 
     const known = this.pullRequest;
 
+    if (repository?.branch === 'HEAD') repository.pullRequestAbsent = true;
+
     if (repository && known?.branch === repository.branch) {
       repository.pullRequest = known.value;
+
+      if (known.absent) repository.pullRequestAbsent = true;
 
       if (known.project !== undefined)
         repository.pullRequestProject = known.project;
@@ -702,6 +709,7 @@ export class RepositoryWatch {
     let value: PullRequest | undefined;
     /** the value before a checkout that moved meanwhile drops it */
     let read: PullRequest | undefined;
+    let absent = false;
     let project: string | undefined;
     const failures = new Set<string>();
 
@@ -715,6 +723,8 @@ export class RepositoryWatch {
 
       const view = await this.view().catch((error: unknown) => {
         if (!unavailable(error)) throw error;
+
+        absent = missing(error);
       });
 
       if (view) {
@@ -774,6 +784,7 @@ export class RepositoryWatch {
       at: Date.now(),
       started,
       value,
+      absent,
       project,
       failure,
     };
@@ -785,6 +796,9 @@ export class RepositoryWatch {
       pullRequest: value,
       ...(project === undefined ? {} : { pullRequestProject: project }),
     };
+
+    if (absent) repository.pullRequestAbsent = true;
+    else delete repository.pullRequestAbsent;
 
     if (failure === undefined) delete repository.pullRequestFailure;
     else repository.pullRequestFailure = failure;

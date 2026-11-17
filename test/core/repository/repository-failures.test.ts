@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { RepositoryWatch } from '../../../src/core/repository/repository.js';
 import { view } from '../../fixtures/repository.js';
 
@@ -74,6 +74,71 @@ test('a gh that says no, runs out of time or is not installed leaves no failure 
       assert.equal(watch.snapshot?.branch, 'main');
       assert.equal('pullRequestFailure' in watch.snapshot!, false);
     }
+  } finally {
+    watch.close();
+  }
+});
+
+test('only a read that found no pull request marks the branch as having none', async () => {
+  let answer: () => string = () => {
+    throw rejection('no pull requests found', 1);
+  };
+
+  const { watch } = watching(() => answer());
+  const absent = () => watch.snapshot?.pullRequestAbsent;
+
+  try {
+    await watch.readPullRequest();
+    assert.equal(absent(), true);
+
+    for (const failure of [
+      rejection('Command failed: gh pr view\nHTTP 502', 1),
+      rejection('timed out'),
+      rejection('spawn gh ENOENT', 'ENOENT'),
+      rejection('spawn gh EMFILE', 'EMFILE'),
+    ]) {
+      answer = () => {
+        throw failure;
+      };
+
+      await watch.readPullRequest();
+      assert.equal(absent(), undefined, failure.message);
+    }
+
+    answer = () => '{}';
+    await watch.readPullRequest();
+    assert.equal(absent(), undefined);
+    answer = () => view({ state: 'OPEN', statusCheckRollup: [] });
+    await watch.readPullRequest();
+    assert.equal(absent(), undefined);
+  } finally {
+    watch.close();
+  }
+});
+
+test('a branch whose first pull request read has not answered is not marked as having none, and a detached HEAD is', async () => {
+  let head = 'main';
+  let answer!: (error: Error) => void;
+
+  const watch = new RepositoryWatch('/work', (command) =>
+    command === 'gh'
+      ? new Promise((_, reject) => (answer = reject))
+      : Promise.resolve({ stdout: `# branch.head ${head}\n` }),
+  );
+
+  try {
+    await vi.waitFor(() => assert.ok(watch.snapshot && answer));
+    assert.equal(watch.snapshot?.pullRequestAbsent, undefined);
+    answer(rejection('no pull requests found', 1));
+
+    await vi.waitFor(() =>
+      assert.equal(watch.snapshot?.pullRequestAbsent, true),
+    );
+
+    head = '(detached)';
+    await watch.readPullRequest();
+    assert.equal(watch.snapshot?.branch, 'HEAD');
+    assert.equal(watch.snapshot?.pullRequestAbsent, true);
   } finally {
     watch.close();
   }
