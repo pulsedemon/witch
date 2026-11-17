@@ -76,9 +76,20 @@ function fixture(register: RegisterCleanup) {
 
   let pending: PromiseWithResolvers<Result> | undefined;
   const progress: MergeCleanup[] = [];
+  const notices: string[] = [];
 
   const coordinator = {
-    snapshot: { phase: 'idle', queue: [] } as unknown as Snapshot,
+    snapshot: {
+      phase: 'idle',
+      queue: [],
+      conversation: { id: 'c' },
+    } as unknown as Snapshot,
+    // as the real one does, a notice publishes, and only a saved one reaches the transcript's record
+    notice: (text: string, _cwd?: string, save = true) => {
+      if (save) notices.push(text);
+
+      publishCoordinator({});
+    },
     subscribe: (listener: () => void) => {
       listeners.coordinator.add(listener);
 
@@ -132,6 +143,7 @@ function fixture(register: RegisterCleanup) {
 
   return {
     calls,
+    notices,
     progress,
     unfollowed,
     publishRepository,
@@ -544,6 +556,7 @@ test('a merge that lands with the checkout on the base is cleaned up through the
   const stop = watchMerges(watch, {
     snapshot: { phase: 'idle', queue: [] } as unknown as Snapshot,
     subscribe: () => () => {},
+    notice: () => {},
     cleanUpMerge: async (pullRequest, _install, progress = {}) => {
       const result = await cleanUpMerge(checkout, pullRequest, idle, {
         progress,
@@ -579,4 +592,371 @@ test('a merge that lands with the checkout on the base is cleaned up through the
     await git(checkout, 'rev-parse', 'main'),
     await git(other, 'rev-parse', 'HEAD'),
   );
+});
+
+const waits = (reason: string, number = 7) =>
+  `#${number} merged, but its cleanup is waiting: ${reason}.`;
+
+const running = "the conversation's phase is running";
+
+const elsewhere =
+  "the checkout isn't in the state the cleanup needs, so it waits for a repository update";
+
+const advance = async (ms: number) => {
+  vi.advanceTimersByTime(ms);
+  await tick();
+};
+
+const conversation = (id: string): Snapshot['conversation'] => ({
+  id,
+  title: '',
+  cwd: '/x',
+  agent: 'a',
+  sessions: {},
+  createdAt: '',
+});
+
+test('a merge held for 15 s says why, and each new reason of the same hold is said once', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  const { calls, notices, publishRepository, publish, settle } = fixture(
+    t.onTestFinished,
+  );
+
+  await publish({ phase: 'running' });
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await advance(14_999);
+  assert.deepEqual(notices, []);
+  await advance(1);
+  assert.deepEqual(notices, [waits(running)]);
+  await advance(60_000);
+  assert.equal(notices.length, 1);
+  await publish({ phase: 'idle', queue: ['q'] });
+  assert.equal(notices.at(-1), waits('a prompt is queued'));
+  await publish({ error: 'boom\nmore' });
+  assert.equal(notices.at(-1), waits('an error is showing: boom more'));
+  await publishRepository(status(pr('MERGED', 'c1'), { modified: 1 }));
+  await publish({ error: undefined, queue: [] });
+  assert.equal(notices.at(-1), waits('the checkout has uncommitted changes'));
+  assert.equal(notices.length, 4);
+  await publish({ phase: 'running' });
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await advance(15_000);
+  assert.equal(notices.length, 4, 'a reason already said');
+  assert.equal(calls.length, 0);
+  await publish({ phase: 'idle' });
+  assert.equal(calls.length, 1);
+  await settle(true);
+  await advance(60_000);
+  assert.equal(notices.length, 4);
+});
+
+test('a hold that ends within 15 s says nothing, and reasons that change within it share its 15 s', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  {
+    const { calls, notices, publishRepository, publish, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publish({ phase: 'running' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(10_000);
+    await publish({ phase: 'idle' });
+    assert.equal(calls.length, 1);
+    await settle(true);
+    await advance(20_000);
+    assert.deepEqual(notices, []);
+  }
+
+  {
+    const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+    await publish({ phase: 'running' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(10_000);
+    await publish({ phase: 'idle', queue: ['q'] });
+    await advance(4999);
+    assert.deepEqual(notices, []);
+    await advance(1);
+    assert.deepEqual(notices, [waits('a prompt is queued')]);
+  }
+});
+
+test('each merged pull request held for the same reason says so', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+  await publish({ phase: 'running' });
+  await publishRepository(following(left('c1'), left('c2', 8)));
+  await advance(15_000);
+  assert.deepEqual(notices, [waits(running), waits(running, 8)]);
+});
+
+test("repository updates during one long turn don't postpone its hold notice", async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+  await publish({ phase: 'running' });
+  await publishRepository(status(pr('MERGED', 'c1')));
+
+  for (const untracked of [1, 2]) {
+    await advance(5000);
+    await publishRepository(status(pr('MERGED', 'c1'), { untracked }));
+  }
+
+  await advance(4999);
+  assert.deepEqual(notices, []);
+  await advance(1);
+  assert.deepEqual(notices, [waits(running)]);
+});
+
+test('a running cleanup is never reported as waiting, and a second merge behind it says so after 15 s', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  const { calls, notices, publishRepository, settle } = fixture(
+    t.onTestFinished,
+  );
+
+  await publishRepository(following(left('c1'), left('c2', 8)));
+  // clears the running cleanup's wait, as its own switch does
+  await publishRepository();
+  await advance(15_000);
+  assert.deepEqual(notices, [waits("the conversation's phase is cleaning", 8)]);
+  await advance(60_000);
+  assert.equal(notices.length, 1);
+  await settle(true);
+  assert.deepEqual(urls(calls), ['7', '8']);
+  await settle(true);
+});
+
+test('a cleanup deferred three times running says why, whatever the reasons, once per reason', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const locked = 'another Witch is updating this checkout';
+  const unreadable = "a conversation record can't be read";
+
+  {
+    const { notices, progress, publishRepository, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    const defer = async (reason?: string) => {
+      if (reason) progress.at(-1)!.deferred = reason;
+
+      await settle(false);
+      const told = [...notices];
+      await advance(5000);
+
+      return told;
+    };
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+    assert.deepEqual(await defer(locked), []);
+    assert.deepEqual(await defer(locked), []);
+    assert.deepEqual(await defer(locked), [waits(locked)]);
+    assert.deepEqual(await defer(locked), [waits(locked)]);
+
+    assert.deepEqual(await defer(unreadable), [
+      waits(locked),
+      waits(unreadable),
+    ]);
+
+    assert.equal((await defer(locked)).length, 2);
+    assert.equal((await defer()).length, 2, 'a deferral that gave no reason');
+    await settle(true);
+    assert.equal(progress.length, 8);
+  }
+
+  {
+    const { notices, progress, publishRepository, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+
+    for (const reason of [locked, unreadable]) {
+      progress.at(-1)!.deferred = reason;
+      await settle(false);
+      await advance(5000);
+    }
+
+    assert.deepEqual(notices, []);
+    progress.at(-1)!.deferred = locked;
+    await settle(false);
+    assert.deepEqual(notices, [waits(locked)]);
+  }
+
+  // an interrupted attempt ends the run of deferrals
+  {
+    const { notices, progress, publishRepository, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      progress.at(-1)!.deferred = locked;
+      await settle(false);
+      await advance(5000);
+    }
+
+    await settle('interrupted');
+    assert.equal(progress.length, 4, 'the interrupted cleanup resumes');
+    progress.at(-1)!.deferred = locked;
+    await settle(false);
+    assert.deepEqual(notices, []);
+  }
+});
+
+test('a cleanup that found the checkout in another state says so after 15 s and runs again at the next repository update', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  {
+    const { calls, notices, publishRepository, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await settle('changed');
+    await advance(14_999);
+    assert.deepEqual(notices, []);
+    await advance(1);
+    assert.deepEqual(notices, [waits(elsewhere)]);
+    await publishRepository();
+    assert.equal(calls.length, 2);
+    await settle(true);
+    await advance(60_000);
+    assert.equal(notices.length, 1);
+  }
+
+  {
+    const { notices, publishRepository, settle } = fixture(t.onTestFinished);
+    await publishRepository(status(pr('MERGED', 'c1')));
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await settle('changed');
+      await advance(5000);
+      await publishRepository();
+    }
+
+    assert.deepEqual(notices, [], 'updates less than 15 s apart');
+    await settle('changed');
+    assert.deepEqual(notices, [waits(elsewhere)]);
+  }
+});
+
+test('a cleanup that ends after the watch stopped starts no hold', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  const { notices, publishRepository, settle, stop } = fixture(
+    t.onTestFinished,
+  );
+
+  await publishRepository(status(pr('MERGED', 'c1')));
+  stop();
+  await settle('changed');
+  assert.equal(vi.getTimerCount(), 0);
+  await advance(60_000);
+  assert.deepEqual(notices, []);
+});
+
+test('no hold is reported while a conversation opens or closes, for a conversation that left or for a state that just ended', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  {
+    const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+    await publish({ conversation: undefined, phase: 'starting' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(60_000);
+    assert.deepEqual(notices, []);
+  }
+
+  // an open conversation whose files are still opening holds nothing, so its 15 s starts when they are open
+  {
+    const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+    await publish({ phase: 'starting' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(60_000);
+    assert.deepEqual(notices, []);
+    await publish({ phase: 'running' });
+    await advance(14_999);
+    assert.deepEqual(notices, []);
+    await advance(1);
+    assert.deepEqual(notices, [waits(running)]);
+  }
+
+  {
+    const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+    await publish({ phase: 'running' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(14_999);
+    await publish({ phase: 'closing' });
+    await advance(60_000);
+    assert.deepEqual(notices, []);
+  }
+
+  // a wait for a repository update keeps its hold through closing, and still posts nothing
+  {
+    const { notices, publishRepository, publish, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await settle('changed');
+    await publish({ phase: 'closing' });
+    await advance(60_000);
+    assert.deepEqual(notices, []);
+  }
+
+  {
+    const { notices, publishRepository, publish, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await settle('changed');
+    await advance(10_000);
+    await publish({ conversation: conversation('other') });
+    await advance(14_999);
+    assert.deepEqual(notices, [], "the new conversation's own 15 s");
+    await advance(1);
+    assert.deepEqual(notices, [waits(elsewhere)]);
+  }
+
+  // the state changes in the turn the timer expires, before the watch's next check
+  {
+    const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+    await publish({ phase: 'running' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(14_999);
+    const published = publish({ conversation: conversation('other') });
+    vi.advanceTimersByTime(1);
+    await published;
+    await tick();
+    assert.deepEqual(notices, []);
+  }
+
+  {
+    const { calls, notices, publishRepository, publish, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publish({ phase: 'running' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(14_999);
+    const published = publish({ phase: 'idle' });
+    vi.advanceTimersByTime(1);
+    await published;
+    await tick();
+    assert.equal(calls.length, 1);
+    assert.deepEqual(notices, []);
+    await settle(true);
+  }
+
+  {
+    const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+    await publish({ phase: 'running' });
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await advance(10_000);
+    await publishRepository(status(undefined, { branch: 'main' }));
+    await advance(60_000);
+    assert.deepEqual(notices, []);
+  }
 });

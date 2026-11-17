@@ -151,10 +151,21 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
     agent.gate = gate;
     const sending = other.send('Start');
     await within(gate.entered, 2000, 'the other turn');
+    // one object for both attempts, so a reason the second didn't clear would show
+    const progress: MergeCleanup = {};
 
     assert.equal(
-      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(
+        pullRequest('0'.repeat(40)),
+        undefined,
+        progress,
+      ),
       false,
+    );
+
+    assert.equal(
+      progress.deferred,
+      'another Witch conversation has a turn running in this checkout',
     );
 
     assert.deepEqual(notices(coordinator), []);
@@ -174,10 +185,15 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
     }
 
     assert.equal(
-      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(
+        pullRequest('0'.repeat(40)),
+        undefined,
+        progress,
+      ),
       true,
     );
 
+    assert.equal(progress.deferred, undefined);
     assert.deepEqual(notices(coordinator), [kept]);
   } finally {
     gate.open();
@@ -343,19 +359,36 @@ test("a merge cleanup waits while a conversation record can't be read", async ()
     const broken = join(store.root, 'conversations', randomUUID());
     await mkdir(broken);
     await writeFile(join(broken, 'state.json'), '{');
+    const progress: MergeCleanup = {};
 
     assert.equal(
-      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(
+        pullRequest('0'.repeat(40)),
+        undefined,
+        progress,
+      ),
       false,
     );
 
+    const [, cause] =
+      progress.deferred?.split(
+        `${join(broken, 'state.json')} can't be read: `,
+      ) ?? [];
+
+    assert.match(cause ?? '', /JSON/);
     assert.deepEqual(notices(coordinator), []);
     await rm(broken, { recursive: true });
 
     assert.equal(
-      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(
+        pullRequest('0'.repeat(40)),
+        undefined,
+        progress,
+      ),
       true,
     );
+
+    assert.equal(progress.deferred, undefined);
   } finally {
     await coordinator.close();
   }
@@ -382,8 +415,117 @@ test('a merge cleanup leaves a checkout that changed alone, and says nothing', a
   }
 });
 
+const savedNotices = async (root: string, id: string) =>
+  (await readFile(join(root, 'conversations', id, 'history.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { kind: string; text: string })
+    .filter(({ kind }) => kind === 'notice')
+    .map(({ text }) => text);
+
+test('a merge held back for 15 s saves why in the conversation history', async () => {
+  const { coordinator, store, project } = await fixture();
+  let stop = () => {};
+
+  try {
+    await git(project, 'init', '-q', '-b', 'feat/x');
+    await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    const id = coordinator.snapshot.conversation!.id;
+    coordinator.report(new Error('boom\nmore'));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    stop = watchMerges(
+      {
+        snapshot: repositoryRead({
+          pullRequest: pullRequest('0'.repeat(40)),
+        }) satisfies Repository,
+        subscribe: () => () => {},
+        unfollow: () => {},
+      },
+      coordinator,
+    );
+
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+    const waiting =
+      '#7 merged, but its cleanup is waiting: an error is showing: boom more.';
+
+    await tick();
+    vi.advanceTimersByTime(14_999);
+    await tick();
+    assert.deepEqual(notices(coordinator), []);
+    vi.advanceTimersByTime(1);
+    await tick();
+    assert.deepEqual(notices(coordinator), [waiting]);
+    stop();
+    vi.useRealTimers();
+    await coordinator.close();
+    assert.deepEqual(await savedNotices(store.root, id), [waiting]);
+  } finally {
+    stop();
+    vi.useRealTimers();
+    await coordinator.close();
+  }
+});
+
+test('a cleanup that fails outside its own sentences names the pull request in its notice', async () => {
+  const { coordinator } = await fixture();
+
+  try {
+    await assert.rejects(
+      coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
+      /not a git repository/,
+    );
+
+    const [failure, ...rest] = notices(coordinator);
+    assert.deepEqual(rest, []);
+    assert.ok(failure!.startsWith('#7 merged, but its cleanup failed: '));
+    assert.match(failure!, /not a git repository/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a merge cleanup that finds its checkout locked says another Witch is updating it', async () => {
+  const { coordinator, project } = await fixture();
+  let lock: FileHandle | undefined;
+
+  try {
+    await git(project, 'init', '-q', '-b', 'feat/x');
+    await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+
+    lock = await openLocked(
+      await git(project, 'rev-parse', '--absolute-git-dir'),
+      constants.O_RDONLY | constants.O_NONBLOCK,
+    );
+
+    const progress: MergeCleanup = {};
+    const merged = pullRequest('0'.repeat(40));
+
+    assert.equal(
+      await coordinator.cleanUpMerge(merged, undefined, progress),
+      false,
+    );
+
+    assert.equal(progress.deferred, 'another Witch is updating this checkout');
+    assert.deepEqual(notices(coordinator), []);
+    await lock.close();
+    lock = undefined;
+
+    assert.equal(
+      await coordinator.cleanUpMerge(merged, undefined, progress),
+      true,
+    );
+
+    assert.equal(progress.deferred, undefined);
+  } finally {
+    await lock?.close();
+    await coordinator.close();
+  }
+});
+
 test('a partial cleanup failure reaches the coordinator without a success notice', async () => {
-  const { coordinator, root, project } = await fixture();
+  const { coordinator, root, project, store } = await fixture();
   const previousPath = process.env.PATH;
 
   try {
@@ -435,7 +577,10 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
 
     assert.equal(coordinator.snapshot.error, rejected!.message);
     assert.equal(coordinator.snapshot.phase, 'idle');
-    assert.deepEqual(notices(coordinator), []);
+    assert.deepEqual(notices(coordinator), [rejected!.message]);
+    const id = coordinator.snapshot.conversation!.id;
+    await coordinator.close();
+    assert.deepEqual(await savedNotices(store.root, id), [rejected!.message]);
     assert.equal(await git(project, 'branch', '--show-current'), 'main');
 
     assert.equal(
@@ -526,8 +671,21 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
       const cleaned =
         '#7 merged: switched to main and pulled, deleted branch feat/x.';
 
+      const [, failed, ...more] =
+        variant === 'diverged' ? notices(coordinator) : [];
+
+      if (variant === 'diverged') {
+        assert.deepEqual(more, []);
+
+        assert.ok(
+          failed!.startsWith(`Witch's checkout at ${install} wasn't rebuilt:`),
+        );
+      }
+
       assert.deepEqual(
-        notices(coordinator),
+        variant === 'diverged'
+          ? notices(coordinator).slice(0, 1)
+          : notices(coordinator),
         variant === 'a'
           ? [
               cleaned,
