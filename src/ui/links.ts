@@ -15,26 +15,6 @@ function backtracks(text: string): boolean {
   return (text.match(/xn--/gi)?.length ?? 0) > 4;
 }
 
-/** the links linkify-it finds, leaving out any line that `backtracks`. no link crosses a line, so a later line never changes an earlier one's links. */
-function webLinks(text: string) {
-  if (!backtracks(text)) return urls.match(text) ?? [];
-
-  let offset = 0;
-
-  return text.split('\n').flatMap((line) => {
-    const links = backtracks(line) ? [] : (urls.match(line) ?? []);
-
-    for (const link of links) {
-      link.index += offset;
-      link.lastIndex += offset;
-    }
-
-    offset += line.length + 1;
-
-    return links;
-  });
-}
-
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
 const controls = /(?![\n\t\r])\p{Cc}/u;
 
@@ -209,6 +189,13 @@ function sentenceEnd(text: string): number {
 }
 
 function bareLinks(text: string, cwd: string): string {
+  // a skipped URL must not become a file link; no link crosses a newline.
+  if (backtracks(text))
+    return text
+      .split('\n')
+      .map((line) => (backtracks(line) ? line : bareLinks(line, cwd)))
+      .join('\n');
+
   let output = '';
   let offset = 0;
 
@@ -219,7 +206,7 @@ function bareLinks(text: string, cwd: string): string {
 
   let fileIndex = 0;
 
-  for (const match of webLinks(text)) {
+  for (const match of urls.match(text) ?? []) {
     if (match.index < offset) continue;
 
     while (
@@ -262,20 +249,20 @@ interface Piece {
   plain: boolean;
 }
 
-// the longest run with no separator that is searched as one piece. linkify-it's search of a piece and the wrapping of a link in it both cost the square of its length
-const longestRun = 4096;
+// linkify-it rescans suffixes, and wrapping repeats each target per row.
+const pieceSize = 2000;
 // the characters linkify-it reads no link across. `\s` is not the same set: it has U+FEFF, which a link can hold
 const separator = /[\p{Z}\p{Cc}]/u;
 
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
- * prefer boundaries that keep links, quoted paths and dropped paths whole; an escaped character or U+202F is inside a dropped path.
+ * prefer line and whitespace boundaries; an escaped character or U+202F is inside a dropped path.
  */
 function pieces(text: string): Piece[] {
   const result: Piece[] = [];
 
   for (let start = 0; start < text.length;) {
-    let end = Math.min(start + 2000, text.length);
+    let end = Math.min(start + pieceSize, text.length);
     let plain = false;
 
     const after = (separator: RegExp) => {
@@ -292,13 +279,25 @@ function pieces(text: string): Piece[] {
 
     if (end < text.length) {
       // U+FEFF is whitespace to JavaScript and no separator to linkify-it, which reads it inside a link
-      const boundary = [/\n/, /(?![\u202f\ufeff])[\s<>]/, /"/]
+      let boundary = [/\n/, /(?![\u202f\ufeff])\s/]
         .map(after)
         .find((cut) => cut > start);
+
+      if (!boundary) {
+        const markup = after(/[<>"]/);
+
+        // quotes and angle brackets can belong to a URL's paired path.
+        if (markup > start && !urls.pretest(text.slice(start, markup)))
+          boundary = markup;
+      }
 
       if (boundary) end = boundary;
       else ({ end, plain } = unbroken(text, start, end));
     }
+
+    if (!plain)
+      for (; start + pieceSize < end; start += pieceSize)
+        result.push({ text: text.slice(start, start + pieceSize), plain });
 
     result.push({ text: text.slice(start, end), plain });
     start = end;
@@ -308,9 +307,8 @@ function pieces(text: string): Piece[] {
 }
 
 /**
- * where a piece with no boundary to cut at ends, and whether it is drawn plain.
- * a run that ends within `longestRun` is one piece, so linkify-it reads a link in it whole.
- * a longer run stays plain from where a web link starts in it, so no part of the link goes to a shorter address.
+ * keep an overlong run with a possible link plain, so no fragment becomes a target.
+ * scan its boundary once, including when no link is possible and it can be split.
  */
 function unbroken(
   text: string,
@@ -322,22 +320,14 @@ function unbroken(
 
   if (line) return { end: start + line, plain: false };
 
-  // one character past the longest run, where a separator still ends a run of that length
-  const reach = start + longestRun + 1;
-  const stop = text.slice(end, reach).search(separator);
-
-  if (stop >= 0) return { end: end + stop, plain: false };
-
-  if (reach > text.length) return { end: text.length, plain: false };
-
-  // read a scheme's length past the cut, so a link that starts just before it is seen
-  if (!/https?:\/\/|www\./i.test(text.slice(start, end + 8)))
-    return { end, plain: false };
-
   const boundary = new RegExp(separator, 'gu');
-  boundary.lastIndex = reach;
+  boundary.lastIndex = end;
+  const stop = boundary.exec(text)?.index ?? text.length;
 
-  return { end: boundary.exec(text)?.index ?? text.length, plain: true };
+  return {
+    end: stop,
+    plain: stop > end && urls.pretest(text.slice(start, stop)),
+  };
 }
 
 function linked(text: string, cwd: string, target?: string) {

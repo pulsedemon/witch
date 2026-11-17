@@ -566,6 +566,9 @@ test('long runs of filename characters, and links on many lines or one, link in 
       })),
     );
 
+  const punctuation = (count: number) =>
+    `https://example.com/${'.'.repeat(count)}b `.repeat(64);
+
   for (const [input, small, large] of [
     ...['-', '.', '@', 'é', '+', ',', '%'].map(
       (character) =>
@@ -595,6 +598,11 @@ test('long runs of filename characters, and links on many lines or one, link in 
         ] as const,
     ),
     ['a line of JSON emails', emails(500), emails(2000)] as const,
+    [
+      'punctuation inside searched links',
+      punctuation(400),
+      punctuation(1600),
+    ] as const,
   ]) {
     const smallTime = fastest(small);
     const largeTime = fastest(large);
@@ -606,7 +614,7 @@ test('long runs of filename characters, and links on many lines or one, link in 
   }
 });
 
-test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, but not inside a dropped path, so a link across the cut stays whole', () => {
+test('short links and dropped paths spanning piece boundaries keep their targets', () => {
   const file = `src/notes ${'n'.repeat(20)}.md`;
   const dropped = '/tmp/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
 
@@ -644,64 +652,43 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
   assert.equal(linkify(unbroken, '/work'), unbroken);
 });
 
-test('a run with no boundary to cut at is searched whole up to 4096 characters, so a link across the 2000-character cut keeps its address', () => {
+test('overlong bare URLs stay readable without partial hyperlink targets', () => {
   const tail = `/download?token=${'a1b2'.repeat(752)}`;
-  const short = 'https://example.com/abcdef';
 
-  for (const [text, targets] of [
-    [`https://example.com${tail}`, [`https://example.com${tail}`]],
-    [`www.example.com${tail}`, [`http://www.example.com${tail}`]],
-    [`example.com${tail} end`, [`http://example.com${tail}`]],
-    [
-      `${'x'.repeat(1500)} https://example.com${tail} then src/main.ts`,
-      [`https://example.com${tail}`, 'vscode://file/work/src/main.ts'],
-    ],
-    // the first of two links crosses the cut
-    [`${'x)('.repeat(660)}${short})(${short}`, [short, short]],
-    // the cut falls right after `https://`
-    [
-      `${'x)('.repeat(664)}https://example.com/${'a'.repeat(1500)}`,
-      [`https://example.com/${'a'.repeat(1500)}`],
-    ],
-    // the sentence's full stop stays outside the link
-    [
-      `https://example.com/${'https://example.com/a;'.repeat(150)}b.`,
-      [`https://example.com/${'https://example.com/a;'.repeat(150)}b`],
-    ],
-    // parts of a link that close past the cut: parentheses holding another link, a query in parentheses, apostrophes
-    [
-      `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(200)})e end`,
-      [
-        `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(200)})e`,
-      ],
-    ],
-    [
-      `https://example.com?(${'a'.repeat(3000)})`,
-      [`https://example.com?(${'a'.repeat(3000)})`],
-    ],
-    [
-      `https://o'brien@example.com/a'b)c${'x'.repeat(3000)}'d`,
-      [`https://o'brien@example.com/a'b)c${'x'.repeat(3000)}'d`],
-    ],
-    // U+FEFF is whitespace to JavaScript and not a separator to linkify-it
-    [
-      `https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`,
-      [`https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`],
-    ],
-    // a file reference outranks the bare domain linkify-it reads it as
-    [
-      `server.py/${'a/'.repeat(993)}b.ts/more.ts`,
-      [`vscode://file/work/server.py/${'a/'.repeat(993)}b.ts/more.ts`],
-    ],
-  ] as const) {
-    const output = linkify(text, '/work');
+  for (const text of [
+    `https://example.com${tail}`,
+    `www.example.com${tail}`,
+    `example.com${tail}`,
+    `example.com/${'a'.repeat(5000)}`,
+    // the scheme or hostname starts before the cut and ends after it
+    `${'x)('.repeat(664)}https://example.com/${'a'.repeat(1500)}`,
+    `${'x)('.repeat(665)}example.com/${'a'.repeat(3000)}`,
+    `https://example.com/${'https://example.com/a;'.repeat(150)}b.`,
+    // paired parts can hide the rest of the address when only a prefix is parsed
+    `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(200)})e`,
+    `https://example.com?(${'a'.repeat(3000)})`,
+    `https://o'brien@example.com/a'b)c${'x'.repeat(3000)}'d`,
+    `https://example.com/a"${'b'.repeat(3000)}"end`,
+    `https://example.com/a(${'b'.repeat(900)}<${'c'.repeat(2000)})`,
+    // U+FEFF can occur inside a URL, so it cannot separate these pieces
+    `https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`,
+  ]) {
+    const first = linkifyAppend(text.slice(0, 1998), '/work');
 
-    assert.deepEqual(
-      linkSpans(output).map((span) => span.target),
-      targets,
+    const next = linkifyAppend(
+      first.pending + text.slice(1998) + '\n',
+      '/work',
+      first.target,
     );
 
-    assert.equal(stripAnsi(output), text);
+    for (const output of [
+      linkify(text, '/work'),
+      next.complete.join('\n'),
+      markdown(`\`\`\`text\n${text}\n\`\`\``, '/work'),
+    ]) {
+      assert.deepEqual(linkSpans(output), []);
+      assert.equal(stripAnsi(output), text);
+    }
   }
 });
 
@@ -711,13 +698,14 @@ test('text with more than four `xn--` labels on a line is left unlinked instead 
 
   for (const plain of [
     `https://${labels}${'b.'.repeat(100)}b_`,
-    // the labels are past the cut, in a run searched as one piece
-    `https://example.com/${'a'.repeat(1950)}${'xn--'.repeat(5)}${'b'.repeat(1000)}`,
+    // labels past the cut must not expose an unguarded tail
+    `https://example.com/${'a'.repeat(2000)}${'xn--'.repeat(5)}${'b'.repeat(1000)}`,
+    'https://example.com/xn--/xn--/xn--/xn--/xn--/report.ts',
   ])
     assert.equal(linkify(plain, '/work'), plain);
 
   // a line with many labels changes no other line's link, before it or after it, below the cut or across it
-  for (const length of [100, 2100, 3000]) {
+  for (const length of [100, 1900, 2000]) {
     const url = `https://example.com/${'a'.repeat(length - 20)}`;
 
     for (const text of [`${url}\n${labels}com/`, `${labels}com/\n${url}`]) {
@@ -751,9 +739,9 @@ test('text with more than four `xn--` labels on a line is left unlinked instead 
   );
 });
 
-test('a piece with no boundary within 4096 characters stays plain text when a web link starts in it, and is cut as before when none does', () => {
-  const longest = `https://example.com/${'a'.repeat(4076)}`;
-  assert.equal(longest.length, 4096);
+test('a 2000-character URL links whole and an overlong run leaves later links intact', () => {
+  const longest = `https://example.com/${'a'.repeat(1980)}`;
+  assert.equal(longest.length, 2000);
 
   for (const [text, targets] of [
     [
@@ -765,13 +753,10 @@ test('a piece with no boundary within 4096 characters stays plain text when a we
       `${longest}a)(https://example.org/tail then src/main.ts`,
       ['vscode://file/work/src/main.ts'],
     ],
-    // the run is counted from where its piece starts, which is at the cut here, so this link is read whole
+    // a link beginning after the cut still makes the entire run unsafe to split
     [
       `${'x)('.repeat(700)}https://example.com/${'a'.repeat(3000)} then src/main.ts`,
-      [
-        `https://example.com/${'a'.repeat(3000)}`,
-        'vscode://file/work/src/main.ts',
-      ],
+      ['vscode://file/work/src/main.ts'],
     ],
     // no web link, so the file at the end of the run still links
     [`${'x'.repeat(4500)})(src/main.ts`, ['vscode://file/work/src/main.ts']],
