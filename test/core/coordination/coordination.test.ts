@@ -10,6 +10,7 @@ import { presenceStatus } from '../../../src/core/coordination/coordination-stat
 import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import { callControl } from '../../../src/persistence/control.js';
 import { unitCoordinationFixture } from '../../fixtures/coordination.js';
+import { watching } from '../../fixtures/control-host.js';
 import { record } from '../../fixtures/coordinator.js';
 import { selectionTurn } from '../../fixtures/task-selection.js';
 import { until, within } from '../../fixtures/within.js';
@@ -369,6 +370,49 @@ for (const failures of [1, 2]) {
         );
       }
     }
+  });
+}
+
+for (const mailbox of ['task', 'familiar'] as const) {
+  test(`a failed ${mailbox} mailbox read stops showing once a later read succeeds, without a control request`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const { start } = await unitCoordinationFixture(cleanup);
+    const a = await start();
+    const directory = join(a.directory, mailbox === 'task' ? '' : 'familiars');
+    const inbox = join(await files.realpath(directory), 'inbox');
+    await watching(directory);
+    const readdir = files.readdir;
+    let reads = 0;
+
+    const reading = vi
+      .spyOn(files, 'readdir')
+      .mockImplementation(async (...args: Parameters<typeof readdir>) => {
+        if (String(args[0]) === inbox && ++reads === 1)
+          throw new Error('Temporary mailbox read failure');
+
+        return readdir(...args);
+      });
+
+    const failed = Promise.withResolvers<void>(),
+      recovered = Promise.withResolvers<void>();
+
+    const unsubscribe = a.coordination.subscribe(() => {
+      if (a.coordination.snapshot.error?.includes('Temporary mailbox'))
+        failed.resolve();
+      else if (reads > 1 && a.coordination.snapshot.error === undefined)
+        recovered.resolve();
+    });
+
+    cleanup(() => {
+      unsubscribe();
+      reading.mockRestore();
+    });
+
+    // a name without `.json` wakes the watch, and the host skips it
+    await files.writeFile(join(inbox, 'probe'), '');
+    await within(failed.promise, 3000, 'mailbox read failure');
+    await within(recovered.promise, 3000, 'mailbox read recovery');
+    assert.equal(a.coordination.snapshot.error, undefined);
   });
 }
 
