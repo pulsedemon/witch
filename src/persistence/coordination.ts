@@ -1148,6 +1148,10 @@ export class CoordinationStore {
 
     // every probe must close before a failure releases the ledger lock.
     await Promise.allSettled(probes);
+
+    // a probe killed at the deadline rejects as a failed command, so the deadline is reported first
+    if (deadline !== undefined) checkDeadline(deadline);
+
     const [processes, opened, active] = await Promise.all(probes);
     const now = Date.now();
 

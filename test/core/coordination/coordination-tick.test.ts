@@ -563,11 +563,12 @@ test("a peers request whose ledger read outlasts a tick's bounded read still ans
   assert.equal(result.kind, 'peers', JSON.stringify(result));
 });
 
-test("a peers request still answers when a tick's read gets the ledger late and expires", async (t) => {
+test("a peers request still answers when a tick's read gets the ledger late and its probe is killed", async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
   const open = f.store.openConversations.bind(f.store);
   const holding = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
+  let killed = false;
 
   vi.spyOn(f.store, 'openConversations').mockImplementation(
     async (...args: Parameters<typeof open>) => {
@@ -576,12 +577,17 @@ test("a peers request still answers when a tick's read gets the ledger late and 
       if (timeout !== undefined && timeout > 5000) {
         if (args[0] === undefined) await released.promise;
         else {
-          // the request's reconciliation leaves the tick's read too little of its second
+          // the request's reconciliation ends inside the tick's second, so the tick's read gets the ledger
           holding.resolve();
-          await delay(800);
+          await delay(300);
         }
-      } else if (timeout !== undefined && args[0] !== undefined)
-        await delay(400);
+      } else if (timeout !== undefined && args[0] !== undefined) {
+        // execFile kills a probe at its timeout and rejects with the failed command, not with an expiry
+        await delay(timeout + 20);
+        killed = true;
+
+        throw new Error('Command failed: /usr/bin/perl');
+      }
 
       return open(...args);
     },
@@ -595,6 +601,7 @@ test("a peers request still answers when a tick's read gets the ledger late and 
   await holding.promise;
   await f.registry.publish(otherPresence(f.own));
   await tick(f.a.coordination);
+  assert.ok(killed, "the tick's read got the ledger");
   assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
   released.resolve();
   const result = await answer;
