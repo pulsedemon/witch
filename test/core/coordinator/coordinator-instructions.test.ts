@@ -304,12 +304,12 @@ test("the fixed instructions file a Witch failure in Witch's tracker from a proj
 
     assert.match(
       rule,
-      /File it at once in Witch's own tracker, pulsedemon\/witch, without asking, whatever project the task is in and also when you work around it and continue; that is the one exception to telling the user about another project's bug/,
+      /Unless your current task fixes it, file it at once in Witch's own tracker, pulsedemon\/witch, without asking, whatever project the task is in and also when you work around it and continue; that is the one exception to telling the user about another project's bug/,
     );
 
     assert.match(
       rule,
-      /That tracker is public, so when the task is in another project, describe the failure in Witch's terms and keep that project's code, data and credentials out of the issue/,
+      /That tracker is public, so when the task is in another project, describe the failure in Witch's terms and keep that project's name, paths, code, data and credentials out of the issue/,
     );
 
     assert.doesNotMatch(context, /tell the user when the current repository/);
