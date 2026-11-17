@@ -633,7 +633,8 @@ export function App({
       const text = `/${open.items[index]!.name} `;
       composer.current?.set({ value: text, cursor: text.length });
     } else {
-      const text = `@${open.items[index]!} `;
+      // unescaped, /review reads a space or a quote in the path as the end of the name
+      const text = `@${open.items[index]!.replace(/[\s"'\\]/g, '\\$&')} `;
       const rest = value.slice(open.end).replace(/^ /, '');
 
       composer.current?.set({

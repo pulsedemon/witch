@@ -564,6 +564,32 @@ test('quotes or a backslash keep a space inside a target name', async (t) => {
   assert.match(h.rounds[0]!.brief, /^- a b\.md\n- c d\.md\n- e f\.md$/m);
 });
 
+test('a name escaped as file completion inserts it is reviewed', async (t) => {
+  const h = await harness(t);
+
+  for (const name of [
+    'My Notes.md',
+    "don't.md",
+    'say "hi".md',
+    'back\\slash.md',
+  ])
+    await writeFile(join(h.cwd, name), 'x\n');
+
+  assert.equal(
+    await h.coordinator.review(
+      `@My\\ Notes.md @don\\'t.md @say\\ \\"hi\\".md @back\\\\slash.md`,
+    ),
+    true,
+  );
+
+  assert.ok(!h.notice('Review refused'), h.notices().join('\n'));
+
+  assert.match(
+    h.rounds[0]!.brief,
+    /^- My Notes\.md\n- don't\.md\n- say "hi"\.md\n- back\\slash\.md$/m,
+  );
+});
+
 test('a target whose name starts with two dots is inside the directory', async (t) => {
   const h = await harness(t);
   await writeFile(join(h.cwd, '..notes.md'), 'x\n');
