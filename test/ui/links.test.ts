@@ -96,6 +96,31 @@ test("a web link leaves out a sentence's punctuation before a closing quote or p
   );
 });
 
+test('a URL in minified JSON links alone, ending at the raw double quote after it', () => {
+  for (const [text, spans] of [
+    [
+      '{"a":"https://example.com/1","b":"x"}',
+      [{ target: 'https://example.com/1', text: 'https://example.com/1' }],
+    ],
+    [
+      '[{"url":"https://example.com/1","n":1},{"url":"https://example.com/2","n":2}]',
+      [
+        { target: 'https://example.com/1', text: 'https://example.com/1' },
+        { target: 'https://example.com/2', text: 'https://example.com/2' },
+      ],
+    ],
+    // linkify-it's target adds a scheme the text lacks
+    [
+      '{"a":"www.example.com/1","b":"x"}',
+      [{ target: 'http://www.example.com/1', text: 'www.example.com/1' }],
+    ],
+  ] as const) {
+    const output = linkify(text, '/work');
+    assert.deepEqual(linkSpans(output), spans, text);
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
 test('a link is underlined inside its OSC 8 sequence on each of its lines, and a target that cannot open stays plain text', () => {
   const link = (text: string) =>
     `\u001b]8;;https://example.com\u0007\u001b[4m${text}\u001b[24m\u001b]8;;\u0007`;

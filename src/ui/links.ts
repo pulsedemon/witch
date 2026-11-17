@@ -1,5 +1,5 @@
 import { tokenize } from '@alcalzone/ansi-tokenize';
-import LinkifyIt from 'linkify-it';
+import LinkifyIt, { type Match } from 'linkify-it';
 import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -188,6 +188,34 @@ function sentenceEnd(text: string): number {
   return length;
 }
 
+/**
+ * linkify-it's matches from `start`, each ended at a raw double quote, which no URL holds.
+ * linkify-it pairs quotes inside a path, so minified JSON would join a URL to the keys after it.
+ */
+function webMatches(
+  text: string,
+  start = 0,
+): Pick<Match, 'index' | 'lastIndex' | 'text' | 'url'>[] {
+  const result: ReturnType<typeof webMatches> = [];
+
+  for (const match of urls.match(text.slice(start)) ?? []) {
+    const quote = match.text.indexOf('"');
+    const cut = quote < 0 ? 0 : match.text.length - quote;
+    const lastIndex = start + match.lastIndex - cut;
+
+    result.push({
+      index: start + match.index,
+      lastIndex,
+      text: match.text.slice(0, match.text.length - cut),
+      url: match.url.slice(0, match.url.length - cut),
+    });
+
+    if (cut) return result.concat(webMatches(text, lastIndex));
+  }
+
+  return result;
+}
+
 function bareLinks(text: string, cwd: string): string {
   // a skipped URL must not become a file link; no link crosses a newline.
   if (backtracks(text))
@@ -206,7 +234,7 @@ function bareLinks(text: string, cwd: string): string {
 
   let fileIndex = 0;
 
-  for (const match of urls.match(text) ?? []) {
+  for (const match of webMatches(text)) {
     if (match.index < offset) continue;
 
     while (
