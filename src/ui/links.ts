@@ -1,5 +1,5 @@
 import { tokenize } from '@alcalzone/ansi-tokenize';
-import LinkifyIt from 'linkify-it';
+import LinkifyIt, { type Match } from 'linkify-it';
 import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -188,6 +188,35 @@ function sentenceEnd(text: string): number {
   return length;
 }
 
+/**
+ * linkify-it's matches with no raw double quote, which no URL holds.
+ * linkify-it pairs quotes inside a path, so minified JSON would join a URL to the keys after it.
+ */
+function webMatches(
+  text: string,
+): Pick<Match, 'index' | 'lastIndex' | 'text' | 'url'>[] {
+  const matches = urls.match(text) ?? [];
+
+  if (!matches.some((match) => match.text.includes('"'))) return matches;
+
+  const result: ReturnType<typeof webMatches> = [];
+  let start = 0;
+
+  for (const segment of text.split('"')) {
+    for (const match of urls.match(segment) ?? [])
+      result.push({
+        index: start + match.index,
+        lastIndex: start + match.lastIndex,
+        text: match.text,
+        url: match.url,
+      });
+
+    start += segment.length + 1;
+  }
+
+  return result;
+}
+
 function bareLinks(text: string, cwd: string): string {
   // a skipped URL must not become a file link; no link crosses a newline.
   if (backtracks(text))
@@ -206,7 +235,7 @@ function bareLinks(text: string, cwd: string): string {
 
   let fileIndex = 0;
 
-  for (const match of urls.match(text) ?? []) {
+  for (const match of webMatches(text)) {
     if (match.index < offset) continue;
 
     while (
@@ -229,7 +258,14 @@ function bareLinks(text: string, cwd: string): string {
     }
 
     output += fileLinks(text.slice(offset, match.index), cwd);
-    const punctuation = sentenceEnd(match.text);
+    let escape = 0;
+
+    // a backslash before a quote escapes it, as in JSON written inside a JSON string
+    if (text[match.lastIndex] === '"')
+      while (match.text[match.text.length - 1 - escape] === '\\') escape++;
+
+    const punctuation =
+      escape + sentenceEnd(match.text.slice(0, match.text.length - escape));
 
     output += hyperlink(
       match.text.slice(0, match.text.length - punctuation),
@@ -284,11 +320,16 @@ function pieces(text: string): Piece[] {
         .find((cut) => cut > start);
 
       if (!boundary) {
-        const markup = after(/[<>"]/);
+        // a raw quote ends every link, but an angle bracket can belong to a URL's paired path
+        const quote = after(/"/);
 
-        // quotes and angle brackets can belong to a URL's paired path.
-        if (markup > start && !urls.pretest(text.slice(start, markup)))
-          boundary = markup;
+        if (quote > start) boundary = quote;
+        else {
+          const markup = after(/[<>]/);
+
+          if (markup > start && !urls.pretest(text.slice(start, markup)))
+            boundary = markup;
+        }
       }
 
       if (boundary) end = boundary;

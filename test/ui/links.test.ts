@@ -96,6 +96,52 @@ test("a web link leaves out a sentence's punctuation before a closing quote or p
   );
 });
 
+test('a URL in minified or escaped JSON links alone, ending at the quote after it, and minified JSON longer than one linkify-it input still links', () => {
+  for (const [text, spans] of [
+    [
+      '{"a":"https://example.com/1","b":"x"}',
+      [{ target: 'https://example.com/1', text: 'https://example.com/1' }],
+    ],
+    [
+      '[{"url":"https://example.com/1","n":1},{"url":"https://example.com/2","n":2}]',
+      [
+        { target: 'https://example.com/1', text: 'https://example.com/1' },
+        { target: 'https://example.com/2', text: 'https://example.com/2' },
+      ],
+    ],
+    // linkify-it's target adds a scheme the text lacks
+    [
+      '{"a":"www.example.com/1","b":"x"}',
+      [{ target: 'http://www.example.com/1', text: 'www.example.com/1' }],
+    ],
+    // JSON written inside a JSON string escapes each quote with a backslash
+    [
+      String.raw`"{\"a\":\"https://example.com/1\",\"b\":\"x\"}"`,
+      [{ target: 'https://example.com/1', text: 'https://example.com/1' }],
+    ],
+  ] as const) {
+    const output = linkify(text, '/work');
+    assert.deepEqual(linkSpans(output), spans, text);
+    assert.equal(stripAnsi(output), text);
+  }
+
+  // with no whitespace, a run longer than one linkify-it input is cut after a quote
+  const targets = Array.from(
+    { length: 60 },
+    (_, n) => `https://example.com/${n}`,
+  );
+
+  const long = JSON.stringify(targets.map((url, n) => ({ url, n })));
+  const output = linkify(long, '/work');
+
+  assert.deepEqual(
+    linkSpans(output),
+    targets.map((target) => ({ target, text: target })),
+  );
+
+  assert.equal(stripAnsi(output), long);
+});
+
 test('a link is underlined inside its OSC 8 sequence on each of its lines, and a target that cannot open stays plain text', () => {
   const link = (text: string) =>
     `\u001b]8;;https://example.com\u0007\u001b[4m${text}\u001b[24m\u001b]8;;\u0007`;
@@ -668,7 +714,6 @@ test('overlong bare URLs stay readable without partial hyperlink targets', () =>
     `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(200)})e`,
     `https://example.com?(${'a'.repeat(3000)})`,
     `https://o'brien@example.com/a'b)c${'x'.repeat(3000)}'d`,
-    `https://example.com/a"${'b'.repeat(3000)}"end`,
     `https://example.com/a(${'b'.repeat(900)}<${'c'.repeat(2000)})`,
     // U+FEFF can occur inside a URL, so it cannot separate these pieces
     `https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`,
