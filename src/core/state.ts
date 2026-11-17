@@ -152,7 +152,7 @@ export const displayUpdateSchema = z.object({
   singleLine: z.literal(true).optional(),
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
-  // the runtime withdrew the row; it leaves the transcript, and the update's other fields mean nothing
+  // the runtime withdrew the row, which leaves the transcript
   retracted: z.literal(true).optional(),
   images: z.array(z.string()).optional(),
   diff: z.array(fileDiff).optional(),
