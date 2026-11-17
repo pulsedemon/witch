@@ -563,11 +563,10 @@ export class RuntimeUpdates {
         }
 
         throw new Error(
-          journal.error ??
-            [
-              errorMessage(error),
-              ...(evidence ? [`Evidence: ${evidence}`] : []),
-            ].join('\n'),
+          [
+            journal.error ?? errorMessage(error),
+            ...(evidence ? [`Evidence: ${evidence}`] : []),
+          ].join('\n'),
           { cause: error },
         );
       } finally {
@@ -576,14 +575,17 @@ export class RuntimeUpdates {
       }
     })
       .catch(async (error: unknown) => {
-        // a qualified installed version has nothing to recover to, so its record stands
-        if (qualified && installing) {
-          qualified.phase = 'failed';
-          qualified.error = `Qualification passed, but reconnect failed: ${errorMessage(error)}`;
-          await this.record(qualified);
-        }
+        // qualifying without installing has nothing to recover to: its verified record stands and its notice names the evidence
+        if (!qualified || !installing) throw error;
 
-        throw error;
+        qualified.phase = 'failed';
+        qualified.error = `Qualification passed, but reconnect failed: ${errorMessage(error)}`;
+        await this.record(qualified);
+
+        throw new Error(
+          `${errorMessage(error)}\nEvidence: ${this.store.operation(qualified)}`,
+          { cause: error },
+        );
       })
       .finally(async () => {
         await transaction?.close();
@@ -683,10 +685,20 @@ export class RuntimeUpdates {
           await this.restore(current);
         } catch (error) {
           current.phase = 'failed';
-          current.error = errorMessage(error);
+
+          current.error = [
+            current.error,
+            `Recovery failed: ${errorMessage(error)}`,
+          ]
+            .filter(Boolean)
+            .join('\n');
+
           await this.record(current);
 
-          throw error;
+          throw new Error(
+            `${errorMessage(error)}\nEvidence: ${this.store.operation(current)}`,
+            { cause: error },
+          );
         }
       } finally {
         await exclusive?.close();
