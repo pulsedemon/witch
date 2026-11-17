@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, test, vi } from 'vitest';
+import stripAnsi from 'strip-ansi';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../../../src/agents/codex/adapter.js';
 import { unreportedContextCatalog } from '../../fixtures/codex-adapter.js';
@@ -551,6 +552,50 @@ test('brew lifecycle preserves start order and ignores repeated starts and unlis
       '',
       true,
     ]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a failed familiar or brew ends on a ✗ row, and one that completed or stopped on ✓', async () => {
+  const { coordinator, a } = await fixture();
+  const { onEvent } = a.sessions[0]!.options;
+
+  try {
+    for (const status of ['failed', 'completed', 'stopped'] as const) {
+      const subagent = { id: `familiar ${status}`, name: 'Map code', kind: '' };
+
+      onEvent({
+        type: 'subagent',
+        subagent: { ...subagent, status: 'running' },
+      });
+
+      onEvent({ type: 'subagent', subagent: { ...subagent, status } });
+      const command = { id: `brew ${status}`, description: 'Start the server' };
+      onEvent({ type: 'command', command: { ...command, status: 'running' } });
+      onEvent({ type: 'command', command: { ...command, status } });
+    }
+
+    const { lines } = new TranscriptLayout().render(
+      coordinator.snapshot.items,
+      80,
+      new Map(),
+    );
+
+    assert.deepEqual(
+      lines
+        .slice()
+        .map(stripAnsi)
+        .filter((line) => line && !line.includes('started')),
+      [
+        '+ ✗ Familiar failed  Map code',
+        '+ ✗ Brew failed  Start the server',
+        '+ ✓ Familiar completed  Map code',
+        '+ ✓ Brew completed  Start the server',
+        '+ ✓ Familiar stopped  Map code',
+        '+ ✓ Brew stopped  Start the server',
+      ],
+    );
   } finally {
     await coordinator.close();
   }

@@ -57,8 +57,8 @@ export function updateBackgroundActivity(
           text,
           cwd,
         })),
-        ...update.rows.map(({ id, title, text }) =>
-          taskRow(cwd, id, title, text),
+        ...update.rows.map(({ id, title, text, failed }) =>
+          taskRow(cwd, id, title, text, failed),
         ),
       ],
     };
@@ -96,10 +96,13 @@ export function updateBackgroundActivity(
         : state.backgroundCommands.filter(({ id }) => id !== command.id),
     },
     rows: [
-      taskRow(cwd, randomUUID(), [
-        `Brew ${running ? 'started' : command.status}`,
-        command.description,
-      ]),
+      taskRow(
+        cwd,
+        randomUUID(),
+        [`Brew ${running ? 'started' : command.status}`, command.description],
+        '',
+        command.status === 'failed',
+      ),
     ],
   };
 }
@@ -109,6 +112,7 @@ function taskRow(
   id: string,
   title: string[],
   text = '',
+  failed = false,
 ): DisplayUpdate {
   return {
     id,
@@ -116,6 +120,7 @@ function taskRow(
     title: title.filter(Boolean).join('  '),
     text,
     done: true,
+    ...(failed ? { failed: true } : {}),
     cwd,
   };
 }
