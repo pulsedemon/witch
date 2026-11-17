@@ -9,6 +9,12 @@ import { imageFile } from './transcript/images.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
+
+/** whether linkify-it's hostname pattern would try both readings of each `xn--` label in `text`, doubling its work with every one. */
+function backtracks(text: string): boolean {
+  return (text.match(/xn--/gi)?.length ?? 0) > 4;
+}
+
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
 const controls = /(?![\n\t\r])\p{Cc}/u;
 
@@ -169,7 +175,27 @@ export function markdownLink(
   return hyperlink(text, target, cwd);
 }
 
+// a file reference outranks every link but these
+const webLink = /^(?:https?:\/\/|www\.)/i;
+
+/** how many characters of sentence punctuation end `text`, which linkify-it keeps in a link when a closing quote or paren follows. */
+function sentenceEnd(text: string): number {
+  let length = 0;
+
+  // counted from the end, since a regex anchored there retries from every punctuation character in a long link
+  while ('.,;!?'.includes(text[text.length - 1 - length] ?? ' ')) length++;
+
+  return length;
+}
+
 function bareLinks(text: string, cwd: string): string {
+  // a skipped URL must not become a file link; no link crosses a newline.
+  if (backtracks(text))
+    return text
+      .split('\n')
+      .map((line) => (backtracks(line) ? line : bareLinks(line, cwd)))
+      .join('\n');
+
   let output = '';
   let offset = 0;
 
@@ -192,11 +218,7 @@ function bareLinks(text: string, cwd: string): string {
 
     const source = sourceFiles[fileIndex];
 
-    if (
-      !/^(?:https?:\/\/|www\.)/i.test(match.text) &&
-      source &&
-      source.index < match.lastIndex
-    ) {
+    if (!webLink.test(match.text) && source && source.index < match.lastIndex) {
       output +=
         fileLinks(text.slice(offset, source.index), cwd) +
         fileLinks(source[0], cwd);
@@ -207,8 +229,7 @@ function bareLinks(text: string, cwd: string): string {
     }
 
     output += fileLinks(text.slice(offset, match.index), cwd);
-    // linkify-it keeps a sentence's punctuation when a closing quote or paren follows it
-    const punctuation = /[.,;!?]*$/.exec(match.text)![0].length;
+    const punctuation = sentenceEnd(match.text);
 
     output += hyperlink(
       match.text.slice(0, match.text.length - punctuation),
@@ -222,15 +243,27 @@ function bareLinks(text: string, cwd: string): string {
   return output + fileLinks(text.slice(offset), cwd);
 }
 
+interface Piece {
+  text: string;
+  /** drawn as it is, without a search for links. */
+  plain: boolean;
+}
+
+// linkify-it rescans suffixes, and wrapping repeats each target per row.
+const pieceSize = 2000;
+// the characters linkify-it reads no link across. `\s` is not the same set: it has U+FEFF, which a link can hold
+const separator = /[\p{Z}\p{Cc}]/u;
+
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
- * prefer boundaries that keep links, quoted paths and dropped paths whole; an escaped character or U+202F is inside a dropped path.
+ * prefer line and whitespace boundaries; an escaped character or U+202F is inside a dropped path.
  */
-function pieces(text: string): string[] {
-  const result: string[] = [];
+function pieces(text: string): Piece[] {
+  const result: Piece[] = [];
 
   for (let start = 0; start < text.length;) {
-    let end = Math.min(start + 2000, text.length);
+    let end = Math.min(start + pieceSize, text.length);
+    let plain = false;
 
     const after = (separator: RegExp) => {
       let cut = end;
@@ -244,16 +277,57 @@ function pieces(text: string): string[] {
       return cut;
     };
 
-    if (end < text.length)
-      end =
-        [/\n/, /(?!\u202f)[\s<>]/, /"/].map(after).find((cut) => cut > start) ??
-        end;
+    if (end < text.length) {
+      // U+FEFF is whitespace to JavaScript and no separator to linkify-it, which reads it inside a link
+      let boundary = [/\n/, /(?![\u202f\ufeff])\s/]
+        .map(after)
+        .find((cut) => cut > start);
 
-    result.push(text.slice(start, end));
+      if (!boundary) {
+        const markup = after(/[<>"]/);
+
+        // quotes and angle brackets can belong to a URL's paired path.
+        if (markup > start && !urls.pretest(text.slice(start, markup)))
+          boundary = markup;
+      }
+
+      if (boundary) end = boundary;
+      else ({ end, plain } = unbroken(text, start, end));
+    }
+
+    if (!plain)
+      for (; start + pieceSize < end; start += pieceSize)
+        result.push({ text: text.slice(start, start + pieceSize), plain });
+
+    result.push({ text: text.slice(start, end), plain });
     start = end;
   }
 
   return result;
+}
+
+/**
+ * keep an overlong run with a possible link plain, so no fragment becomes a target.
+ * scan its boundary once, including when no link is possible and it can be split.
+ */
+function unbroken(
+  text: string,
+  start: number,
+  end: number,
+): { end: number; plain: boolean } {
+  // a newline after a backslash is no boundary to `pieces`, and no link crosses it, so each line is decided alone
+  const line = text.slice(start, end).lastIndexOf('\n') + 1;
+
+  if (line) return { end: start + line, plain: false };
+
+  const boundary = new RegExp(separator, 'gu');
+  boundary.lastIndex = end;
+  const stop = boundary.exec(text)?.index ?? text.length;
+
+  return {
+    end: stop,
+    plain: stop > end && urls.pretest(text.slice(start, stop)),
+  };
 }
 
 function linked(text: string, cwd: string, target?: string) {
@@ -264,7 +338,9 @@ function linked(text: string, cwd: string, target?: string) {
     output += target
       ? hyperlink(buffer, target, cwd)
       : pieces(buffer)
-          .map((piece) => bareLinks(piece, cwd))
+          .map((piece) =>
+            piece.plain ? piece.text : bareLinks(piece.text, cwd),
+          )
           .join('');
 
     buffer = '';
