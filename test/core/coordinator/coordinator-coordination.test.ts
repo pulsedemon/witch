@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -22,6 +23,7 @@ import {
   unitCoordinationFixture,
 } from '../../fixtures/coordination.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';
+import { record } from '../../fixtures/coordinator.js';
 import { appears, until, within } from '../../fixtures/within.js';
 
 test('a peer joining and leaving updates ongoing work without adding user input', async (t) => {
@@ -277,6 +279,55 @@ test('a compaction inside a turn keeps claim policy current', async (t) => {
   await a.coordinator.send('After compaction');
   assert.match(a.a.inputs[1]!.context!, /Control command:/);
   assert.match(a.a.inputs[1]!.context!, /Claim coordination is required/);
+});
+
+test('a coordination failure and its recovery inside a solo turn send no policy update', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, store } = await unitCoordinationFixture(cleanup);
+  const a = await start();
+  const id = randomUUID();
+
+  const held = await store.create(
+    record(id, a.coordinator.snapshot.conversation!.cwd),
+  );
+
+  cleanup(() => held.close());
+  const state = join(store.root, 'conversations', id, 'state.json');
+  const saved = await readFile(state);
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Current task');
+
+  try {
+    await within(gate.entered, 5000, 'solo turn');
+    await writeFile(state, '{broken');
+    const failed = (await a.coordination.context()).snapshot;
+    assert.ok(failed.error);
+    assert.deepEqual(failed.peers, []);
+    assert.deepEqual(failed.reservations, []);
+    assert.deepEqual(failed.unregistered, []);
+    await writeFile(state, saved);
+    await a.query();
+    const before = a.a.contextSteers.length;
+    const b = await start('B');
+    await a.query();
+
+    await until(
+      'claims update',
+      () =>
+        a.a.contextSteers.length > before &&
+        /Claim coordination is required/.test(a.a.contextSteers.at(-1)!),
+    );
+
+    assert.equal(a.a.contextSteers.length, 1);
+
+    assert.ok(
+      a.a.contextSteers[0]!.includes(b.coordinator.snapshot.conversation!.id),
+    );
+  } finally {
+    gate.open();
+    await sending;
+  }
 });
 
 test('clear preserves the same exclusive claim while the native runtime reconnects', async (t) => {
