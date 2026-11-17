@@ -597,13 +597,28 @@ test("a peers request still answers when a tick's later read has its probe kille
     },
   );
 
+  const local = f.a.coordination['registry'];
+  const state = local.state.bind(local);
+  const read = Promise.withResolvers<void>();
+
+  vi.spyOn(local, 'state').mockImplementation(
+    async (...args: Parameters<typeof state>) => {
+      const ledger = await state(...args);
+
+      // only the request's read has more than the tick's second
+      if ((args[0] ?? 0) - Date.now() > 5000) read.resolve();
+
+      return ledger;
+    },
+  );
+
   t.onTestFinished(() => {
     released.resolve();
     vi.restoreAllMocks();
   });
 
   const answer = callControl(await f.a.binding(), { kind: 'peers' });
-  await holding.promise;
+  await Promise.all([holding.promise, read.promise]);
   await f.registry.publish(otherPresence(f.own));
   await tick(f.a.coordination);
   assert.ok(killed, "the tick's read got the ledger");

@@ -1168,35 +1168,53 @@ test('pause records track each recipient and replay only their own retry', async
   assert.deepEqual(await store.pauses('other'), []);
 });
 
-/** a probe that fails once its timeout has passed, as execFile reports it: killed, or exited by itself with `exit`. */
-async function failedAtDeadline(
-  options?: { timeout?: number },
-  exit?: number,
-): Promise<never> {
-  await delay((options?.timeout ?? 0) + 20);
+/** a ledger read whose `probe` fails with the clock moved past the read's deadline. */
+async function readPastDeadline(
+  probe: 'openConversations' | 'activeActivations',
+  failure: object,
+  other?: Error,
+) {
+  const state = await StateStore.open(await scratch('witch-probe-failure-'));
+  const registry = await CoordinationStore.open(state);
+  const deadline = Date.now() + 30_000;
 
-  throw Object.assign(new Error('Command failed: /usr/bin/perl'), {
-    killed: true,
-    ...(exit === undefined
-      ? { code: null, signal: 'SIGKILL' }
-      : { code: exit, signal: null }),
-  });
+  const fail = async (): Promise<never> => {
+    vi.spyOn(Date, 'now').mockReturnValue(deadline + 1);
+
+    throw Object.assign(new Error('Command failed: /usr/bin/perl'), failure);
+  };
+
+  const pass =
+    <T>(value: T) =>
+    async () => {
+      if (other) throw other;
+
+      return value;
+    };
+
+  vi.spyOn(state, 'openConversations').mockImplementation(
+    probe === 'openConversations' ? fail : pass(new Map()),
+  );
+
+  vi.spyOn(registry, 'activeActivations').mockImplementation(
+    probe === 'activeActivations' ? fail : pass(new Set<string>()),
+  );
+
+  return registry.state(deadline);
 }
+
+/** how execFile reports a probe it killed at its timeout. */
+const killedBySignal = { killed: true, code: null, signal: 'SIGKILL' };
 
 test('a ledger read whose probe is killed at its deadline reports the deadline', async (t) => {
   t.onTestFinished(() => {
     vi.restoreAllMocks();
   });
 
-  const registry = await CoordinationStore.open(
-    await StateStore.open(await scratch('witch-killed-probe-')),
+  await assert.rejects(
+    readPastDeadline('activeActivations', killedBySignal),
+    DeadlineExpired,
   );
-
-  vi.spyOn(registry, 'activeActivations').mockImplementation(
-    (_activations, options) => failedAtDeadline(options),
-  );
-
-  await assert.rejects(registry.state(Date.now() + 200), DeadlineExpired);
 });
 
 test("a ledger read keeps a later probe's own failure when an earlier probe is killed at the deadline", async (t) => {
@@ -1204,20 +1222,16 @@ test("a ledger read keeps a later probe's own failure when an earlier probe is k
     vi.restoreAllMocks();
   });
 
-  const state = await StateStore.open(await scratch('witch-killed-probe-'));
-  const registry = await CoordinationStore.open(state);
-
-  vi.spyOn(state, 'openConversations').mockImplementation(
-    (_conversations, options) => failedAtDeadline(options),
+  await assert.rejects(
+    readPastDeadline(
+      'openConversations',
+      killedBySignal,
+      Object.assign(new Error('EACCES: Could not inspect lock'), {
+        code: 'EACCES',
+      }),
+    ),
+    /EACCES/,
   );
-
-  vi.spyOn(registry, 'activeActivations').mockRejectedValue(
-    Object.assign(new Error('EACCES: Could not inspect lock'), {
-      code: 'EACCES',
-    }),
-  );
-
-  await assert.rejects(registry.state(Date.now() + 200), /EACCES/);
 });
 
 test('a ledger read keeps the failure of a probe that exited by itself as its timeout fired', async (t) => {
@@ -1225,13 +1239,12 @@ test('a ledger read keeps the failure of a probe that exited by itself as its ti
     vi.restoreAllMocks();
   });
 
-  const registry = await CoordinationStore.open(
-    await StateStore.open(await scratch('witch-killed-probe-')),
+  await assert.rejects(
+    readPastDeadline('activeActivations', {
+      killed: true,
+      code: 255,
+      signal: null,
+    }),
+    /Command failed/,
   );
-
-  vi.spyOn(registry, 'activeActivations').mockImplementation(
-    (_activations, options) => failedAtDeadline(options, 255),
-  );
-
-  await assert.rejects(registry.state(Date.now() + 200), /Command failed/);
 });
