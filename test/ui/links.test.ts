@@ -558,6 +558,9 @@ test('long runs of filename characters, and links on many lines or one, link in 
       (_, n) => `dev${n}@example.com https://example.com/${n}`,
     ).join(separator);
 
+  // linkify-it backtracks through these labels when it is given the whole run
+  const hostname = `xn--a.${'a.'.repeat(1000)}`;
+
   // minified, as an API returns it: no whitespace to cut at
   const emails = (count: number) =>
     JSON.stringify(
@@ -580,6 +583,11 @@ test('long runs of filename characters, and links on many lines or one, link in 
         ['a link with a punctuation run inside', '.', 64000],
         ['unbroken links with a scheme', 'https://example.com/a)(', 4000],
         ['unbroken links with no scheme', 'www.example.com)(', 4000],
+        [
+          'unbroken links with an unclosed bracket',
+          'https://example.com/a(',
+          4000,
+        ],
       ] as const
     ).map(
       ([name, unit, count]) =>
@@ -590,6 +598,14 @@ test('long runs of filename characters, and links on many lines or one, link in 
         ] as const,
     ),
     ['a line of JSON emails', emails(500), emails(2000)] as const,
+    ...['https://', `www.${'b.'.repeat(996)}com.`].map(
+      (start) =>
+        [
+          `a malformed hostname after ${start.slice(0, 8)}`,
+          `${start}${hostname.repeat(16)}a_`,
+          `${start}${hostname.repeat(64)}a_`,
+        ] as const,
+    ),
   ]) {
     const smallTime = fastest(small);
     const largeTime = fastest(large);
@@ -657,17 +673,55 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
       `https://example.com/${'https://example.com/a;'.repeat(200)}b.`,
       [`https://example.com/${'https://example.com/a;'.repeat(200)}b`],
     ],
-    // the inner link is the last one before the cut, and the outer one crosses it
+    // the cut falls right after `https://`, and inside `www.example.com`
     [
-      `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(100)})e end`,
-      [
-        `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(100)})e`,
-      ],
+      `${'x)('.repeat(664)}https://example.com${tail}`,
+      [`https://example.com${tail}`],
     ],
+    [
+      `${'x)('.repeat(665)}www.example.com${tail}`,
+      [`http://www.example.com${tail}`],
+    ],
+    // the outer link's parentheses hold another link, which starts before the cut and then after it
+    ...[1900, 1990].map(
+      (run) =>
+        [
+          `https://example.com/a(${'b'.repeat(run)}https://example.org/c${'d'.repeat(200)})e end`,
+          [
+            `https://example.com/a(${'b'.repeat(run)}https://example.org/c${'d'.repeat(200)})e`,
+          ],
+        ] as const,
+    ),
     // a file reference outranks the bare domain linkify-it reads it as, and still ends at the cut
     [
       `server.py/${'a/'.repeat(993)}b.ts/more.ts`,
       [`vscode://file/work/server.py/${'a/'.repeat(993)}b.ts`],
+    ],
+  ] as const) {
+    const output = linkify(text, '/work');
+
+    assert.deepEqual(
+      linkSpans(output).map((span) => span.target),
+      targets,
+    );
+
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
+test('a link longer than 8192 characters stays plain text to the end of its run, and one of exactly 8192 links whole', () => {
+  const longest = `https://example.com/${'a'.repeat(8172)}`;
+  assert.equal(longest.length, 8192);
+
+  for (const [text, targets] of [
+    [
+      `${longest} then src/main.ts`,
+      [longest, 'vscode://file/work/src/main.ts'],
+    ],
+    // the second address is in the same run, so it is not linked as if it were the first one's end
+    [
+      `${longest}a)(https://example.org/tail then src/main.ts`,
+      ['vscode://file/work/src/main.ts'],
     ],
   ] as const) {
     const output = linkify(text, '/work');

@@ -232,9 +232,12 @@ function bareLinks(text: string, cwd: string): string {
 
 interface Piece {
   text: string;
-  /** set when the piece is one link, which is not scanned again. */
-  url?: string;
+  /** set when the piece is not searched for links: the address the whole piece links to, or null to draw it as plain text. */
+  url?: string | null;
 }
+
+// the longest link drawn past the cap, about the longest request line web servers accept. wrapping repeats a link's address on every row, so its cost grows with the square of this
+const longestLink = 8192;
 
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
@@ -245,7 +248,7 @@ function pieces(text: string): Piece[] {
 
   for (let start = 0; start < text.length;) {
     let end = Math.min(start + 2000, text.length);
-    let url: string | undefined;
+    let url: Piece['url'];
 
     const after = (separator: RegExp) => {
       let cut = end;
@@ -275,6 +278,28 @@ function pieces(text: string): Piece[] {
   return result;
 }
 
+const closing: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
+
+/**
+ * whether a link that linkify-it ended at `stop`, in text read up to `read`, can be longer in the whole text.
+ * measuring a link scans up to `limit`, so this rules out the links that scan would only confirm.
+ */
+function cutShort(
+  text: string,
+  stop: number,
+  read: number,
+  limit: number,
+): boolean {
+  // punctuation is left out of a link only when nothing follows it
+  if (/^[-.,;!?]*$/.test(text.slice(stop, read))) return true;
+
+  // a bracketed part is left out when its closing bracket was not read; it holds no whitespace
+  const inside = text.slice(stop + 1, limit);
+  const close = inside.indexOf(closing[text[stop]!] ?? ' ');
+
+  return close >= 0 && !/\s/.test(inside.slice(0, close));
+}
+
 /**
  * where a piece with no boundary to cut at ends: before the first web link that runs past the cap, or after it when it starts the piece.
  * that link is measured from its start alone, since linkify-it's search of a long piece rescans it for each scheme inside.
@@ -283,12 +308,24 @@ function unbroken(
   text: string,
   start: number,
   end: number,
-): { end: number; url?: string } {
-  for (const link of urls.match(text.slice(start, end)) ?? []) {
-    if (!webLink.test(link.raw)) continue;
+): Pick<Piece, 'url'> & { end: number } {
+  // read past the cap by a scheme and the longest hostname, so a link whose start straddles the cap is still recognized
+  const read = Math.min(end + 8 + 253, text.length);
+
+  for (const link of urls.match(text.slice(start, read)) ?? []) {
+    if (start + link.index >= end) break;
 
     const from = start + link.index;
-    const rest = text.slice(from);
+    const stop = start + link.lastIndex;
+
+    if (
+      !webLink.test(link.raw) ||
+      (stop <= end && !cutShort(text, stop, read, from + longestLink))
+    )
+      continue;
+
+    // one character more than a link may have, so a longer one measures as too long
+    const rest = text.slice(from, from + longestLink + 1);
     // a `www.` link has no scheme of its own, so it is measured as the `//` form of the `http://` address linkify-it gives it
     const scheme = link.url.slice(0, -link.raw.length);
 
@@ -297,14 +334,20 @@ function unbroken(
       : link.schema.length +
         urls.testSchemaAt(rest, link.schema, link.schema.length);
 
-    const whole = rest.slice(0, length);
-    const linkEnd = from + length - sentenceEnd(whole);
+    const linkEnd = from + length - sentenceEnd(rest.slice(0, length));
 
     if (linkEnd <= end) continue;
 
-    return link.index
-      ? { end: from }
-      : { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
+    if (link.index) return { end: from };
+
+    if (length <= longestLink)
+      return { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
+
+    // too long to link whole, so the run it is in stays plain text and no part of it links to a shorter address
+    const boundary = /[\s<>"]/g;
+    boundary.lastIndex = from + length;
+
+    return { end: boundary.exec(text)?.index ?? text.length, url: null };
   }
 
   return { end };
@@ -319,9 +362,11 @@ function linked(text: string, cwd: string, target?: string) {
       ? hyperlink(buffer, target, cwd)
       : pieces(buffer)
           .map((piece) =>
-            piece.url
-              ? hyperlink(piece.text, piece.url, cwd)
-              : bareLinks(piece.text, cwd),
+            piece.url === undefined
+              ? bareLinks(piece.text, cwd)
+              : piece.url === null
+                ? piece.text
+                : hyperlink(piece.text, piece.url, cwd),
           )
           .join('');
 
