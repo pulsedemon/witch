@@ -148,9 +148,12 @@ const outside = (before = '') =>
 /**
  * runs a shell script that writes `leader.pid` last and exits, recording every group signal with its answer. the
  * script names what it leaves behind in `outside.pid` and `member.pid`. with `exits` off, the script writes
- * `leader.pid` itself and keeps running.
+ * `leader.pid` itself and keeps running. `lost` group kills are recorded and never delivered.
  */
-async function left(script: string, { timeout = 10_000, exits = true } = {}) {
+async function left(
+  script: string,
+  { timeout = 10_000, exits = true, lost = 0 } = {},
+) {
   const cwd = await scratch('witch-command-');
   const kill = process.kill.bind(process);
   const sent: [group: number, signal: unknown, answer: string][] = [];
@@ -159,6 +162,12 @@ async function left(script: string, { timeout = 10_000, exits = true } = {}) {
     .spyOn(process, 'kill')
     .mockImplementation((pid: number, signal?: string | number) => {
       if (pid >= 0) return kill(pid, signal);
+
+      if (signal === 'SIGKILL' && lost-- > 0) {
+        sent.push([-pid, signal, 'lost']);
+
+        return true;
+      }
 
       try {
         kill(pid, signal);
@@ -349,6 +358,28 @@ test('a command stopped while it runs returns though a descendant outside its gr
 
     assert.ok(command.signals().includes('SIGKILL ok'));
     assert.equal(await running(command.pid('outside')!), true);
+  } finally {
+    await command.close();
+  }
+});
+
+test('a stopped command keeps killing a group that outlives the first kill', async () => {
+  const command = await left('sleep 30 & echo $! > member.pid', { lost: 1 });
+
+  try {
+    command.abort();
+
+    await assert.rejects(within(command.run, 3000, 'the stopped command'), {
+      name: 'AbortError',
+    });
+
+    assert.deepEqual(
+      command
+        .signals()
+        .filter((signal) => signal.startsWith('SIGKILL'))
+        .slice(0, 2),
+      ['SIGKILL lost', 'SIGKILL ok'],
+    );
   } finally {
     await command.close();
   }
