@@ -358,7 +358,6 @@ test('a view while a check is reading the file queues another check, so a file c
   await writeFile(path, png(160, 80));
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
-  // conversions of the half-written file only, since an earlier test's last check can still reach this spy
   const conversions: Parameters<typeof childProcess.execFile>[] = [];
 
   t.onTestFinished(() => {
@@ -366,9 +365,14 @@ test('a view while a check is reading the file queues another check, so a file c
     syncBuiltinESMExports();
   });
 
+  const execute = childProcess.execFile;
+
   vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
-    if (readFileSync(call[1]![3]!, 'utf8') === 'half written')
-      conversions.push(call);
+    // an earlier test's last check can still reach this spy, and has to finish to remove its files
+    if (readFileSync(call[1]![3]!, 'utf8') !== 'half written')
+      return execute(...call);
+
+    conversions.push(call);
 
     return new childProcess.ChildProcess();
   });
@@ -395,7 +399,6 @@ test('a view during a reload that succeeds sends the changed file once and frees
   await writeFile(path, png(160, 80));
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
-  // conversions of the changed file only, since an earlier test's last check can still reach this spy
   const conversions: Parameters<typeof childProcess.execFile>[] = [];
 
   t.onTestFinished(() => {
@@ -403,9 +406,14 @@ test('a view during a reload that succeeds sends the changed file once and frees
     syncBuiltinESMExports();
   });
 
+  const execute = childProcess.execFile;
+
   vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
-    if (readFileSync(call[1]![3]!, 'utf8') === 'not yet a PNG')
-      conversions.push(call);
+    // an earlier test's last check can still reach this spy, and has to finish to remove its files
+    if (readFileSync(call[1]![3]!, 'utf8') !== 'not yet a PNG')
+      return execute(...call);
+
+    conversions.push(call);
 
     return new childProcess.ChildProcess();
   });
