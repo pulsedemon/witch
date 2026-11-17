@@ -288,6 +288,31 @@ test("the fixed instructions keep the checkout on an open pull request's branch"
   }
 });
 
+test("the fixed instructions file a Witch failure in Witch's tracker from a project that is not Witch's", async () => {
+  const f = await unitFixture();
+
+  try {
+    await f.coordinator.send('Initial task');
+    const context = f.a.inputs.at(-1)!.context!;
+    const paragraphs = context.split('\n\n');
+
+    const rule = paragraphs.find((paragraph) =>
+      paragraph.startsWith('When you find a concrete bug'),
+    );
+
+    assert.ok(rule, context);
+
+    assert.match(
+      rule,
+      /File it at once in Witch's own tracker, pulsedemon\/witch, without asking, whatever project the task is in and also when you work around it and continue; that is the one exception to telling the user about another project's bug/,
+    );
+
+    assert.doesNotMatch(context, /tell the user when the current repository/);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('the fixed instructions fix discovered bugs and file only blocked follow-ups', async () => {
   const f = await unitFixture();
 
@@ -371,11 +396,6 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
 
     assert.match(
       rule,
-      /If you work around it and continue, file it at once, or tell the user when the current repository is not Witch's/,
-    );
-
-    assert.match(
-      rule,
       /If a search or write is blocked, report the bug and the blocked step instead/,
     );
 
@@ -422,7 +442,7 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
 
     assert.match(
       workflow,
-      /use the pull request's repository for an audit follow-up and the current repository for a blocked bug/,
+      /use the pull request's repository for an audit follow-up, the current repository for a blocked bug and pulsedemon\/witch for a failure of Witch itself/,
     );
 
     assert.match(
