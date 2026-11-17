@@ -201,10 +201,17 @@ function parties(
   );
 }
 
+/** a caller ran out of its own time; it says nothing about what it was reading. */
+export class DeadlineExpired extends Error {
+  constructor() {
+    super('Coordination request expired.');
+  }
+}
+
 export function checkDeadline(deadline: number): number {
   const remaining = deadline - Date.now();
 
-  if (remaining <= 0) throw new Error('Coordination request expired.');
+  if (remaining <= 0) throw new DeadlineExpired();
 
   return remaining;
 }

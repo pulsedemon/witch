@@ -557,6 +557,45 @@ test("a peers request whose ledger read outlasts a tick's bounded read still ans
   await holding.promise;
   await f.registry.publish(otherPresence(f.own));
   await tick(f.a.coordination);
+  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
+  released.resolve();
+  const result = await answer;
+  assert.equal(result.kind, 'peers', JSON.stringify(result));
+});
+
+test("a peers request still answers when a tick's read gets the ledger late and expires", async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const open = f.store.openConversations.bind(f.store);
+  const holding = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+
+  vi.spyOn(f.store, 'openConversations').mockImplementation(
+    async (...args: Parameters<typeof open>) => {
+      const timeout = args[1]?.timeout;
+
+      if (timeout !== undefined && timeout > 5000) {
+        if (args[0] === undefined) await released.promise;
+        else {
+          // the request's reconciliation leaves the tick's read too little of its second
+          holding.resolve();
+          await delay(800);
+        }
+      } else if (timeout !== undefined && args[0] !== undefined)
+        await delay(400);
+
+      return open(...args);
+    },
+  );
+
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+
+  const answer = callControl(await f.a.binding(), { kind: 'peers' });
+  await holding.promise;
+  await f.registry.publish(otherPresence(f.own));
+  await tick(f.a.coordination);
+  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
   released.resolve();
   const result = await answer;
   assert.equal(result.kind, 'peers', JSON.stringify(result));
