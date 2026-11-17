@@ -7,6 +7,7 @@ import type { GitHubReviews } from '../../../src/core/review/github-reviews.js';
 import {
   unitCoordinationFixture,
   git,
+  holdLedger,
   pauseDiscovery,
 } from '../../fixtures/coordination.js';
 import { reviewSource } from '../../fixtures/github-reviews.js';
@@ -354,4 +355,36 @@ test("an ownership check given the turn's project reads no scope", async (t) => 
     reads.mock.calls.map(([directory]) => directory),
     [cwd],
   );
+});
+
+test('an ownership check answers from the standing claim while the ledger lock is held past its read', async (t) => {
+  pauseDiscovery(vi.spyOn);
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
+  const a = await f.start('A');
+  const source = reviewSource();
+  const cwd = await attach(f, a, source);
+  const claimed = await a.claim(source.pullRequest.url, 'review fixes');
+
+  if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
+
+  const { project } = await f.memory.scopePaths(cwd);
+  const release = await holdLedger(f.registry);
+
+  try {
+    assert.equal(
+      await a.coordination.reviews.owns(
+        claimed.claim.id,
+        source.pullRequest,
+        project,
+      ),
+      true,
+    );
+
+    assert.match(
+      a.coordination['failures'].get('ledger')?.message ?? '',
+      /expired/,
+    );
+  } finally {
+    await release();
+  }
 });

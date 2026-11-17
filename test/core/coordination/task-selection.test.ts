@@ -13,6 +13,7 @@ import {
 import {
   unitCoordinationFixture,
   git,
+  holdLedger,
   pauseDiscovery,
 } from '../../fixtures/coordination.js';
 import { record } from '../../fixtures/coordinator.js';
@@ -966,3 +967,34 @@ for (const active of [false, true])
     assert.deepEqual((await a.query()).ownClaim, current);
     assert.deepEqual(await f.registry.claims(), [current]);
   });
+
+test('a turn whose cleanup runs out of time ends without an error and is cleaned up on a later tick', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const ticks = pauseDiscovery(vi.spyOn);
+  const f = await unitCoordinationFixture(cleanup);
+  const a = await f.start();
+  const turn = await selectionTurn(cleanup, a);
+  await turn.select();
+  const release = await holdLedger(f.registry);
+
+  try {
+    await turn.finish();
+    assert.equal(a.coordinator.snapshot.error, undefined);
+    assert.equal(a.coordinator.snapshot.phase, 'idle');
+
+    assert.match(
+      a.coordination['failures'].get('selection')?.message ?? '',
+      /expired/,
+    );
+
+    assert.equal(a.coordination.snapshot.error, undefined);
+  } finally {
+    await release();
+  }
+
+  assert.equal((await f.registry.state()).selections.length, 1);
+  ticks[0]!();
+  await a.coordination['maintaining'];
+  assert.deepEqual((await f.registry.state()).selections, []);
+  assert.equal(a.coordination['failures'].has('selection'), false);
+});

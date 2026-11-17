@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import type { TestContext } from 'vitest';
 import { test, vi } from 'vitest';
 import { callControl } from '../../../src/persistence/control.js';
-import { CoordinationStore } from '../../../src/persistence/coordination.js';
+import {
+  CoordinationStore,
+  DeadlineExpired,
+} from '../../../src/persistence/coordination.js';
 import type { TransferField } from '../../../src/core/coordination/coordination-state.js';
 import {
   awaitTransfer,
@@ -1026,4 +1029,46 @@ test('unconfirmed automatic withdrawal reports an unknown result instead of a co
 
   const [claim] = await f.registry.claims();
   assert.deepEqual(claim?.owner, f.original.owner);
+});
+
+test('a handover leaves the owner without the claim while its ledger reads run out of time', async (t) => {
+  const { a, b, answer, registry } = await transfer(t);
+  const local = a.coordination['registry'];
+  const handOver = local.handOver.bind(local);
+  const state = vi.spyOn(local, 'state');
+  assert.ok(a.coordination.snapshot.ownClaim);
+
+  const handing = vi
+    .spyOn(local, 'handOver')
+    .mockImplementation(async (...args: Parameters<typeof handOver>) => {
+      // the tick's own read ends before the commit, so only the refresh after the handover could publish it
+      await a.coordination['refreshing']?.promise;
+      state.mockRejectedValue(new DeadlineExpired());
+
+      return handOver(...args);
+    });
+
+  try {
+    await Promise.all([b.coordination.takeTask('task:shared'), answer()]);
+
+    assert.equal(
+      (await registry.claims())[0]!.owner.conversation,
+      b.coordinator.snapshot.conversation!.id,
+    );
+
+    await until(
+      'the owner to lose its claim',
+      () => a.coordination.snapshot.ownClaim === undefined,
+    );
+
+    await until(
+      'an expired ledger read',
+      () => a.coordination['failures'].get('ledger')?.expired === true,
+    );
+
+    assert.equal(a.coordination.snapshot.error, undefined);
+  } finally {
+    handing.mockRestore();
+    state.mockRestore();
+  }
 });
