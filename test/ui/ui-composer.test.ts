@@ -133,6 +133,24 @@ test('Tab inserts a file into the middle of a draft', async () => {
   }
 });
 
+test('Tab escapes the characters that would end a file name in a command', async () => {
+  const { ui, calls } = await launched({}, [`docs/My "don't".md`]);
+
+  try {
+    ui.stdin.write('/review @do');
+    await until('the file list', () => ui.text().includes('@docs/My'));
+    ui.stdin.write(TAB);
+
+    await until('the inserted path', () =>
+      ui.text().includes(`┃ /review @docs/My\\ \\"don\\'t\\".md`),
+    );
+
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('Enter inserts a file without sending', async () => {
   const { ui, calls } = await launched({}, ['src/app.ts']);
 
