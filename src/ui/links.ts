@@ -273,7 +273,8 @@ function pieces(text: string): Piece[] {
     };
 
     if (end < text.length) {
-      const boundary = [/\n/, /(?!\u202f)[\s<>]/, /"/]
+      // U+FEFF is whitespace to JavaScript and no separator to linkify-it, which reads it inside a link
+      const boundary = [/\n/, /(?![\u202f\ufeff])[\s<>]/, /"/]
         .map(after)
         .find((cut) => cut > start);
 
@@ -353,11 +354,15 @@ function unbroken(
 
   if (backtracks(window)) return plainRun(text, end);
 
+  let searched = 0;
+
   for (const link of urls.match(window) ?? []) {
     const from = start + link.index;
     const stop = start + link.lastIndex;
 
     if (from >= end) break;
+
+    searched = link.lastIndex;
 
     if (
       !webLink.test(link.raw) ||
@@ -402,7 +407,17 @@ function unbroken(
       return { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
   }
 
-  return { end };
+  // linkify-it finds no link where the read ends inside a hostname, so a web link that starts before the cap and shows no path stays plain
+  const unfinished = [
+    ...window.slice(searched, end - start).matchAll(/https?:\/\/|www\./gi),
+  ].at(-1);
+
+  return unfinished &&
+    !/[/?#]/.test(
+      window.slice(searched + unfinished.index + unfinished[0].length),
+    )
+    ? plainRun(text, end)
+    : { end };
 }
 
 function linked(text: string, cwd: string, target?: string) {

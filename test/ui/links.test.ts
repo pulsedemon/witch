@@ -681,7 +681,7 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
           ],
         ] as const,
     ),
-    // the hostname is still running where the read past the cut ends, after a user name
+    // a user name and a 244-character hostname put the path past the first 261 characters
     [
       `${'x)('.repeat(659)}https://${'u'.repeat(50)}@${`${'h'.repeat(60)}.`.repeat(4)}com/${'p'.repeat(3000)}`,
       [
@@ -695,7 +695,11 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
         `https://${'u'.repeat(43)}:999999@${`${'h'.repeat(60)}.`.repeat(3)}${'h'.repeat(29)}-${'h'.repeat(30)}.com/${'p'.repeat(3000)}`,
       ],
     ],
-    // U+FEFF is whitespace to JavaScript and not a separator to linkify-it
+    // U+FEFF is whitespace to JavaScript and not a separator to linkify-it, before the cut and after it
+    [
+      `https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`,
+      [`https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`],
+    ],
     [
       `https://example.com/a(${'b'.repeat(3000)}\uFEFFc)`,
       [`https://example.com/a(${'b'.repeat(3000)}\uFEFFc)`],
@@ -736,6 +740,8 @@ test('hostnames with many `xn--` labels are left unlinked instead of read both w
     `https://a${'a.'.repeat(1200)}${`xn--a.${'b.'.repeat(90)}`.repeat(18)}b_`,
     // ten labels are searched, in a hostname longer than any real one
     `https://${'b.'.repeat(700)}${'xn--a.'.repeat(10)}${'b.'.repeat(2800)}b_`,
+    // soft hyphens stretch a hostname until the read ends on a hyphen inside it, where linkify-it finds no link
+    `https://${`a${'\u00AD'.repeat(59)}.`.repeat(37)}a${'\u00AD'.repeat(50)}b-b.com/download?token=${'x'.repeat(1000)}`,
     // more than ten labels only once the read past the cut is counted
     `https://example.com/${'a'.repeat(1950)}${'xn--'.repeat(11)}${'b'.repeat(1000)}`,
   ])
@@ -758,7 +764,7 @@ test('a link longer than 8192 characters stays plain text to the end of its run,
       `${longest} then src/main.ts`,
       [longest, 'vscode://file/work/src/main.ts'],
     ],
-    // measuring stops after 8192 characters, where the query or the closing bracket has not been read
+    // measuring reads 8193 characters, which stops inside the query and before the closing bracket
     [
       `${longest.slice(0, -1)}?token=x then src/main.ts`,
       ['vscode://file/work/src/main.ts'],
