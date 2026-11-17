@@ -235,7 +235,7 @@ async function peerTurnIn(
 
   // named with its cause: one that broke after launch missed the launch's sweep
   if (broken)
-    return `${broken.file} can't be read: ${broken.error.split('\n')[0]}`;
+    return `${broken.file} can't be read: ${broken.error.replace(/\s+/g, ' ')}`;
 
   const top = await topLevel(gitIn(cwd, signal));
 

@@ -634,7 +634,7 @@ test('a merge held for 15 s says why, and each new reason of the same hold is sa
   await publish({ phase: 'idle', queue: ['q'] });
   assert.equal(notices.at(-1), waits('a prompt is queued'));
   await publish({ error: 'boom\nmore' });
-  assert.equal(notices.at(-1), waits('an error is showing: boom'));
+  assert.equal(notices.at(-1), waits('an error is showing: boom more'));
   await publishRepository(status(pr('MERGED', 'c1'), { modified: 1 }));
   await publish({ error: undefined, queue: [] });
   assert.equal(notices.at(-1), waits('the checkout has uncommitted changes'));

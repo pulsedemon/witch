@@ -448,7 +448,7 @@ test('a merge held back for 15 s saves why in the conversation history', async (
     const tick = () => new Promise((resolve) => setImmediate(resolve));
 
     const waiting =
-      '#7 merged, but its cleanup is waiting: an error is showing: boom.';
+      '#7 merged, but its cleanup is waiting: an error is showing: boom more.';
 
     await tick();
     vi.advanceTimersByTime(14_999);
