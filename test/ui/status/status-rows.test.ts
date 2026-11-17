@@ -320,7 +320,7 @@ test('a merged pull request says so in magenta, a closed one plainly, checks get
   );
 });
 
-test('a followed pull request shows when the branch has none of its own', () => {
+test('a followed pull request shows only once the branch is read as having none of its own', () => {
   const pullRequest = (number: number, state: 'OPEN' | 'MERGED' = 'OPEN') => ({
     number,
     url: `https://x.test/${number}`,
@@ -337,13 +337,32 @@ test('a followed pull request shows when the branch has none of its own', () => 
         {
           usage: {},
           cwd: '/w',
-          repository: repositoryRead({ branch: 'main', ...fields }),
+          repository: repositoryRead({
+            branch: 'main',
+            pullRequestAbsent: true,
+            ...fields,
+          }),
         },
         now,
       )[1]!,
     );
 
   assert.ok(line({ followed: [pullRequest(3)] }).includes('| main | PR#3 ✓ |'));
+
+  // a pending read and a failed one both leave the branch's own pull request unknown
+  for (const unread of [{}, { pullRequestFailure: 'HTTP 502' }]) {
+    const repository = repositoryRead({
+      branch: 'main',
+      followed: [pullRequest(3)],
+      ...unread,
+    });
+
+    assert.ok(
+      stripAnsi(
+        statusLines({ usage: {}, cwd: '/w', repository }, now)[1]!,
+      ).endsWith('| main | 0+/0-'),
+    );
+  }
 
   // the first is the one whose branch was left most recently
   assert.ok(

@@ -170,15 +170,18 @@ function git(repository: Repository): string {
 }
 
 /**
- * a conflict outlasts a failed read of its pull request, which shows it without checks. a branch with neither shows
- * the pull request followed for the branch the checkout left most recently.
+ * a conflict outlasts a failed read of its pull request, which shows it without checks. a branch read as having no
+ * pull request shows the one followed for the branch the checkout left most recently.
  */
 function pullRequest({
   pullRequest: own,
+  pullRequestAbsent,
   conflict,
   followed,
 }: Repository): string | undefined {
-  const request = own ?? (conflict ? undefined : followed?.[0]);
+  const request =
+    own ?? (pullRequestAbsent && !conflict ? followed?.[0] : undefined);
+
   const shown = request ?? conflict?.pullRequest;
 
   if (!shown) return;
