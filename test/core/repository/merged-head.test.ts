@@ -1,61 +1,29 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { chmod } from 'node:fs/promises';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { test } from 'vitest';
 import { cleanUpMerge } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import { quote } from '../../../src/shell.js';
 import {
+  answering,
   branches,
   idle,
   merge,
   merged,
   pullRequest,
+  url,
+  withGh,
+  withGit,
   write,
 } from '../../fixtures/merged.js';
 import { git } from '../../fixtures/git.js';
+import { configureGitEnvironment } from '../../fixtures/merged-environment.js';
 import { exists, until, within } from '../../fixtures/within.js';
 
-// a developer's own git config would take part in the fixtures' switches and fetches
-process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-process.env.GIT_CONFIG_NOSYSTEM = '1';
-const execute = promisify(execFile);
+configureGitEnvironment();
 const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
-const url = 'https://github.test/o/r/pull/7';
-
-const lookup = [
-  'api graphql --hostname github.test',
-  '-f query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { deleteBranchOnMerge defaultBranchRef { name } pullRequest(number: $number) { isCrossRepository } } }',
-  '-f owner=o -f name=r -F number=7',
-  '--jq .data.repository | .deleteBranchOnMerge, .defaultBranchRef.name, .pullRequest.isCrossRepository',
-].join(' ');
-
-/** a `gh` script that prints `settings`, the lines of deleteBranchOnMerge, the default branch and isCrossRepository. */
-const answering = (settings: string) =>
-  `[ "$*" = ${quote(lookup)} ] || exit 1\nprintf ${quote(settings)}`;
-
 const failing = "echo 'HTTP 502' >&2\nexit 1";
-
-/** runs `body` with `script` as the `gh` on PATH. */
-async function withGh<T>(
-  root: string,
-  script: string,
-  body: () => Promise<T>,
-): Promise<T> {
-  const bin = join(root, 'bin');
-  await write(join(bin, 'gh'), `#!/bin/sh\n${script}\n`);
-  await chmod(join(bin, 'gh'), 0o755);
-  const previousPath = process.env.PATH;
-  process.env.PATH = `${bin}:${previousPath}`;
-
-  try {
-    return await body();
-  } finally {
-    process.env.PATH = previousPath;
-  }
-}
 
 test('a head branch still on its remote once GitHub would have deleted it stays', async () => {
   const { checkout, other, tip } = await merged();
@@ -87,7 +55,7 @@ test("a head branch GitHub deletes after the first fetch goes, even past the del
     `#!/bin/sh\nif [ -e '${fetched}' ]; then git -C '${origin}' update-ref -d refs/heads/feat/x; fi\ntouch '${fetched}'\nexec git upload-pack "$@"\n`,
   );
 
-  await execute('chmod', ['+x', pack]);
+  await chmod(pack, 0o755);
   await git(checkout, 'config', 'remote.origin.uploadpack', pack);
   const mergedAt = new Date(Date.now() - 60_000).toISOString();
 
@@ -407,37 +375,6 @@ test('retained pruning refreshes the head remote even when the base uses another
   assert.equal(await git(origin, 'rev-parse', 'feat/old'), old);
   assert.ok(typeof result === 'object' && result.cleaned);
 });
-
-async function withGit<T>(
-  root: string,
-  script: string,
-  body: () => Promise<T>,
-): Promise<T> {
-  const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-  const previousPath = process.env.PATH;
-  const bin = join(root, 'bin');
-
-  await write(
-    join(bin, 'git'),
-    `#!${process.execPath}
-const { spawnSync } = require('node:child_process');
-const { existsSync, readFileSync, writeFileSync } = require('node:fs');
-const args = process.argv.slice(2);
-const run = (args, stdio = 'inherit') => spawnSync(${JSON.stringify(realGit)}, args, { stdio });
-${script}
-process.exit(run(args).status ?? 1);
-`,
-  );
-
-  await chmod(join(bin, 'git'), 0o755);
-  process.env.PATH = `${bin}:${previousPath}`;
-
-  try {
-    return await body();
-  } finally {
-    process.env.PATH = previousPath;
-  }
-}
 
 test('a retained tip changed immediately before deletion is preserved with its config', async () => {
   const { root, checkout, other, tip } = await merged();

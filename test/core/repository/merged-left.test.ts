@@ -9,11 +9,15 @@ import { cleanUpMerge } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import { quote } from '../../../src/shell.js';
 import {
+  answering,
   branches,
   idle,
   merge,
   merged,
   pullRequest,
+  url,
+  withGh,
+  withGit,
   write,
 } from '../../fixtures/merged.js';
 import { git } from '../../fixtures/git.js';
@@ -72,36 +76,9 @@ async function gone(checkout: string, name: string) {
   await git(checkout, 'push', 'origin', '--delete', name);
 }
 
-/** runs `body` with a node `git` first on PATH that runs `script` before passing the command on. */
-async function withGit<T>(
-  root: string,
-  script: string,
-  body: () => Promise<T>,
-): Promise<T> {
-  const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-  const previousPath = process.env.PATH;
-  const bin = join(root, 'bin');
-
-  await write(
-    join(bin, 'git'),
-    `#!${process.execPath}
-const { spawnSync } = require('node:child_process');
-const args = process.argv.slice(2);
-const run = (args, stdio = 'inherit') => spawnSync(${JSON.stringify(realGit)}, args, { stdio });
-${script}
-process.exit(run(args).status ?? 1);
-`,
-  );
-
-  await chmod(join(bin, 'git'), 0o755);
-  process.env.PATH = `${bin}:${previousPath}`;
-
-  try {
-    return await body();
-  } finally {
-    process.env.PATH = previousPath;
-  }
-}
+/** a `withGit` script that fails the one command whose arguments are exactly `command`. */
+const failing = (command: string) =>
+  `if (args.join(' ') === ${JSON.stringify(command)}) { process.stderr.write('fatal: injected\\n'); process.exit(128); }`;
 
 /** an `upload-pack` that touches `marker` and sleeps on the `nth` fetch from `origin`. */
 async function slowFetch(root: string, checkout: string, nth: number) {
@@ -180,6 +157,33 @@ test('a pull request that merges while its checkout sits on the base is cleaned 
   );
 
   assert.equal(await exists(join(plans(checkout), 'x.md')), false);
+  await noConfig(checkout);
+});
+
+test('a pull request that merges while its checkout sits on the base deletes the branch in a repository that keeps merged heads', async () => {
+  const { root, origin, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x', true);
+  await git(checkout, 'switch', 'main');
+
+  assert.deepEqual(
+    await withGh(root, answering('false\nmain\nfalse\n'), () =>
+      cleanUpMerge(checkout, { ...pullRequest(tip), url }, idle),
+    ),
+    {
+      text: '#7 merged: stayed on main and pulled, deleted branch feat/x.',
+      cleaned: true,
+    },
+  );
+
+  // the remote copy is still there, so only the retention lookup let the branch go
+  assert.equal(await git(origin, 'rev-parse', 'feat/x'), tip);
+  assert.deepEqual(await branches(checkout), ['main']);
+
+  assert.equal(
+    await git(checkout, 'rev-parse', 'main'),
+    await git(other, 'rev-parse', 'HEAD'),
+  );
+
   await noConfig(checkout);
 });
 
@@ -506,6 +510,98 @@ test('a modified tracked file on the base stops the cleanup before it deletes an
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
+test('a failed deletion off the merged branch says the branch stays, and leaves it with its config', async () => {
+  const { root, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(checkout, 'switch', '-c', 'feat/y', 'main');
+
+  await assert.rejects(
+    withGit(root, failing(`update-ref -d refs/heads/feat/x ${tip}`), () =>
+      cleanUpMerge(checkout, pullRequest(tip), idle),
+    ),
+    {
+      message: `#7 merged: left feat/y checked out, but feat/x wasn't deleted: Command failed: git update-ref -d refs/heads/feat/x ${tip}\nfatal: injected\n`,
+    },
+  );
+
+  assert.equal(await git(checkout, 'rev-parse', 'feat/x'), tip);
+
+  assert.equal(
+    await git(checkout, 'config', 'branch.feat/x.merge'),
+    'refs/heads/feat/x',
+  );
+});
+
+test('a run resumed after the deletion that then fails says the branch was deleted', async () => {
+  const { root, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(checkout, 'switch', '-c', 'feat/y', 'main');
+  await git(checkout, 'branch', '-D', 'feat/x');
+
+  await assert.rejects(
+    withGit(
+      root,
+      failing(
+        '-c core.fsmonitor=false --no-optional-locks status --porcelain=v2 --branch',
+      ),
+      () =>
+        cleanUpMerge(checkout, pullRequest(tip), idle, {
+          progress: { deleted: ['feat/x'] },
+        }),
+    ),
+    {
+      message:
+        '#7 merged and branch feat/x was deleted, but the rest of its cleanup failed: Command failed: git -c core.fsmonitor=false --no-optional-locks status --porcelain=v2 --branch\nfatal: injected',
+    },
+  );
+});
+
+test("a base that can't be read after the fast-forward says what the cleanup did before it", async () => {
+  const { root, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(checkout, 'switch', 'main');
+  // gone already, so the sentence is the one that says whether the base was pulled
+  await git(checkout, 'branch', '-D', 'feat/x');
+
+  await assert.rejects(
+    withGit(root, failing('rev-parse --verify --quiet refs/heads/main'), () =>
+      cleanUpMerge(checkout, pullRequest(tip), idle),
+    ),
+    {
+      message:
+        "#7 merged: stayed on main and pulled. feat/x was already gone, but main couldn't be read: Command failed: git rev-parse --verify --quiet refs/heads/main\nfatal: injected",
+    },
+  );
+
+  assert.equal(
+    await git(checkout, 'rev-parse', 'main'),
+    await git(other, 'rev-parse', 'HEAD'),
+  );
+});
+
+test("a branch config that can't be read after the deletion says the branch was deleted, and leaves the config", async () => {
+  const { root, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(checkout, 'switch', 'main');
+
+  await assert.rejects(
+    withGit(root, failing('config --get-regexp ^branch\\.feat/x\\.'), () =>
+      cleanUpMerge(checkout, pullRequest(tip), idle),
+    ),
+    {
+      message:
+        '#7 merged: stayed on main and deleted branch feat/x, but could not read its config: Command failed: git config --get-regexp ^branch\\.feat/x\\.\nfatal: injected\n',
+    },
+  );
+
+  assert.deepEqual(await branches(checkout), ['main']);
+
+  assert.equal(
+    await git(checkout, 'config', 'branch.feat/x.merge'),
+    'refs/heads/feat/x',
+  );
+});
+
 test('a branch that is already gone still loses its plans, and the base is still brought up to date', async () => {
   for (const pulled of [false, true]) {
     const { checkout, other, tip } = await merged();
@@ -723,6 +819,7 @@ test('a cleanup interrupted off the merged branch before the deletion ends as th
   );
 
   assert.equal(await git(checkout, 'rev-parse', 'feat/x'), tip);
+  assert.equal(progress.left, 'elsewhere');
   await git(checkout, 'switch', 'feat/x');
 
   assert.deepEqual(
@@ -732,6 +829,9 @@ test('a cleanup interrupted off the merged branch before the deletion ends as th
       cleaned: true,
     },
   );
+
+  // a stale one would have an unconfirmed on-branch run name a left run's steps
+  assert.equal(progress.left, undefined);
 });
 
 for (const back of [false, true])
@@ -754,7 +854,7 @@ for (const back of [false, true])
       `
 if (args[0] === 'rev-parse' && args.at(-1).endsWith('@{upstream}')) {
   if (run(['switch', 'feat/y'], 'pipe').status) process.exit(1);
-  require('node:fs').writeFileSync(${JSON.stringify(switched)}, '');
+  writeFileSync(${JSON.stringify(switched)}, '');
   ${
     back
       ? `const result = run(args, 'pipe');
