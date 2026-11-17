@@ -301,6 +301,8 @@ const closing: Record<string, string> = {
 const longestAuthority = 8 + 51 + 253 + 6;
 // whether a link's path, or its end, comes within that length of its scheme
 const authority = new RegExp(`^[^/?#]{0,${longestAuthority}}(?:[/?#]|$)`);
+// the characters linkify-it reads no link across. `\s` is not the same set: it has U+FEFF, which a link's paired part can hold
+const separator = /[\p{Z}\p{Cc}]/u;
 // linkify-it leaves this punctuation out of a link only when nothing follows it
 const dangling = /^[-.,;!?]*$/;
 
@@ -320,16 +322,16 @@ function cutShort(
 
   if (!closer) return false;
 
-  // a paired part holds no whitespace, so one that meets whitespace before its closing end is not part of the link
+  // a paired part holds no separator, so one that meets a separator before its closing end is not part of the link
   const inside = text.slice(stop + 1, limit);
   const close = inside.indexOf(closer);
 
-  return !/\s/.test(close < 0 ? inside : inside.slice(0, close));
+  return !separator.test(close < 0 ? inside : inside.slice(0, close));
 }
 
-/** the piece as plain text to the next whitespace after `at`, which is the one thing linkify-it reads no link across. */
+/** the piece as plain text to the next separator after `at`. */
 function plainRun(text: string, at: number): { end: number; url: null } {
-  const boundary = /\s/g;
+  const boundary = new RegExp(separator, 'gu');
   boundary.lastIndex = at;
 
   return { end: boundary.exec(text)?.index ?? text.length, url: null };

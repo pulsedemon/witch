@@ -695,6 +695,11 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
         `https://${'u'.repeat(43)}:999999@${`${'h'.repeat(60)}.`.repeat(3)}${'h'.repeat(29)}-${'h'.repeat(30)}.com/${'p'.repeat(3000)}`,
       ],
     ],
+    // U+FEFF is whitespace to JavaScript and not a separator to linkify-it
+    [
+      `https://example.com/a(${'b'.repeat(3000)}\uFEFFc)`,
+      [`https://example.com/a(${'b'.repeat(3000)}\uFEFFc)`],
+    ],
     // the closing apostrophe is past what is read
     [
       `https://example.com/a'/${'b'.repeat(3000)}'end`,
