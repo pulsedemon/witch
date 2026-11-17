@@ -107,6 +107,7 @@ const held = async () => {
 // `spell-reads` lists one spell, `a`, which its turns cast by reading its SKILL.md
 const spellReads = [mode, familiar].includes('spell-reads');
 const spellPath = join(process.cwd(), '.agents', 'skills', 'a', 'SKILL.md');
+const skillErrors = mode === 'skill-errors';
 
 if (spellReads) {
   mkdirSync(join(spellPath, '..', 'scripts'), { recursive: true });
@@ -538,7 +539,10 @@ for await (const line of lines) {
       `${JSON.stringify(request.method)}\n`,
     );
 
-  if (request.method === 'skills/list' && familiar === 'skills-fail') {
+  if (
+    request.method === 'skills/list' &&
+    [mode, familiar].includes('skills-fail')
+  ) {
     send({
       id: request.id,
       error: { code: -32603, message: 'skills unavailable' },
@@ -568,7 +572,14 @@ for await (const line of lines) {
       data: [
         {
           cwd: process.cwd(),
-          errors: [],
+          errors: skillErrors
+            ? [
+                {
+                  path: '/skills/broken/SKILL.md',
+                  message: 'missing YAML frontmatter delimited by ---',
+                },
+              ]
+            : [],
           skills: [
             skill('review', {
               description: 'review description',

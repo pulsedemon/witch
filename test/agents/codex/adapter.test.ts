@@ -232,6 +232,72 @@ test('skills keep the first enabled entry per name and prefer its interface desc
   }
 });
 
+test('a skill that fails to load posts a transient notice and the rest still list', async () => {
+  const events: AgentEvent[] = [];
+  const changed = Promise.withResolvers<AgentEvent>();
+
+  const { session, cwd } = await fixture(
+    (event) => {
+      events.push(event);
+
+      if (event.type === 'skills') changed.resolve(event);
+    },
+    { mode: 'skill-errors' },
+  );
+
+  const notices = () => events.filter(({ type }) => type === 'notice');
+
+  const expected = {
+    type: 'notice',
+    text: "Can't load spell /skills/broken/SKILL.md: missing YAML frontmatter delimited by ---",
+    transient: true,
+  };
+
+  try {
+    assert.deepEqual(
+      (await session.skills()).map(({ name }) => name),
+      ['review', 'legacy', 'bare'],
+    );
+
+    assert.deepEqual(notices(), [expected]);
+    assert.equal((await session.send('add skill')).status, 'completed');
+    const event = await within(changed.promise, 2000, 'skills change');
+
+    assert.deepEqual(
+      event.type === 'skills' && event.skills.map(({ name }) => name),
+      ['review', 'legacy', 'bare', 'later'],
+    );
+
+    assert.deepEqual(notices(), [expected, expected]);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+test('a skill refresh that fails posts a transient notice', async () => {
+  const notice = Promise.withResolvers<AgentEvent>();
+
+  const { session, cwd } = await fixture(
+    (event) => {
+      if (event.type === 'notice') notice.resolve(event);
+    },
+    { mode: 'skills-fail' },
+  );
+
+  try {
+    // skills() rejects in this mode, so the refresh is the only path that posts
+    assert.equal((await session.send('add skill')).status, 'completed');
+
+    assert.deepEqual(await within(notice.promise, 2000, 'refresh notice'), {
+      type: 'notice',
+      text: 'skills unavailable',
+      transient: true,
+    });
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test('a skill send names the first listed path, and a plain send names none', async () => {
   const { session, cwd } = await fixture();
 
