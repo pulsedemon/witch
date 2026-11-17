@@ -476,6 +476,41 @@ test('a queued answer whose last write fails at close fails the close', async (t
   assert.equal((await stored(f, request)).answer, undefined);
 });
 
+test('a queued answer whose last write runs out of time at close is dropped without failing the close', async (t) => {
+  const { a, b, claim, f } = await owners(t.onTestFinished);
+
+  vi.spyOn(b.coordination['registry'], 'answerPeers')
+    .mockRejectedValueOnce(new DeadlineExpired())
+    .mockRejectedValueOnce(new DeadlineExpired());
+
+  const request = await ask(a, claim, 'Which port?');
+  await refreshed(b);
+  await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+  await b.coordinator.close();
+  assert.equal((await stored(f, request)).answer, undefined);
+});
+
+test('a queued answer whose write fails during /clear is recorded on a later tick', async (t) => {
+  const { a, b, claim, f, refreshes } = await owners(t.onTestFinished);
+
+  vi.spyOn(b.coordination['registry'], 'answerPeers')
+    .mockRejectedValueOnce(new DeadlineExpired())
+    .mockRejectedValueOnce(new Error('disk full'));
+
+  const request = await ask(a, claim, 'Which port?');
+  await refreshed(b);
+  await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+  await b.coordinator.clear();
+  assert.equal((await stored(f, request)).answer, undefined);
+
+  for (const tick of refreshes) tick();
+
+  await until(
+    'recorded answer',
+    async () => (await stored(f, request)).answer !== undefined,
+  );
+});
+
 test('a failed turn cleanup still removes the request file', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
 
