@@ -990,6 +990,9 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
         ]),
         supersedes: ['frame-text'],
       },
+      assistant('frame-dropped', 'dropped', [
+        { type: 'text', text: 'dropped partial' },
+      ]),
       assistant('frame-stitched', 'stitched', [
         { type: 'text', text: 'stitched partial' },
       ]),
@@ -1011,6 +1014,7 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
           'frame-text',
           'frame-tool',
           'frame-result',
+          'frame-dropped',
           'frame-stitched',
         ],
       }),
@@ -1019,7 +1023,7 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
     // the second tool goes by its result's frame alone, and both replacements' text stays
     assert.deepEqual(retracted(), [
       ['refused'],
-      ['refused-tool', 'second-tool'],
+      ['refused-tool', 'second-tool', 'dropped'],
     ]);
 
     assert.deepEqual(models(), [...before, 'claude-fallback']);
@@ -1046,6 +1050,8 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
     const outcome = await within(f.turn, 2000, 'failed result');
     assert.equal(outcome.status, 'failed');
     assert.doesNotMatch(outcome.text, /refused partial/);
+    // nothing replaced this one, so only its retraction takes it out of the result
+    assert.doesNotMatch(outcome.text, /dropped partial/);
     assert.match(outcome.text, /replacement/);
     assert.match(outcome.text, /stitched whole/);
   } finally {
