@@ -199,7 +199,7 @@ function webMatches(
 
   if (!matches.some((match) => match.text.includes('"'))) return matches;
 
-  // splitting moves no other link: linkify-it treats a quote beside a link like the start or end of its input
+  // splitting moves no other drawn link: a segment's end drops sentence punctuation that `sentenceEnd` trims before a quote
   const result: ReturnType<typeof webMatches> = [];
   let start = 0;
 
