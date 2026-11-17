@@ -125,6 +125,31 @@ for (const [choice, keys, effort, outcome] of [
     }
   });
 
+test('/model then Enter, an effort and Enter in one read select that effort', async () => {
+  const { app, calls } = fake({
+    models: [
+      { agent: 'a', id: 'm', label: 'Model M', efforts: ['low', 'high'] },
+    ],
+  });
+
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+
+  try {
+    await delay(60);
+    await openCommand(ui, '/model', 'Model M');
+    await delay(30);
+    ui.stdin.write(`${ENTER}high${ENTER}`);
+    await until('the selection', () => calls.length === 2);
+
+    assert.deepEqual(calls, [
+      ['refreshModels'],
+      ['selectModel', { agent: 'a', id: 'm', effort: 'high' }],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const [choice, keys, outcome] of [
   ['1M', ENTER, 'selects its 1M form'],
   ['Keep', `${DOWN}${ENTER}`, 'keeps the model'],

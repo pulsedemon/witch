@@ -89,6 +89,8 @@ export function useCommandViews({
   );
 
   const pickerInput = useRef<InputHandle>(null);
+  /** set for the rest of the read a picker choice came in, while the chosen command may still be opening its view. */
+  const chosenInRead = useRef(false);
 
   /** an exact ID goes first, so Enter never picks a longer ID that contains it. */
   const filter = (entries: Choice[], text: string) =>
@@ -162,7 +164,14 @@ export function useCommandViews({
 
         // a nested picker owns the visible wait while this action still awaits its result
         pickerWait.current = undefined;
-        setView({ kind: 'chat' });
+        chosenInRead.current = true;
+
+        void Promise.resolve().then(() => {
+          chosenInRead.current = false;
+        });
+
+        // chat renders before the rest of Enter's read, so the keys typed after the choice reach the composer
+        flushSync(() => setView({ kind: 'chat' }));
 
         void (async () => {
           try {
@@ -172,6 +181,9 @@ export function useCommandViews({
             waiting.resolve(false);
           }
         })();
+
+        // a picker the choice opened at once takes those keys instead
+        if (viewRef.current.kind === 'picker') flushSync(() => {});
       },
     });
 
@@ -491,6 +503,7 @@ export function useCommandViews({
     pageScroll,
     setPageScroll,
     pickerInput,
+    chosenInRead,
     choices,
     selected,
     changeQuery,

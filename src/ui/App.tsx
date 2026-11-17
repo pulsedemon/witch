@@ -693,6 +693,9 @@ export function App({
 
   /** Enter runs the selected command or skill, and inserts a file without sending; a send starts browsing again at the newest. */
   const submitComposer = (text: string) => {
+    // the Enter that follows a picker choice in one read was typed before the chosen command's view could open
+    if (commandViews.chosenInRead.current) return false;
+
     const open = liveListFor(bufferRef.current);
 
     if (open?.kind === 'file') {
