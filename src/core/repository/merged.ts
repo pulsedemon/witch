@@ -67,6 +67,8 @@ export interface MergeCleanup {
   left?: 'base' | 'elsewhere';
   /** the base's commit before a cleanup off the merged branch first fast-forwarded it. */
   baseHead?: string;
+  /** why the last attempt deferred, for the watch's notice. */
+  deferred?: string;
 }
 
 export type CleanupResult = boolean | 'changed' | 'interrupted';
@@ -91,13 +93,21 @@ export async function runMergeCleanup(
     notice(text: string): void;
   },
 ): Promise<CleanupResult> {
+  delete progress.deferred;
+
   try {
     const reported = progress.result;
 
     const outcome = await cleanUpMerge(
       cwd,
       pullRequest,
-      () => peerTurnIn(store, id, cwd, signal),
+      async () => {
+        const peer = await peerTurnIn(store, id, cwd, signal);
+
+        if (peer) progress.deferred = peer;
+
+        return !!peer;
+      },
       { signal, progress },
     );
 
@@ -132,7 +142,18 @@ export async function runMergeCleanup(
 
     return acted;
   } catch (error) {
-    if (error !== signal.reason) throw error;
+    if (error !== signal.reason) {
+      const message = errorMessage(error).trim();
+
+      // the cleanup's and the rebuild's own sentences already say what failed
+      notice(
+        /^(#\d+ merged|Witch's checkout at|Another Witch)/.test(message)
+          ? message
+          : `#${pullRequest.number} merged, but its cleanup failed: ${message}`,
+      );
+
+      throw error;
+    }
 
     notice('Merge cleanup interrupted.');
 
@@ -202,17 +223,19 @@ interface InstallProgress {
 
 const topLevel = (git: Git) => git('rev-parse', '--show-toplevel');
 
-/** whether another conversation's turn runs in `cwd`'s checkout, or a record that could be one is unreadable. */
+/** why another conversation holds `cwd`'s checkout, or nothing: its turn runs there, or a record that could be one is unreadable. */
 async function peerTurnIn(
   store: StateStore,
   id: string,
   cwd: string,
   signal?: AbortSignal,
-): Promise<boolean> {
+): Promise<string | undefined> {
   const { records, unreadable } = await store.records();
+  const [broken] = unreadable;
 
-  // the launch's sweep names it
-  if (unreadable.length) return true;
+  // named with its cause: one that broke after launch missed the launch's sweep
+  if (broken)
+    return `${broken.file} can't be read: ${broken.error.replace(/\s+/g, ' ')}`;
 
   const top = await topLevel(gitIn(cwd, signal));
 
@@ -224,9 +247,9 @@ async function peerTurnIn(
       record.process &&
       (await runs(record.process))
     )
-      return true;
+      return 'another Witch conversation has a turn running in this checkout';
 
-  return false;
+  return undefined;
 }
 
 /** a Git config value, or '' when it's unset, which Git reports with exit 1. any other failure throws. */
@@ -375,7 +398,11 @@ export async function cleanUpMerge(
     );
   });
 
-  if (!lock) return undefined;
+  if (!lock) {
+    progress.deferred = 'another Witch is updating this checkout';
+
+    return undefined;
+  }
 
   try {
     const onBranch =
