@@ -629,7 +629,7 @@ export class SessionCoordination {
     void this.flushQueuedWrites();
   }
 
-  /** runs while closing too, without admission, so a resume or answer made just before /restart is stored. */
+  /** runs while closing too, without admission, so a resume or answer made just before /restart gets one last attempt. */
   private flushQueuedWrites(): Promise<void> {
     if (!this.queuedWrites.length) return Promise.resolve();
 
