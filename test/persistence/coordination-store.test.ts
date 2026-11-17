@@ -19,6 +19,7 @@ import type {
 import {
   ClaimConflict,
   CoordinationStore,
+  DeadlineExpired,
 } from '../../src/persistence/coordination.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { entry, pauseStatuses } from '../../src/core/coordination/pauses.js';
@@ -1165,4 +1166,47 @@ test('pause records track each recipient and replay only their own retry', async
 
   assert.equal((await store.pauses('i')).length, 5);
   assert.deepEqual(await store.pauses('other'), []);
+});
+
+/** a ledger read whose activation probe is killed at the read's deadline, as execFile reports it. */
+async function killedProbe() {
+  const state = await StateStore.open(await scratch('witch-killed-probe-'));
+  const registry = await CoordinationStore.open(state);
+
+  vi.spyOn(registry, 'activeActivations').mockImplementation(
+    async (_activations, options) => {
+      await delay((options?.timeout ?? 0) + 20);
+
+      throw Object.assign(new Error('Command failed: /usr/bin/perl'), {
+        killed: true,
+      });
+    },
+  );
+
+  return { state, registry };
+}
+
+test('a ledger read whose probe is killed at its deadline reports the deadline', async (t) => {
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+
+  const { registry } = await killedProbe();
+  await assert.rejects(registry.state(Date.now() + 200), DeadlineExpired);
+});
+
+test("a ledger read keeps a probe's own failure when another probe is killed at the deadline", async (t) => {
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+
+  const { state, registry } = await killedProbe();
+
+  vi.spyOn(state, 'openConversations').mockRejectedValue(
+    Object.assign(new Error('EACCES: Could not inspect lock'), {
+      code: 'EACCES',
+    }),
+  );
+
+  await assert.rejects(registry.state(Date.now() + 200), /EACCES/);
 });

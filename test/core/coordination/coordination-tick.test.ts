@@ -550,6 +550,7 @@ test("a peers request whose ledger read outlasts a tick's bounded read still ans
   );
 
   t.onTestFinished(() => {
+    released.resolve();
     vi.restoreAllMocks();
   });
 
@@ -561,6 +562,7 @@ test("a peers request whose ledger read outlasts a tick's bounded read still ans
   released.resolve();
   const result = await answer;
   assert.equal(result.kind, 'peers', JSON.stringify(result));
+  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
 });
 
 test("a peers request still answers when a tick's read gets the ledger late and its probe is killed", async (t) => {
@@ -586,7 +588,9 @@ test("a peers request still answers when a tick's read gets the ledger late and 
         await delay(timeout + 20);
         killed = true;
 
-        throw new Error('Command failed: /usr/bin/perl');
+        throw Object.assign(new Error('Command failed: /usr/bin/perl'), {
+          killed: true,
+        });
       }
 
       return open(...args);
@@ -594,6 +598,7 @@ test("a peers request still answers when a tick's read gets the ledger late and 
   );
 
   t.onTestFinished(() => {
+    released.resolve();
     vi.restoreAllMocks();
   });
 
@@ -606,4 +611,5 @@ test("a peers request still answers when a tick's read gets the ledger late and 
   released.resolve();
   const result = await answer;
   assert.equal(result.kind, 'peers', JSON.stringify(result));
+  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
 });

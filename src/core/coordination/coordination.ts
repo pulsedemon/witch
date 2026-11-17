@@ -1005,7 +1005,7 @@ export class SessionCoordination {
 
     const snapshot = this.updateView(active, active.project, observed, ledger);
 
-    // this request read the ledger itself, so a tick's read that ran out of time beside it doesn't fail the answer
+    // this request read the ledger itself, so a background read that ran out of time beside it doesn't fail the answer
     const error = [...this.failures]
       .flatMap(([source, message]) =>
         source === 'ledger' && this.ledgerExpired ? [] : [message],
