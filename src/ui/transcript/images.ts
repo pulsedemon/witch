@@ -33,7 +33,7 @@ interface Image {
   /** what its file's stat read when it loaded; a `data:` image has none. */
   stamp?: string;
   /** a check of its file against `stamp` is queued and hasn't started. */
-  checking?: boolean;
+  checkQueued?: boolean;
 }
 
 /** a key's image, its load waiting or running, or its failure, which may be retried from `retry`. */
@@ -90,10 +90,10 @@ export class Graphics {
 
     if (image === 'queued' || 'retry' in image) return [];
 
-    if (image.stamp !== undefined && !image.checking) {
-      image.checking = true;
+    if (image.stamp !== undefined && !image.checkQueued) {
+      image.checkQueued = true;
       const { signal } = this.controller;
-      this.queue = this.queue.then(() => this.load(key, signal, image));
+      this.queue = this.queue.then(() => this.load(key, signal));
     }
 
     if (columns < 1) return [];
@@ -174,15 +174,17 @@ export class Graphics {
       }
   }
 
-  /** loads `key`, or with `shown`, the image it has, loads it again only if its file changed since. */
-  private async load(
-    key: string,
-    signal: AbortSignal,
-    shown?: Image,
-  ): Promise<void> {
+  /** loads `key`, or when it has an image, loads it again only if its file changed since. */
+  private async load(key: string, signal: AbortSignal): Promise<void> {
     if (!signal.aborted) {
+      // read here, since a check queued before this one may have replaced the image
+      const entry = this.entries.get(key);
+
+      const shown =
+        typeof entry === 'object' && 'id' in entry ? entry : undefined;
+
       // cleared before the file is read, so a view during the read queues a check of what the file holds after it
-      if (shown) shown.checking = false;
+      if (shown) shown.checkQueued = false;
 
       const loaded = await decode(key, signal, shown?.stamp).catch(
         () => undefined,
