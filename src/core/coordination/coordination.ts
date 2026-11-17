@@ -467,7 +467,7 @@ export class SessionCoordination {
 
       const error =
         this.failures.get('presence') ??
-        // no tick follows while closing, so a write whose last flush failed is reported instead of retried
+        // no tick follows while closing, so a last flush that failed for a reason other than time is reported
         (this.ending && !queued?.expired ? queued : undefined);
 
       if (error) failure = new Error(error.message);
