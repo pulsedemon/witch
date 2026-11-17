@@ -201,10 +201,17 @@ function parties(
   );
 }
 
+/** a caller ran out of its own time; it says nothing about what it was reading. */
+export class DeadlineExpired extends Error {
+  constructor() {
+    super('Coordination request expired.');
+  }
+}
+
 export function checkDeadline(deadline: number): number {
   const remaining = deadline - Date.now();
 
-  if (remaining <= 0) throw new Error('Coordination request expired.');
+  if (remaining <= 0) throw new DeadlineExpired();
 
   return remaining;
 }
@@ -1140,7 +1147,25 @@ export class CoordinationStore {
     ] as const;
 
     // every probe must close before a failure releases the ledger lock.
-    await Promise.allSettled(probes);
+    const failed = (await Promise.allSettled(probes)).flatMap((probe) =>
+      probe.status === 'rejected' ? [probe.reason as unknown] : [],
+    );
+
+    // `killed` alone also marks a probe that exited by itself as its timeout fired
+    const killed = (error: unknown) =>
+      error instanceof Error &&
+      'killed' in error &&
+      error.killed === true &&
+      'signal' in error &&
+      error.signal === 'SIGKILL';
+
+    // a probe killed at its timeout rejects as a failed command; alone, that failure is the deadline's
+    if (deadline !== undefined && failed.length && failed.every(killed))
+      checkDeadline(deadline);
+
+    if (failed.length)
+      throw failed.find((error) => !killed(error)) ?? failed[0];
+
     const [processes, opened, active] = await Promise.all(probes);
     const now = Date.now();
 

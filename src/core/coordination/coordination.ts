@@ -7,6 +7,7 @@ import type { Memory } from '../../memory/memory.js';
 import {
   CoordinationStore,
   checkDeadline,
+  DeadlineExpired,
 } from '../../persistence/coordination.js';
 import type { Ledger, Verify } from '../../persistence/coordination.js';
 import { ControlHost } from '../../persistence/control.js';
@@ -153,6 +154,8 @@ export class SessionCoordination {
   };
   private ledger?: LedgerView;
   private failures = new Map<string, string>();
+  /** whether the standing ledger failure is a read that ran out of time. */
+  private ledgerExpired = false;
   private turn?: SelectionScope;
   private cancellations = new Map<string, SelectionScope>();
   private claimReleases = new Set<string>();
@@ -932,7 +935,10 @@ export class SessionCoordination {
 
       return value;
     } catch (error) {
-      if (accept()) this.fail('ledger', error);
+      if (accept()) {
+        this.ledgerExpired = error instanceof DeadlineExpired;
+        this.fail('ledger', error);
+      }
 
       throw error;
     }
@@ -997,7 +1003,16 @@ export class SessionCoordination {
       discovery,
     ]);
 
-    return this.updateView(active, active.project, observed, ledger);
+    const snapshot = this.updateView(active, active.project, observed, ledger);
+
+    // this request read the ledger itself, so a background read that ran out of time beside it doesn't fail the answer
+    const error = [...this.failures]
+      .flatMap(([source, message]) =>
+        source === 'ledger' && this.ledgerExpired ? [] : [message],
+      )
+      .join('\n');
+
+    return { ...snapshot, error: error || undefined };
   }
 
   private updateView(

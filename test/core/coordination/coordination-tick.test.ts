@@ -9,6 +9,7 @@ import { test, vi } from 'vitest';
 import type { SessionCoordination } from '../../../src/core/coordination/coordination.js';
 import type { SessionPresence } from '../../../src/core/coordination/coordination-state.js';
 import type { PullRequest } from '../../../src/core/repository/repository.js';
+import { callControl } from '../../../src/persistence/control.js';
 import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import type { Ledger } from '../../../src/persistence/coordination.js';
 import { identifyProcess } from '../../../src/persistence/process.js';
@@ -528,4 +529,102 @@ test("a turn's project read stands in for the context's only while it matches an
   await coordination.context(f.own.project);
   assert.equal(coordination.snapshot.error, undefined);
   assert.notEqual(coordination['active']!.project, f.own.project);
+});
+
+test("a peers request whose ledger read outlasts a tick's bounded read still answers", async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const open = f.store.openConversations.bind(f.store);
+  const holding = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+
+  vi.spyOn(f.store, 'openConversations').mockImplementation(
+    async (...args: Parameters<typeof open>) => {
+      // only the request's reconciliation has more than the tick's second to spend
+      if (args[0] !== undefined && (args[1]?.timeout ?? 0) > 5000) {
+        holding.resolve();
+        await released.promise;
+      }
+
+      return open(...args);
+    },
+  );
+
+  t.onTestFinished(() => {
+    released.resolve();
+    vi.restoreAllMocks();
+  });
+
+  const answer = callControl(await f.a.binding(), { kind: 'peers' });
+  await holding.promise;
+  await f.registry.publish(otherPresence(f.own));
+  await tick(f.a.coordination);
+  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
+  released.resolve();
+  const result = await answer;
+  assert.equal(result.kind, 'peers', JSON.stringify(result));
+  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
+});
+
+test("a peers request still answers when a tick's later read has its probe killed at the deadline", async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const open = f.store.openConversations.bind(f.store);
+  const holding = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  let killed = false;
+
+  vi.spyOn(f.store, 'openConversations').mockImplementation(
+    async (...args: Parameters<typeof open>) => {
+      const timeout = args[1]?.timeout;
+
+      if (timeout !== undefined && timeout > 5000) {
+        // the request's discovery stays open while the tick's read follows the request's own
+        if (args[0] === undefined) {
+          holding.resolve();
+          await released.promise;
+        }
+      } else if (timeout !== undefined && args[0] !== undefined) {
+        // execFile kills a probe at its timeout and rejects with the failed command, not with an expiry
+        await delay(timeout + 20);
+        killed = true;
+
+        throw Object.assign(new Error('Command failed: /usr/bin/perl'), {
+          killed: true,
+          signal: 'SIGKILL',
+        });
+      }
+
+      return open(...args);
+    },
+  );
+
+  const local = f.a.coordination['registry'];
+  const state = local.state.bind(local);
+  const read = Promise.withResolvers<void>();
+
+  vi.spyOn(local, 'state').mockImplementation(
+    async (...args: Parameters<typeof state>) => {
+      const ledger = await state(...args);
+
+      // only the request's read has more than the tick's second
+      if ((args[0] ?? 0) - Date.now() > 5000) read.resolve();
+
+      return ledger;
+    },
+  );
+
+  t.onTestFinished(() => {
+    released.resolve();
+    vi.restoreAllMocks();
+  });
+
+  const answer = callControl(await f.a.binding(), { kind: 'peers' });
+  await Promise.all([holding.promise, read.promise]);
+  await f.registry.publish(otherPresence(f.own));
+  await tick(f.a.coordination);
+  assert.ok(killed, "the tick's read got the ledger");
+  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
+  released.resolve();
+  const result = await answer;
+  assert.equal(result.kind, 'peers', JSON.stringify(result));
+  assert.match(f.a.coordination.snapshot.error ?? '', /expired/);
 });

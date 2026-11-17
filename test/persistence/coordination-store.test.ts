@@ -19,6 +19,7 @@ import type {
 import {
   ClaimConflict,
   CoordinationStore,
+  DeadlineExpired,
 } from '../../src/persistence/coordination.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { entry, pauseStatuses } from '../../src/core/coordination/pauses.js';
@@ -1165,4 +1166,85 @@ test('pause records track each recipient and replay only their own retry', async
 
   assert.equal((await store.pauses('i')).length, 5);
   assert.deepEqual(await store.pauses('other'), []);
+});
+
+/** a ledger read whose `probe` fails with the clock moved past the read's deadline. */
+async function readPastDeadline(
+  probe: 'openConversations' | 'activeActivations',
+  failure: object,
+  other?: Error,
+) {
+  const state = await StateStore.open(await scratch('witch-probe-failure-'));
+  const registry = await CoordinationStore.open(state);
+  const deadline = Date.now() + 30_000;
+
+  const fail = async (): Promise<never> => {
+    vi.spyOn(Date, 'now').mockReturnValue(deadline + 1);
+
+    throw Object.assign(new Error('Command failed: /usr/bin/perl'), failure);
+  };
+
+  const pass =
+    <T>(value: T) =>
+    async () => {
+      if (other) throw other;
+
+      return value;
+    };
+
+  vi.spyOn(state, 'openConversations').mockImplementation(
+    probe === 'openConversations' ? fail : pass(new Map()),
+  );
+
+  vi.spyOn(registry, 'activeActivations').mockImplementation(
+    probe === 'activeActivations' ? fail : pass(new Set<string>()),
+  );
+
+  return registry.state(deadline);
+}
+
+/** how execFile reports a probe it killed at its timeout. */
+const killedBySignal = { killed: true, code: null, signal: 'SIGKILL' };
+
+test('a ledger read whose probe is killed at its deadline reports the deadline', async (t) => {
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+
+  await assert.rejects(
+    readPastDeadline('activeActivations', killedBySignal),
+    DeadlineExpired,
+  );
+});
+
+test("a ledger read keeps a later probe's own failure when an earlier probe is killed at the deadline", async (t) => {
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+
+  await assert.rejects(
+    readPastDeadline(
+      'openConversations',
+      killedBySignal,
+      Object.assign(new Error('EACCES: Could not inspect lock'), {
+        code: 'EACCES',
+      }),
+    ),
+    /EACCES/,
+  );
+});
+
+test('a ledger read keeps the failure of a probe that exited by itself as its timeout fired', async (t) => {
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+
+  await assert.rejects(
+    readPastDeadline('activeActivations', {
+      killed: true,
+      code: 255,
+      signal: null,
+    }),
+    /Command failed/,
+  );
 });
