@@ -169,8 +169,18 @@ export function markdownLink(
   return hyperlink(text, target, cwd);
 }
 
-// linkify-it keeps a sentence's punctuation when a closing quote or paren follows it
-const sentenceEnd = /[.,;!?]*$/;
+// a file reference outranks every link but these
+const webLink = /^(?:https?:\/\/|www\.)/i;
+
+/** how many characters of sentence punctuation end `text`, which linkify-it keeps in a link when a closing quote or paren follows. */
+function sentenceEnd(text: string): number {
+  let length = 0;
+
+  // counted from the end, since a regex anchored there retries from every punctuation character in a long link
+  while ('.,;!?'.includes(text[text.length - 1 - length] ?? ' ')) length++;
+
+  return length;
+}
 
 function bareLinks(text: string, cwd: string): string {
   let output = '';
@@ -195,11 +205,7 @@ function bareLinks(text: string, cwd: string): string {
 
     const source = sourceFiles[fileIndex];
 
-    if (
-      !/^(?:https?:\/\/|www\.)/i.test(match.text) &&
-      source &&
-      source.index < match.lastIndex
-    ) {
+    if (!webLink.test(match.text) && source && source.index < match.lastIndex) {
       output +=
         fileLinks(text.slice(offset, source.index), cwd) +
         fileLinks(source[0], cwd);
@@ -210,7 +216,7 @@ function bareLinks(text: string, cwd: string): string {
     }
 
     output += fileLinks(text.slice(offset, match.index), cwd);
-    const punctuation = sentenceEnd.exec(match.text)![0].length;
+    const punctuation = sentenceEnd(match.text);
 
     output += hyperlink(
       match.text.slice(0, match.text.length - punctuation),
@@ -270,37 +276,38 @@ function pieces(text: string): Piece[] {
 }
 
 /**
- * where a piece with no boundary to cut at ends: before a link that crosses the cap, or after it when it starts the piece.
- * that link is matched here from its start alone, since linkify-it's search of a long piece rescans it for each scheme inside.
+ * where a piece with no boundary to cut at ends: before the first web link that runs past the cap, or after it when it starts the piece.
+ * that link is measured from its start alone, since linkify-it's search of a long piece rescans it for each scheme inside.
  */
 function unbroken(
   text: string,
   start: number,
   end: number,
 ): { end: number; url?: string } {
-  const last = urls.match(text.slice(start, end))?.at(-1);
+  for (const link of urls.match(text.slice(start, end)) ?? []) {
+    if (!webLink.test(link.raw)) continue;
 
-  if (!last) return { end };
+    const from = start + link.index;
+    const rest = text.slice(from);
+    // a `www.` link has no scheme of its own, so it is measured as the `//` form of the `http://` address linkify-it gives it
+    const scheme = link.url.slice(0, -link.raw.length);
 
-  // `www.` and bare-email links match at the start only with the scheme linkify-it gave them
-  const scheme = last.url.slice(0, -last.raw.length);
-  const whole = urls.matchAtStart(scheme + text.slice(start + last.index));
+    const length = scheme
+      ? urls.testSchemaAt(rest, '//', 0)
+      : link.schema.length +
+        urls.testSchemaAt(rest, link.schema, link.schema.length);
 
-  if (!whole) return { end };
+    const whole = rest.slice(0, length);
+    const linkEnd = from + length - sentenceEnd(whole);
 
-  const punctuation = sentenceEnd.exec(whole.url)![0].length;
+    if (linkEnd <= end) continue;
 
-  const wholeEnd =
-    start + last.index + whole.lastIndex - scheme.length - punctuation;
+    return link.index
+      ? { end: from }
+      : { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
+  }
 
-  if (wholeEnd <= end) return { end };
-
-  if (last.index) return { end: start + last.index };
-
-  return {
-    end: wholeEnd,
-    url: whole.url.slice(0, whole.url.length - punctuation),
-  };
+  return { end };
 }
 
 function linked(text: string, cwd: string, target?: string) {

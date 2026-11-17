@@ -573,8 +573,21 @@ test('long runs of filename characters, and links on many lines or one, link in 
     ),
     ['lines of links', links(500, '\n'), links(2000, '\n')] as const,
     ['a line of links', links(500, ' '), links(2000, ' ')] as const,
-    // no whitespace, bracket or quote to cut at
-    ['an unbroken line of links', links(500, ';'), links(2000, ';')] as const,
+    ...(
+      [
+        ['a link of joined links', 'https://example.com/a;'],
+        ['a link with a punctuation run inside', '.'],
+        ['unbroken links with a scheme', 'https://example.com/a)('],
+        ['unbroken links with no scheme', 'www.example.com)('],
+      ] as const
+    ).map(
+      ([name, unit]) =>
+        [
+          name,
+          `https://example.com/${unit.repeat(4000)}b`,
+          `https://example.com/${unit.repeat(16000)}b`,
+        ] as const,
+    ),
     ['a line of JSON emails', emails(500), emails(2000)] as const,
   ]) {
     const smallTime = fastest(small);
@@ -625,7 +638,7 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
   assert.equal(linkify(unbroken, '/work'), unbroken);
 });
 
-test('a link that crosses the 2000-character cut in text with no boundary links to its whole address, with or without a scheme', () => {
+test('a web link that crosses the 2000-character cut in text with no boundary links to its whole address, and a file reference keeps its own target', () => {
   const tail = `/download?token=${'a1b2'.repeat(752)}`;
   const short = 'https://example.com/abcdef';
 
@@ -638,10 +651,22 @@ test('a link that crosses the 2000-character cut in text with no boundary links 
     ],
     // the first link crosses the cut, so the piece ends before it
     [`${'x)('.repeat(660)}${short})(${short}`, [short, short]],
-    // every `https://` inside a link was searched from again
+    // the sentence's full stop stays outside the link
     [
-      `https://example.com/${'https://example.com/a;'.repeat(4000)}b.`,
-      [`https://example.com/${'https://example.com/a;'.repeat(4000)}b`],
+      `https://example.com/${'https://example.com/a;'.repeat(200)}b.`,
+      [`https://example.com/${'https://example.com/a;'.repeat(200)}b`],
+    ],
+    // the inner link is the last one before the cut, and the outer one crosses it
+    [
+      `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(100)})e end`,
+      [
+        `https://example.com/a(${'b'.repeat(1990)}https://example.org/c${'d'.repeat(100)})e`,
+      ],
+    ],
+    // a file reference outranks the bare domain linkify-it reads it as, and still ends at the cut
+    [
+      `server.py/${'a/'.repeat(993)}b.ts/more.ts`,
+      [`vscode://file/work/server.py/${'a/'.repeat(993)}b.ts`],
     ],
   ] as const) {
     const output = linkify(text, '/work');
