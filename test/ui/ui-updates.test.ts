@@ -140,6 +140,46 @@ test('the narrow confirmation retains both its version and paid-check disclosure
   }
 });
 
+test('the confirmation shows a choice at every height and its launcher where one fits beside it', async () => {
+  const coordinator = await session();
+  const update = await runtimeUpdateFixture();
+
+  const ui = show(
+    createElement(App, {
+      coordinator,
+      updates: update.updates,
+      onExit: () => {},
+    }),
+    80,
+    12,
+  );
+
+  try {
+    await delay(70);
+    await submit(ui, '/updates codex');
+    await until('confirmation', () => ui.text().includes('Cancel'));
+
+    for (let rows = 12; rows >= 3; rows--) {
+      ui.resize(80, rows);
+
+      await until(`a choice at ${rows} rows`, () => {
+        const frame = ui.text().split('\n');
+
+        return (
+          frame.length === rows && frame.some((row) => row.trim() === 'Cancel')
+        );
+      });
+
+      // the lowest terminal that fits the launcher, which the title's `Fixture Codex` can't match
+      if (rows === 7) assert.ok(ui.text().includes('/codex'));
+    }
+  } finally {
+    ui.unmount();
+    update.updates.close();
+    await coordinator.close();
+  }
+});
+
 test('busy work refuses installation without interrupting the active turn', async () => {
   const f = await unitFixture();
   const gate = new TurnGate();
