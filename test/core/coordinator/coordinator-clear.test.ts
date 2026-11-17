@@ -205,6 +205,138 @@ test('clear survives reopening and discards both runtime histories and unfinishe
   }
 });
 
+for (const explicit of [false, true]) {
+  test(`clear restores the model before a refusal fallback with ${explicit ? 'a saved alias' : 'a native default'}`, async () => {
+    const f = await unitFixture();
+    const c = f.coordinator;
+
+    try {
+      if (explicit)
+        await c.selectModel({ agent: 'a', id: 'a-alias', effort: 'high' });
+
+      const old = f.a.sessions.at(-1)!;
+
+      Object.assign(old.session.info, {
+        model: 'a-fallback',
+        modelBeforeFallback: 'a-big',
+        nativeEffort: 'high',
+      });
+
+      old.options.onEvent({ type: 'info', info: old.session.info });
+      assert.equal(c.snapshot.native!.model, 'a-fallback');
+      await c.clear();
+      const native = f.a.sessions.at(-1)!;
+      const requested = explicit ? 'a-alias' : 'a-big';
+      assert.notEqual(native.session.info.id, old.session.info.id);
+      assert.equal(native.options.resume, undefined);
+      assert.equal(native.options.resumedModel, undefined);
+      assert.equal(native.options.model, requested);
+      assert.equal(c.snapshot.native!.model, 'a-big');
+      assert.equal(c.snapshot.native!.effort, 'high');
+      assert.equal(c.snapshot.native!.modelBeforeFallback, undefined);
+      const saved = await readRecord(f.root, c.snapshot.conversation!.id);
+      assert.equal(saved.sessions.a!.model, 'a-big');
+      assert.equal(saved.sessions.a!.requestedModel, requested);
+      assert.equal(saved.sessions.a!.modelBeforeFallback, undefined);
+      await c.newConversation();
+      assert.equal(f.a.sessions.at(-1)!.options.model, requested);
+      assert.equal(f.a.sessions.at(-1)!.options.resumedModel, undefined);
+
+      assert.equal(
+        c.snapshot.conversation!.sessions.a!.modelBeforeFallback,
+        undefined,
+      );
+    } finally {
+      await c.close();
+    }
+  });
+}
+
+test('a model report without a fallback origin removes the saved restore target before clear', async () => {
+  const f = await unitFixture();
+  const c = f.coordinator;
+
+  try {
+    const native = f.a.sessions.at(-1)!;
+
+    Object.assign(native.session.info, {
+      model: 'a-fallback',
+      modelBeforeFallback: 'a-model',
+    });
+
+    native.options.onEvent({ type: 'info', info: native.session.info });
+
+    Object.assign(native.session.info, {
+      model: 'a-big',
+      modelBeforeFallback: undefined,
+    });
+
+    native.options.onEvent({ type: 'info', info: native.session.info });
+    await c.selectModel({ agent: 'a', id: 'a-big' });
+    const saved = await readRecord(f.root, c.snapshot.conversation!.id);
+    assert.equal(saved.sessions.a!.modelBeforeFallback, undefined);
+    await c.clear();
+    assert.equal(c.snapshot.native!.model, 'a-big');
+    await c.newConversation();
+    assert.equal(f.a.sessions.at(-1)!.options.model, 'a-big');
+  } finally {
+    await c.close();
+  }
+});
+
+test('a saved refusal fallback resumes with its origin and clear restores it after reopening', async () => {
+  const f = await unitFixture(undefined, (a) => {
+    const connect = a.connect.bind(a);
+
+    a.connect = async (options) => {
+      const session = await connect(options);
+
+      if (options.resumedModel) {
+        Object.assign(session.info, {
+          model: options.resumedModel.model,
+          modelBeforeFallback: options.resumedModel.modelBeforeFallback,
+        });
+
+        options.onEvent({ type: 'info', info: session.info });
+      }
+
+      return session;
+    };
+  });
+
+  let c = f.coordinator;
+
+  try {
+    await c.send('before fallback');
+    const old = f.a.sessions.at(-1)!;
+
+    Object.assign(old.session.info, {
+      model: 'a-fallback',
+      modelBeforeFallback: 'a-model',
+    });
+
+    old.options.onEvent({ type: 'info', info: old.session.info });
+    const id = c.snapshot.conversation!.id;
+    await c.close();
+    const saved = await readRecord(f.root, id);
+    assert.equal(saved.sessions.a!.model, 'a-fallback');
+    assert.equal(saved.sessions.a!.modelBeforeFallback, 'a-model');
+    c = await f.reopen();
+    const resumed = f.a.sessions.at(-1)!;
+    assert.equal(resumed.options.resume, old.session.info.id);
+    assert.equal(resumed.options.model, undefined);
+    assert.equal(resumed.options.resumedModel?.model, 'a-fallback');
+    assert.equal(resumed.options.resumedModel?.modelBeforeFallback, 'a-model');
+    assert.equal(c.snapshot.native!.model, 'a-fallback');
+    await c.clear();
+    assert.equal(c.snapshot.native!.model, 'a-model');
+    assert.equal(c.snapshot.native!.modelBeforeFallback, undefined);
+    assert.equal(f.a.sessions.at(-1)!.options.resumedModel, undefined);
+  } finally {
+    await c.close();
+  }
+});
+
 async function recoverOutput(
   c: Coordinator,
   session: AgentSession,

@@ -325,6 +325,10 @@ export class SessionLink {
         cwd: conversation.cwd,
         executable: executable!,
         resume: stored?.hasHistory ? stored.id : undefined,
+        resumedModel:
+          stored?.hasHistory && stored.modelBeforeFallback && !selection
+            ? stored
+            : undefined,
         model: selection?.id ?? stored?.requestedModel,
         contextWindow: selection?.contextWindow ?? stored?.contextWindow,
         effort: selection

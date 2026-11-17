@@ -548,6 +548,24 @@ for await (const line of lines) {
         behaviors: null,
       };
 
+    if (
+      (request.subtype === 'set_model' &&
+        existsSync(join(process.cwd(), 'reject-model'))) ||
+      (request.subtype === 'apply_flag_settings' &&
+        existsSync(join(process.cwd(), 'reject-effort')))
+    ) {
+      send({
+        type: 'control_response',
+        response: {
+          subtype: 'error',
+          request_id: message.request_id,
+          error: `${request.subtype} refused`,
+        },
+      });
+
+      continue;
+    }
+
     if (request.subtype === 'set_model') {
       if (mode === 'pending-model') {
         writeFileSync(join(process.cwd(), 'model-entered'), '');

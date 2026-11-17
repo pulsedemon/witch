@@ -43,6 +43,8 @@ export interface SessionInfo {
   id: string;
   agent: string;
   model: string;
+  /** the resolved model before the session's active refusal fallback. */
+  modelBeforeFallback?: string;
   permissionMode: string;
   permissionProfile?: string;
   hasHistory: boolean;
@@ -432,6 +434,8 @@ export interface SessionOptions {
   cwd: string;
   executable: string;
   resume?: string;
+  /** a saved fallback and its origin, reconciled with native initialization. */
+  resumedModel?: Pick<SessionInfo, 'model' | 'modelBeforeFallback'>;
   model?: string;
   contextWindow?: ContextWindowChoice;
   /** the effort to start with; omitted keeps the native default. */
