@@ -623,6 +623,21 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
   assert.equal(linkify(unbroken, '/work'), unbroken);
 });
 
+test('a URL longer than 2000 characters links to its whole address, at the start of the text and after a cut', () => {
+  const url = `https://example.com/download?token=${'a1b2'.repeat(752)}`;
+
+  for (const text of [url, `${'x'.repeat(1500)} ${url} then src/main.ts`]) {
+    const output = linkify(text, '/work');
+
+    assert.deepEqual(
+      linkSpans(output).map((span) => span.target),
+      text === url ? [url] : [url, 'vscode://file/work/src/main.ts'],
+    );
+
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
 test('multi-dot names, dotfiles and quoted or prefixed paths after a dash link whole', () => {
   for (const [text, target] of [
     ['test/claude.test.ts:3', 'vscode://file/work/test/claude.test.ts:3'],

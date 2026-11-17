@@ -247,13 +247,21 @@ function pieces(text: string): string[] {
     if (end < text.length)
       end =
         [/\n/, /(?!\u202f)[\s<>]/, /"/].map(after).find((cut) => cut > start) ??
-        end;
+        unbrokenEnd(text, end);
 
     result.push(text.slice(start, end));
     start = end;
   }
 
   return result;
+}
+
+/** where a run with no boundary before `from` ends, so a URL or path longer than the cap stays in one piece. */
+function unbrokenEnd(text: string, from: number): number {
+  const boundary = /(?<!\\)(?!\u202f)[\s<>"]/g;
+  boundary.lastIndex = from;
+
+  return boundary.exec(text)?.index ?? text.length;
 }
 
 function linked(text: string, cwd: string, target?: string) {
