@@ -1206,6 +1206,26 @@ async function readPastDeadline(
 /** how execFile reports a probe it killed at its timeout. */
 const killedBySignal = { killed: true, code: null, signal: 'SIGKILL' };
 
+test('a ledger read preserves a probe killed before its deadline', async () => {
+  const state = await StateStore.open(await scratch('witch-probe-failure-'));
+  const registry = await CoordinationStore.open(state);
+  const now = Date.now();
+
+  const failure = Object.assign(
+    new Error('Command failed: /usr/bin/perl'),
+    killedBySignal,
+  );
+
+  vi.spyOn(Date, 'now').mockReturnValue(now);
+  vi.spyOn(registry, 'activeActivations').mockRejectedValue(failure);
+
+  await assert.rejects(registry.state(now + 30_000), (error: unknown) => {
+    assert.equal(error, failure);
+
+    return true;
+  });
+});
+
 test('a ledger read whose probe is killed at its deadline reports the deadline', async (t) => {
   t.onTestFinished(() => {
     vi.restoreAllMocks();
