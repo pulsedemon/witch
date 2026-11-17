@@ -157,12 +157,22 @@ test('failed recovery keeps native launches blocked and can be retried without a
     await install(...args);
   };
 
-  await assert.rejects(
+  const failure = await rejection(
     f.updates.apply(f.check, { accountUsage: true }),
-    /Recovery failed: Recovery offline/,
   );
 
   const journal = (await f.store.journal(f.root))!;
+
+  assert.equal(
+    failure.message,
+    `Candidate failed\nRecovery failed: Recovery offline\nEvidence: ${f.store.operation(journal)}`,
+  );
+
+  assert.equal(
+    journal.error,
+    'Candidate failed\nRecovery failed: Recovery offline',
+  );
+
   assert.equal(journal.phase, 'failed');
   assert.equal((await f.inspect()).version, '2.0.0');
 
@@ -176,6 +186,42 @@ test('failed recovery keeps native launches blocked and can be retried without a
   assert.equal((await f.inspect()).version, '1.0.0');
   assert.equal((await f.store.journal(f.root))?.phase, 'recovered');
   holdRuntime(f.root, f.store.directory)();
+  f.updates.close();
+});
+
+test("a failed manual recovery keeps the update's error and names its evidence", async () => {
+  const f = await runtimeUpdateFixture();
+  const install = f.native.install;
+  let offline = 'Recovery offline';
+
+  f.native.verify = async () => {
+    throw new Error('Candidate failed');
+  };
+
+  f.native.install = async (...args) => {
+    if (args[1] === '1.0.0') throw new Error(offline);
+
+    await install(...args);
+  };
+
+  await rejection(f.updates.apply(f.check, { accountUsage: true }));
+  const journal = (await f.store.journal(f.root))!;
+  offline = 'Still offline';
+  const failure = await rejection(f.updates.recover(journal));
+
+  assert.equal(
+    failure.message,
+    `Still offline\nEvidence: ${f.store.operation(journal)}`,
+  );
+
+  const failed = (await f.store.journal(f.root))!;
+  assert.equal(failed.phase, 'failed');
+
+  assert.equal(
+    failed.error,
+    'Candidate failed\nRecovery failed: Recovery offline\nRecovery failed: Still offline',
+  );
+
   f.updates.close();
 });
 
@@ -227,14 +273,21 @@ test('preparation failure leaves the original selection usable', async () => {
     throw new Error('No account usage available');
   };
 
-  await assert.rejects(
+  const failure = await rejection(
     f.updates.apply(f.check, { accountUsage: true }),
-    /No account usage/,
   );
 
+  const journal = (await f.store.journal(f.root))!;
+
+  assert.equal(
+    failure.message,
+    `No account usage available\nEvidence: ${f.store.operation(journal)}`,
+  );
+
+  assert.equal(journal.error, 'No account usage available');
   assert.deepEqual(f.installs, []);
   assert.equal((await f.inspect()).version, '1.0.0');
-  assert.equal((await f.store.journal(f.root))?.phase, 'aborted');
+  assert.equal(journal.phase, 'aborted');
   holdRuntime(f.root, f.store.directory)();
   f.updates.close();
 });
@@ -538,10 +591,7 @@ for (const fails of [false, true]) {
       });
 
       const applying = f.updates.apply(f.check, { accountUsage: true });
-
-      const completed = fails
-        ? assert.rejects(applying, /Reconnect failed/)
-        : applying;
+      const completed = fails ? rejection(applying) : applying;
 
       try {
         await reconnect.promise;
@@ -554,7 +604,14 @@ for (const fails of [false, true]) {
         }, NativeUpdatePending);
 
         finish.resolve();
-        await completed;
+        const failure = await completed;
+
+        if (failure)
+          assert.equal(
+            failure.message,
+            `Reconnect failed\nEvidence: ${f.store.operation(journal)}`,
+          );
+
         const final = (await f.store.journal(f.root))!;
         assert.equal(final.id, journal.id);
         assert.equal(final.phase, fails ? 'failed' : 'verified');
@@ -573,6 +630,19 @@ for (const fails of [false, true]) {
       }
     },
   );
+}
+
+/** the error a promise rejects with; fails when it resolves. */
+async function rejection(run: Promise<unknown>): Promise<Error> {
+  try {
+    await run;
+  } catch (error) {
+    assert.ok(error instanceof Error);
+
+    return error;
+  }
+
+  assert.fail('expected a rejection');
 }
 
 /** a second Witch over the fixture's store and operations, with its own build, notices and cancellation. */
