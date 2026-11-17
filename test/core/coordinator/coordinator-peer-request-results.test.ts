@@ -12,7 +12,10 @@ import { unreportedContextCatalog } from '../../fixtures/codex-adapter.js';
 import { answerInstruction } from '../../../src/core/coordination/peer-requests.js';
 import type { PeerRequest } from '../../../src/core/coordination/peer-requests.js';
 import type { PullRequest } from '../../../src/core/repository/repository.js';
-import { CoordinationStore } from '../../../src/persistence/coordination.js';
+import {
+  CoordinationStore,
+  DeadlineExpired,
+} from '../../../src/persistence/coordination.js';
 import { callControl } from '../../../src/persistence/control.js';
 import { NotificationSchedule } from '../../../src/persistence/notifications.js';
 import { watchTerminal } from '../../../src/ui/terminal/terminal.js';
@@ -408,6 +411,8 @@ test('an answer whose write runs out of time waiting for the ledger is recorded 
     );
 
     await held();
+    // an immediate retry would hold the turn's end for another deadline
+    assert.equal(b.coordination['flushingWrites'], undefined);
 
     assert.ok(
       !b.coordinator.snapshot.items.some(
@@ -454,6 +459,20 @@ test('an answer write that fails for another reason fails the turn and queues no
   for (const tick of refreshes) tick();
 
   await b.coordination['operations'];
+  assert.equal((await stored(f, request)).answer, undefined);
+});
+
+test('a queued answer whose last write fails at close fails the close', async (t) => {
+  const { a, b, claim, f } = await owners(t.onTestFinished);
+
+  vi.spyOn(b.coordination['registry'], 'answerPeers')
+    .mockRejectedValueOnce(new DeadlineExpired())
+    .mockRejectedValueOnce(new Error('disk full'));
+
+  const request = await ask(a, claim, 'Which port?');
+  await refreshed(b);
+  await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+  await assert.rejects(b.coordinator.close(), /disk full/);
   assert.equal((await stored(f, request)).answer, undefined);
 });
 
