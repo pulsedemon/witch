@@ -9,6 +9,14 @@ import { imageFile } from './transcript/images.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
+
+/** the links linkify-it finds, or none where its hostname pattern would try both readings of each `xn--` label, doubling its work with every one. */
+function webLinks(text: string) {
+  return (text.match(/xn--/gi)?.length ?? 0) > 10
+    ? []
+    : (urls.match(text) ?? []);
+}
+
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
 const controls = /(?![\n\t\r])\p{Cc}/u;
 
@@ -193,7 +201,7 @@ function bareLinks(text: string, cwd: string): string {
 
   let fileIndex = 0;
 
-  for (const match of urls.match(text) ?? []) {
+  for (const match of webLinks(text)) {
     if (match.index < offset) continue;
 
     while (
@@ -278,7 +286,16 @@ function pieces(text: string): Piece[] {
   return result;
 }
 
-const closing: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
+// linkify-it reads these pairs as part of a link's path only when both ends are present
+const closing: Record<string, string> = {
+  '(': ')',
+  '[': ']',
+  '{': '}',
+  "'": "'",
+};
+
+// linkify-it leaves this punctuation out of a link only when nothing follows it
+const dangling = /^[-.,;!?]*$/;
 
 /**
  * whether a link that linkify-it ended at `stop`, in text read up to `read`, can be longer in the whole text.
@@ -290,10 +307,9 @@ function cutShort(
   read: number,
   limit: number,
 ): boolean {
-  // punctuation is left out of a link only when nothing follows it
-  if (/^[-.,;!?]*$/.test(text.slice(stop, read))) return true;
+  if (dangling.test(text.slice(stop, read))) return true;
 
-  // a bracketed part is left out when its closing bracket was not read; it holds no whitespace
+  // a paired part is left out when its closing end was not read; it holds no whitespace
   const inside = text.slice(stop + 1, limit);
   const close = inside.indexOf(closing[text[stop]!] ?? ' ');
 
@@ -312,7 +328,7 @@ function unbroken(
   // read past the cap by a scheme and the longest hostname, so a link whose start straddles the cap is still recognized
   const read = Math.min(end + 8 + 253, text.length);
 
-  for (const link of urls.match(text.slice(start, read)) ?? []) {
+  for (const link of webLinks(text.slice(start, read))) {
     if (start + link.index >= end) break;
 
     const from = start + link.index;
@@ -324,8 +340,17 @@ function unbroken(
     )
       continue;
 
+    // a hostname still running where the read ended is longer than any real one, and linkify-it backtracks through its labels
+    if (
+      stop === read &&
+      read < text.length &&
+      !/[/?#]/.test(link.raw.replace(/^https?:\/\//i, ''))
+    )
+      continue;
+
     // one character more than a link may have, so a longer one measures as too long
     const rest = text.slice(from, from + longestLink + 1);
+    const measured = from + rest.length;
     // a `www.` link has no scheme of its own, so it is measured as the `//` form of the `http://` address linkify-it gives it
     const scheme = link.url.slice(0, -link.raw.length);
 
@@ -340,8 +365,16 @@ function unbroken(
 
     if (link.index) return { end: from };
 
-    if (length <= longestLink)
-      return { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
+    // where the measured text ended can cut the link short as the read can, and no later text is looked at to rule that out
+    const whole =
+      length <= longestLink &&
+      (measured === text.length ||
+        !(
+          dangling.test(text.slice(from + length, measured)) ||
+          text[from + length]! in closing
+        ));
+
+    if (whole) return { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
 
     // too long to link whole, so the run it is in stays plain text and no part of it links to a shorter address
     const boundary = /[\s<>"]/g;

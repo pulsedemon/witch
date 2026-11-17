@@ -558,9 +558,6 @@ test('long runs of filename characters, and links on many lines or one, link in 
       (_, n) => `dev${n}@example.com https://example.com/${n}`,
     ).join(separator);
 
-  // linkify-it backtracks through these labels when it is given the whole run
-  const hostname = `xn--a.${'a.'.repeat(1000)}`;
-
   // minified, as an API returns it: no whitespace to cut at
   const emails = (count: number) =>
     JSON.stringify(
@@ -598,14 +595,6 @@ test('long runs of filename characters, and links on many lines or one, link in 
         ] as const,
     ),
     ['a line of JSON emails', emails(500), emails(2000)] as const,
-    ...['https://', `www.${'b.'.repeat(996)}com.`].map(
-      (start) =>
-        [
-          `a malformed hostname after ${start.slice(0, 8)}`,
-          `${start}${hostname.repeat(16)}a_`,
-          `${start}${hostname.repeat(64)}a_`,
-        ] as const,
-    ),
   ]) {
     const smallTime = fastest(small);
     const largeTime = fastest(large);
@@ -692,6 +681,11 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
           ],
         ] as const,
     ),
+    // the closing apostrophe is past what is read
+    [
+      `https://example.com/a'/${'b'.repeat(3000)}'end`,
+      [`https://example.com/a'/${'b'.repeat(3000)}'end`],
+    ],
     // a file reference outranks the bare domain linkify-it reads it as, and still ends at the cut
     [
       `server.py/${'a/'.repeat(993)}b.ts/more.ts`,
@@ -709,6 +703,24 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
   }
 });
 
+test('hostnames with many `xn--` labels are left unlinked instead of read both ways, and a few still link', () => {
+  // linkify-it doubles its work with each label when the hostname ends badly: 24 of them took minutes
+  const labels = 'xn--a.'.repeat(24);
+  const short = `https://${labels}${'b.'.repeat(100)}b_`;
+  assert.equal(linkify(short, '/work'), short);
+  // the labels come after what is read past the cut, inside a hostname still running there
+  const start = `https://${'a.'.repeat(1200)}${labels}`;
+  const long = `${start}${'b.'.repeat((4000 - start.length - 4) / 2)}com.${'b.'.repeat(1000)}b_`;
+  assert.equal(stripAnsi(linkify(long, '/work')), long);
+
+  assert.deepEqual(
+    linkSpans(
+      linkify('https://xn--bcher-kva.example/a xn--80ak6aa92e.com', '/work'),
+    ).map((span) => span.target),
+    ['https://xn--bcher-kva.example/a', 'http://xn--80ak6aa92e.com'],
+  );
+});
+
 test('a link longer than 8192 characters stays plain text to the end of its run, and one of exactly 8192 links whole', () => {
   const longest = `https://example.com/${'a'.repeat(8172)}`;
   assert.equal(longest.length, 8192);
@@ -717,6 +729,15 @@ test('a link longer than 8192 characters stays plain text to the end of its run,
     [
       `${longest} then src/main.ts`,
       [longest, 'vscode://file/work/src/main.ts'],
+    ],
+    // measuring stops after 8192 characters, where the query or the closing bracket has not been read
+    [
+      `${longest.slice(0, -1)}?token=x then src/main.ts`,
+      ['vscode://file/work/src/main.ts'],
+    ],
+    [
+      `https://example.com/${'a'.repeat(3000)}(${'b'.repeat(9000)})e then src/main.ts`,
+      ['vscode://file/work/src/main.ts'],
     ],
     // the second address is in the same run, so it is not linked as if it were the first one's end
     [
