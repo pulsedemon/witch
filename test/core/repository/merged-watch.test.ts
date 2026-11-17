@@ -651,6 +651,18 @@ test('a merge held for 15 s says why, and each new reason of the same hold is sa
   assert.equal(notices.length, 4);
 });
 
+test("a held merge's notice ends in one period when the error showing ends in its own", async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { notices, publishRepository, publish } = fixture(t.onTestFinished);
+  await publish({ error: 'Coordination request expired.\n' });
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await advance(15_000);
+
+  assert.deepEqual(notices, [
+    '#7 merged, but its cleanup is waiting: an error is showing: Coordination request expired.',
+  ]);
+});
+
 test('a hold that ends within 15 s says nothing, and reasons that change within it share its 15 s', async (t) => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 

@@ -66,7 +66,9 @@ export function watchMerges(
   const gate = (status: Repository | undefined) => {
     const { phase, error, queue } = coordinator.snapshot;
 
-    if (error) return `an error is showing: ${error.replace(/\s+/g, ' ')}`;
+    // the notice ends every reason with its own period
+    if (error)
+      return `an error is showing: ${error.trim().replace(/\s+/g, ' ').replace(/\.$/, '')}`;
 
     if (phase !== 'idle') return `the conversation's phase is ${phase}`;
 
