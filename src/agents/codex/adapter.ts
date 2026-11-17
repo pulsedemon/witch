@@ -79,6 +79,7 @@ const skillList = z.object({
           enabled: z.boolean(),
         }),
       ),
+      errors: z.array(z.object({ path: z.string(), message: z.string() })),
     }),
   ),
 });
@@ -380,6 +381,13 @@ class CodexSession implements AgentSession {
         forceReload: true,
       }),
     );
+
+    for (const { path, message } of data.flatMap((entry) => entry.errors))
+      this.options.onEvent({
+        type: 'notice',
+        text: `Can't load spell ${path}: ${message}`,
+        transient: true,
+      });
 
     const enabled = data
       .flatMap((entry) => entry.skills)
@@ -1030,6 +1038,7 @@ class CodexSession implements AgentSession {
               this.options.onEvent({
                 type: 'notice',
                 text: errorMessage(error),
+                transient: true,
               }),
           );
 
