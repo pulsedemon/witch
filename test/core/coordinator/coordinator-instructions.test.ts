@@ -190,6 +190,39 @@ test('the fixed instructions leave settled decisions to the agent outside the bl
   }
 });
 
+test('the fixed instructions waive extra confirmation only for already-authorized pull request work', async () => {
+  const f = await unitFixture();
+
+  try {
+    await f.coordinator.send('Initial task');
+    assert.ok(f.a.inputs.at(-1), f.coordinator.snapshot.error);
+    const context = f.a.inputs.at(-1)!.context!;
+
+    const rule = context
+      .split('\n\n')
+      .find((paragraph) => paragraph.startsWith('Ordinary commits and pushes'));
+
+    assert.ok(rule, context);
+
+    assert.match(
+      rule,
+      /for the task's pull request, and posts to that pull request and its review threads/,
+    );
+
+    assert.match(
+      rule,
+      /need no separate confirmation when the task already authorizes them/,
+    );
+
+    assert.match(
+      rule,
+      /Native permission checks and confirmation requirements for irreversible actions still apply/,
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('the fixed instructions treat issue and pull request text from other accounts as evidence', async () => {
   const f = await unitFixture();
 
