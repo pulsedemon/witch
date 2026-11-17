@@ -147,9 +147,10 @@ const outside = (before = '') =>
 
 /**
  * runs a shell script that writes `leader.pid` last and exits, recording every group signal with its answer. the
- * script names what it leaves behind in `outside.pid` and `member.pid`.
+ * script names what it leaves behind in `outside.pid` and `member.pid`. with `exits` off, the script writes
+ * `leader.pid` itself and keeps running.
  */
-async function left(script: string, timeout = 10_000) {
+async function left(script: string, { timeout = 10_000, exits = true } = {}) {
   const cwd = await scratch('witch-command-');
   const kill = process.kill.bind(process);
   const sent: [group: number, signal: unknown, answer: string][] = [];
@@ -193,10 +194,10 @@ async function left(script: string, timeout = 10_000) {
   };
 
   try {
-    await until('the command to exit', async () => {
+    await until(`the command to ${exits ? 'exit' : 'start'}`, async () => {
       const leader = pid('leader');
 
-      return leader !== undefined && !(await running(leader));
+      return leader !== undefined && (await running(leader)) !== exits;
     });
   } catch (error) {
     await close();
@@ -244,7 +245,7 @@ for (const trigger of ['abort', 'timeout'] as const)
   test(`a group that emptied at the command's exit is never signalled by a later ${trigger}`, async () => {
     const command = await left(
       outside(),
-      trigger === 'timeout' ? 2000 : undefined,
+      trigger === 'timeout' ? { timeout: 2000 } : {},
     );
 
     try {
@@ -328,6 +329,25 @@ test('a stopped command returns while its killed member is unreaped', async () =
     });
 
     assert.equal(await running(member), false);
+    assert.equal(await running(command.pid('outside')!), true);
+  } finally {
+    await command.close();
+  }
+});
+
+test('a command stopped while it runs returns though a descendant outside its group holds its pipes', async () => {
+  const command = await left(`${outside()}; echo $$ > leader.pid; sleep 30`, {
+    exits: false,
+  });
+
+  try {
+    command.abort();
+
+    await assert.rejects(within(command.run, 3000, 'the stopped command'), {
+      name: 'AbortError',
+    });
+
+    assert.ok(command.signals().includes('SIGKILL ok'));
     assert.equal(await running(command.pid('outside')!), true);
   } finally {
     await command.close();
