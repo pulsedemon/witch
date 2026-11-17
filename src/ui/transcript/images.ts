@@ -18,6 +18,8 @@ export const placeholder = '\u{10EEEE}';
 // read whole into memory and sent to the terminal in one transmission
 const largestFile = 64 * 1024 * 1024;
 const retryDelay = 2_000;
+// a PNG's closing IEND chunk, which a file cut short lacks
+const pngEnd = Buffer.from('0000000049454e44ae426082', 'hex');
 export const imageFile = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
 
 interface Image {
@@ -28,14 +30,19 @@ interface Image {
   link: string;
   /** the `c,r` its virtual placement has, once placed. */
   placed?: string;
+  /** what its file's stat read when it loaded; a `data:` image has none. */
+  stamp?: string;
+  /** a check of its file against `stamp` is queued and hasn't started. */
+  checkQueued?: boolean;
 }
 
 /** a key's image, its load waiting or running, or its failure, which may be retried from `retry`. */
 type Entry = Image | 'queued' | { retry: number };
 
 /**
- * draws images inline with Kitty Unicode placeholders: each image is sent once, then shown by text rows that
- * scroll and clip with the transcript. the terminal fits the image into its rows, keeping its aspect ratio.
+ * draws images inline with Kitty Unicode placeholders: each image is sent once, and again when its file changes,
+ * then shown by text rows that scroll and clip with the transcript. the terminal fits the image into its rows,
+ * keeping its aspect ratio.
  */
 export class Graphics {
   private entries = new Map<string, Entry>();
@@ -50,21 +57,25 @@ export class Graphics {
 
   constructor(private readonly write: (data: string) => void) {}
 
-  /** counts the images loaded, so it changes whenever more rows can be drawn. */
+  /** counts the images loaded, so it changes whenever more rows can be drawn or a path's rows change. */
   get version(): number {
     return this.loads;
   }
 
-  /** hears each load that finishes, whether it loaded, failed or was dropped by `release`. */
+  /** hears each load that finishes, whether it loaded, failed, found its file unchanged or was dropped by `release`. */
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
 
     return () => this.listeners.delete(listener);
   };
 
-  /** the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none until it loads, or when it can't. */
+  /**
+   * the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none until it first loads, or
+   * when that load fails. a loaded path's file is checked again in the background: a changed file loads again, and
+   * one that can't load keeps the rows it had.
+   */
   rows(source: string, cwd: string, columns: number): string[] {
-    const key = source.startsWith('data:') ? source : resolveFile(source, cwd);
+    const key = entryKey(source, cwd);
     const image = this.entries.get(key);
 
     if (
@@ -78,7 +89,15 @@ export class Graphics {
       return [];
     }
 
-    if (image === 'queued' || 'retry' in image || columns < 1) return [];
+    if (image === 'queued' || 'retry' in image) return [];
+
+    if (image.stamp !== undefined && !image.checkQueued) {
+      image.checkQueued = true;
+      const { signal } = this.controller;
+      this.queue = this.queue.then(() => this.load(key, signal));
+    }
+
+    if (columns < 1) return [];
 
     // a cell is about twice as tall as wide, and a small image keeps about 8 pixels a column
     const aspect = image.height / image.width / 2;
@@ -112,6 +131,13 @@ export class Graphics {
       );
   }
 
+  /** names the image loaded for `source`, so it changes when a changed file's image replaces it; none until one loads. */
+  id(source: string, cwd: string): number | undefined {
+    const image = this.entries.get(entryKey(source, cwd));
+
+    return typeof image === 'object' && 'id' in image ? image.id : undefined;
+  }
+
   /**
    * frees the images this instance sent; the terminal keeps them until then, even after the alternate screen.
    * it also stops the running conversion and drops queued loads, so none writes to the restored terminal.
@@ -142,27 +168,45 @@ export class Graphics {
       ) {
         const loaded = await decode(key, signal);
 
-        if (!loaded) return;
+        if (!loaded || loaded === 'unchanged') return;
 
         await mkdir(this.directory, { recursive: true, mode: 0o700 });
         await writeFile(fileURLToPath(link), loaded.data, { signal });
       }
   }
 
+  /** loads `key`, or when it has an image, loads it again only if its file changed since. */
   private async load(key: string, signal: AbortSignal): Promise<void> {
     if (!signal.aborted) {
-      const loaded = await decode(key, signal).catch(() => undefined);
+      // read here, since a check queued before this one may have replaced the image
+      const entry = this.entries.get(key);
+
+      const shown =
+        typeof entry === 'object' && 'id' in entry ? entry : undefined;
+
+      // cleared before the file is read, so a view during the read queues a check of what the file holds after it
+      if (shown) shown.checkQueued = false;
+
+      const loaded = await decode(key, signal, shown?.stamp).catch(
+        () => undefined,
+      );
 
       // a release since it began has restored the terminal, so the load writes and records nothing
       if (!signal.aborted) {
-        if (loaded) {
+        if (loaded && loaded !== 'unchanged') {
           const id = this.next++;
 
           const file = key.startsWith('data:')
             ? join(this.directory, `${id}.png`)
             : key;
 
-          const image = { id, link: pathToFileURL(file).href, ...loaded.size };
+          const image: Image = {
+            id,
+            link: pathToFileURL(file).href,
+            stamp: loaded.stamp,
+            ...loaded.size,
+          };
+
           const encoded = loaded.data.toString('base64');
 
           for (let start = 0; start < encoded.length; start += 4096) {
@@ -174,9 +218,12 @@ export class Graphics {
             );
           }
 
+          if (shown) this.write(`\u001b_Ga=d,d=I,i=${shown.id},q=2\u001b\\`);
+
           this.entries.set(key, image);
           this.loads++;
-        } else
+        } else if (!loaded && !shown)
+          // a shown image stays when its changed file can't load, as while it is being written
           this.entries.set(key, {
             // a file can be written after a message names it; a data URL can't change
             retry: key.startsWith('data:') ? Infinity : Date.now() + retryDelay,
@@ -188,9 +235,16 @@ export class Graphics {
   }
 }
 
-/** the PNG data for a path or `data:` URL, and its size; none when it isn't an image. */
-async function decode(key: string, signal: AbortSignal) {
+const entryKey = (source: string, cwd: string) =>
+  source.startsWith('data:') ? source : resolveFile(source, cwd);
+
+/**
+ * the PNG data for a path or `data:` URL, its size and its file's stamp; none when it isn't an image, and
+ * `'unchanged'` when its file still reads `stamp`.
+ */
+async function decode(key: string, signal: AbortSignal, stamp?: string) {
   let data: Buffer;
+  let read: string | undefined;
 
   if (key.startsWith('data:'))
     data = Buffer.from(key.slice(key.indexOf(',') + 1), 'base64');
@@ -200,14 +254,20 @@ async function decode(key: string, signal: AbortSignal) {
 
     if (!file.isFile() || file.size > largestFile) return undefined;
 
+    // an atomic replace can keep the time and size, but not the inode
+    read = `${file.mtimeMs}:${file.size}:${file.ino}`;
+
+    if (read === stamp) return 'unchanged' as const;
+
     data = await readFile(key, { signal });
   }
 
-  // the terminal decodes only PNG
-  if (!startsLikePng(data)) data = await convertImage(data, 'png', signal);
+  // the terminal decodes only PNG, and draws nothing for one cut short, which the conversion refuses
+  if (!startsLikePng(data) || !data.subarray(-pngEnd.length).equals(pngEnd))
+    data = await convertImage(data, 'png', signal);
 
-  // a truncated file throws here, failing its load
+  // a truncated conversion throws here, failing its load
   const size = { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
 
-  return size.width && size.height ? { data, size } : undefined;
+  return size.width && size.height ? { data, size, stamp: read } : undefined;
 }

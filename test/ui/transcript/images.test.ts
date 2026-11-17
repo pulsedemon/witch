@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import childProcess, { execFileSync, spawn } from 'node:child_process';
 import fs, { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { truncate, writeFile } from 'node:fs/promises';
+import { rename, stat, truncate, utimes, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
@@ -288,4 +288,184 @@ test('release aborts a running conversion, drops queued loads, and writes nothin
   // the queued file is never read
   assert.equal(stat.mock.calls.length, 0);
   assert.equal(existsSync(dirname(args![3]!)), false);
+});
+
+test('a path whose file changed since it loaded is sent again in place of its first image, an unchanged one is sent once, and views while a check waits add no second check', async (t) => {
+  const directory = await scratch('witch-images-');
+  const path = join(directory, 'shot.png');
+  const first = png(160, 80);
+  const second = png(80, 160);
+  await writeFile(path, first);
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+
+  const stat = vi.spyOn(fs.promises, 'stat');
+  syncBuiltinESMExports();
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  assert.equal(graphics.rows(path, directory, 100).length, 5);
+  assert.equal(graphics.rows(path, directory, 100).length, 5);
+  await loaded(graphics);
+  // a second check would have read the file's stat by now
+  await setImmediate();
+  assert.equal(stat.mock.calls.length, 2);
+  assert.equal(payload(writes), first.toString('base64'));
+  assert.equal(graphics.version, 1);
+  writes.length = 0;
+  await writeFile(path, second);
+  // the view that finds the change still draws the image it has
+  assert.equal(graphics.rows(path, directory, 100).length, 5);
+  await loaded(graphics);
+  assert.equal(payload(writes), second.toString('base64'));
+  assert.equal(writes.at(-1), '\u001b_Ga=d,d=I,i=1,q=2\u001b\\');
+  assert.equal(graphics.version, 2);
+  const rows = graphics.rows(path, directory, 100);
+  assert.equal(rows.length, 10);
+  assert.ok(rows[0]!.includes('\u001b[38;2;0;0;2m'));
+  assert.equal(writes.at(-1), '\u001b_Ga=p,U=1,i=2,p=1,c=10,r=10,q=2\u001b\\');
+});
+
+test('a shown image stays when its changed file is cut short after its PNG header, which is not sent', async (t) => {
+  const directory = await scratch('witch-images-');
+  const path = join(directory, 'shot.png');
+  await writeFile(path, png(160, 80));
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+  const calls = sips(t, () => new Error('fixture conversion failure'));
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  // the signature and the size stay readable
+  await truncate(path, 33);
+  const rows = graphics.rows(path, directory, 100);
+  assert.equal(rows.length, 5);
+  writes.length = 0;
+  await loaded(graphics);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(graphics.rows(path, directory, 100), rows);
+  assert.deepEqual(writes, []);
+  assert.equal(graphics.version, 1);
+});
+
+test('a view while a check is reading the file queues another check, so a file completed during a failing read still loads', async (t) => {
+  const directory = await scratch('witch-images-');
+  const path = join(directory, 'shot.png');
+  const second = png(80, 160);
+  await writeFile(path, png(160, 80));
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+  const conversions: Parameters<typeof childProcess.execFile>[] = [];
+
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+
+  const execute = childProcess.execFile;
+
+  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
+    // an earlier test's last check can still reach this spy, and has to finish to remove its files
+    if (readFileSync(call[1]![3]!, 'utf8') !== 'half written')
+      return execute(...call);
+
+    conversions.push(call);
+
+    return new childProcess.ChildProcess();
+  });
+
+  syncBuiltinESMExports();
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  await writeFile(path, 'half written');
+  graphics.rows(path, directory, 100);
+  await vi.waitFor(() => assert.ok(conversions[0]));
+  await writeFile(path, second);
+  writes.length = 0;
+  graphics.rows(path, directory, 100);
+  conversions[0]![3]!(new Error('fixture conversion failure'), '', '');
+  await loaded(graphics, 2);
+  assert.equal(conversions.length, 1);
+  assert.ok(payload(writes) === second.toString('base64'));
+  assert.equal(graphics.version, 2);
+});
+
+test('a view during a reload that succeeds sends the changed file once and frees only the image it replaced', async (t) => {
+  const directory = await scratch('witch-images-');
+  const path = join(directory, 'shot.png');
+  await writeFile(path, png(160, 80));
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+  const conversions: Parameters<typeof childProcess.execFile>[] = [];
+
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+
+  const execute = childProcess.execFile;
+
+  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
+    // an earlier test's last check can still reach this spy, and has to finish to remove its files
+    if (readFileSync(call[1]![3]!, 'utf8') !== 'not yet a PNG')
+      return execute(...call);
+
+    conversions.push(call);
+
+    return new childProcess.ChildProcess();
+  });
+
+  syncBuiltinESMExports();
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  await writeFile(path, 'not yet a PNG');
+  graphics.rows(path, directory, 100);
+  await vi.waitFor(() => assert.ok(conversions[0]));
+  writes.length = 0;
+  graphics.rows(path, directory, 100);
+  const [, args, , finish] = conversions[0]!;
+  writeFileSync(args![5]!, png(80, 160));
+  finish!(null, '', '');
+  await loaded(graphics, 2);
+  assert.equal(conversions.length, 1);
+
+  assert.deepEqual(
+    writes
+      .filter((write) => !write.startsWith('\u001b_Gm='))
+      .map((write) => write.slice(0, write.indexOf(';') + 1 || undefined)),
+    ['\u001b_Ga=t,f=100,t=d,i=2,q=2,m=1;', '\u001b_Ga=d,d=I,i=1,q=2\u001b\\'],
+  );
+
+  assert.equal(graphics.version, 2);
+});
+
+test('a file replaced by one of the same size and modification time loads again', async () => {
+  const directory = await scratch('witch-images-');
+  const path = join(directory, 'shot.png');
+  const first = png(160, 80);
+  const second = Buffer.from(first);
+  // inside the pixel data, which nothing here decodes
+  second[second.length >> 1]! ^= 1;
+  // a whole second, which a file keeps exactly
+  const written = new Date(1_700_000_000_000);
+  await writeFile(path, first);
+  await utimes(path, written, written);
+  const { mtimeMs } = await stat(path);
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  const replacement = join(directory, 'next.png');
+  await writeFile(replacement, second);
+  await utimes(replacement, written, written);
+  await rename(replacement, path);
+  assert.equal((await stat(path)).mtimeMs, mtimeMs);
+  writes.length = 0;
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  assert.ok(payload(writes) === second.toString('base64'));
+  assert.equal(graphics.version, 2);
 });
