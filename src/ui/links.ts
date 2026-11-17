@@ -323,19 +323,28 @@ const separator = /[\p{Z}\p{Cc}]/u;
 // linkify-it leaves this punctuation out of a link only when nothing follows it
 const dangling = /^[-.,;!?]*$/;
 
+/** the closing end a link read as `matched` can still be waiting for, given the character after it. */
+function pending(matched: string, next: string | undefined) {
+  // linkify-it takes a lone apostrophe into a link, so its pair can come after the character that ended the link
+  return (
+    closing[next ?? ''] ?? (matched.split("'").length % 2 ? undefined : "'")
+  );
+}
+
 /**
- * whether a link that linkify-it ended at `stop` can be longer in the whole text. `read` is where the text it was given stopped short of a separator, if it did.
+ * whether a link that linkify-it read from `start` and ended at `stop` can be longer in the whole text. `read` is where the text it was given stopped short of a separator, if it did.
  * measuring a link scans up to `limit`, so this rules out the links that scan would only confirm.
  */
 function cutShort(
   text: string,
+  start: number,
   stop: number,
   read: number | undefined,
   limit: number,
 ): boolean {
   if (read !== undefined && dangling.test(text.slice(stop, read))) return true;
 
-  const closer = closing[text[stop]!];
+  const closer = pending(text.slice(start, stop), text[stop]);
 
   if (!closer) return false;
 
@@ -375,9 +384,9 @@ function unbroken(
   end: number,
 ): Pick<Piece, 'url'> & { end: number } {
   // a newline after a backslash is no boundary to `pieces`, and no link crosses it, so each line is decided alone
-  const line = text.lastIndexOf('\n', end - 1) + 1;
+  const line = text.slice(start, end).lastIndexOf('\n') + 1;
 
-  if (line > start) return { end: line };
+  if (line) return { end: start + line };
 
   // read past the cap so a link that starts just before it is recognized
   const ahead = reach(text, end, longestAuthority);
@@ -398,7 +407,7 @@ function unbroken(
 
     if (
       !webLink.test(link.raw) ||
-      (stop <= end && !cutShort(text, stop, read, from + longestLink))
+      (stop <= end && !cutShort(text, from, stop, read, from + longestLink))
     )
       continue;
 
@@ -425,7 +434,9 @@ function unbroken(
 
     // where the measured text ran out can cut the link short as the read can, and no later text is looked at to rule that out
     const unknown =
-      open && (dangling.test(rest.slice(length)) || text[measured]! in closing);
+      open &&
+      (dangling.test(rest.slice(length)) ||
+        pending(rest.slice(0, length), text[measured]) !== undefined);
 
     if (length > longestLink || unknown)
       return plainRun(text, Math.max(end, measured));

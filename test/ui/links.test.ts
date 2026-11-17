@@ -704,6 +704,11 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
       `https://example.com/a(${'b'.repeat(3000)}\uFEFFc)`,
       [`https://example.com/a(${'b'.repeat(3000)}\uFEFFc)`],
     ],
+    // linkify-it takes the first apostrophe into the link and stops at the bracket, with the pair past what is read
+    [
+      `https://example.com/a'b)c${'x'.repeat(3000)}'d`,
+      [`https://example.com/a'b)c${'x'.repeat(3000)}'d`],
+    ],
     // the closing apostrophe is past what is read
     [
       `https://example.com/a'/${'b'.repeat(3000)}'end`,
@@ -759,7 +764,7 @@ test('hostnames with many `xn--` labels are left unlinked instead of read both w
     );
   }
 
-  // a backslash before the newline keeps both lines in one piece, and the first still links
+  // a backslash before the newline hides it from the search for a boundary, and the lines are still decided apart
   assert.deepEqual(
     linkSpans(
       linkify(
@@ -804,6 +809,11 @@ test('a link longer than 4096 characters stays plain text to the end of its run,
     // linkify-it reads an angle bracket inside a paired part, so the run does not end there
     [
       `https://example.com/a(${'b'.repeat(9000)}<https://example.org/tail)e then src/main.ts`,
+      ['vscode://file/work/src/main.ts'],
+    ],
+    // an apostrophe already in the link has its pair past what is measured
+    [
+      `https://example.com/${'a'.repeat(2900)}'b)c${'x'.repeat(2000)}'end then src/main.ts`,
       ['vscode://file/work/src/main.ts'],
     ],
     // a paired part opens before the cut and closes past what is measured
