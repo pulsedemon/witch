@@ -16,7 +16,7 @@ export function updateFamiliar(
 ):
   | {
       entry: TimedSubagent;
-      rows: { id: string; title: string[]; text?: string }[];
+      rows: { id: string; title: string[]; text?: string; failed?: boolean }[];
       notices: string[];
     }
   | undefined {
@@ -73,6 +73,7 @@ export function updateFamiliar(
                   : '',
               ],
               text: ended ? (subagent.report ?? '') : '',
+              failed: subagent.status === 'failed',
             },
           ]
         : []),
