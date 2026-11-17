@@ -1070,6 +1070,53 @@ test('a base that tracks another remote is brought up to date from it', async ()
   });
 });
 
+test('a stacked base that exists only on the remote is created from it and switched to', async () => {
+  const { checkout, other, tip } = await merged();
+  await git(checkout, 'push', 'origin', 'main:stack');
+  await git(other, 'fetch');
+  await git(other, 'switch', 'stack');
+  await git(other, 'merge', '--no-ff', '-m', 'merge feat/x', 'origin/feat/x');
+  await git(other, 'push', 'origin', 'stack');
+  await git(other, 'push', 'origin', '--delete', 'feat/x');
+
+  assert.deepEqual(
+    await cleanUpMerge(checkout, { ...pullRequest(tip), base: 'stack' }, idle),
+    {
+      text: '#7 merged: switched to stack and pulled, deleted branch feat/x.',
+      cleaned: true,
+    },
+  );
+
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'stack');
+
+  assert.equal(
+    await git(checkout, 'rev-parse', 'HEAD'),
+    await git(other, 'rev-parse', 'HEAD'),
+  );
+
+  assert.equal(
+    await git(checkout, 'rev-parse', '--abbrev-ref', 'stack@{upstream}'),
+    'origin/stack',
+  );
+
+  assert.deepEqual(await branches(checkout), ['main', 'stack']);
+});
+
+test("a base that exists neither locally nor on the merged branch's remote stops the cleanup, which says which merge it was for", async () => {
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+
+  await assert.rejects(
+    cleanUpMerge(checkout, { ...pullRequest(tip), base: 'stack' }, idle),
+    (error) =>
+      (error as Error).message.startsWith(
+        '#7 merged, but its cleanup failed before deleting feat/x: ',
+      ),
+  );
+
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+});
+
 test("the cleanup fetches through the user's own ssh command, from git's config or GIT_SSH, and through ssh in batch mode otherwise", async () => {
   for (const own of ['config', 'environment', undefined] as const) {
     const { root, origin, checkout, other, tip } = await merged();

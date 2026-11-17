@@ -272,6 +272,13 @@ const fetchRemote = async (git: Git, ...args: string[]) => {
   );
 };
 
+/**
+ * the commit `ref` names. --end-of-options keeps a ref named like an option from being read as a flag, and --verify
+ * keeps rev-parse from echoing that separator ahead of the commit.
+ */
+const commitAt = (git: Git, ref: string) =>
+  git('rev-parse', '--verify', '--end-of-options', ref);
+
 const succeeds = (promise: Promise<unknown>, signal?: AbortSignal) =>
   promise.then(
     () => true,
@@ -310,15 +317,7 @@ async function fastForward(
 
   if (left(await read(git))) return false;
 
-  // --end-of-options keeps a base named like an option from being read as a flag, and --verify keeps rev-parse from
-  // echoing that separator ahead of the commit
-  const target = await git(
-    'rev-parse',
-    '--verify',
-    '--end-of-options',
-    `${base}@{upstream}`,
-  );
-
+  const target = await commitAt(git, `${base}@{upstream}`);
   const status = await read(git);
   const head = status.commit;
 
@@ -762,30 +761,38 @@ async function clean(
     // again: a turn that started during the fetch changes nothing the status shows
     if (await blocked()) return undefined;
 
+    let created: string | undefined;
+
     if (progress.detached) {
       const upstream = (await refHead(git, base).catch(stopped))
         ? `${base}@{upstream}`
         : `refs/remotes/${progress.detached}`;
 
-      const target = await git(
-        'rev-parse',
-        '--verify',
-        '--end-of-options',
-        `${upstream}^{commit}`,
-      ).catch(stopped);
-
+      const target = await commitAt(git, `${upstream}^{commit}`).catch(stopped);
       progress.switchHead = target;
       // already at the fetched upstream, so there's nothing to fast-forward
       progress.pull = { head: target, target, done: true };
-    } else progress.switchHead = await git('rev-parse', `refs/heads/${base}`);
+    } else {
+      const local = await refHead(git, base).catch(stopped);
+
+      // a stacked pull request's base can exist only on the merged branch's remote, and the switch creates it from there
+      if (!local)
+        created = `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
+
+      progress.switchHead =
+        local ??
+        (await commitAt(git, `refs/remotes/${created}^{commit}`).catch(
+          stopped,
+        ));
+    }
 
     // a plain switch overwrites an ignored file the base tracks, and that file was never committed
     const failed = await git(
       'switch',
       '--no-overwrite-ignore',
-      ...(progress.detached ? ['--detach'] : []),
+      ...(progress.detached ? ['--detach'] : created ? ['--track'] : []),
       '--end-of-options',
-      progress.detached ? progress.switchHead : base,
+      progress.detached ? progress.switchHead : (created ?? base),
     ).then(
       () => undefined,
       (error: unknown) => {
