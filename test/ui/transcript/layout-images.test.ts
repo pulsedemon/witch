@@ -333,3 +333,39 @@ test('an image anchor follows wrapped diff output', async () => {
   assert.equal(wideImage, 8);
   assert.equal(wide.rowOf(narrow.anchorAt(narrowImage + 2)!), wideImage + 2);
 });
+
+test('a later view of a path whose file changed redraws every block that shows it', async () => {
+  const directory = await scratch('witch-layout-');
+  const path = join(directory, 'shot.png');
+  await writeFile(path, png(160, 80));
+  const graphics = new Graphics(() => {});
+  const layout = new TranscriptLayout(graphics);
+
+  const view = (id: string): DisplayItem => ({
+    id,
+    kind: 'user',
+    text: 'look at [Image #1]',
+    cwd: directory,
+    images: ['shot.png'],
+  });
+
+  const drawn = (items: DisplayItem[]) =>
+    layout
+      .render(items, 100, new Map())
+      .blocks.map(
+        (block) =>
+          block.slice().filter((line) => line.includes(placeholder)).length,
+      );
+
+  const first = view('first');
+  layout.render([first], 100, new Map());
+  await loaded(graphics);
+  assert.deepEqual(drawn([first]), [5]);
+  // the first view's own check of the unchanged file
+  await loaded(graphics);
+  await writeFile(path, png(80, 160));
+  const items = [first, view('second')];
+  assert.deepEqual(drawn(items), [5, 5]);
+  await loaded(graphics);
+  assert.deepEqual(drawn(items), [10, 10]);
+});

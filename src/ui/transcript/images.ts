@@ -28,14 +28,19 @@ interface Image {
   link: string;
   /** the `c,r` its virtual placement has, once placed. */
   placed?: string;
+  /** what its file's stat read when it loaded; a `data:` image has none. */
+  stamp?: string;
+  /** a check of its file against `stamp` is queued or running. */
+  checking?: boolean;
 }
 
 /** a key's image, its load waiting or running, or its failure, which may be retried from `retry`. */
 type Entry = Image | 'queued' | { retry: number };
 
 /**
- * draws images inline with Kitty Unicode placeholders: each image is sent once, then shown by text rows that
- * scroll and clip with the transcript. the terminal fits the image into its rows, keeping its aspect ratio.
+ * draws images inline with Kitty Unicode placeholders: each image is sent once, and again when its file changes,
+ * then shown by text rows that scroll and clip with the transcript. the terminal fits the image into its rows,
+ * keeping its aspect ratio.
  */
 export class Graphics {
   private entries = new Map<string, Entry>();
@@ -50,19 +55,22 @@ export class Graphics {
 
   constructor(private readonly write: (data: string) => void) {}
 
-  /** counts the images loaded, so it changes whenever more rows can be drawn. */
+  /** counts the images loaded, so it changes whenever more rows can be drawn or a path's rows change. */
   get version(): number {
     return this.loads;
   }
 
-  /** hears each load that finishes, whether it loaded, failed or was dropped by `release`. */
+  /** hears each load that finishes, whether it loaded, failed, found its file unchanged or was dropped by `release`. */
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
 
     return () => this.listeners.delete(listener);
   };
 
-  /** the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none until it loads, or when it can't. */
+  /**
+   * the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none until it loads, or when
+   * it can't. a loaded path's file is checked again in the background, and loads again if it changed.
+   */
   rows(source: string, cwd: string, columns: number): string[] {
     const key = source.startsWith('data:') ? source : resolveFile(source, cwd);
     const image = this.entries.get(key);
@@ -78,7 +86,15 @@ export class Graphics {
       return [];
     }
 
-    if (image === 'queued' || 'retry' in image || columns < 1) return [];
+    if (image === 'queued' || 'retry' in image) return [];
+
+    if (image.stamp !== undefined && !image.checking) {
+      image.checking = true;
+      const { signal } = this.controller;
+      this.queue = this.queue.then(() => this.load(key, signal, image));
+    }
+
+    if (columns < 1) return [];
 
     // a cell is about twice as tall as wide, and a small image keeps about 8 pixels a column
     const aspect = image.height / image.width / 2;
@@ -142,27 +158,42 @@ export class Graphics {
       ) {
         const loaded = await decode(key, signal);
 
-        if (!loaded) return;
+        if (!loaded || loaded === 'unchanged') return;
 
         await mkdir(this.directory, { recursive: true, mode: 0o700 });
         await writeFile(fileURLToPath(link), loaded.data, { signal });
       }
   }
 
-  private async load(key: string, signal: AbortSignal): Promise<void> {
+  /** loads `key`, or with `shown`, the image it has, loads it again only if its file changed since. */
+  private async load(
+    key: string,
+    signal: AbortSignal,
+    shown?: Image,
+  ): Promise<void> {
     if (!signal.aborted) {
-      const loaded = await decode(key, signal).catch(() => undefined);
+      const loaded = await decode(key, signal, shown?.stamp).catch(
+        () => undefined,
+      );
 
       // a release since it began has restored the terminal, so the load writes and records nothing
       if (!signal.aborted) {
-        if (loaded) {
+        if (shown) shown.checking = false;
+
+        if (loaded && loaded !== 'unchanged') {
           const id = this.next++;
 
           const file = key.startsWith('data:')
             ? join(this.directory, `${id}.png`)
             : key;
 
-          const image = { id, link: pathToFileURL(file).href, ...loaded.size };
+          const image: Image = {
+            id,
+            link: pathToFileURL(file).href,
+            stamp: loaded.stamp,
+            ...loaded.size,
+          };
+
           const encoded = loaded.data.toString('base64');
 
           for (let start = 0; start < encoded.length; start += 4096) {
@@ -174,9 +205,12 @@ export class Graphics {
             );
           }
 
+          if (shown) this.write(`\u001b_Ga=d,d=I,i=${shown.id},q=2\u001b\\`);
+
           this.entries.set(key, image);
           this.loads++;
-        } else
+        } else if (!loaded && !shown)
+          // a shown image stays when its changed file can't load, as while it is being written
           this.entries.set(key, {
             // a file can be written after a message names it; a data URL can't change
             retry: key.startsWith('data:') ? Infinity : Date.now() + retryDelay,
@@ -188,9 +222,13 @@ export class Graphics {
   }
 }
 
-/** the PNG data for a path or `data:` URL, and its size; none when it isn't an image. */
-async function decode(key: string, signal: AbortSignal) {
+/**
+ * the PNG data for a path or `data:` URL, its size and its file's stamp; none when it isn't an image, and
+ * `'unchanged'` when its file still reads `stamp`.
+ */
+async function decode(key: string, signal: AbortSignal, stamp?: string) {
   let data: Buffer;
+  let read: string | undefined;
 
   if (key.startsWith('data:'))
     data = Buffer.from(key.slice(key.indexOf(',') + 1), 'base64');
@@ -199,6 +237,11 @@ async function decode(key: string, signal: AbortSignal) {
     const file = await stat(key);
 
     if (!file.isFile() || file.size > largestFile) return undefined;
+
+    // an atomic replace can keep the time and size, but not the inode
+    read = `${file.mtimeMs}:${file.size}:${file.ino}`;
+
+    if (read === stamp) return 'unchanged' as const;
 
     data = await readFile(key, { signal });
   }
@@ -209,5 +252,5 @@ async function decode(key: string, signal: AbortSignal) {
   // a truncated file throws here, failing its load
   const size = { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
 
-  return size.width && size.height ? { data, size } : undefined;
+  return size.width && size.height ? { data, size, stamp: read } : undefined;
 }

@@ -289,3 +289,61 @@ test('release aborts a running conversion, drops queued loads, and writes nothin
   assert.equal(stat.mock.calls.length, 0);
   assert.equal(existsSync(dirname(args![3]!)), false);
 });
+
+test('a path whose file changed since it loaded is sent again in place of its first image, an unchanged one is sent once, and views while a check waits add no second check', async (t) => {
+  const directory = await scratch('witch-images-');
+  const path = join(directory, 'shot.png');
+  const first = png(160, 80);
+  const second = png(80, 160);
+  await writeFile(path, first);
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+
+  const stat = vi.spyOn(fs.promises, 'stat');
+  syncBuiltinESMExports();
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  assert.equal(graphics.rows(path, directory, 100).length, 5);
+  assert.equal(graphics.rows(path, directory, 100).length, 5);
+  await loaded(graphics);
+  // a second check would have read the file's stat by now
+  await setImmediate();
+  assert.equal(stat.mock.calls.length, 2);
+  assert.equal(payload(writes), first.toString('base64'));
+  assert.equal(graphics.version, 1);
+  writes.length = 0;
+  await writeFile(path, second);
+  // the view that finds the change still draws the image it has
+  assert.equal(graphics.rows(path, directory, 100).length, 5);
+  await loaded(graphics);
+  assert.equal(payload(writes), second.toString('base64'));
+  assert.equal(writes.at(-1), '\u001b_Ga=d,d=I,i=1,q=2\u001b\\');
+  assert.equal(graphics.version, 2);
+  const rows = graphics.rows(path, directory, 100);
+  assert.equal(rows.length, 10);
+  assert.ok(rows[0]!.includes('\u001b[38;2;0;0;2m'));
+  assert.equal(writes.at(-1), '\u001b_Ga=p,U=1,i=2,p=1,c=10,r=10,q=2\u001b\\');
+});
+
+test('a shown image stays when its changed file can no longer load', async () => {
+  const directory = await scratch('witch-images-');
+  const path = join(directory, 'shot.png');
+  await writeFile(path, png(160, 80));
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+  graphics.rows(path, directory, 100);
+  await loaded(graphics);
+  await truncate(path, 20);
+  const rows = graphics.rows(path, directory, 100);
+  assert.equal(rows.length, 5);
+  writes.length = 0;
+  await loaded(graphics);
+  assert.deepEqual(graphics.rows(path, directory, 100), rows);
+  assert.deepEqual(writes, []);
+  assert.equal(graphics.version, 1);
+});
