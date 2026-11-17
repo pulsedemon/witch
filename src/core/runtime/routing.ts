@@ -7,6 +7,7 @@ import {
   currentLimits,
   fundingText,
   headroom,
+  limitsFor,
   over,
   untilReset,
 } from './usage.js';
@@ -176,7 +177,7 @@ function standing(
   runtime: string,
   account: AccountReading,
   now: number,
-  limits: readonly Limit[] = account.limits,
+  limits: readonly Limit[],
 ): string {
   const parts = limits.map(({ window, percent, resetsAt }) => {
     const left = untilReset(resetsAt, now);
@@ -202,15 +203,16 @@ function reading(
   runtime: string,
   account: AccountReading | undefined,
   now: number,
+  limits: readonly Limit[],
 ): string {
-  if (!account || (!account.limits.length && !account.funding))
+  if (!account || (!limits.length && !account.funding))
     return `${runtime} has no usage reading`;
 
-  const stale = account.limits.filter((limit) => !current(limit, now));
+  const stale = limits.filter((limit) => !current(limit, now));
 
   return stale.length
     ? `${runtime}'s ${stale.map(({ window }) => window).join(' and ')} reading is not current`
-    : standing(runtime, account, now);
+    : standing(runtime, account, now, limits);
 }
 
 export function route({
@@ -237,11 +239,11 @@ export function route({
   accounts: Readonly<Record<string, AccountReading>>;
   now: number;
 }): Route {
-  const evidence = (runtime: string) => {
-    const state = reading(runtime, accounts[runtime], now);
+  const evidence = (runtime: string, model: string) => {
+    const limits = limitsFor(accounts[runtime], model);
+    const state = reading(runtime, accounts[runtime], now, limits);
 
-    return currentLimits(accounts[runtime]?.limits ?? [], now) &&
-      !accounts[runtime]!.funding
+    return currentLimits(limits, now) && !accounts[runtime]!.funding
       ? ''
       : `; ${state}`;
   };
@@ -259,7 +261,7 @@ export function route({
         {
           runtime: named.runtime,
           model: resolved.model,
-          reason: `named explicitly${evidence(named.runtime)}`,
+          reason: `named explicitly${evidence(named.runtime, resolved.model)}`,
         },
       ],
     };
@@ -310,24 +312,20 @@ export function route({
     if ('refused' in chosen) return chosen;
 
     const { shiftAt } = policy;
+    const own = limitsFor(accounts[runtime], chosen.model);
 
-    if (
-      shiftAt === null ||
-      !over(accounts[runtime]?.limits ?? [], shiftAt, now)
-    )
+    if (shiftAt === null || !over(own, shiftAt, now))
       return {
         runtime,
         model: chosen.model,
-        reason: `${why}${evidence(runtime)}`,
+        reason: `${why}${evidence(runtime, chosen.model)}`,
       };
 
     const hot = `${standing(
       runtime,
       accounts[runtime]!,
       now,
-      accounts[runtime]!.limits.filter(
-        (limit) => current(limit, now) && limit.percent >= shiftAt,
-      ),
+      own.filter((limit) => current(limit, now) && limit.percent >= shiftAt),
     )} is at or over the ${shiftAt}% shift threshold`;
 
     if (creditCapacity(accounts[runtime], now) === 'available')
@@ -338,7 +336,7 @@ export function route({
       };
 
     // below 100% a runtime still has included usage, so only a spent runtime falls back past headroom and only a spent destination's credits count
-    const spent = (id: string) => over(accounts[id]?.limits ?? [], 100, now);
+    const spent = (limits: readonly Limit[]) => over(limits, 100, now);
     const blocked: string[] = [];
 
     // a review the policy sent away from its producer never shifts back onto it, unless the producer reviews too
@@ -347,7 +345,7 @@ export function route({
         ? of?.runtime
         : undefined;
 
-    for (const fallback of spent(runtime) ? [false, true] : [false]) {
+    for (const fallback of spent(own) ? [false, true] : [false]) {
       for (const id of installed) {
         if (id === runtime) continue;
 
@@ -357,25 +355,30 @@ export function route({
           continue;
         }
 
+        const shifted = choose(id);
+
+        const limits = limitsFor(
+          accounts[id],
+          'refused' in shifted ? undefined : shifted.model,
+        );
+
         if (
           fallback
-            ? spent(id)
+            ? spent(limits)
               ? creditCapacity(accounts[id], now) !== 'available'
-              : !currentLimits(accounts[id]?.limits ?? [], now)
-            : !headroom(accounts[id]?.limits ?? [], shiftAt, now)
+              : !currentLimits(limits, now)
+            : !headroom(limits, shiftAt, now)
         ) {
           if (fallback) continue;
 
           blocked.push(
-            currentLimits(accounts[id]?.limits ?? [], now)
-              ? `${standing(id, accounts[id]!, now)} is at or over it too`
-              : reading(id, accounts[id], now),
+            currentLimits(limits, now)
+              ? `${standing(id, accounts[id]!, now, limits)} is at or over it too`
+              : reading(id, accounts[id], now, limits),
           );
 
           continue;
         }
-
-        const shifted = choose(id);
 
         if ('refused' in shifted) {
           if (!fallback) blocked.push(shifted.refused);
@@ -387,7 +390,7 @@ export function route({
           runtime: id,
           model: shifted.model,
           from: runtime,
-          reason: `${hot}, and ${reading(id, accounts[id], now)} has ${!fallback ? 'room under it' : spent(id) ? 'usable credits' : 'included usage left'}${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
+          reason: `${hot}, and ${reading(id, accounts[id], now, limits)} has ${!fallback ? 'room under it' : spent(limits) ? 'usable credits' : 'included usage left'}${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
         };
       }
     }
