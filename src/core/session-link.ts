@@ -580,7 +580,11 @@ export class SessionLink {
               ? `\n… ${withHead} ${plural(withHead)} from other commits`
               : '') + (more ? `\n… ${more} more ${plural(more)} changed` : '');
 
-          if ((diff.length || text) && !files.closed)
+          // a row retracted while the read ran stays gone
+          const shown = () =>
+            this.host.snapshot().items.some((item) => item.id === id);
+
+          if ((diff.length || text) && !files.closed && shown())
             this.host.display({
               id,
               kind: 'tool',

@@ -926,7 +926,7 @@ test('native exit settles a turn with unacknowledged input', async () => {
   }
 });
 
-test("a refusal fallback withdraws the refused leg's text and tools, by a replacement's supersedes and by the notice, and moves the session to the fallback model unless a subagent fell back", async () => {
+test("a refusal fallback withdraws the refused leg's text and tools, by a replacement's supersedes and by the notice, and moves the session to the fallback model with its context sample dropped, back on a revert and not at all when a subagent fell back", async () => {
   const f = await background();
 
   const assistant = (uuid: string, id: string, content: unknown[]) => ({
@@ -954,8 +954,13 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
   const retracted = () =>
     f.events.flatMap((e) => (e.type === 'retracted' ? [e.ids] : []));
 
+  const context = () =>
+    f.events.findLast((e) => e.type === 'usage')?.usage.context;
+
   try {
     const before = models();
+    assert.notEqual(await f.session.contextUsage(), undefined);
+    assert.notEqual(context(), undefined);
 
     await f.emit(
       assistant('frame-text', 'refused', [
@@ -979,19 +984,33 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
         ...assistant('frame-replacement', 'replacement', [
           { type: 'text', text: 'replacement' },
         ]),
-        supersedes: ['frame-text'],
+        supersedes: ['frame-text', 'frame-tool'],
       },
       fallback({ scope: 'local', fallback_model: 'claude-side' }),
     );
 
-    assert.deepEqual(retracted(), [['refused']]);
+    assert.deepEqual(retracted(), [['refused', 'refused-tool']]);
     assert.deepEqual(models(), before);
+    assert.notEqual(context(), undefined);
 
     await f.emit(
       fallback({
         scope: 'session',
         retracted_message_uuids: ['frame-text', 'frame-tool', 'frame-result'],
       }),
+    );
+
+    assert.deepEqual(retracted(), [
+      ['refused', 'refused-tool'],
+      ['refused-tool'],
+    ]);
+
+    assert.deepEqual(models(), [...before, 'claude-fallback']);
+    assert.equal(context(), undefined);
+
+    await f.emit(
+      // an older CLI names no scope and means the session
+      fallback({ direction: 'revert' }),
       {
         type: 'result',
         subtype: 'error_during_execution',
@@ -1001,8 +1020,7 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
       state('idle'),
     );
 
-    assert.deepEqual(retracted(), [['refused'], ['refused', 'refused-tool']]);
-    assert.deepEqual(models(), [...before, 'claude-fallback']);
+    assert.deepEqual(models(), [...before, 'claude-fallback', 'claude-a']);
     const outcome = await within(f.turn, 2000, 'failed result');
     assert.equal(outcome.status, 'failed');
     assert.doesNotMatch(outcome.text, /refused partial/);

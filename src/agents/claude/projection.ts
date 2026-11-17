@@ -17,7 +17,7 @@ export class ClaudeProjection {
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
   private readonly reportMessages = new Map<string, string>();
-  /** the text and tool events each main-thread frame produced, by the frame's uuid, which is how Claude Code names what a refusal fallback withdraws. */
+  /** the text and tool ids each main-thread frame belongs to, by the frame's uuid, which is how Claude Code names what a refusal fallback withdraws. every frame of a message lists the message's text id, since a refused message goes whole. */
   private readonly produced = new Map<string, string[]>();
 
   constructor(
