@@ -506,12 +506,12 @@ export class SessionLink {
       host.display(castRow(event.cast, conversation.cwd));
     } else if (event.type === 'retracted') {
       for (const id of event.ids) {
-        // found by its suffix, since the row can belong to an earlier activity than the retraction
-        const row = host
+        // found by suffix: a row can belong to an earlier activity, and a message streamed across a turn's start has one in each
+        const rows = host
           .snapshot()
-          .items.findLast((item) => item.id.endsWith(`/${agent}/${id}`));
+          .items.filter((item) => item.id.endsWith(`/${agent}/${id}`));
 
-        if (row)
+        for (const row of rows)
           host.display({
             id: row.id,
             kind: row.kind,

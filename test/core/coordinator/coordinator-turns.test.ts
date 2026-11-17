@@ -53,7 +53,7 @@ test('a tool row keeps the path its title shows and its expanded title through i
   }
 });
 
-test('text and tool rows retracted in a later turn leave the transcript and stay gone after a reopen, and an id that names no row adds none', async () => {
+test('text and tool rows retracted in a later turn, a message with a row in each turn included, leave the transcript and stay gone after a reopen, and an id that names no row adds none', async () => {
   const { coordinator, a, reopen } = await unitFixture();
   const gate = new TurnGate();
   let reopened: Coordinator | undefined;
@@ -86,6 +86,8 @@ test('text and tool rows retracted in a later turn leave the transcript and stay
     a.gate = gate;
     const turn = coordinator.send('second');
     await within(gate.entered, 2000, 'the second turn');
+    // a message still streaming when the turn starts gets a second row under the new activity
+    onEvent({ type: 'text', id: 'refused', text: 'refused tail' });
     const before = texts(coordinator.snapshot.items);
 
     onEvent({
@@ -94,7 +96,7 @@ test('text and tool rows retracted in a later turn leave the transcript and stay
     });
 
     const kept = before.filter((text) => !text.startsWith('refused'));
-    assert.equal(kept.length, before.length - 3);
+    assert.equal(kept.length, before.length - 4);
     assert.ok(kept.includes('replacement'));
     assert.deepEqual(texts(coordinator.snapshot.items), kept);
     gate.open();
