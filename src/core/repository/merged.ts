@@ -777,13 +777,10 @@ async function clean(
 
       // a stacked pull request's base can exist only on the merged branch's remote, and the switch creates it from there
       if (!local)
-        created = `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
+        created = `refs/remotes/${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
 
       progress.switchHead =
-        local ??
-        (await commitAt(git, `refs/remotes/${created}^{commit}`).catch(
-          stopped,
-        ));
+        local ?? (await commitAt(git, `${created}^{commit}`).catch(stopped));
     }
 
     // a plain switch overwrites an ignored file the base tracks, and that file was never committed

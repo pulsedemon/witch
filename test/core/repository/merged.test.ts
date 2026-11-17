@@ -1078,6 +1078,8 @@ test('a stacked base that exists only on the remote is created from it and switc
   await git(other, 'merge', '--no-ff', '-m', 'merge feat/x', 'origin/feat/x');
   await git(other, 'push', 'origin', 'stack');
   await git(other, 'push', 'origin', '--delete', 'feat/x');
+  // a tag of the remote branch's short name makes `origin/stack` ambiguous to the switch
+  await git(checkout, 'tag', 'origin/stack', 'main');
 
   assert.deepEqual(
     await cleanUpMerge(checkout, { ...pullRequest(tip), base: 'stack' }, idle),
@@ -1095,8 +1097,13 @@ test('a stacked base that exists only on the remote is created from it and switc
   );
 
   assert.equal(
-    await git(checkout, 'rev-parse', '--abbrev-ref', 'stack@{upstream}'),
-    'origin/stack',
+    await git(
+      checkout,
+      'for-each-ref',
+      '--format=%(upstream)',
+      'refs/heads/stack',
+    ),
+    'refs/remotes/origin/stack',
   );
 
   assert.deepEqual(await branches(checkout), ['main', 'stack']);
