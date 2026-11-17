@@ -291,6 +291,7 @@ export class SessionCoordination {
       directory,
       (request) => coordination.handle(request),
       (error) => coordination.fail('control', error),
+      () => coordination.recover('control'),
     );
 
     try {
@@ -314,7 +315,8 @@ export class SessionCoordination {
 
           return familiar.report(action, request.deadline);
         },
-        (error) => coordination.fail('control', error),
+        (error) => coordination.fail('familiar-control', error),
+        () => coordination.recover('familiar-control'),
       );
     } catch (error) {
       await coordination.host.close();
@@ -797,7 +799,6 @@ export class SessionCoordination {
   async releaseTask(): Promise<void> {
     const active = this.admit();
     checkTaskRelease(this.state, true);
-    this.failures.delete('control');
 
     await this.serialize(async () => {
       const state: RequestState = {};
@@ -831,8 +832,6 @@ export class SessionCoordination {
       throw new Error(
         'Wait for idle and resolve memory recovery before taking a task.',
       );
-
-    this.failures.delete('control');
 
     await this.serialize(() =>
       dispatchControl(
@@ -1065,17 +1064,12 @@ export class SessionCoordination {
     return this.snapshot;
   }
 
-  private handle(
-    request: ControlRequest,
-    human = false,
-  ): Promise<ControlOutcome> {
+  private handle(request: ControlRequest): Promise<ControlOutcome> {
     if (isFamiliarAction(request.action))
       return Promise.resolve({
         kind: 'error',
         message: 'Use the familiar reporting mailbox for this action.',
       });
-
-    this.failures.delete('control');
 
     if (request.action.kind === 'route') {
       this.admit(request);
@@ -1085,7 +1079,7 @@ export class SessionCoordination {
       return this.router(request.action);
     }
 
-    return this.serialize(() => dispatchControl(this.control, request, human));
+    return this.serialize(() => dispatchControl(this.control, request, false));
   }
 
   /** the owner's Witch answers a transfer request without a model turn. */
@@ -1400,6 +1394,10 @@ export class SessionCoordination {
       held,
       deadline,
     );
+  }
+
+  private recover(source: string): void {
+    if (this.failures.delete(source)) this.publish(this.snapshot);
   }
 
   private fail(source: string, error: unknown): void {

@@ -305,6 +305,7 @@ export class ControlHost {
       request: ControlRequest,
     ) => Promise<ControlOutcome>,
     private readonly failed: (error: unknown) => void,
+    private readonly recovered?: () => void,
   ) {
     try {
       this.watcher = watch(
@@ -329,6 +330,7 @@ export class ControlHost {
     directory: string,
     handle: (request: ControlRequest) => Promise<ControlOutcome>,
     failed: (error: unknown) => void,
+    recovered?: () => void,
   ): Promise<ControlHost> {
     for (const name of ['inbox', 'replies'])
       await files.mkdir(join(directory, name), {
@@ -336,7 +338,12 @@ export class ControlHost {
         mode: 0o700,
       });
 
-    return new ControlHost(await files.realpath(directory), handle, failed);
+    return new ControlHost(
+      await files.realpath(directory),
+      handle,
+      failed,
+      recovered,
+    );
   }
 
   async drain(): Promise<void> {
@@ -365,6 +372,7 @@ export class ControlHost {
     this.reading = this.read().then(
       (wake) => {
         this.reading = undefined;
+        this.recovered?.();
 
         if (this.stale) this.poll();
         else this.schedule(wake);
