@@ -439,6 +439,26 @@ test('an answer whose write runs out of time waiting for the ledger is recorded 
   assert.equal(answerTurns(b).length, 1);
 });
 
+test('a queued answer leaves a reply recorded by hand in place', async (t) => {
+  const { a, b, claim, f, refreshes } = await owners(t.onTestFinished);
+
+  vi.spyOn(b.coordination['registry'], 'answerPeers').mockRejectedValueOnce(
+    new DeadlineExpired(),
+  );
+
+  const request = await ask(a, claim, 'Which port?');
+  await refreshed(b);
+  await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+  await answer(b, request, 'Manual');
+
+  for (const tick of refreshes) tick();
+
+  await b.coordination['operations'];
+  assert.equal((await stored(f, request)).answer?.message, 'Manual');
+  assert.equal(b.coordination['queuedWrites'].length, 0);
+  assert.equal(b.coordination.snapshot.error, undefined);
+});
+
 test('an answer write that fails for another reason fails the turn and queues nothing', async (t) => {
   const { a, b, claim, f, refreshes } = await owners(t.onTestFinished);
 
