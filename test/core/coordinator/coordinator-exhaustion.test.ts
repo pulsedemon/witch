@@ -546,6 +546,22 @@ for (const [blocker, prepare, reason] of [
     'codex 7D 100% has no room',
   ],
   [
+    'a destination whose comparable model has spent its own window beside a weekly window with room',
+    (codex: FixtureAgent) =>
+      (codex.accountRead = async () => ({
+        limits: [{ window: '7D', percent: 40, observedAt: Date.now() }],
+        modelLimits: [
+          {
+            window: '7D',
+            model: 'Astra',
+            percent: 100,
+            observedAt: Date.now(),
+          },
+        ],
+      })),
+    'codex 7D 40%, 7D Astra 100% has no room',
+  ],
+  [
     'an empty destination catalog',
     (codex: FixtureAgent) => codex.catalog.splice(0),
     'codex lists no models',

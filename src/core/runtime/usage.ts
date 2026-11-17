@@ -67,6 +67,32 @@ export function over(
   );
 }
 
+function words(text: string): string {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .join('-');
+}
+
+/** the windows `model` runs under: those that block every model, then each model-only window whose label names it, as `Fable` names `claude-fable-5-2`. */
+export function limitsFor(
+  account: AccountReading | undefined,
+  model: string | undefined,
+): readonly Limit[] {
+  const id = `-${words(model ?? '')}-`;
+
+  return [
+    ...(account?.limits ?? []),
+    ...(account?.modelLimits ?? [])
+      .filter((limit) => id.includes(`-${words(limit.model)}-`))
+      .map(({ model: label, ...limit }) => ({
+        ...limit,
+        window: `${limit.window} ${label}`,
+      })),
+  ];
+}
+
 /** refresh windows, funding and eligibility independently within the existing attempt throttle. */
 export function due(account: AccountReading | undefined, now: number): boolean {
   return (
@@ -142,10 +168,9 @@ export function describeReading(
   name: string,
   account: AccountReading | undefined,
   now: number,
+  reading: readonly Limit[] = account?.limits ?? [],
 ): string | undefined {
-  if (!account || (!account.limits.length && !account.funding)) return;
-
-  const reading = account.limits;
+  if (!account || (!reading.length && !account.funding)) return;
 
   const windows = reading
     .map(({ window, percent }) => `${window} ${Math.round(percent)}%`)

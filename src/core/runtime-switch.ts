@@ -17,6 +17,7 @@ import {
   describeExhaustion,
   describeReading,
   headroom,
+  limitsFor,
   type AccountUsage,
 } from './runtime/usage.js';
 
@@ -491,7 +492,18 @@ export class RuntimeSwitch {
     const now = Date.now();
     const name = this.label(to);
     const account = accounts[to];
-    const limits = account?.limits ?? [];
+    const model = this.host.conversation().sessions[from]?.model;
+    const family = model && comparable(from, model, to);
+
+    const resolved = family
+      ? resolve(to, family, { models, latest })
+      : undefined;
+
+    const limits = limitsFor(
+      account,
+      resolved && 'model' in resolved ? resolved.model : undefined,
+    );
+
     const since = this.exhaustedAt.get(to) ?? -Infinity;
     const observed = Math.min(...limits.map(({ observedAt }) => observedAt));
     const room = headroom(limits, 100, now) && observed > since;
@@ -514,27 +526,24 @@ export class RuntimeSwitch {
       if (account?.funding && credits === 'unknown')
         return { reason: `${name}'s credits can't be verified` };
 
-      return { reason: `${describeReading(name, account, now)} has no room` };
+      return {
+        reason: `${describeReading(name, account, now, limits)} has no room`,
+      };
     }
 
     if (!models.some(({ agent }) => agent === to))
       return { reason: `${name} lists no models` };
 
-    const model = this.host.conversation().sessions[from]?.model;
-    const family = model && comparable(from, model, to);
-
-    if (!family)
+    if (!resolved)
       return {
         reason: `${name} has no model comparable to ${model || 'the current one'}`,
       };
-
-    const resolved = resolve(to, family, { models, latest });
 
     if ('refused' in resolved) return { reason: resolved.refused };
 
     return {
       selection: { agent: to, id: resolved.model },
-      notice: `${describeExhaustion(this.label(from), limit, now)}. Continuing on ${name} · ${resolved.model}: ${describeReading(name, account, now)} has ${room ? 'room' : 'usable credits'}`,
+      notice: `${describeExhaustion(this.label(from), limit, now)}. Continuing on ${name} · ${resolved.model}: ${describeReading(name, account, now, limits)} has ${room ? 'room' : 'usable credits'}`,
     };
   }
 

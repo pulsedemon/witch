@@ -843,3 +843,94 @@ test('a rule that names a model or family shifts to the comparable model on a ru
     },
   );
 });
+
+test('a model whose own weekly window is over the level shifts like a runtime over it, and other models on that runtime do not', () => {
+  const scoped = (model: string, percent: number, limits = fresh) => ({
+    claude: {
+      limits: limits.claude,
+      modelLimits: [{ ...window('7D', percent), model }],
+    },
+    codex: { limits: limits.codex },
+  });
+
+  const fable = { work: { implementation: 'claude:fable' } };
+
+  assert.deepEqual(ask({ policy: fable, accounts: scoped('Fable', 100) }), {
+    runtime: 'codex',
+    model: 'gpt-6-astra',
+    from: 'claude',
+    reason:
+      'claude (7D Fable 100%) is at or over the 90% shift threshold, and codex (7D 49%) has room under it; gpt-6-astra is comparable to fable',
+  });
+
+  assert.deepEqual(ask({ accounts: scoped('Fable', 100) }), {
+    runtime: 'claude',
+    model: 'claude-opus-5-5',
+    reason: 'implementation stays on claude',
+  });
+
+  // a spent model with no runtime under the level falls back to one with included usage left, as a spent runtime does
+  assert.deepEqual(
+    ask({
+      policy: fable,
+      accounts: scoped('Fable', 100, {
+        claude: fresh.claude,
+        codex: [window('7D', 95)],
+      }),
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-6-astra',
+      from: 'claude',
+      reason:
+        'claude (7D Fable 100%) is at or over the 90% shift threshold, and codex (7D 95%) has included usage left; gpt-6-astra is comparable to fable',
+    },
+  );
+
+  assert.deepEqual(
+    ask({
+      caller: 'codex',
+      accounts: scoped('Opus', 95, {
+        claude: [window('7D', 40)],
+        codex: [window('7D', 92)],
+      }),
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      reason:
+        'implementation stays on codex; codex (7D 92%) is at or over the 90% shift threshold, but claude (7D 40%, 7D Opus 95%) is at or over it too',
+    },
+  );
+});
+
+test('a named model runs as named with its own weekly window in the reason', () => {
+  const funding = {
+    kind: 'extra-usage' as const,
+    enabled: false,
+    used: 0,
+    limit: 10000,
+    currency: 'USD',
+    decimalPlaces: 2,
+    observedAt: now,
+  };
+
+  assert.deepEqual(
+    ask({
+      named: { runtime: 'claude', model: 'fable' },
+      accounts: {
+        claude: {
+          limits: [window('7D', 61)],
+          modelLimits: [{ ...window('7D', 100), model: 'Fable' }],
+          funding,
+        },
+      },
+    }),
+    {
+      runtime: 'claude',
+      model: 'claude-fable-5-1',
+      reason:
+        'named explicitly; claude (7D 61%, 7D Fable 100%, extra off: USD 0.00 spent / USD 100.00 cap)',
+    },
+  );
+});
