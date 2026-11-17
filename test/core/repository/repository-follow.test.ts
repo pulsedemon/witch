@@ -862,6 +862,45 @@ test('a name retry keeps its failure until the checks lookup finishes', async (t
   );
 });
 
+test('a name read discarded on return does not publish its late checks failure', async (t) => {
+  const checks = Promise.withResolvers<string>();
+  let lookups = 0;
+
+  const { watch, state, published, step } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/x'
+        ? pr('OPEN', { url: 'https://github.com/o/r/pull/7' })
+        : none(selector || branch),
+    {
+      checks: () => {
+        lookups++;
+
+        return checks.promise;
+      },
+    },
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  assert.equal(lookups, 1);
+  state.branch = 'feat/x';
+  await step();
+  const returned = published.length - 1;
+  assert.equal(watch.snapshot?.branch, 'feat/x');
+  checks.reject(new SyntaxError('invalid checks response'));
+  await settle();
+  assert.equal(watch.snapshot?.followed, undefined);
+  assert.equal(watch.snapshot?.followedFailure, undefined);
+
+  assert.ok(
+    published
+      .slice(returned)
+      .every((read) => read.followedFailure === undefined),
+  );
+});
+
 test('a read by name follows only an open pull request of that branch, and a failed read of the branch checked out before startup reads nothing', async (t) => {
   for (const answer of [pr('OPEN', { branch: 'feat/other' }), pr('MERGED')]) {
     const { state, step, wait, named, followed } = harness(
