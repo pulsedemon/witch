@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import type { ExecFileException, ExecFileOptions } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import { signalGroup } from '../../agents/shutdown.js';
+import { running, signalGroup } from '../../agents/shutdown.js';
 import { ps } from '../../persistence/process.js';
 import type { Run } from './repository.js';
 
@@ -48,12 +48,33 @@ async function cancellable(
   let failure: Error | undefined;
   let stopped = false;
   let timedOut = false;
+  /** the command's group, until a signal finds it without a member, since an empty group's id can be reused. */
+  let group = child.pid;
+  let watch: ReturnType<typeof setInterval> | undefined;
+
+  const signalOwned = (sent: NodeJS.Signals | 0) => {
+    if (group === undefined || signalGroup(group, sent)) return;
+
+    group = undefined;
+    clearInterval(watch);
+  };
+
+  /** stops reading once a stopped command has exited, since a descendant outside the group can hold the pipes open. */
+  const release = () => {
+    if (!stopped || running(child)) return;
+
+    child.stdout.destroy();
+    child.stderr.destroy();
+  };
 
   const interrupt = () => {
     stopped = true;
-
-    if (child.pid) signalGroup(child.pid, 'SIGKILL');
+    signalOwned('SIGKILL');
+    release();
   };
+
+  /** kills again while stopped, since a member can fork during the kill. */
+  const probe = () => signalOwned(stopped ? 'SIGKILL' : 0);
 
   for (const name of ['stdout', 'stderr'] as const) {
     child[name].setEncoding('utf8');
@@ -85,7 +106,12 @@ async function cancellable(
       : undefined;
 
   const exited = () => {
-    if (stopped) interrupt();
+    probe();
+
+    // members the command left behind can exit at any time
+    if (group !== undefined) watch = setInterval(probe, 20);
+
+    release();
   };
 
   child.once('exit', exited);
@@ -102,18 +128,21 @@ async function cancellable(
       child.once('close', (code, signal) => resolve({ code, signal }));
     });
 
-    if (stopped && child.pid) {
+    if (stopped) {
       const deadline = Date.now() + 3000;
 
-      while (
+      // the watch can forget the group during any of these waits
+      const members = async () =>
+        group !== undefined &&
         (await ps('pgid=,stat=', undefined, { timeout: 1000 })).some((line) => {
-          const [group, state] = line.trim().split(/\s+/);
+          const [id, state] = line.trim().split(/\s+/);
 
-          return Number(group) === child.pid && !state?.startsWith('Z');
-        })
-      ) {
+          return Number(id) === group && !state?.startsWith('Z');
+        });
+
+      while (await members()) {
         if (Date.now() >= deadline)
-          throw new Error(`Command process group ${child.pid} did not stop`);
+          throw new Error(`Command process group ${group} did not stop`);
 
         await delay(20);
       }
@@ -138,6 +167,7 @@ async function cancellable(
     return output;
   } finally {
     clearTimeout(timer);
+    clearInterval(watch);
     signal.removeEventListener('abort', interrupt);
     child.off('exit', exited);
   }
