@@ -53,37 +53,59 @@ test('a tool row keeps the path its title shows and its expanded title through i
   }
 });
 
-test('retracted text and tool rows leave the transcript and stay gone after a reopen', async () => {
+test('text and tool rows retracted in a later turn leave the transcript and stay gone after a reopen, and an id that names no row adds none', async () => {
   const { coordinator, a, reopen } = await unitFixture();
+  const gate = new TurnGate();
   let reopened: Coordinator | undefined;
 
-  const agentRows = (items: readonly DisplayItem[]) =>
-    items
-      .filter(({ kind }) => kind === 'assistant' || kind === 'tool')
-      .map(({ text }) => text);
+  const texts = (items: readonly DisplayItem[]) =>
+    items.map(({ text }) => text);
 
   try {
     await coordinator.send('first');
     const { onEvent } = a.sessions.at(-1)!.options;
-    const before = agentRows(coordinator.snapshot.items);
     onEvent({ type: 'text', id: 'refused', text: 'refused partial' });
 
     onEvent({
       type: 'tool',
-      id: 'call',
+      id: 'open',
       title: 'Read  a.ts',
-      text: 'refused call',
+      text: 'refused open call',
       done: false,
     });
 
+    onEvent({
+      type: 'tool',
+      id: 'finished',
+      title: 'Read  b.ts',
+      text: 'refused finished call',
+      done: true,
+    });
+
     onEvent({ type: 'text', id: 'replacement', text: 'replacement' });
-    onEvent({ type: 'retracted', ids: ['refused', 'call', 'never sent'] });
-    const kept = [...before, 'replacement'];
-    assert.deepEqual(agentRows(coordinator.snapshot.items), kept);
+    a.gate = gate;
+    const turn = coordinator.send('second');
+    await within(gate.entered, 2000, 'the second turn');
+    const before = texts(coordinator.snapshot.items);
+
+    onEvent({
+      type: 'retracted',
+      ids: ['refused', 'open', 'finished', 'never sent'],
+    });
+
+    const kept = before.filter((text) => !text.startsWith('refused'));
+    assert.equal(kept.length, before.length - 3);
+    assert.ok(kept.includes('replacement'));
+    assert.deepEqual(texts(coordinator.snapshot.items), kept);
+    gate.open();
+    await turn;
+    const settled = texts(coordinator.snapshot.items);
+    assert.deepEqual(settled.slice(0, kept.length), kept);
     await coordinator.close();
     reopened = await reopen();
-    assert.deepEqual(agentRows(reopened.snapshot.items), kept);
+    assert.deepEqual(texts(reopened.snapshot.items), settled);
   } finally {
+    gate.open();
     await coordinator.close();
     await reopened?.close();
   }

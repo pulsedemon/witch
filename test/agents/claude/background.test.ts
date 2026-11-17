@@ -926,7 +926,7 @@ test('native exit settles a turn with unacknowledged input', async () => {
   }
 });
 
-test("a refusal fallback withdraws the refused leg's text and tools, by a replacement's supersedes and by the notice, and moves the session to the fallback model with its context sample dropped, back on a revert and not at all when a subagent fell back", async () => {
+test("a refusal fallback withdraws the refused leg's text and tools, by a replacement's supersedes and by the notice, and moves the session to the fallback model with its context sample dropped, back on a revert and not at all when a subagent fell back or the model is already in force", async () => {
   const f = await background();
 
   const assistant = (uuid: string, id: string, content: unknown[]) => ({
@@ -1007,6 +1007,11 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
 
     assert.deepEqual(models(), [...before, 'claude-fallback']);
     assert.equal(context(), undefined);
+    // a notice naming the model already in force leaves its context sample alone
+    assert.notEqual(await f.session.contextUsage(), undefined);
+    await f.emit(fallback({ scope: 'session' }));
+    assert.deepEqual(models(), [...before, 'claude-fallback']);
+    assert.notEqual(context(), undefined);
 
     await f.emit(
       // an older CLI names no scope and means the session
