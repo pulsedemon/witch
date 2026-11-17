@@ -246,6 +246,7 @@ export class AccountUsage {
     if (
       previous?.limits.length === next.limits.length &&
       next.limits.every((limit, index) => limit === previous.limits[index]) &&
+      previous.modelLimits === next.modelLimits &&
       previous.funding === next.funding &&
       previous.creditAccess === next.creditAccess &&
       previous.identity === next.identity
@@ -414,6 +415,9 @@ export class AccountUsage {
             : {}),
           ...(current?.creditAccess !== previous?.creditAccess
             ? { creditAccess: current?.creditAccess }
+            : {}),
+          ...(current?.modelLimits !== previous?.modelLimits
+            ? { modelLimits: current?.modelLimits }
             : {}),
         });
       })

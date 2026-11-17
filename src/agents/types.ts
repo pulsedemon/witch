@@ -76,6 +76,12 @@ export interface Limit {
   observedAt: number;
 }
 
+/** a weekly window that blocks only the models its native label names. */
+export interface ModelLimit extends Limit {
+  /** the runtime's label for those models, such as `Fable`. */
+  model: string;
+}
+
 export type Funding = (
   | {
       kind: 'credits';
@@ -100,6 +106,8 @@ export type Funding = (
 
 export interface AccountReading {
   limits: readonly Limit[];
+  /** kept apart from `limits`, which block every model. */
+  modelLimits?: readonly ModelLimit[];
   funding?: Funding;
   /** permission to spend account credits, independent of model access. */
   creditAccess?: {

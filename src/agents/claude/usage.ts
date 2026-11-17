@@ -35,6 +35,16 @@ const accountUsage = z.object({
       five_hour: limitWindow,
       seven_day: limitWindow,
       limits: z.array(z.unknown()).nullish(),
+      model_scoped: z
+        .array(
+          z.object({
+            display_name: z.string(),
+            utilization: z.number().nullable(),
+            resets_at: z.string().nullable(),
+          }),
+        )
+        .nullish()
+        .catch(undefined),
       extra_usage: z
         .object({
           is_enabled: z.boolean(),
@@ -67,6 +77,7 @@ export function accountReading(
   if (!available)
     return {
       limits: [],
+      modelLimits: [],
       funding: { kind: 'unavailable', observedAt: Date.now() },
       creditAccess: { state: 'unknown', observedAt: Date.now() },
     };
@@ -96,13 +107,36 @@ export function accountReading(
         ],
   );
 
-  const extra = limits?.extra_usage;
+  const modelLimits = limits?.model_scoped?.flatMap((scoped) =>
+    scoped.utilization == null
+      ? (previous.modelLimits ?? []).filter(
+          (entry) => entry.model === scoped.display_name,
+        )
+      : [
+          {
+            window: '7D',
+            model: scoped.display_name,
+            percent: scoped.utilization,
+            ...(scoped.resets_at
+              ? { resetsAt: Date.parse(scoped.resets_at) / 1000 }
+              : {}),
+            observedAt,
+          },
+        ],
+  );
 
-  if (extra === undefined) return { ...previous, limits: windows };
-
-  return {
+  const reading = {
     ...previous,
     limits: windows,
+    ...(modelLimits && { modelLimits }),
+  };
+
+  const extra = limits?.extra_usage;
+
+  if (extra === undefined) return reading;
+
+  return {
+    ...reading,
     funding: extra
       ? {
           kind: 'extra-usage',
