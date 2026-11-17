@@ -152,6 +152,8 @@ export const displayUpdateSchema = z.object({
   singleLine: z.literal(true).optional(),
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
+  // the runtime withdrew the row; it leaves the transcript, and the update's other fields mean nothing
+  retracted: z.literal(true).optional(),
   images: z.array(z.string()).optional(),
   diff: z.array(fileDiff).optional(),
   // a command the user ran with `!`
@@ -177,7 +179,7 @@ export type ProcessIdentity = z.infer<typeof processIdentity>;
 
 export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
 
-export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
+export type DisplayItem = Omit<DisplayUpdate, 'replace' | 'retracted'>;
 
 /** the newest unmarked user row of each prompt the agent never read: those `result` left unread, and the turn's own `shown` prompt when its input went unwritten. */
 export function unreadRows(
@@ -382,6 +384,8 @@ export function applyDisplayUpdate(
 ): DisplayItem[] {
   const index = items.findLastIndex((item) => item.id === update.id);
 
+  if (update.retracted) return items.filter((_, at) => at !== index);
+
   if (index < 0) return [...items, merge(undefined, update)];
 
   const next = [...items];
@@ -393,19 +397,23 @@ export function applyDisplayUpdate(
 export function foldDisplayUpdates(
   updates: readonly DisplayUpdate[],
 ): DisplayItem[] {
-  const items: DisplayItem[] = [];
+  const items: (DisplayItem | undefined)[] = [];
   const indexes = new Map<string, number>();
 
   for (const update of updates) {
     const index = indexes.get(update.id);
 
-    if (index === undefined) {
+    if (update.retracted) {
+      if (index !== undefined) items[index] = undefined;
+
+      indexes.delete(update.id);
+    } else if (index === undefined) {
       indexes.set(update.id, items.length);
       items.push(merge(undefined, update));
     } else items[index] = merge(items[index], update);
   }
 
-  return items;
+  return items.filter((item) => item !== undefined);
 }
 
 export const untitled = 'New conversation';

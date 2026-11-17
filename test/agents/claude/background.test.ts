@@ -926,6 +926,92 @@ test('native exit settles a turn with unacknowledged input', async () => {
   }
 });
 
+test("a refusal fallback withdraws the refused leg's text and tools, by a replacement's supersedes and by the notice, and moves the session to the fallback model unless a subagent fell back", async () => {
+  const f = await background();
+
+  const assistant = (uuid: string, id: string, content: unknown[]) => ({
+    type: 'assistant',
+    uuid,
+    parent_tool_use_id: null,
+    message: { id, role: 'assistant', model: 'claude-a', content },
+  });
+
+  const fallback = (fields: object) => ({
+    type: 'system',
+    subtype: 'model_refusal_fallback',
+    trigger: 'refusal',
+    direction: 'retry',
+    original_model: 'claude-a',
+    fallback_model: 'claude-fallback',
+    request_id: null,
+    content: '',
+    ...fields,
+  });
+
+  const models = () =>
+    f.events.flatMap((e) => (e.type === 'info' ? [e.info.model] : []));
+
+  const retracted = () =>
+    f.events.flatMap((e) => (e.type === 'retracted' ? [e.ids] : []));
+
+  try {
+    const before = models();
+
+    await f.emit(
+      assistant('frame-text', 'refused', [
+        { type: 'text', text: 'refused partial' },
+      ]),
+      assistant('frame-tool', 'refused', [
+        { type: 'tool_use', id: 'refused-tool', name: 'Read', input: {} },
+      ]),
+      {
+        type: 'user',
+        uuid: 'frame-result',
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'refused-tool', content: '' },
+          ],
+        },
+      },
+      {
+        ...assistant('frame-replacement', 'replacement', [
+          { type: 'text', text: 'replacement' },
+        ]),
+        supersedes: ['frame-text'],
+      },
+      fallback({ scope: 'local', fallback_model: 'claude-side' }),
+    );
+
+    assert.deepEqual(retracted(), [['refused']]);
+    assert.deepEqual(models(), before);
+
+    await f.emit(
+      fallback({
+        scope: 'session',
+        retracted_message_uuids: ['frame-text', 'frame-tool', 'frame-result'],
+      }),
+      {
+        type: 'result',
+        subtype: 'error_during_execution',
+        is_error: true,
+        errors: ['fixture failure'],
+      },
+      state('idle'),
+    );
+
+    assert.deepEqual(retracted(), [['refused'], ['refused', 'refused-tool']]);
+    assert.deepEqual(models(), [...before, 'claude-fallback']);
+    const outcome = await within(f.turn, 2000, 'failed result');
+    assert.equal(outcome.status, 'failed');
+    assert.doesNotMatch(outcome.text, /refused partial/);
+    assert.match(outcome.text, /replacement/);
+  } finally {
+    await f.session.close();
+  }
+});
+
 test('successful native results do not rejoin the accumulated turn text', async () => {
   const f = await background();
   const text = vi.spyOn(TurnText.prototype, 'text', 'get');

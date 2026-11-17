@@ -454,6 +454,11 @@ export class SessionLink {
   ): void {
     const host = this.host;
 
+    /** a tool keeps the row it opened, which an earlier activity can own. */
+    const row = (id: string) =>
+      tools.get(id) ??
+      `${conversation.activity?.id ?? 'session'}/${agent}/${id}`;
+
     if (event.type === 'info') {
       recordSession(conversation, agent, event.info);
       host.persist(host.save());
@@ -504,12 +509,22 @@ export class SessionLink {
       if (this.live(agent)) host.publish({ nativeRunning: event.running });
     } else if (event.type === 'spell') {
       host.display(castRow(event.cast, conversation.cwd));
+    } else if (event.type === 'retracted') {
+      for (const id of event.ids) {
+        host.display({
+          id: row(id),
+          kind: 'assistant',
+          text: '',
+          cwd: conversation.cwd,
+          retracted: true,
+        });
+
+        tools.delete(id);
+      }
     } else {
-      let id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
+      const id = row(event.id);
 
       if (event.type === 'tool') {
-        id = tools.get(event.id) ?? id;
-
         if (event.done) tools.delete(event.id);
         else tools.set(event.id, id);
       }

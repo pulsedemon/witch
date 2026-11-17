@@ -53,6 +53,42 @@ test('a tool row keeps the path its title shows and its expanded title through i
   }
 });
 
+test('retracted text and tool rows leave the transcript and stay gone after a reopen', async () => {
+  const { coordinator, a, reopen } = await unitFixture();
+  let reopened: Coordinator | undefined;
+
+  const agentRows = (items: readonly DisplayItem[]) =>
+    items
+      .filter(({ kind }) => kind === 'assistant' || kind === 'tool')
+      .map(({ text }) => text);
+
+  try {
+    await coordinator.send('first');
+    const { onEvent } = a.sessions.at(-1)!.options;
+    const before = agentRows(coordinator.snapshot.items);
+    onEvent({ type: 'text', id: 'refused', text: 'refused partial' });
+
+    onEvent({
+      type: 'tool',
+      id: 'call',
+      title: 'Read  a.ts',
+      text: 'refused call',
+      done: false,
+    });
+
+    onEvent({ type: 'text', id: 'replacement', text: 'replacement' });
+    onEvent({ type: 'retracted', ids: ['refused', 'call', 'never sent'] });
+    const kept = [...before, 'replacement'];
+    assert.deepEqual(agentRows(coordinator.snapshot.items), kept);
+    await coordinator.close();
+    reopened = await reopen();
+    assert.deepEqual(agentRows(reopened.snapshot.items), kept);
+  } finally {
+    await coordinator.close();
+    await reopened?.close();
+  }
+});
+
 test('an unfinished tool keeps its original row through idle and later turns', async () => {
   const { coordinator, a, reopen } = await unitFixture();
   const first = new TurnGate();

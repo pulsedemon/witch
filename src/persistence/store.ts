@@ -517,6 +517,7 @@ export class ConversationStore {
 
     if (
       (captured.kind !== 'assistant' && captured.kind !== 'tool') ||
+      captured.retracted ||
       this.released ||
       this.failure
     ) {
