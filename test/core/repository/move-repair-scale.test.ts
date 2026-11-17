@@ -174,48 +174,53 @@ test('conversations moving to the same place look up its project scope once', as
   );
 });
 
-test('previewing many moved conversations beside many known directories stays linear', async () => {
-  // a preview skips the rewrites, so the per-conversation destination lookup dominates
-  const report = await linear(async (share) => {
-    const root = await scratch('witch-scale-');
-    const at = (path: string) => join(root, path);
+test(
+  'previewing many moved conversations beside many known directories stays linear',
+  // allow filesystem contention; linear() still enforces the CPU scaling limit
+  { timeout: 120_000 },
+  async () => {
+    // a preview skips the rewrites, so the per-conversation destination lookup dominates
+    const report = await linear(async (share) => {
+      const root = await scratch('witch-scale-');
+      const at = (path: string) => join(root, path);
 
-    for (let index = 0; index < 4000 * share; index++) {
-      await mkdir(at(`old/c${index}`), { recursive: true });
-      await mkdir(at(`state/conversations/c${index}`), { recursive: true });
+      for (let index = 0; index < 4000 * share; index++) {
+        await mkdir(at(`old/c${index}`), { recursive: true });
+        await mkdir(at(`state/conversations/c${index}`), { recursive: true });
+
+        await writeFile(
+          at(`state/conversations/c${index}/state.json`),
+          JSON.stringify(record(`c${index}`, at(`old/c${index}`))),
+        );
+      }
+
+      const unrelated = Array.from({ length: 50_000 * share }, (_, index) => ({
+        path: at(`known/e${index}`),
+        device: '1',
+        inode: String(index),
+      }));
+
+      const entries = [
+        { path: at('old'), ...(await identify(at('old')))! },
+        ...unrelated,
+      ];
 
       await writeFile(
-        at(`state/conversations/c${index}/state.json`),
-        JSON.stringify(record(`c${index}`, at(`old/c${index}`))),
+        at('state/directories.json'),
+        JSON.stringify({ version: 1, entries, moves: [] }),
       );
-    }
 
-    const unrelated = Array.from({ length: 50_000 * share }, (_, index) => ({
-      path: at(`known/e${index}`),
-      device: '1',
-      inode: String(index),
-    }));
+      await rename(at('old'), at('new'));
+      const store = await StateStore.open(at('state'));
+      const memory = await seededMemory(at('state/memory.git'));
 
-    const entries = [
-      { path: at('old'), ...(await identify(at('old')))! },
-      ...unrelated,
-    ];
+      return () =>
+        repairMoves(store, memory, at('new'), {
+          preview: true,
+          run: () => Promise.reject(new Error('not a repository')),
+        });
+    });
 
-    await writeFile(
-      at('state/directories.json'),
-      JSON.stringify({ version: 1, entries, moves: [] }),
-    );
-
-    await rename(at('old'), at('new'));
-    const store = await StateStore.open(at('state'));
-    const memory = await seededMemory(at('state/memory.git'));
-
-    return () =>
-      repairMoves(store, memory, at('new'), {
-        preview: true,
-        run: () => Promise.reject(new Error('not a repository')),
-      });
-  });
-
-  assert.equal(report.repaired[0]?.conversations, 4000);
-});
+    assert.equal(report.repaired[0]?.conversations, 4000);
+  },
+);
