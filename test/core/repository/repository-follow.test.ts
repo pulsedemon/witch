@@ -56,11 +56,13 @@ function harness(
     branch = 'feat/x',
     previous,
     project,
+    checks = async () => '{}',
   }: {
     branch?: string;
     /** what `@{-1}` answers, or how asking fails. unset, there is no previous branch. */
     previous?: string | (() => string);
     project?: () => Promise<string>;
+    checks?: () => Promise<string>;
   } = {},
 ) {
   vi.useRealTimers();
@@ -77,8 +79,8 @@ function harness(
   const watch = new RepositoryWatch(
     '/work',
     async (command, args) => {
-      // only a GitHub URL's checks adjustment asks the API, and its answer can't be parsed
-      if (command === 'gh' && args[0] === 'api') return { stdout: '{}' };
+      if (command === 'gh' && args[0] === 'api')
+        return { stdout: await checks() };
 
       if (command === 'gh') {
         const selector = args[2] === '--json' ? '' : args[2]!;
@@ -409,6 +411,11 @@ test("a failure handed to the followed pull request doesn't come back as the bra
   await step();
   assert.equal(watch.snapshot?.branch, 'feat/x');
   assert.equal(watch.snapshot?.pullRequestFailure, undefined);
+  assert.equal(watch.snapshot?.followedFailure, undefined);
+  state.branch = 'main';
+  await step();
+  assert.equal(watch.snapshot?.followed?.[0]?.url, url);
+  assert.equal(watch.snapshot?.followedFailure, undefined);
 });
 
 test("a round that ends after a held branch read handed its failure over doesn't drop it", async (t) => {
@@ -490,6 +497,45 @@ test('unfollowing a pull request drops the failure of its read', async (t) => {
   assert.equal(watch.snapshot?.followed, undefined);
   assert.equal(watch.snapshot?.followedFailure, undefined);
 });
+
+for (const first of ['branch', 'url'] as const)
+  test(`a failed URL read survives an older branch handoff when ${first} finishes first`, async (t) => {
+    const own = Promise.withResolvers<string>();
+    const byUrl = Promise.withResolvers<string>();
+    let reads = 0;
+
+    const { watch, state, step, wait, named } = harness(
+      t.onTestFinished,
+      (selector, branch) =>
+        selector === url7
+          ? byUrl.promise
+          : selector === '' && branch === 'feat/x'
+            ? ++reads === 1
+              ? pr('OPEN')
+              : own.promise
+            : none(selector || branch),
+    );
+
+    await settle();
+    await wait(90_000);
+    assert.equal(reads, 2);
+    state.branch = 'main';
+    await step();
+    assert.deepEqual(named(), [url7]);
+    const fail = () => byUrl.reject(new SyntaxError('invalid URL response'));
+
+    if (first === 'branch') own.resolve(pr('OPEN'));
+    else fail();
+
+    await step();
+
+    if (first === 'branch') fail();
+    else own.resolve(pr('OPEN'));
+
+    await settle();
+    assert.equal(watch.snapshot?.followed?.[0]?.url, url7);
+    assert.equal(watch.snapshot?.followedFailure, '#7: invalid URL response');
+  });
 
 test('a held branch read that answers closed after the checkout left is not followed', async (t) => {
   const held = Promise.withResolvers<string>();
@@ -736,6 +782,84 @@ test('a name whose read fails is read again 90 seconds later, and one gh answere
       first,
     );
   }
+});
+
+test('a queued name keeps its failure across unrelated rounds and drops it on return', async (t) => {
+  const { watch, state, published, step, named } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/x'
+        ? new SyntaxError('invalid name response')
+        : none(selector || branch),
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  const failure = 'feat/x: invalid name response';
+  assert.equal(watch.snapshot?.followedFailure, failure);
+  const failed = published.length;
+  state.branch = 'feat/y';
+  await step();
+  state.branch = 'main';
+  await step();
+  assert.deepEqual(named(), ['feat/x', 'main', 'feat/y']);
+  assert.ok(published.length > failed);
+
+  assert.ok(
+    published.slice(failed).every((read) => read.followedFailure === failure),
+  );
+
+  state.branch = 'feat/x';
+  await step();
+  assert.equal(watch.snapshot?.followedFailure, undefined);
+});
+
+test('a name retry keeps its failure until the checks lookup finishes', async (t) => {
+  const checks = Promise.withResolvers<string>();
+  let reads = 0;
+  let lookups = 0;
+
+  const failure = () =>
+    Object.assign(new Error('spawn gh EMFILE'), { code: 'EMFILE' });
+
+  const { watch, state, published, step, wait } = harness(
+    t.onTestFinished,
+    (selector, branch) =>
+      selector === 'feat/x'
+        ? ++reads === 1
+          ? failure()
+          : pr('OPEN', { url: 'https://github.com/o/r/pull/7' })
+        : none(selector || branch),
+    {
+      checks: () => {
+        lookups++;
+
+        return checks.promise;
+      },
+    },
+  );
+
+  await settle();
+  state.branch = 'main';
+  await step();
+  assert.equal(watch.snapshot?.followedFailure, 'feat/x: spawn gh EMFILE');
+  const failed = published.length;
+  await wait(90_000);
+  assert.equal(lookups, 1);
+  state.branch = 'feat/y';
+  await step();
+  assert.equal(watch.snapshot?.followedFailure, 'feat/x: spawn gh EMFILE');
+  checks.reject(failure());
+  await settle();
+  assert.equal(watch.snapshot?.followed?.[0]?.number, 7);
+  assert.ok(published.length > failed);
+
+  assert.ok(
+    published
+      .slice(failed)
+      .every((read) => read.followedFailure === 'feat/x: spawn gh EMFILE'),
+  );
 });
 
 test('a read by name follows only an open pull request of that branch, and a failed read of the branch checked out before startup reads nothing', async (t) => {

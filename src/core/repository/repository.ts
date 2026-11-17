@@ -999,7 +999,6 @@ export class RepositoryWatch {
 
         try {
           const value = await this.view(name);
-          delete queued.failure;
 
           const open =
             value.state === 'OPEN' &&
@@ -1077,7 +1076,20 @@ export class RepositoryWatch {
             break;
           }
 
-          entry.failure = `#${number}: ${reason(error)}`;
+          accepted.push(() => {
+            const current = this.followed.find(
+              (entry) => entry.value.url === url,
+            );
+
+            if (!current || current.started > started) return;
+
+            this.follow({
+              ...current,
+              started,
+              at: started,
+              failure: `#${number}: ${reason(error)}`,
+            });
+          });
         }
       }
 
