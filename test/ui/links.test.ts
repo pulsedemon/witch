@@ -681,6 +681,13 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
           ],
         ] as const,
     ),
+    // the hostname is still running where the read past the cut ends, after a user name
+    [
+      `${'x)('.repeat(659)}https://${'u'.repeat(50)}@${`${'h'.repeat(60)}.`.repeat(4)}com/${'p'.repeat(3000)}`,
+      [
+        `https://${'u'.repeat(50)}@${`${'h'.repeat(60)}.`.repeat(4)}com/${'p'.repeat(3000)}`,
+      ],
+    ],
     // the closing apostrophe is past what is read
     [
       `https://example.com/a'/${'b'.repeat(3000)}'end`,
@@ -708,10 +715,17 @@ test('hostnames with many `xn--` labels are left unlinked instead of read both w
   const labels = 'xn--a.'.repeat(24);
   const short = `https://${labels}${'b.'.repeat(100)}b_`;
   assert.equal(linkify(short, '/work'), short);
-  // the labels come after what is read past the cut, inside a hostname still running there
   const start = `https://${'a.'.repeat(1200)}${labels}`;
-  const long = `${start}${'b.'.repeat((4000 - start.length - 4) / 2)}com.${'b.'.repeat(1000)}b_`;
-  assert.equal(stripAnsi(linkify(long, '/work')), long);
+
+  for (const long of [
+    // the labels come after what is read past the cut
+    `${start}${'b.'.repeat((4000 - start.length - 4) / 2)}com.${'b.'.repeat(1000)}b_`,
+    // what is read ends in a full stop, and the labels are spread through the hostname after it
+    `https://a${'a.'.repeat(1200)}${`xn--a.${'b.'.repeat(90)}`.repeat(18)}b_`,
+    // more than ten labels only once the read past the cut is counted
+    `https://example.com/${'a'.repeat(1950)}${'xn--'.repeat(11)}${'b'.repeat(1000)}`,
+  ])
+    assert.equal(linkify(long, '/work'), long);
 
   assert.deepEqual(
     linkSpans(
@@ -739,6 +753,14 @@ test('a link longer than 8192 characters stays plain text to the end of its run,
       `https://example.com/${'a'.repeat(3000)}(${'b'.repeat(9000)})e then src/main.ts`,
       ['vscode://file/work/src/main.ts'],
     ],
+    // a paired part opens before the cut and closes past what is measured
+    ...['()', '[]', "''"].map(
+      ([open, close]) =>
+        [
+          `https://example.com/a${open}${'b'.repeat(9000)}${close}e then src/main.ts`,
+          ['vscode://file/work/src/main.ts'],
+        ] as const,
+    ),
     // the second address is in the same run, so it is not linked as if it were the first one's end
     [
       `${longest}a)(https://example.org/tail then src/main.ts`,

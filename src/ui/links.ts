@@ -10,11 +10,13 @@ import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
 
-/** the links linkify-it finds, or none where its hostname pattern would try both readings of each `xn--` label, doubling its work with every one. */
+/** whether linkify-it's hostname pattern would try both readings of each `xn--` label in `text`, doubling its work with every one. */
+function backtracks(text: string): boolean {
+  return (text.match(/xn--/gi)?.length ?? 0) > 10;
+}
+
 function webLinks(text: string) {
-  return (text.match(/xn--/gi)?.length ?? 0) > 10
-    ? []
-    : (urls.match(text) ?? []);
+  return backtracks(text) ? [] : (urls.match(text) ?? []);
 }
 
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
@@ -309,30 +311,46 @@ function cutShort(
 ): boolean {
   if (dangling.test(text.slice(stop, read))) return true;
 
-  // a paired part is left out when its closing end was not read; it holds no whitespace
-  const inside = text.slice(stop + 1, limit);
-  const close = inside.indexOf(closing[text[stop]!] ?? ' ');
+  const closer = closing[text[stop]!];
 
-  return close >= 0 && !/\s/.test(inside.slice(0, close));
+  if (!closer) return false;
+
+  // a paired part holds no whitespace, so one that meets whitespace before its closing end is not part of the link
+  const inside = text.slice(stop + 1, limit);
+  const close = inside.indexOf(closer);
+
+  return !/\s/.test(close < 0 ? inside : inside.slice(0, close));
+}
+
+/** the piece from `start` as plain text, to the end of the run that holds `at`: linkify-it reads no link across whitespace or an angle bracket. */
+function plainRun(text: string, at: number): { end: number; url: null } {
+  const boundary = /[\s<>]/g;
+  boundary.lastIndex = at;
+
+  return { end: boundary.exec(text)?.index ?? text.length, url: null };
 }
 
 /**
- * where a piece with no boundary to cut at ends: before the first web link that runs past the cap, or after it when it starts the piece.
+ * where a piece with no boundary to cut at ends: before the first web link that can run past the cap, or after it when it starts the piece.
  * that link is measured from its start alone, since linkify-it's search of a long piece rescans it for each scheme inside.
+ * when its whole length cannot be established the run stays plain text, so no part of it links to a shorter address.
  */
 function unbroken(
   text: string,
   start: number,
   end: number,
 ): Pick<Piece, 'url'> & { end: number } {
-  // read past the cap by a scheme and the longest hostname, so a link whose start straddles the cap is still recognized
+  // read past the cap, far enough for a scheme and a hostname, so a link that starts just before the cap is recognized
   const read = Math.min(end + 8 + 253, text.length);
+  const window = text.slice(start, read);
 
-  for (const link of webLinks(text.slice(start, read))) {
-    if (start + link.index >= end) break;
+  if (backtracks(window)) return plainRun(text, end);
 
+  for (const link of urls.match(window) ?? []) {
     const from = start + link.index;
     const stop = start + link.lastIndex;
+
+    if (from >= end) break;
 
     if (
       !webLink.test(link.raw) ||
@@ -340,17 +358,13 @@ function unbroken(
     )
       continue;
 
-    // a hostname still running where the read ended is longer than any real one, and linkify-it backtracks through its labels
-    if (
-      stop === read &&
-      read < text.length &&
-      !/[/?#]/.test(link.raw.replace(/^https?:\/\//i, ''))
-    )
-      continue;
+    if (link.index) return { end: from };
 
     // one character more than a link may have, so a longer one measures as too long
     const rest = text.slice(from, from + longestLink + 1);
-    const measured = from + rest.length;
+
+    if (backtracks(rest)) return plainRun(text, end);
+
     // a `www.` link has no scheme of its own, so it is measured as the `//` form of the `http://` address linkify-it gives it
     const scheme = link.url.slice(0, -link.raw.length);
 
@@ -359,28 +373,22 @@ function unbroken(
       : link.schema.length +
         urls.testSchemaAt(rest, link.schema, link.schema.length);
 
-    const linkEnd = from + length - sentenceEnd(rest.slice(0, length));
-
-    if (linkEnd <= end) continue;
-
-    if (link.index) return { end: from };
+    const measured = from + length;
+    const restEnd = from + rest.length;
 
     // where the measured text ended can cut the link short as the read can, and no later text is looked at to rule that out
-    const whole =
-      length <= longestLink &&
-      (measured === text.length ||
-        !(
-          dangling.test(text.slice(from + length, measured)) ||
-          text[from + length]! in closing
-        ));
+    const unknown =
+      restEnd < text.length &&
+      (dangling.test(text.slice(measured, restEnd)) ||
+        text[measured]! in closing);
 
-    if (whole) return { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
+    if (length > longestLink || unknown)
+      return plainRun(text, Math.max(end, measured));
 
-    // too long to link whole, so the run it is in stays plain text and no part of it links to a shorter address
-    const boundary = /[\s<>"]/g;
-    boundary.lastIndex = from + length;
+    const linkEnd = measured - sentenceEnd(rest.slice(0, length));
 
-    return { end: boundary.exec(text)?.index ?? text.length, url: null };
+    if (linkEnd > end)
+      return { end: linkEnd, url: scheme + text.slice(from, linkEnd) };
   }
 
   return { end };
