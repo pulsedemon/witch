@@ -4,6 +4,7 @@ import type {
   AccountReading,
   AgentSession,
   AgentStopOptions,
+  ExhaustedLimit,
   Funding,
   Limit,
 } from '../../agents/types.js';
@@ -174,6 +175,24 @@ export function describeReading(
   return `${name} ${parts.join(', ')}`;
 }
 
+/** the clause a switch notice opens with; without a window it says only that `name` ran out. */
+export function describeExhaustion(
+  name: string,
+  limit: ExhaustedLimit | undefined,
+  now: number,
+): string {
+  if (!limit?.window) return `${name} is out of usage`;
+
+  const left = untilReset(limit.resetsAt, now);
+
+  const details = [
+    ...(left ? [`resets in ${left}`] : []),
+    ...(limit.credits ? [`credits unavailable: ${limit.credits}`] : []),
+  ];
+
+  return `${name}'s ${limit.model ? `${limit.model} ` : ''}${limit.window} limit is used up${details.length ? ` (${details.join('; ')})` : ''}`;
+}
+
 /** dynamic account observations for the next turn. */
 export function usageContext(
   accounts: Readonly<Record<string, AccountReading>>,
@@ -246,6 +265,7 @@ export class AccountUsage {
     if (
       previous?.limits.length === next.limits.length &&
       next.limits.every((limit, index) => limit === previous.limits[index]) &&
+      previous.modelLimits === next.modelLimits &&
       previous.funding === next.funding &&
       previous.creditAccess === next.creditAccess &&
       previous.identity === next.identity
@@ -414,6 +434,9 @@ export class AccountUsage {
             : {}),
           ...(current?.creditAccess !== previous?.creditAccess
             ? { creditAccess: current?.creditAccess }
+            : {}),
+          ...(current?.modelLimits !== previous?.modelLimits
+            ? { modelLimits: current?.modelLimits }
             : {}),
         });
       })

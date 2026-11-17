@@ -37,8 +37,8 @@ const idle = {
 
 const failure = [failed, idle];
 
-/** the last scripted turn's `exhausted` on a sonnet session, once that turn failed or was interrupted. */
-async function exhausted(...turns: Step[][]) {
+/** the last scripted turn's result on a sonnet session, once that turn failed or was interrupted. */
+async function lastResult(...turns: Step[][]) {
   const events: AgentEvent[] = [];
   const f = await fixture((event) => events.push(event), 'background');
 
@@ -99,7 +99,7 @@ async function exhausted(...turns: Step[][]) {
     const interrupted = turns.at(-1)!.includes('interrupt');
     assert.equal(result!.status, interrupted ? 'interrupted' : 'failed');
 
-    return result!.exhausted;
+    return result!;
   } finally {
     await f.session.close();
   }
@@ -116,7 +116,31 @@ test('Claude confirms exhaustion from a current rejection behind a failed result
   ];
 
   for (const turns of cases)
-    assert.equal(await exhausted(...turns), true, JSON.stringify(turns));
+    assert.equal(
+      (await lastResult(...turns)).exhausted,
+      true,
+      JSON.stringify(turns),
+    );
+});
+
+test('a confirmed exhaustion names the limit that rejected it', async () => {
+  const { resetsAt } = week;
+
+  const cases: [Step[][], object][] = [
+    [
+      [[limit({ rateLimitType: 'seven_day_sonnet' }), ...failure]],
+      { window: '7D', model: 'Sonnet', resetsAt },
+    ],
+    [[[limit(), 'kill']], { window: '7D', resetsAt }],
+    [[[limit({ rateLimitType: undefined }), 'steer', idle]], { resetsAt }],
+  ];
+
+  for (const [turns, expected] of cases)
+    assert.deepEqual(
+      (await lastResult(...turns)).limit,
+      expected,
+      JSON.stringify(turns),
+    );
 });
 
 test('Claude leaves exhaustion unset without a current rejection behind a failed result or exit', async () => {
@@ -132,7 +156,39 @@ test('Claude leaves exhaustion unset without a current rejection behind a failed
   ];
 
   for (const turns of cases)
-    assert.equal(await exhausted(...turns), undefined, JSON.stringify(turns));
+    assert.equal(
+      (await lastResult(...turns)).exhausted,
+      undefined,
+      JSON.stringify(turns),
+    );
+});
+
+test("a background rejection's event names its limit", async () => {
+  const f = await background();
+
+  try {
+    await f.emit(state('idle'));
+    await f.turn;
+
+    await f.emit(
+      state('running'),
+      limit(),
+      { ...failed, user_message_uuids: [] },
+      idle,
+    );
+
+    assert.deepEqual(
+      f.events.filter((event) => event.type === 'exhausted'),
+      [
+        {
+          type: 'exhausted',
+          limit: { window: '7D', resetsAt: week.resetsAt },
+        },
+      ],
+    );
+  } finally {
+    await f.session.close();
+  }
 });
 
 test('a native background rejection reports exhaustion once after the ordinary turn completed', async () => {

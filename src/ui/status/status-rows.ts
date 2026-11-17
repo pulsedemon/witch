@@ -78,17 +78,22 @@ function duration(milliseconds: number): string {
 }
 
 /** a window that isn't current shows dim, with its age in place of the reset when `reset` is set. */
-function windowText(limit: Limit, now: number, reset: boolean): string {
+function windowText(
+  limit: Limit,
+  now: number,
+  reset: boolean,
+  label = limit.window,
+): string {
   const percent = Math.round(limit.percent);
 
   if (!current(limit, now))
     return colors.dim(
-      `${limit.window} ${percent}%${reset ? `  ${duration(now - limit.observedAt)} OLD` : ''}`,
+      `${label} ${percent}%${reset ? `  ${duration(now - limit.observedAt)} OLD` : ''}`,
     );
 
   const left = reset ? untilReset(limit.resetsAt, now) : '';
 
-  return `${limit.window} ${limitColor(percent)(`${percent}%`)}${left && ` ${left}`}`;
+  return `${label} ${limitColor(percent)(`${percent}%`)}${left && ` ${left}`}`;
 }
 
 function fundingRow(funding: Funding, now: number): string {
@@ -123,6 +128,16 @@ export function accountRows(
 ): string[] {
   const rows =
     account?.limits.map((limit) => windowText(limit, now, reset)) ?? [];
+
+  for (const limit of account?.modelLimits ?? [])
+    rows.push(
+      windowText(
+        limit,
+        now,
+        reset,
+        `${limit.window} ${plain(limit.model).toUpperCase()}`,
+      ),
+    );
 
   if (account?.funding) rows.push(fundingRow(account.funding, now));
 

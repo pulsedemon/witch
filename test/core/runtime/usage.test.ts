@@ -12,6 +12,7 @@ import {
   AccountUsage,
   creditCapacity,
   current,
+  describeExhaustion,
   due,
   headroom,
   over,
@@ -533,6 +534,59 @@ test('a newer window does not discard a probe credit update, but newer credits d
   } finally {
     vi.restoreAllMocks();
   }
+});
+
+test('an exhaustion names its limit, reset and refused credits, and falls back when the runtime names none', () => {
+  const resetsAt = now / 1000 + 2 * 86_400 + 3 * 3600;
+  const credits = 'out of credits';
+
+  for (const [limit, expected] of [
+    [undefined, 'Claude is out of usage'],
+    [{}, 'Claude is out of usage'],
+    [{ resetsAt, credits }, 'Claude is out of usage'],
+    [{ window: '7D' }, "Claude's 7D limit is used up"],
+    [{ window: '7D', model: 'Fable' }, "Claude's Fable 7D limit is used up"],
+    [
+      { window: '7D', model: 'Fable', resetsAt },
+      "Claude's Fable 7D limit is used up (resets in 2d3h)",
+    ],
+    [
+      { window: '7D', model: 'Fable', resetsAt, credits },
+      "Claude's Fable 7D limit is used up (resets in 2d3h; credits unavailable: out of credits)",
+    ],
+    [
+      { window: '7D', model: 'Fable', resetsAt: now / 1000 - 1, credits },
+      "Claude's Fable 7D limit is used up (credits unavailable: out of credits)",
+    ],
+  ] as const)
+    assert.equal(describeExhaustion('Claude', limit, now), expected);
+});
+
+const fable = (percent: number) => [
+  { ...window('7D', percent), model: 'Fable' },
+];
+
+test('a reading that changes only a per-model window is published', () => {
+  const { usage, published } = readings();
+  const limits = [window('7D', 50)];
+  usage.report('b', { limits, modelLimits: fable(6) });
+  const changed = fable(100);
+  usage.report('b', { limits, modelLimits: changed });
+  assert.equal(published.length, 2);
+  assert.equal(published.at(-1)!.b!.modelLimits, changed);
+});
+
+test('a per-model window reported during a probe keeps its value when the probe finishes', async () => {
+  const { b, usage, published } = readings();
+  usage.report('b', { limits: [window('7D', 50)], modelLimits: fable(6) });
+  const pending = Promise.withResolvers<AccountReading>();
+  b.accountRead = () => pending.promise;
+  const probe = usage.refresh('b', '/w');
+  const newer = fable(100);
+  usage.report('b', { limits: [window('7D', 51)], modelLimits: newer });
+  pending.resolve({ limits: [window('7D', 60)], modelLimits: fable(6) });
+  await probe;
+  assert.equal(published.at(-1)!.b!.modelLimits, newer);
 });
 
 test('a new native account identity cannot inherit another account credits', () => {

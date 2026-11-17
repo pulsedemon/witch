@@ -1,4 +1,8 @@
-import type { AgentSession, TurnResult } from '../agents/types.js';
+import type {
+  AgentSession,
+  ExhaustedLimit,
+  TurnResult,
+} from '../agents/types.js';
 import type { Memory } from '../memory/memory.js';
 import type { SessionCoordination } from './coordination/coordination.js';
 import { taskActivity } from './coordination/coordination-state.js';
@@ -10,6 +14,7 @@ import type { ConversationRecord } from './state.js';
 import {
   creditCapacity,
   currentLimits,
+  describeExhaustion,
   describeReading,
   headroom,
   type AccountUsage,
@@ -73,6 +78,8 @@ interface PendingSwitch {
   waiting: boolean;
   revision: number;
   finished: PromiseWithResolvers<void>;
+  /** the limit the source ran into, when its adapter named one. */
+  limit?: ExhaustedLimit;
 }
 
 type Destination =
@@ -106,10 +113,10 @@ export class RuntimeSwitch {
     this.clearPending();
   }
 
-  backgroundExhausted(source: AgentSession): void {
+  backgroundExhausted(source: AgentSession, limit?: ExhaustedLimit): void {
     if (this.host.session() !== source || this.host.cancelled()) return;
 
-    if (!this.backgroundPending) this.request(true);
+    if (!this.backgroundPending) this.request(true, limit);
   }
 
   get backgroundPending(): boolean {
@@ -192,7 +199,7 @@ export class RuntimeSwitch {
     return this.run(request);
   }
 
-  private request(background: boolean): PendingSwitch {
+  private request(background: boolean, limit?: ExhaustedLimit): PendingSwitch {
     this.clearPending();
 
     const request = {
@@ -204,6 +211,7 @@ export class RuntimeSwitch {
       waiting: false,
       revision: this.activityRevision,
       finished: Promise.withResolvers<void>(),
+      ...(limit && { limit }),
     };
 
     this.pending = request;
@@ -326,9 +334,9 @@ export class RuntimeSwitch {
   }
 
   /** after an ordinary turn, or the compaction before it, fails exhausted; true when the conversation continues on another runtime. */
-  continueAfterExhaustion(): Promise<boolean> {
+  continueAfterExhaustion(limit?: ExhaustedLimit): Promise<boolean> {
     return this.run(
-      this.backgroundPending ? this.pending! : this.request(false),
+      this.backgroundPending ? this.pending! : this.request(false, limit),
     );
   }
 
@@ -378,7 +386,7 @@ export class RuntimeSwitch {
 
     if (commandsPending && !(request.background && host.compactionOnly())) {
       host.notice(
-        `${from} is out of usage. Witch won't switch while commands are pending.`,
+        `${describeExhaustion(from, request.limit, Date.now())}. Witch won't switch while commands are pending.`,
       );
 
       return false;
@@ -439,7 +447,10 @@ export class RuntimeSwitch {
 
     if (this.deferBackground(request)) return;
 
-    const destinations = others.map((id) => this.destination(agent, id));
+    const destinations = others.map((id) =>
+      this.destination(agent, id, request.limit),
+    );
+
     const chosen = destinations.find((choice) => 'selection' in choice);
     const from = this.label(agent);
 
@@ -449,7 +460,7 @@ export class RuntimeSwitch {
       );
 
       host.notice(
-        `${from} is out of usage and no other runtime can continue: ${reasons.join(', ') || 'no other runtime is installed'}. The conversation stays on ${from}.`,
+        `${describeExhaustion(from, request.limit, Date.now())} and no other runtime can continue: ${reasons.join(', ') || 'no other runtime is installed'}. The conversation stays on ${from}.`,
       );
 
       return;
@@ -471,7 +482,11 @@ export class RuntimeSwitch {
   }
 
   /** `to` qualifies on room or usable credits observed after it last ran out, with a model comparable to the one `from` ran. */
-  private destination(from: string, to: string): Destination {
+  private destination(
+    from: string,
+    to: string,
+    limit: ExhaustedLimit | undefined,
+  ): Destination {
     const { accounts, models, latest } = this.host.snapshot();
     const now = Date.now();
     const name = this.label(to);
@@ -519,7 +534,7 @@ export class RuntimeSwitch {
 
     return {
       selection: { agent: to, id: resolved.model },
-      notice: `${this.label(from)} is out of usage. Continuing on ${name} · ${resolved.model}: ${describeReading(name, account, now)} has ${room ? 'room' : 'usable credits'}`,
+      notice: `${describeExhaustion(this.label(from), limit, now)}. Continuing on ${name} · ${resolved.model}: ${describeReading(name, account, now)} has ${room ? 'room' : 'usable credits'}`,
     };
   }
 

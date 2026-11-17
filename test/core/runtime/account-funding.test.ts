@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { createElement } from 'react';
 import { test, vi } from 'vitest';
 import { accountReading } from '../../../src/agents/claude/usage.js';
@@ -9,6 +10,7 @@ import {
   AccountUsage,
   creditCapacity,
   fundingText,
+  headroom,
   usageContext,
   USAGE_CURRENT_MS,
 } from '../../../src/core/runtime/usage.js';
@@ -875,5 +877,154 @@ test('an unlimited grant still displays a native spending denial', () => {
       false,
     ),
     ['unlimited credits', 'credit spending blocked'],
+  );
+});
+
+const fable = (
+  utilization: number | null,
+  resets = '2026-11-14T22:00:00+00:00',
+) => ({
+  display_name: 'Fable',
+  utilization,
+  resets_at: utilization === null ? null : resets,
+});
+
+const weekly = (
+  utilization: number,
+  scoped?: unknown,
+  limits: unknown = [],
+) => ({
+  rate_limits_available: true,
+  rate_limits: {
+    seven_day: { utilization, resets_at: '2026-11-14T22:00:00+00:00' },
+    limits,
+    ...(scoped === undefined ? {} : { model_scoped: scoped }),
+  },
+});
+
+test('a per-model weekly window is read apart from the windows that block every model', () => {
+  const now = Date.parse('2026-11-10T00:00:00Z');
+  vi.spyOn(Date, 'now').mockReturnValue(now);
+
+  try {
+    const reading = accountReading(weekly(47, [fable(100)]), { limits: [] })!;
+    const observedAt = now - 60_000;
+
+    assert.deepEqual(reading.limits, [
+      { window: '7D', percent: 47, resetsAt: 1794693600, observedAt },
+    ]);
+
+    assert.deepEqual(reading.modelLimits, [
+      {
+        window: '7D',
+        model: 'Fable',
+        percent: 100,
+        resetsAt: 1794693600,
+        observedAt,
+      },
+    ]);
+
+    assert.equal(headroom(reading.limits, 100, now), true);
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
+
+test('a report that omits per-model windows keeps the earlier ones', () => {
+  const first = accountReading(weekly(47, [fable(100)]), { limits: [] })!;
+  const omitted = accountReading(weekly(50), first)!;
+  assert.equal(omitted.limits[0]!.percent, 50);
+  assert.equal(omitted.modelLimits, first.modelLimits);
+  const unknown = accountReading(weekly(51, [fable(null)]), omitted)!;
+  assert.deepEqual(unknown.modelLimits, first.modelLimits);
+  assert.deepEqual(accountReading(weekly(52, []), unknown)!.modelLimits, []);
+});
+
+test('a report without plan limits clears the per-model windows too', () => {
+  const first = accountReading(weekly(47, [fable(100)]), { limits: [] })!;
+
+  const unavailable = accountReading(
+    { rate_limits_available: false, rate_limits: null },
+    first,
+  )!;
+
+  assert.deepEqual(unavailable.limits, []);
+  assert.deepEqual(unavailable.modelLimits, []);
+});
+
+test('a malformed per-model row does not discard the report', () => {
+  const extra = (used: number) => ({
+    is_enabled: false,
+    monthly_limit: 10000,
+    used_credits: used,
+    currency: 'USD',
+    decimal_places: 2,
+  });
+
+  const report = (
+    hours: number,
+    week: number,
+    used: number,
+    scoped: unknown,
+  ) => ({
+    rate_limits_available: true,
+    rate_limits: {
+      five_hour: { utilization: hours, resets_at: null },
+      seven_day: { utilization: week, resets_at: null },
+      limits: [],
+      model_scoped: scoped,
+      extra_usage: extra(used),
+    },
+  });
+
+  const first = accountReading(report(8, 47, 0, [fable(100)]), {
+    limits: [],
+  })!;
+
+  const malformed = accountReading(
+    report(9, 50, 651, [{ display_name: 7 }]),
+    first,
+  )!;
+
+  assert.deepEqual(
+    malformed.limits.map(({ window, percent }) => [window, percent]),
+    [
+      ['5H', 9],
+      ['7D', 50],
+    ],
+  );
+
+  assert.equal(
+    malformed.funding?.kind === 'extra-usage' && malformed.funding.used,
+    651,
+  );
+
+  assert.equal(malformed.modelLimits, first.modelLimits);
+});
+
+test('a per-model window shows as its own labelled row', () => {
+  const now = Date.now();
+
+  const account: AccountReading = {
+    limits: [{ window: '7D', percent: 47, observedAt: now }],
+    modelLimits: [
+      {
+        window: '7D',
+        model: 'Fable',
+        percent: 100,
+        resetsAt: now / 1000 + 2 * 86_400 + 3 * 3600 + 1800,
+        observedAt: now,
+      },
+    ],
+  };
+
+  assert.deepEqual(
+    accountRows(account, now, true).map(stripVTControlCharacters),
+    ['7D 47%', '7D FABLE 100% 2d3h'],
+  );
+
+  assert.deepEqual(
+    accountRows(account, now, false).map(stripVTControlCharacters),
+    ['7D 47%', '7D FABLE 100%'],
   );
 });

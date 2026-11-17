@@ -9,6 +9,7 @@ import type {
   AgentStopOptions,
   AnswerInput,
   AccountReading,
+  ExhaustedLimit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -135,6 +136,8 @@ export class FixtureAgent implements AgentAdapter {
   failNext = false;
   /** a turn whose prompt it matches fails once its gate opens, with confirmed usage exhaustion. */
   exhaust?: (prompt: string) => boolean;
+  /** the limit an `exhaust` failure reports. */
+  exhaustLimit?: ExhaustedLimit;
   /** the next compaction fails once its gate opens, with confirmed usage exhaustion. */
   exhaustCompaction = false;
   peerReply?: (requests: PeerRequest[]) => string;
@@ -165,7 +168,7 @@ export class FixtureAgent implements AgentAdapter {
 
   constructor(
     readonly id: string,
-    readonly label = id,
+    public label = id,
   ) {
     this.catalog = [
       { id: `${id}-model`, label: `${id}-model`, efforts: [] },
@@ -469,6 +472,7 @@ export class FixtureAgent implements AgentAdapter {
             text: '',
             error: 'Usage limit reached',
             exhausted: true,
+            ...(this.exhaustLimit && { limit: this.exhaustLimit }),
           };
 
         if (!result) {

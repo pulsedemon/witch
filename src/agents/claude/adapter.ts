@@ -1137,16 +1137,14 @@ class ClaudeSession implements AgentSession {
   private confirmBackgroundExhaustion(): boolean {
     const run = this.backgroundRun;
 
-    if (
-      !run?.eligible ||
-      run.exhausted ||
-      this.closed ||
-      !this.rateLimit.rejects(run.identity, this.info.model)
-    )
-      return false;
+    if (!run?.eligible || run.exhausted || this.closed) return false;
+
+    const limit = this.rateLimit.rejection(run.identity, this.info.model);
+
+    if (!limit) return false;
 
     run.exhausted = true;
-    this.options.onEvent({ type: 'exhausted' });
+    this.options.onEvent({ type: 'exhausted', limit });
 
     return true;
   }
@@ -1260,6 +1258,12 @@ class ClaudeSession implements AgentSession {
           )
         : [];
 
+      // a CLI that dies after a rejection confirms it as a failed result would; Witch's own close doesn't
+      const limit =
+        closed || unknown || turn.interrupted
+          ? undefined
+          : this.rateLimit.rejection(turn, this.info.model);
+
       this.finish(turn, {
         status: 'failed',
         text: this.reportedStopTimeout ? turn.messages.text : '',
@@ -1267,13 +1271,7 @@ class ClaudeSession implements AgentSession {
         ...(unread.length ? { unread } : {}),
         ...(unreadContext.length ? { unreadContext } : {}),
         ...(inputUnsent ? { inputUnsent } : {}),
-        // a CLI that dies after a rejection confirms it as a failed result would; Witch's own close doesn't
-        ...(!closed &&
-        !unknown &&
-        !turn.interrupted &&
-        this.rateLimit.rejects(turn, this.info.model)
-          ? { exhausted: true }
-          : {}),
+        ...(limit ? { exhausted: true, limit } : {}),
       });
     }
 
@@ -1304,7 +1302,7 @@ class ClaudeSession implements AgentSession {
 
       this.finish(
         turn,
-        idleResult(turn, this.rateLimit.rejects(turn, this.info.model)),
+        idleResult(turn, this.rateLimit.rejection(turn, this.info.model)),
       );
 
       this.readUsage();
