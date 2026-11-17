@@ -20,7 +20,11 @@ import { identifyProcess, ps } from '../../../src/persistence/process.js';
 import { StateStore } from '../../../src/persistence/store.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
-import { git, legacyLock } from '../../fixtures/coordination.js';
+import {
+  git,
+  holdLedgerPast,
+  legacyLock,
+} from '../../fixtures/coordination.js';
 import { record } from '../../fixtures/coordinator.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { within } from '../../fixtures/within.js';
@@ -264,7 +268,17 @@ async function session(cleanup: RegisterCleanup) {
       action: { kind: 'claim', input },
     });
 
-  return { root, cwd, store, registry, memory, coordination, project, claim };
+  return {
+    root,
+    cwd,
+    store,
+    registry,
+    memory,
+    conversation,
+    coordination,
+    project,
+    claim,
+  };
 }
 
 for (const probe of [
@@ -426,4 +440,31 @@ test('a discovery error waits for its stalled lock probe before releasing the le
   }
 
   assert.equal((await f.claim()).kind, 'claimed');
+});
+
+test('activation waits out a ledger lock held past 1 s and adopts a claim stored without a process', async (t) => {
+  const f = await session(orderedCleanup(t.onTestFinished));
+  assert.equal((await f.claim()).kind, 'claimed');
+  await f.coordination.deactivate();
+  const file = join(f.store.root, 'coordination', 'claims.json');
+
+  const ledger = JSON.parse(await readFile(file, 'utf8')) as {
+    claims: TaskClaim[];
+  };
+
+  delete ledger.claims[0]!.process;
+  await writeFile(file, JSON.stringify(ledger));
+  const release = await holdLedgerPast(f.registry);
+
+  try {
+    const binding = await f.coordination.activate(f.conversation, f.project);
+    assert.equal(binding.conversation, f.conversation.id);
+  } finally {
+    await release();
+  }
+
+  assert.deepEqual(
+    (await f.registry.claims())[0]!.process,
+    f.coordination['process'],
+  );
 });
