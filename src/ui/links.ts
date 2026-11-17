@@ -294,8 +294,13 @@ const closing: Record<string, string> = {
   '[': ']',
   '{': '}',
   "'": "'",
+  '"': '"',
 };
 
+// the longest start of a web link before its path: a scheme, a user name and password, a hostname and a port
+const longestAuthority = 8 + 51 + 253 + 6;
+// whether a link's path, or its end, comes within that length of its scheme
+const authority = new RegExp(`^[^/?#]{0,${longestAuthority}}(?:[/?#]|$)`);
 // linkify-it leaves this punctuation out of a link only when nothing follows it
 const dangling = /^[-.,;!?]*$/;
 
@@ -322,9 +327,9 @@ function cutShort(
   return !/\s/.test(close < 0 ? inside : inside.slice(0, close));
 }
 
-/** the piece from `start` as plain text, to the end of the run that holds `at`: linkify-it reads no link across whitespace or an angle bracket. */
+/** the piece as plain text to the next whitespace after `at`, which is the one thing linkify-it reads no link across. */
 function plainRun(text: string, at: number): { end: number; url: null } {
-  const boundary = /[\s<>]/g;
+  const boundary = /\s/g;
   boundary.lastIndex = at;
 
   return { end: boundary.exec(text)?.index ?? text.length, url: null };
@@ -340,8 +345,8 @@ function unbroken(
   start: number,
   end: number,
 ): Pick<Piece, 'url'> & { end: number } {
-  // read past the cap, far enough for a scheme and a hostname, so a link that starts just before the cap is recognized
-  const read = Math.min(end + 8 + 253, text.length);
+  // read past the cap so a link that starts just before it is recognized
+  const read = Math.min(end + longestAuthority, text.length);
   const window = text.slice(start, read);
 
   if (backtracks(window)) return plainRun(text, end);
@@ -362,16 +367,20 @@ function unbroken(
 
     // one character more than a link may have, so a longer one measures as too long
     const rest = text.slice(from, from + longestLink + 1);
-
-    if (backtracks(rest)) return plainRun(text, end);
-
     // a `www.` link has no scheme of its own, so it is measured as the `//` form of the `http://` address linkify-it gives it
     const scheme = link.url.slice(0, -link.raw.length);
+    const afterScheme = scheme ? 0 : link.schema.length;
 
-    const length = scheme
-      ? urls.testSchemaAt(rest, '//', 0)
-      : link.schema.length +
-        urls.testSchemaAt(rest, link.schema, link.schema.length);
+    // linkify-it's work on a hostname grows with its length for each `xn--` label, so one longer than any real one is not measured
+    if (
+      backtracks(rest) ||
+      !authority.test(rest.slice(scheme ? 0 : afterScheme + 2))
+    )
+      return plainRun(text, end);
+
+    const length =
+      afterScheme +
+      urls.testSchemaAt(rest, scheme ? '//' : link.schema, afterScheme);
 
     const measured = from + length;
     const restEnd = from + rest.length;

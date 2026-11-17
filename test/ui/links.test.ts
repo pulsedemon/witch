@@ -688,6 +688,13 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
         `https://${'u'.repeat(50)}@${`${'h'.repeat(60)}.`.repeat(4)}com/${'p'.repeat(3000)}`,
       ],
     ],
+    // a user name and password leave the hostname unfinished 261 characters past the cut
+    [
+      `${'x)('.repeat(663)}https://${'u'.repeat(43)}:999999@${`${'h'.repeat(60)}.`.repeat(3)}${'h'.repeat(29)}-${'h'.repeat(30)}.com/${'p'.repeat(3000)}`,
+      [
+        `https://${'u'.repeat(43)}:999999@${`${'h'.repeat(60)}.`.repeat(3)}${'h'.repeat(29)}-${'h'.repeat(30)}.com/${'p'.repeat(3000)}`,
+      ],
+    ],
     // the closing apostrophe is past what is read
     [
       `https://example.com/a'/${'b'.repeat(3000)}'end`,
@@ -722,6 +729,8 @@ test('hostnames with many `xn--` labels are left unlinked instead of read both w
     `${start}${'b.'.repeat((4000 - start.length - 4) / 2)}com.${'b.'.repeat(1000)}b_`,
     // what is read ends in a full stop, and the labels are spread through the hostname after it
     `https://a${'a.'.repeat(1200)}${`xn--a.${'b.'.repeat(90)}`.repeat(18)}b_`,
+    // ten labels are searched, in a hostname longer than any real one
+    `https://${'b.'.repeat(700)}${'xn--a.'.repeat(10)}${'b.'.repeat(2800)}b_`,
     // more than ten labels only once the read past the cut is counted
     `https://example.com/${'a'.repeat(1950)}${'xn--'.repeat(11)}${'b'.repeat(1000)}`,
   ])
@@ -751,6 +760,16 @@ test('a link longer than 8192 characters stays plain text to the end of its run,
     ],
     [
       `https://example.com/${'a'.repeat(3000)}(${'b'.repeat(9000)})e then src/main.ts`,
+      ['vscode://file/work/src/main.ts'],
+    ],
+    // a quoted part opens past the cut and closes past what is measured
+    [
+      `https://example.com/${'a'.repeat(3000)}"${'b'.repeat(9000)}"end then src/main.ts`,
+      ['vscode://file/work/src/main.ts'],
+    ],
+    // linkify-it reads an angle bracket inside a paired part, so the run does not end there
+    [
+      `https://example.com/a(${'b'.repeat(9000)}<https://example.org/tail)e then src/main.ts`,
       ['vscode://file/work/src/main.ts'],
     ],
     // a paired part opens before the cut and closes past what is measured
