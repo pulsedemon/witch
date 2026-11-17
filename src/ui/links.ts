@@ -258,7 +258,14 @@ function bareLinks(text: string, cwd: string): string {
     }
 
     output += fileLinks(text.slice(offset, match.index), cwd);
-    const punctuation = sentenceEnd(match.text);
+    let escape = 0;
+
+    // a backslash before a quote escapes it, as in JSON written inside a JSON string
+    if (text[match.lastIndex] === '"')
+      while (match.text[match.text.length - 1 - escape] === '\\') escape++;
+
+    const punctuation =
+      escape + sentenceEnd(match.text.slice(0, match.text.length - escape));
 
     output += hyperlink(
       match.text.slice(0, match.text.length - punctuation),
@@ -313,11 +320,16 @@ function pieces(text: string): Piece[] {
         .find((cut) => cut > start);
 
       if (!boundary) {
-        const markup = after(/[<>"]/);
+        // a raw quote ends every link, but an angle bracket can belong to a URL's paired path
+        const quote = after(/"/);
 
-        // quotes and angle brackets can belong to a URL's paired path.
-        if (markup > start && !urls.pretest(text.slice(start, markup)))
-          boundary = markup;
+        if (quote > start) boundary = quote;
+        else {
+          const markup = after(/[<>]/);
+
+          if (markup > start && !urls.pretest(text.slice(start, markup)))
+            boundary = markup;
+        }
       }
 
       if (boundary) end = boundary;
