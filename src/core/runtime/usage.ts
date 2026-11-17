@@ -7,6 +7,7 @@ import type {
   ExhaustedLimit,
   Funding,
   Limit,
+  ModelLimit,
 } from '../../agents/types.js';
 
 /** older account observations cannot establish current capacity. */
@@ -75,6 +76,11 @@ function words(text: string): string {
     .join('-');
 }
 
+/** a model-only window named for its models, as `7D Fable`. */
+function named({ model, ...limit }: ModelLimit): Limit {
+  return { ...limit, window: `${limit.window} ${model}` };
+}
+
 /** the windows `model` runs under: those that block every model, then each model-only window whose label names it, as `Fable` names `claude-fable-5-2`. */
 export function limitsFor(
   account: AccountReading | undefined,
@@ -86,10 +92,7 @@ export function limitsFor(
     ...(account?.limits ?? []),
     ...(account?.modelLimits ?? [])
       .filter((limit) => id.includes(`-${words(limit.model)}-`))
-      .map(({ model: label, ...limit }) => ({
-        ...limit,
-        window: `${limit.window} ${label}`,
-      })),
+      .map(named),
   ];
 }
 
@@ -163,12 +166,18 @@ export function fundingText(funding: Funding): string {
     : 'no credits';
 }
 
-/** window and funding ages remain separate so a new window cannot renew an old balance. */
+/**
+ * window and funding ages remain separate so a new window cannot renew an old balance.
+ * `reading` defaults to every window, model-only ones included; a claim of room passes one model's own.
+ */
 export function describeReading(
   name: string,
   account: AccountReading | undefined,
   now: number,
-  reading: readonly Limit[] = account?.limits ?? [],
+  reading: readonly Limit[] = [
+    ...(account?.limits ?? []),
+    ...(account?.modelLimits ?? []).map(named),
+  ],
 ): string | undefined {
   if (!account || (!reading.length && !account.funding)) return;
 

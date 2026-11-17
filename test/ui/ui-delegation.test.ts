@@ -81,6 +81,27 @@ test('the policy page shows the rule each kind of work follows when it has none'
   assert.match(page, /^implementation +same$/m);
 });
 
+test('the policy page names a weekly window that blocks only some models', () => {
+  const observedAt = 1000;
+
+  const page = delegationPage(
+    defaultPolicy,
+    catalog,
+    {
+      claude: {
+        limits: [{ window: '7D', percent: 95, observedAt }],
+        modelLimits: [
+          { window: '7D', model: 'Fable', percent: 96, observedAt },
+        ],
+      },
+    },
+    installed,
+    observedAt,
+  );
+
+  assert.match(page, /^claude 7D 95%, 7D Fable 96%$/m);
+});
+
 test('/delegation refuses a default or versioned family, an unknown kind or runtime, an empty runtime or model and a level out of range', () => {
   for (const [argument, refusal] of [
     ['family claude default', 'name a claude family or model, not default.'],
