@@ -169,6 +169,9 @@ export function markdownLink(
   return hyperlink(text, target, cwd);
 }
 
+// linkify-it keeps a sentence's punctuation when a closing quote or paren follows it
+const sentenceEnd = /[.,;!?]*$/;
+
 function bareLinks(text: string, cwd: string): string {
   let output = '';
   let offset = 0;
@@ -207,8 +210,7 @@ function bareLinks(text: string, cwd: string): string {
     }
 
     output += fileLinks(text.slice(offset, match.index), cwd);
-    // linkify-it keeps a sentence's punctuation when a closing quote or paren follows it
-    const punctuation = /[.,;!?]*$/.exec(match.text)![0].length;
+    const punctuation = sentenceEnd.exec(match.text)![0].length;
 
     output += hyperlink(
       match.text.slice(0, match.text.length - punctuation),
@@ -222,15 +224,22 @@ function bareLinks(text: string, cwd: string): string {
   return output + fileLinks(text.slice(offset), cwd);
 }
 
+interface Piece {
+  text: string;
+  /** set when the piece is one link, which is not scanned again. */
+  url?: string;
+}
+
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
  * prefer boundaries that keep links, quoted paths and dropped paths whole; an escaped character or U+202F is inside a dropped path.
  */
-function pieces(text: string): string[] {
-  const result: string[] = [];
+function pieces(text: string): Piece[] {
+  const result: Piece[] = [];
 
   for (let start = 0; start < text.length;) {
     let end = Math.min(start + 2000, text.length);
+    let url: string | undefined;
 
     const after = (separator: RegExp) => {
       let cut = end;
@@ -244,24 +253,54 @@ function pieces(text: string): string[] {
       return cut;
     };
 
-    if (end < text.length)
-      end =
-        [/\n/, /(?!\u202f)[\s<>]/, /"/].map(after).find((cut) => cut > start) ??
-        unbrokenEnd(text, end);
+    if (end < text.length) {
+      const boundary = [/\n/, /(?!\u202f)[\s<>]/, /"/]
+        .map(after)
+        .find((cut) => cut > start);
 
-    result.push(text.slice(start, end));
+      if (boundary) end = boundary;
+      else ({ end, url } = unbroken(text, start, end));
+    }
+
+    result.push({ text: text.slice(start, end), url });
     start = end;
   }
 
   return result;
 }
 
-/** where a run with no boundary before `from` ends, so a URL or path longer than the cap stays in one piece. */
-function unbrokenEnd(text: string, from: number): number {
-  const boundary = /(?<!\\)(?!\u202f)[\s<>"]/g;
-  boundary.lastIndex = from;
+/**
+ * where a piece with no boundary to cut at ends: before a link that crosses the cap, or after it when it starts the piece.
+ * that link is matched here from its start alone, since linkify-it's search of a long piece rescans it for each scheme inside.
+ */
+function unbroken(
+  text: string,
+  start: number,
+  end: number,
+): { end: number; url?: string } {
+  const last = urls.match(text.slice(start, end))?.at(-1);
 
-  return boundary.exec(text)?.index ?? text.length;
+  if (!last) return { end };
+
+  // `www.` and bare-email links match at the start only with the scheme linkify-it gave them
+  const scheme = last.url.slice(0, -last.raw.length);
+  const whole = urls.matchAtStart(scheme + text.slice(start + last.index));
+
+  if (!whole) return { end };
+
+  const punctuation = sentenceEnd.exec(whole.url)![0].length;
+
+  const wholeEnd =
+    start + last.index + whole.lastIndex - scheme.length - punctuation;
+
+  if (wholeEnd <= end) return { end };
+
+  if (last.index) return { end: start + last.index };
+
+  return {
+    end: wholeEnd,
+    url: whole.url.slice(0, whole.url.length - punctuation),
+  };
 }
 
 function linked(text: string, cwd: string, target?: string) {
@@ -272,7 +311,11 @@ function linked(text: string, cwd: string, target?: string) {
     output += target
       ? hyperlink(buffer, target, cwd)
       : pieces(buffer)
-          .map((piece) => bareLinks(piece, cwd))
+          .map((piece) =>
+            piece.url
+              ? hyperlink(piece.text, piece.url, cwd)
+              : bareLinks(piece.text, cwd),
+          )
           .join('');
 
     buffer = '';

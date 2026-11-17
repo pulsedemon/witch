@@ -573,6 +573,8 @@ test('long runs of filename characters, and links on many lines or one, link in 
     ),
     ['lines of links', links(500, '\n'), links(2000, '\n')] as const,
     ['a line of links', links(500, ' '), links(2000, ' ')] as const,
+    // no whitespace, bracket or quote to cut at
+    ['an unbroken line of links', links(500, ';'), links(2000, ';')] as const,
     ['a line of JSON emails', emails(500), emails(2000)] as const,
   ]) {
     const smallTime = fastest(small);
@@ -623,15 +625,30 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
   assert.equal(linkify(unbroken, '/work'), unbroken);
 });
 
-test('a URL longer than 2000 characters links to its whole address, at the start of the text and after a cut', () => {
-  const url = `https://example.com/download?token=${'a1b2'.repeat(752)}`;
+test('a link that crosses the 2000-character cut in text with no boundary links to its whole address, with or without a scheme', () => {
+  const tail = `/download?token=${'a1b2'.repeat(752)}`;
+  const short = 'https://example.com/abcdef';
 
-  for (const text of [url, `${'x'.repeat(1500)} ${url} then src/main.ts`]) {
+  for (const [text, targets] of [
+    [`https://example.com${tail}`, [`https://example.com${tail}`]],
+    [`www.example.com${tail}`, [`http://www.example.com${tail}`]],
+    [
+      `${'x'.repeat(1500)} https://example.com${tail} then src/main.ts`,
+      [`https://example.com${tail}`, 'vscode://file/work/src/main.ts'],
+    ],
+    // the first link crosses the cut, so the piece ends before it
+    [`${'x)('.repeat(660)}${short})(${short}`, [short, short]],
+    // every `https://` inside a link was searched from again
+    [
+      `https://example.com/${'https://example.com/a;'.repeat(4000)}b.`,
+      [`https://example.com/${'https://example.com/a;'.repeat(4000)}b`],
+    ],
+  ] as const) {
     const output = linkify(text, '/work');
 
     assert.deepEqual(
       linkSpans(output).map((span) => span.target),
-      text === url ? [url] : [url, 'vscode://file/work/src/main.ts'],
+      targets,
     );
 
     assert.equal(stripAnsi(output), text);
