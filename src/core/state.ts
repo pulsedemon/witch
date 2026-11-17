@@ -8,6 +8,7 @@ import { pullRequestSchema } from './repository/repository.js';
 const session = z.object({
   id: z.string(),
   model: z.string(),
+  modelBeforeFallback: z.string().optional(),
   requestedModel: z.string().optional(),
   hasHistory: z.boolean(),
   effort: z.string().optional(),
@@ -214,7 +215,13 @@ export function clearConversationContext(
   info?: SessionInfo,
 ): void {
   const previous = record.sessions[record.agent];
-  const model = info?.model || previous?.model || '';
+
+  const model =
+    info?.modelBeforeFallback ||
+    previous?.modelBeforeFallback ||
+    info?.model ||
+    previous?.model ||
+    '';
 
   record.sessions = {
     [record.agent]: {
@@ -277,6 +284,7 @@ export function recordSession(
     ...previous,
     id: info.id,
     model: info.model,
+    modelBeforeFallback: info.modelBeforeFallback,
     hasHistory: info.hasHistory,
     ...(info.contextWindow && { contextWindow: info.contextWindow }),
   };

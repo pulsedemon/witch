@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
+import type { SDKSystemMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentEvent } from '../../../src/agents/types.js';
 import { TurnText } from '../../../src/agents/turn-text.js';
-import { jsonLines, launcher, working } from '../../fixtures/claude-adapter.js';
+import {
+  frameWriter,
+  jsonLines,
+  launcher,
+  working,
+} from '../../fixtures/claude-adapter.js';
 import { appears, settled, until, within } from '../../fixtures/within.js';
 import {
   background,
@@ -926,7 +933,19 @@ test('native exit settles a turn with unacknowledged input', async () => {
   }
 });
 
-test("a refusal fallback withdraws the refused leg's text and tools, by a replacement's supersedes and by the notice, and moves the session to the fallback model with its context sample dropped, back on a revert and not at all when a subagent fell back or the model is already in force", async () => {
+const refusalFallback = (fields: object = {}) => ({
+  type: 'system',
+  subtype: 'model_refusal_fallback',
+  trigger: 'refusal',
+  direction: 'retry',
+  original_model: 'claude-a',
+  fallback_model: 'claude-fallback',
+  request_id: null,
+  content: '',
+  ...fields,
+});
+
+test("a refusal fallback withdraws the refused leg's text and tools, retains the first model through further fallbacks, and leaves local and duplicate notices alone", async () => {
   const f = await background();
 
   const assistant = (uuid: string, id: string, content: unknown[]) => ({
@@ -934,18 +953,6 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
     uuid,
     parent_tool_use_id: null,
     message: { id, role: 'assistant', model: 'claude-a', content },
-  });
-
-  const fallback = (fields: object) => ({
-    type: 'system',
-    subtype: 'model_refusal_fallback',
-    trigger: 'refusal',
-    direction: 'retry',
-    original_model: 'claude-a',
-    fallback_model: 'claude-fallback',
-    request_id: null,
-    content: '',
-    ...fields,
   });
 
   const models = () =>
@@ -1000,15 +1007,17 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
       assistant('frame-restitched', 'stitched', [
         { type: 'text', text: 'stitched whole' },
       ]),
-      fallback({ scope: 'local', fallback_model: 'claude-side' }),
+      refusalFallback({ scope: 'local', fallback_model: 'claude-side' }),
+      refusalFallback({ fallback_model: 'claude-a' }),
     );
 
     assert.deepEqual(retracted(), [['refused']]);
     assert.deepEqual(models(), before);
+    assert.equal(f.session.info.modelBeforeFallback, undefined);
     assert.notEqual(context(), undefined);
 
     await f.emit(
-      fallback({
+      refusalFallback({
         scope: 'session',
         retracted_message_uuids: [
           'frame-text',
@@ -1027,16 +1036,29 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
     ]);
 
     assert.deepEqual(models(), [...before, 'claude-fallback']);
+    assert.equal(f.session.info.modelBeforeFallback, 'claude-a');
     assert.equal(context(), undefined);
     // a notice naming the model already in force leaves its context sample alone
     assert.notEqual(await f.session.contextUsage(), undefined);
-    await f.emit(fallback({ scope: 'session' }));
+    await f.emit(refusalFallback({ scope: 'session' }));
     assert.deepEqual(models(), [...before, 'claude-fallback']);
     assert.notEqual(context(), undefined);
 
     await f.emit(
+      refusalFallback({
+        direction: 'sticky',
+        original_model: 'claude-fallback',
+        fallback_model: 'claude-third',
+      }),
+    );
+
+    assert.equal(f.session.info.model, 'claude-third');
+    assert.equal(f.session.info.modelBeforeFallback, 'claude-a');
+    assert.equal(context(), undefined);
+
+    await f.emit(
       // an older CLI names no scope and means the session
-      fallback({ direction: 'revert' }),
+      refusalFallback({ direction: 'revert' }),
       {
         type: 'result',
         subtype: 'error_during_execution',
@@ -1046,7 +1068,14 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
       state('idle'),
     );
 
-    assert.deepEqual(models(), [...before, 'claude-fallback', 'claude-a']);
+    assert.deepEqual(models(), [
+      ...before,
+      'claude-fallback',
+      'claude-third',
+      'claude-a',
+    ]);
+
+    assert.equal(f.session.info.modelBeforeFallback, undefined);
     const outcome = await within(f.turn, 2000, 'failed result');
     assert.equal(outcome.status, 'failed');
     assert.doesNotMatch(outcome.text, /refused partial/);
@@ -1058,6 +1087,155 @@ test("a refusal fallback withdraws the refused leg's text and tools, by a replac
     await f.session.close();
   }
 });
+
+test('a notice for the current model records its origin without invalidating context, and an explicit pick of that model clears the origin', async () => {
+  const f = await background();
+
+  try {
+    await f.emit(state('idle'));
+    await within(f.turn, 2000, 'initial completion');
+    await f.session.selectModel('claude-fallback');
+    const context = f.session.usage.context;
+    assert.notEqual(context, undefined);
+    await f.emit(refusalFallback());
+    assert.equal(f.session.info.model, 'claude-fallback');
+    assert.equal(f.session.info.modelBeforeFallback, 'claude-a');
+    assert.equal(f.session.usage.context, context);
+
+    assert.equal(
+      f.events.findLast((event) => event.type === 'info')?.info
+        .modelBeforeFallback,
+      'claude-a',
+    );
+
+    await f.session.selectModel('claude-fallback');
+    assert.equal(f.session.info.model, 'claude-fallback');
+    assert.equal(f.session.info.modelBeforeFallback, undefined);
+
+    assert.equal(
+      f.events.findLast((event) => event.type === 'info')?.info
+        .modelBeforeFallback,
+      undefined,
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a refused model pick keeps the fallback, but a successful pick clears it even when setting effort fails', async () => {
+  const f = await background();
+
+  try {
+    await f.emit(state('idle'));
+    await within(f.turn, 2000, 'initial completion');
+    await f.session.selectModel('claude-a', 'low');
+    await f.emit(refusalFallback());
+    await writeFile(join(f.cwd, 'reject-model'), '');
+
+    await assert.rejects(
+      f.session.selectModel('claude-third', 'high'),
+      /set_model refused/,
+    );
+
+    assert.equal(f.session.info.model, 'claude-fallback');
+    assert.equal(f.session.info.modelBeforeFallback, 'claude-a');
+    await rm(join(f.cwd, 'reject-model'));
+    await writeFile(join(f.cwd, 'reject-effort'), '');
+
+    await assert.rejects(
+      f.session.selectModel('claude-third', 'high'),
+      /apply_flag_settings refused/,
+    );
+
+    const reported = f.events.findLast((event) => event.type === 'info')!.info;
+    assert.equal(reported.model, 'claude-third');
+    assert.equal(reported.modelBeforeFallback, undefined);
+    assert.equal(reported.effort, 'low');
+    assert.equal(f.session.info.model, 'claude-third');
+    assert.equal(f.session.info.modelBeforeFallback, undefined);
+
+    assert.deepEqual(await jsonLines(join(f.cwd, 'settings.jsonl')), [
+      { effortLevel: 'low' },
+    ]);
+  } finally {
+    await f.session.close();
+  }
+});
+
+for (const [model, origin, nextOrigin] of [
+  ['claude-fallback', 'claude-a', 'claude-a'],
+  ['claude-a', undefined, 'claude-a'],
+  ['claude-third', undefined, 'claude-third'],
+] as const) {
+  test(`resuming a fallback on ${model} reconciles its origin with the reported model`, async () => {
+    const f = await launcher('background');
+    const events: AgentEvent[] = [];
+
+    const session = await f.connect({
+      resume: 'stored-session',
+      model: 'claude-alias',
+      resumedModel: {
+        model: 'claude-fallback',
+        modelBeforeFallback: 'claude-a',
+      },
+      onEvent: (event) => events.push(event),
+    });
+
+    const emit = frameWriter(
+      f.cwd,
+      (name) =>
+        events.some(
+          (event) => event.type === 'skills' && event.skills[0]?.name === name,
+        ),
+      f.children[0]!,
+    );
+
+    const init: SDKSystemMessage = {
+      type: 'system',
+      subtype: 'init',
+      model,
+      session_id: 'stored-session',
+      uuid: randomUUID(),
+      permissionMode: 'default',
+      cwd: f.cwd,
+      apiKeySource: 'none',
+      claude_code_version: 'fixture',
+      output_style: 'default',
+      tools: [],
+      mcp_servers: [],
+      slash_commands: [],
+      skills: [],
+      plugins: [],
+    };
+
+    try {
+      assert.equal(session.info.model, 'claude-fallback');
+      assert.equal(session.info.modelBeforeFallback, 'claude-a');
+      await emit(init);
+      assert.equal(session.info.model, model);
+      assert.equal(session.info.modelBeforeFallback, origin);
+
+      assert.equal(
+        events.findLast((event) => event.type === 'info')?.info
+          .modelBeforeFallback,
+        origin,
+      );
+
+      await emit(
+        refusalFallback({
+          original_model: model,
+          fallback_model: 'claude-next',
+        }),
+        { ...init, model: 'claude-next' },
+      );
+
+      assert.equal(session.info.model, 'claude-next');
+      assert.equal(session.info.modelBeforeFallback, nextOrigin);
+    } finally {
+      await session.close();
+    }
+  });
+}
 
 test('successful native results do not rejoin the accumulated turn text', async () => {
   const f = await background();

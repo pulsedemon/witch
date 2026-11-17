@@ -214,10 +214,14 @@ class ClaudeSession implements AgentSession {
 
     if (options.signal?.aborted) this.abort.abort();
 
+    const resumedModel =
+      options.resume && !options.answer ? options.resumedModel : undefined;
+
     this.info = {
       id: options.resume ?? randomUUID(),
       agent: 'claude',
-      model: options.model ?? '',
+      model: resumedModel?.model ?? options.model ?? '',
+      modelBeforeFallback: resumedModel?.modelBeforeFallback,
       permissionMode: '',
       hasHistory: !!options.resume,
       effort: options.effort,
@@ -374,18 +378,26 @@ class ClaudeSession implements AgentSession {
 
     if (model !== this.info.model) this.report(this.context.invalidate());
 
-    if (level !== undefined)
-      await this.query.applyFlagSettings({ effortLevel: level });
-
     this.info = {
       ...this.info,
       model,
-      ...(level !== undefined
-        ? { effort: level ?? undefined, nativeEffort: level ?? undefined }
-        : {}),
+      modelBeforeFallback: undefined,
     };
 
     this.options.onEvent({ type: 'info', info: this.info });
+
+    if (level !== undefined) {
+      await this.query.applyFlagSettings({ effortLevel: level });
+
+      this.info = {
+        ...this.info,
+        effort: level ?? undefined,
+        nativeEffort: level ?? undefined,
+      };
+
+      this.options.onEvent({ type: 'info', info: this.info });
+    }
+
     await this.contextUsage();
 
     if (this.options.automaticCompaction) await this.context.configure();
@@ -1033,6 +1045,10 @@ class ClaudeSession implements AgentSession {
           ...this.info,
           id: message.session_id,
           model: message.model,
+          modelBeforeFallback:
+            this.info.model !== message.model
+              ? undefined
+              : this.info.modelBeforeFallback,
           permissionMode: message.permissionMode,
           hasHistory: true,
           // null when no effort will be sent, and absent on CLIs that don't report it
@@ -1048,15 +1064,28 @@ class ClaudeSession implements AgentSession {
         // a subagent's or side question's fallback leaves the session's model alone
         if (message.scope === 'local') return;
 
-        const model =
-          message.direction === 'revert'
-            ? message.original_model
-            : message.fallback_model;
+        const reverted = message.direction === 'revert';
 
-        if (model === this.info.model) return;
+        const model = reverted
+          ? message.original_model
+          : message.fallback_model;
 
-        this.report(this.context.invalidate());
-        this.info = { ...this.info, model };
+        const modelBeforeFallback = reverted
+          ? undefined
+          : (this.info.modelBeforeFallback ??
+            (message.original_model !== model
+              ? message.original_model
+              : undefined));
+
+        if (
+          model === this.info.model &&
+          modelBeforeFallback === this.info.modelBeforeFallback
+        )
+          return;
+
+        if (model !== this.info.model) this.report(this.context.invalidate());
+
+        this.info = { ...this.info, model, modelBeforeFallback };
         this.options.onEvent({ type: 'info', info: this.info });
       } else if (message.subtype === 'compact_boundary') {
         if (message.session_id !== this.info.id) return;
