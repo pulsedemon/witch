@@ -579,7 +579,8 @@ export function CommandView({
 
   if (view.kind === 'picker') {
     const heading = Number(bodyHeight >= 4);
-    const caption = Number(!!view.caption && bodyHeight >= 5);
+    // from 6 rows, the first height where the caption still leaves a choice row
+    const caption = Number(!!view.caption && bodyHeight >= 6);
     const hint = Number(bodyHeight >= 3);
 
     const count = Math.max(
