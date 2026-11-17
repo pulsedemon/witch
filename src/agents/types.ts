@@ -82,6 +82,18 @@ export interface ModelLimit extends Limit {
   model: string;
 }
 
+/** the native limit behind a confirmed exhaustion; a field the runtime didn't report is absent. */
+export interface ExhaustedLimit {
+  /** the window's length, such as `5H` or `7D`. */
+  window?: string;
+  /** the runtime's label for the only models it blocks. */
+  model?: string;
+  /** in epoch seconds. */
+  resetsAt?: number;
+  /** why account credits could not cover the request, in the runtime's words. */
+  credits?: string;
+}
+
 export type Funding = (
   | {
       kind: 'credits';
@@ -266,7 +278,7 @@ export type AgentEvent =
   /** the native agent reports whether it runs, which Claude Code also does on its own between turns. */
   | { type: 'running'; running: boolean }
   /** confirmed exhaustion in a native continuation outside the dispatched turn. */
-  | { type: 'exhausted' }
+  | { type: 'exhausted'; limit?: ExhaustedLimit }
   /** a transient notice is a diagnostic of this connection, shown but not saved. */
   | { type: 'notice'; text: string; transient?: boolean };
 
@@ -284,6 +296,8 @@ export interface TurnResult {
   inputUnread?: true;
   /** the adapter confirmed native usage exhaustion. */
   exhausted?: true;
+  /** set with `exhausted` when the adapter knows which limit ran out. */
+  limit?: ExhaustedLimit;
 }
 
 export interface AgentStopOptions {

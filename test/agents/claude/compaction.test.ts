@@ -372,6 +372,7 @@ test('Claude compaction rejected for usage reports exhaustion', async () => {
 
   try {
     const pending = await f.compact();
+    const resetsAt = Date.now() / 1000 + 3600;
 
     await f.emit(
       {
@@ -379,7 +380,7 @@ test('Claude compaction rejected for usage reports exhaustion', async () => {
         rate_limit_info: {
           status: 'rejected',
           rateLimitType: 'seven_day',
-          resetsAt: Date.now() / 1000 + 3600,
+          resetsAt,
         },
       },
       {
@@ -397,6 +398,7 @@ test('Claude compaction rejected for usage reports exhaustion', async () => {
       text: '',
       error: 'Claude compaction failed',
       exhausted: true,
+      limit: { window: '7D', resetsAt },
     });
   } finally {
     await f.session.close();

@@ -7,7 +7,7 @@ import type {
 import { errorMessage } from '../../errors.js';
 import type { InputQueue } from '../input-queue.js';
 import { TurnText } from '../turn-text.js';
-import type { TurnResult } from '../types.js';
+import type { ExhaustedLimit, TurnResult } from '../types.js';
 
 export interface Turn {
   started: ReturnType<typeof Promise.withResolvers<boolean>>;
@@ -93,7 +93,7 @@ export async function recoverInput(
             exhausted: true as const,
             inputUnread: true as const,
           }
-        : idleResult(turn, false)),
+        : idleResult(turn, undefined)),
       unread: (unread ?? []).flatMap(
         (uuid) => turn.inputs.get(uuid)?.prompt ?? [],
       ),
@@ -131,7 +131,10 @@ export function recordResult(
   turn.result = result;
 }
 
-export function idleResult(turn: Turn, rejected: boolean): TurnResult {
+export function idleResult(
+  turn: Turn,
+  rejected: ExhaustedLimit | undefined,
+): TurnResult {
   return {
     ...(turn.inputError !== undefined
       ? {
@@ -141,7 +144,7 @@ export function idleResult(turn: Turn, rejected: boolean): TurnResult {
         }
       : turn.result!),
     ...(turn.result?.status === 'failed' && !turn.interrupted && rejected
-      ? { exhausted: true }
+      ? { exhausted: true, limit: rejected }
       : {}),
   };
 }
