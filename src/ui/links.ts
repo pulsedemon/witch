@@ -15,8 +15,24 @@ function backtracks(text: string): boolean {
   return (text.match(/xn--/gi)?.length ?? 0) > 10;
 }
 
+/** the links linkify-it finds, leaving out any line that `backtracks`. no link crosses a line, so a later line never changes an earlier one's links. */
 function webLinks(text: string) {
-  return backtracks(text) ? [] : (urls.match(text) ?? []);
+  if (!backtracks(text)) return urls.match(text) ?? [];
+
+  let offset = 0;
+
+  return text.split('\n').flatMap((line) => {
+    const links = backtracks(line) ? [] : (urls.match(line) ?? []);
+
+    for (const link of links) {
+      link.index += offset;
+      link.lastIndex += offset;
+    }
+
+    offset += line.length + 1;
+
+    return links;
+  });
 }
 
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
@@ -246,8 +262,8 @@ interface Piece {
   url?: string | null;
 }
 
-// the longest link drawn past the cap, about the longest request line web servers accept. wrapping repeats a link's address on every row, so its cost grows with the square of this
-const longestLink = 8192;
+// the longest link drawn past the cap. wrapping repeats a link's address on every row, so its cost grows with the square of this
+const longestLink = 4096;
 
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
@@ -308,16 +324,16 @@ const separator = /[\p{Z}\p{Cc}]/u;
 const dangling = /^[-.,;!?]*$/;
 
 /**
- * whether a link that linkify-it ended at `stop`, in text read up to `read`, can be longer in the whole text.
+ * whether a link that linkify-it ended at `stop` can be longer in the whole text. `read` is where the text it was given stopped short of a separator, if it did.
  * measuring a link scans up to `limit`, so this rules out the links that scan would only confirm.
  */
 function cutShort(
   text: string,
   stop: number,
-  read: number,
+  read: number | undefined,
   limit: number,
 ): boolean {
-  if (dangling.test(text.slice(stop, read))) return true;
+  if (read !== undefined && dangling.test(text.slice(stop, read))) return true;
 
   const closer = closing[text[stop]!];
 
@@ -328,6 +344,16 @@ function cutShort(
   const close = inside.indexOf(closer);
 
   return !separator.test(close < 0 ? inside : inside.slice(0, close));
+}
+
+/** up to `length` characters from `from` that a link can be in: they end at the first separator. `open` when the length ran out before one. */
+function reach(text: string, from: number, length: number) {
+  const bounded = text.slice(from, from + length);
+  const at = bounded.search(separator);
+
+  return at < 0
+    ? { text: bounded, open: from + length < text.length }
+    : { text: bounded.slice(0, at), open: false };
 }
 
 /** the piece as plain text to the next separator after `at`. */
@@ -349,8 +375,9 @@ function unbroken(
   end: number,
 ): Pick<Piece, 'url'> & { end: number } {
   // read past the cap so a link that starts just before it is recognized
-  const read = Math.min(end + longestAuthority, text.length);
-  const window = text.slice(start, read);
+  const ahead = reach(text, end, longestAuthority);
+  const window = text.slice(start, end) + ahead.text;
+  const read = ahead.open ? start + window.length : undefined;
 
   if (backtracks(window)) return plainRun(text, end);
 
@@ -373,7 +400,7 @@ function unbroken(
     if (link.index) return { end: from };
 
     // one character more than a link may have, so a longer one measures as too long
-    const rest = text.slice(from, from + longestLink + 1);
+    const { text: rest, open } = reach(text, from, longestLink + 1);
     // a `www.` link has no scheme of its own, so it is measured as the `//` form of the `http://` address linkify-it gives it
     const scheme = link.url.slice(0, -link.raw.length);
     const afterScheme = scheme ? 0 : link.schema.length;
@@ -390,13 +417,10 @@ function unbroken(
       urls.testSchemaAt(rest, scheme ? '//' : link.schema, afterScheme);
 
     const measured = from + length;
-    const restEnd = from + rest.length;
 
-    // where the measured text ended can cut the link short as the read can, and no later text is looked at to rule that out
+    // where the measured text ran out can cut the link short as the read can, and no later text is looked at to rule that out
     const unknown =
-      restEnd < text.length &&
-      (dangling.test(text.slice(measured, restEnd)) ||
-        text[measured]! in closing);
+      open && (dangling.test(rest.slice(length)) || text[measured]! in closing);
 
     if (length > longestLink || unknown)
       return plainRun(text, Math.max(end, measured));
@@ -412,7 +436,8 @@ function unbroken(
     ...window.slice(searched, end - start).matchAll(/https?:\/\/|www\./gi),
   ].at(-1);
 
-  return unfinished &&
+  return ahead.open &&
+    unfinished &&
     !/[/?#]/.test(
       window.slice(searched + unfinished.index + unfinished[0].length),
     )

@@ -659,8 +659,8 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
     [`${'x)('.repeat(660)}${short})(${short}`, [short, short]],
     // the sentence's full stop stays outside the link
     [
-      `https://example.com/${'https://example.com/a;'.repeat(200)}b.`,
-      [`https://example.com/${'https://example.com/a;'.repeat(200)}b`],
+      `https://example.com/${'https://example.com/a;'.repeat(150)}b.`,
+      [`https://example.com/${'https://example.com/a;'.repeat(150)}b`],
     ],
     // the cut falls right after `https://`, and inside `www.example.com`
     [
@@ -681,7 +681,7 @@ test('a web link that crosses the 2000-character cut in text with no boundary li
           ],
         ] as const,
     ),
-    // a user name and a 244-character hostname put the path past the first 261 characters
+    // a user name and a 247-character hostname put the path past the first 261 characters
     [
       `${'x)('.repeat(659)}https://${'u'.repeat(50)}@${`${'h'.repeat(60)}.`.repeat(4)}com/${'p'.repeat(3000)}`,
       [
@@ -747,6 +747,18 @@ test('hostnames with many `xn--` labels are left unlinked instead of read both w
   ])
     assert.equal(linkify(long, '/work'), long);
 
+  // a later line with many labels changes no earlier line's link, below the cut or across it
+  for (const length of [100, 2100, 3000]) {
+    const url = `https://example.com/${'a'.repeat(length - 20)}`;
+
+    assert.deepEqual(
+      linkSpans(linkify(`${url}\n${'xn--a.'.repeat(11)}com/`, '/work')).map(
+        (span) => span.target,
+      ),
+      [url],
+    );
+  }
+
   assert.deepEqual(
     linkSpans(
       linkify('https://xn--bcher-kva.example/a xn--80ak6aa92e.com', '/work'),
@@ -755,16 +767,16 @@ test('hostnames with many `xn--` labels are left unlinked instead of read both w
   );
 });
 
-test('a link longer than 8192 characters stays plain text to the end of its run, and one of exactly 8192 links whole', () => {
-  const longest = `https://example.com/${'a'.repeat(8172)}`;
-  assert.equal(longest.length, 8192);
+test('a link longer than 4096 characters stays plain text to the end of its run, and one of exactly 4096 links whole', () => {
+  const longest = `https://example.com/${'a'.repeat(4076)}`;
+  assert.equal(longest.length, 4096);
 
   for (const [text, targets] of [
     [
       `${longest} then src/main.ts`,
       [longest, 'vscode://file/work/src/main.ts'],
     ],
-    // measuring reads 8193 characters, which stops inside the query and before the closing bracket
+    // measuring reads 4097 characters, which stops inside the query and before the closing bracket
     [
       `${longest.slice(0, -1)}?token=x then src/main.ts`,
       ['vscode://file/work/src/main.ts'],
