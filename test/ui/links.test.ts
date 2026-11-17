@@ -573,19 +573,20 @@ test('long runs of filename characters, and links on many lines or one, link in 
     ),
     ['lines of links', links(500, '\n'), links(2000, '\n')] as const,
     ['a line of links', links(500, ' '), links(2000, ' ')] as const,
+    // sized so the smaller input takes several milliseconds, which the runner's CPU clock can measure
     ...(
       [
-        ['a link of joined links', 'https://example.com/a;'],
-        ['a link with a punctuation run inside', '.'],
-        ['unbroken links with a scheme', 'https://example.com/a)('],
-        ['unbroken links with no scheme', 'www.example.com)('],
+        ['a link of joined links', 'https://example.com/a;', 4000],
+        ['a link with a punctuation run inside', '.', 64000],
+        ['unbroken links with a scheme', 'https://example.com/a)(', 4000],
+        ['unbroken links with no scheme', 'www.example.com)(', 4000],
       ] as const
     ).map(
-      ([name, unit]) =>
+      ([name, unit, count]) =>
         [
           name,
-          `https://example.com/${unit.repeat(4000)}b`,
-          `https://example.com/${unit.repeat(16000)}b`,
+          `https://example.com/${unit.repeat(count)}b`,
+          `https://example.com/${unit.repeat(count * 4)}b`,
         ] as const,
     ),
     ['a line of JSON emails', emails(500), emails(2000)] as const,
