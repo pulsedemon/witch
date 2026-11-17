@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
+import { watchClaimPolicy } from '../../../src/core/coordination/coordination-policy.js';
+import type { CoordinationSnapshot } from '../../../src/core/coordination/coordination-state.js';
 import {
   unitCoordinationFixture,
   git,
@@ -221,3 +223,122 @@ for (const owned of ['active claim', 'recorded suggestion']) {
     );
   });
 }
+
+const solo: CoordinationSnapshot = {
+  peers: [],
+  reservations: [],
+  unregistered: [],
+};
+
+const peer: CoordinationSnapshot['peers'][number] = {
+  presence: {
+    id: 'peer-session',
+    title: 'Peer',
+    cwd: '/work/peer',
+    agent: 'claude',
+    version: 1,
+    project: 'projects/p',
+    activation: randomUUID(),
+    process: { pid: 1, started: 'Mon Nov 16 20:03:38 2026' },
+    phase: 'idle',
+    requests: 0,
+    familiars: 0,
+    brews: 0,
+    openedAt: 1,
+    updatedAt: 1,
+  },
+};
+
+/** drives the watcher with hand-written snapshots; `publish` resolves once its steers have settled. */
+function watched(initial: CoordinationSnapshot) {
+  const steers: string[] = [];
+  const listeners = new Set<() => void>();
+  const source = { snapshot: initial };
+
+  const stop = watchClaimPolicy(
+    {
+      get snapshot() {
+        return source.snapshot;
+      },
+      subscribe: (listener) => {
+        listeners.add(listener);
+
+        return () => listeners.delete(listener);
+      },
+      commandPrefixes: () => ({ control: 'control', familiar: 'familiar' }),
+    },
+    initial,
+    (text) => {
+      steers.push(text);
+
+      return Promise.resolve(true);
+    },
+  );
+
+  return {
+    steers,
+    stop,
+    publish: async (snapshot: CoordinationSnapshot) => {
+      source.snapshot = snapshot;
+
+      for (const listener of listeners) listener();
+
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+  };
+}
+
+test('a turn that starts on a failure gets no update when it recovers alone', async () => {
+  const turn = watched({ ...solo, error: 'Coordination request expired.' });
+  await turn.publish(solo);
+  turn.stop?.();
+  assert.deepEqual(turn.steers, []);
+});
+
+test('owners that vanish during a failure are released only once it clears', async () => {
+  const turn = watched({ ...solo, peers: [peer] });
+  await turn.publish({ ...solo, error: 'Coordination request expired.' });
+  assert.deepEqual(turn.steers, []);
+  await turn.publish(solo);
+  turn.stop?.();
+  assert.equal(turn.steers.length, 1);
+  assert.match(turn.steers[0]!, /Discovery found no other live session/);
+});
+
+test('an owner listed beside a failure enables claims at once and is named', async () => {
+  const turn = watched(solo);
+
+  await turn.publish({
+    peers: [peer],
+    reservations: [
+      {
+        status: 'unattended',
+        claim: {
+          id: randomUUID(),
+          owner: { conversation: 'gone', project: 'projects/p' },
+          references: ['task:projects/p:reserved'],
+          summary: 'Reserved work',
+          createdAt: 1,
+        },
+      },
+    ],
+    unregistered: [
+      {
+        id: 'legacy-session',
+        title: 'Legacy',
+        cwd: '/work/legacy',
+        agent: 'codex',
+      },
+    ],
+    error: 'Coordination request expired.',
+  });
+
+  turn.stop?.();
+  assert.equal(turn.steers.length, 1);
+  const [header, status, owners] = turn.steers[0]!.split('\n');
+  assert.equal(header, 'Witch coordination update:');
+  assert.match(status!, /^Claim coordination is required/);
+  assert.match(owners!, /peer-session/);
+  assert.match(owners!, /task:projects\/p:reserved/);
+  assert.match(owners!, /legacy-session/);
+});
