@@ -53,7 +53,7 @@ test('a tool row keeps the path its title shows and its expanded title through i
   }
 });
 
-test('text and tool rows retracted in a later turn, a message with a row in each turn included, leave the transcript and stay gone after a reopen, and an id that names no row adds none', async () => {
+test('text, tool and cast rows retracted in a later turn, a message with a row in each turn included, leave the transcript and stay gone after a reopen, and an id that names no row adds none', async () => {
   const { coordinator, a, reopen } = await unitFixture();
   const gate = new TurnGate();
   let reopened: Coordinator | undefined;
@@ -73,6 +73,8 @@ test('text and tool rows retracted in a later turn, a message with a row in each
       text: 'refused open call',
       done: false,
     });
+
+    onEvent({ type: 'spell', cast: { id: 'open', name: 'refused-skill' } });
 
     onEvent({
       type: 'tool',
@@ -95,8 +97,8 @@ test('text and tool rows retracted in a later turn, a message with a row in each
       ids: ['refused', 'open', 'finished', 'never sent'],
     });
 
-    const kept = before.filter((text) => !text.startsWith('refused'));
-    assert.equal(kept.length, before.length - 4);
+    const kept = before.filter((text) => !text.includes('refused'));
+    assert.equal(kept.length, before.length - 5);
     assert.ok(kept.includes('replacement'));
     assert.deepEqual(texts(coordinator.snapshot.items), kept);
     gate.open();

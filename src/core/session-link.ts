@@ -506,10 +506,14 @@ export class SessionLink {
       host.display(castRow(event.cast, conversation.cwd));
     } else if (event.type === 'retracted') {
       for (const id of event.ids) {
-        // found by suffix: a row can belong to an earlier activity, and a message streamed across a turn's start has one in each
+        // found by suffix: a row can belong to an earlier activity, and a message streamed across a turn's start has one in each.
+        // a withdrawn Skill call takes its cast row along
         const rows = host
           .snapshot()
-          .items.filter((item) => item.id.endsWith(`/${agent}/${id}`));
+          .items.filter(
+            (item) =>
+              item.id.endsWith(`/${agent}/${id}`) || item.id === `spell/${id}`,
+          );
 
         for (const row of rows)
           host.display({

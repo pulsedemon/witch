@@ -525,6 +525,26 @@ test('Claude allows its exact request file when the native read needs approval',
   );
 });
 
+test("Claude's answer process passes on the retraction of a tool call it showed", async (t) => {
+  const f = await claude();
+  const events: AgentEvent[] = [];
+  const session = await f.connect({ onEvent: (event) => events.push(event) });
+  t.onTestFinished(() => session.close());
+  await writeFile(join(f.cwd, 'answer-refusal'), '');
+  await answer(session, f.cwd);
+
+  assert.deepEqual(
+    events.flatMap((event) =>
+      event.type === 'tool' && event.id === 'refused-read'
+        ? ['shown']
+        : event.type === 'retracted'
+          ? [`retracted ${event.ids.join()}`]
+          : [],
+    ),
+    ['shown', 'retracted refused-read'],
+  );
+});
+
 test('Claude closes a child whose process registration fails and keeps its owner usable', async (t) => {
   const f = await claude();
 

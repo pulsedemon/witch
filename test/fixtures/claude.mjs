@@ -277,6 +277,39 @@ const finish = () => {
 
 const finishPeerAnswer = () => {
   assistant('Reading requests.');
+
+  if (existsSync(join(process.cwd(), 'answer-refusal'))) {
+    send({
+      type: 'assistant',
+      uuid: 'refused-frame',
+      session_id,
+      parent_tool_use_id: null,
+      message: {
+        id: 'refused-message',
+        role: 'assistant',
+        model,
+        content: [
+          { type: 'tool_use', id: 'refused-read', name: 'Read', input: {} },
+        ],
+      },
+    });
+
+    send({
+      type: 'system',
+      subtype: 'model_refusal_fallback',
+      trigger: 'refusal',
+      direction: 'retry',
+      scope: 'session',
+      original_model: model,
+      fallback_model: model,
+      request_id: null,
+      retracted_message_uuids: ['refused-frame'],
+      content: '',
+      uuid: randomUUID(),
+      session_id,
+    });
+  }
+
   const output = JSON.parse(peerAnswer(lastPrompt));
 
   assistant('', [

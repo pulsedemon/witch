@@ -74,7 +74,11 @@ export class AnswerTurn {
             if (hidden.has(event.id)) return;
           }
 
-          if (event.type === 'tool' || event.type === 'notice')
+          if (
+            event.type === 'tool' ||
+            event.type === 'notice' ||
+            event.type === 'retracted'
+          )
             this.options.onEvent(event);
         },
       });
