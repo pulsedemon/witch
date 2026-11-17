@@ -101,9 +101,17 @@ export function coordinationInstructions(
   ].join('\n');
 }
 
+export interface ClaimPolicyWatch {
+  stop(): void;
+
+  /** the agent now holds context built from `snapshot`; an update follows when its requirement is not the current one. */
+  delivered(snapshot: CoordinationSnapshot): void;
+}
+
 /**
- * steers a changed claim requirement into the running turn. it follows listed owners only: a
- * failure alone sends nothing, and a requirement a failure caused lasts until the next turn's context.
+ * steers a changed claim requirement into the running turn, and the current one after delivered
+ * context that carried another. it follows listed owners only: a failure alone sends nothing, and a
+ * requirement a failure caused lasts until the next turn's context.
  */
 export function watchClaimPolicy(
   coordination:
@@ -111,13 +119,15 @@ export function watchClaimPolicy(
     | undefined,
   initial: CoordinationSnapshot | undefined,
   steer: (text: string) => Promise<boolean>,
-): (() => void) | undefined {
+): ClaimPolicyWatch | undefined {
   if (!coordination || !initial) return;
 
   const source = coordination;
-  let attempted = listsOwners(initial);
+  /** undefined once the agent's last policy is unknown, which any clean snapshot then corrects. */
+  let attempted: boolean | undefined = listsOwners(initial);
   let stopped = false;
   let running = false;
+  let overlapped = false;
 
   const refresh = async () => {
     if (stopped || running) return;
@@ -150,20 +160,37 @@ export function watchClaimPolicy(
           ].join('\n'),
         );
 
-        if (!accepted) break;
+        // the agent may read context delivered during the steer before or after it
+        if (overlapped) {
+          overlapped = false;
+          attempted = undefined;
+        } else if (!accepted) break;
       }
     } catch {
       // the next ordinary turn supplies current policy when this turn cannot take it
     } finally {
       running = false;
+      overlapped = false;
     }
   };
 
   const unsubscribe = source.subscribe(() => void refresh());
   void refresh();
 
-  return () => {
-    stopped = true;
-    unsubscribe();
+  return {
+    stop: () => {
+      stopped = true;
+      unsubscribe();
+    },
+    delivered: (snapshot) => {
+      if (running) {
+        overlapped = true;
+
+        return;
+      }
+
+      attempted = listsOwners(snapshot);
+      void refresh();
+    },
   };
 }

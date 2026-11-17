@@ -255,7 +255,7 @@ function watched(initial: CoordinationSnapshot) {
   const listeners = new Set<() => void>();
   const source = { snapshot: initial };
 
-  const stop = watchClaimPolicy(
+  const watch = watchClaimPolicy(
     {
       get snapshot() {
         return source.snapshot;
@@ -277,7 +277,7 @@ function watched(initial: CoordinationSnapshot) {
 
   return {
     steers,
-    stop,
+    stop: () => watch?.stop(),
     publish: async (snapshot: CoordinationSnapshot) => {
       source.snapshot = snapshot;
 
@@ -291,7 +291,7 @@ function watched(initial: CoordinationSnapshot) {
 test('a turn that starts on a failure gets no update when it recovers alone', async () => {
   const turn = watched({ ...solo, error: 'Coordination request expired.' });
   await turn.publish(solo);
-  turn.stop?.();
+  turn.stop();
   assert.deepEqual(turn.steers, []);
 });
 
@@ -300,7 +300,7 @@ test('owners that vanish during a failure are released only once it clears', asy
   await turn.publish({ ...solo, error: 'Coordination request expired.' });
   assert.deepEqual(turn.steers, []);
   await turn.publish(solo);
-  turn.stop?.();
+  turn.stop();
   assert.equal(turn.steers.length, 1);
   assert.match(turn.steers[0]!, /Discovery found no other live session/);
 });
@@ -333,7 +333,7 @@ test('an owner listed beside a failure enables claims at once and is named', asy
     error: 'Coordination request expired.',
   });
 
-  turn.stop?.();
+  turn.stop();
   assert.equal(turn.steers.length, 1);
   const [header, status, owners] = turn.steers[0]!.split('\n');
   assert.equal(header, 'Witch coordination update:');
