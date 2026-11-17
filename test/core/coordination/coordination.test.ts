@@ -416,6 +416,55 @@ for (const mailbox of ['task', 'familiar'] as const) {
   });
 }
 
+test('a successful familiar mailbox read leaves a failing task mailbox read showing', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await unitCoordinationFixture(cleanup);
+  const a = await start();
+  const familiars = join(a.directory, 'familiars');
+  const task = join(await files.realpath(a.directory), 'inbox');
+  const familiar = join(await files.realpath(familiars), 'inbox');
+  await watching(a.directory);
+  await watching(familiars);
+  const readdir = files.readdir;
+  let familiarReads = 0;
+
+  const reading = vi
+    .spyOn(files, 'readdir')
+    .mockImplementation(async (...args: Parameters<typeof readdir>) => {
+      if (String(args[0]) === task)
+        throw new Error('Persistent mailbox read failure');
+
+      if (String(args[0]) === familiar) familiarReads++;
+
+      return readdir(...args);
+    });
+
+  const failed = Promise.withResolvers<void>();
+  let clears = 0;
+
+  const unsubscribe = a.coordination.subscribe(() => {
+    const { error } = a.coordination.snapshot;
+
+    if (error?.includes('Persistent mailbox')) failed.resolve();
+    else if (error === undefined) clears++;
+  });
+
+  cleanup(() => {
+    unsubscribe();
+    reading.mockRestore();
+  });
+
+  await files.writeFile(join(task, 'probe'), '');
+  await within(failed.promise, 3000, 'task mailbox read failure');
+  const cleared = clears;
+  const before = familiarReads;
+  await files.writeFile(join(familiar, 'probe'), '');
+  await until('a familiar mailbox read', () => familiarReads > before);
+  await a.coordination['familiarHost']!.drain();
+  assert.equal(clears, cleared);
+  assert.match(a.coordination.snapshot.error ?? '', /Persistent mailbox/);
+});
+
 test('a slow presence retry preserves newer state without accumulating retries', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const { start, registry } = await unitCoordinationFixture(cleanup);
