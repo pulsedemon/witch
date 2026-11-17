@@ -20,6 +20,7 @@ import { TurnGate } from '../../fixtures/agent.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
 import {
+  holdLedger,
   pauseDiscovery,
   unitCoordinationFixture,
 } from '../../fixtures/coordination.js';
@@ -368,6 +369,92 @@ test('invalid native answers publish nothing and consume their one automatic att
 
   await refreshed(b);
   assert.equal(answerTurns(b).length, 1);
+});
+
+test('an answer whose write runs out of time waiting for the ledger is recorded once the lock frees', async (t) => {
+  const { a, b, claim, f, refreshes } = await owners(t.onTestFinished);
+  const write = b.coordination.answerPeers.bind(b.coordination);
+  let release: (() => Promise<void>) | undefined;
+
+  b.a.peerReply = (requests) =>
+    JSON.stringify({
+      answers: requests.map(({ id }) => ({ id, message: 'Port 4000' })),
+    });
+
+  vi.spyOn(b.coordination, 'answerPeers').mockImplementationOnce(
+    async (answers) => {
+      release = await holdLedger(f.registry);
+
+      return write(answers);
+    },
+  );
+
+  const request = await ask(a, claim, 'Which port?');
+
+  const held = async () => {
+    const { attemptedAt, answer } = await stored(f, request);
+    assert.ok(attemptedAt);
+    assert.equal(answer, undefined);
+    assert.equal(b.coordination.snapshot.error, undefined);
+  };
+
+  try {
+    await refreshed(b);
+
+    await until(
+      'answer turn',
+      () => answerTurns(b).length === 1 && settled(b),
+      300,
+    );
+
+    await held();
+
+    assert.ok(
+      !b.coordinator.snapshot.items.some(
+        ({ kind, text }) =>
+          kind === 'notice' && text === 'Coordination request expired.',
+      ),
+    );
+
+    // a retry that also runs out of time keeps the answer queued
+    for (const tick of refreshes) tick();
+
+    await b.coordination['flushingWrites'];
+    await held();
+  } finally {
+    await release?.();
+  }
+
+  for (const tick of refreshes) tick();
+
+  await b.coordination['flushingWrites'];
+  assert.equal((await stored(f, request)).answer?.message, 'Port 4000');
+  await refreshed(a);
+  assert.ok(notice(a, `peer-answer/${request.id}`));
+  assert.equal(answerTurns(b).length, 1);
+});
+
+test('an answer write that fails for another reason fails the turn and queues nothing', async (t) => {
+  const { a, b, claim, f, refreshes } = await owners(t.onTestFinished);
+
+  vi.spyOn(b.coordination['registry'], 'answerPeers').mockRejectedValueOnce(
+    new Error('disk full'),
+  );
+
+  const request = await ask(a, claim, 'Which port?');
+  await refreshed(b);
+  await until('failed answer', () => answerTurns(b).length === 1 && settled(b));
+
+  assert.ok(
+    b.coordinator.snapshot.items.some(
+      ({ kind, text }) => kind === 'notice' && text === 'disk full',
+    ),
+  );
+
+  for (const tick of refreshes) tick();
+
+  await b.coordination['operations'];
+  assert.equal((await stored(f, request)).answer, undefined);
 });
 
 test('a failed turn cleanup still removes the request file', async (t) => {
