@@ -164,13 +164,14 @@ test('unchanged resizes reuse text and diff preparation', async () => {
 
         const text = frame.lines.slice().join('\n');
 
-        for (const target of [
-          'vscode://file/work/src/user.ts:3',
-          'https://example.com/user',
-          'vscode://file/work/src/answer.ts:7',
-          'vscode://file/work/src/guide.ts',
+        // the user's bare path and address link plainly; the answer's labeled links copy their destination
+        for (const opening of [
+          '8;;vscode://file/work/src/user.ts:3',
+          '8;;https://example.com/user',
+          '8;copy=target;vscode://file/work/src/answer.ts:7',
+          '8;copy=target;vscode://file/work/src/guide.ts',
         ])
-          assert.ok(text.includes(`\u001b]8;;${target}\u0007`), target);
+          assert.ok(text.includes(`\u001b]${opening}\u0007`), opening);
 
         assert.ok(text.includes('\u001b[4m'));
         assert.match(stripAnsi(text), /First\./);

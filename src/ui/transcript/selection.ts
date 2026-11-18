@@ -6,6 +6,7 @@ import {
 } from '@alcalzone/ansi-tokenize';
 import type { StyledChar } from '@alcalzone/ansi-tokenize';
 import stringWidth from 'string-width';
+import { copiedDestination } from '../link-destination.js';
 import { placeholder } from './images.js';
 import { colors } from '../theme.js';
 
@@ -31,6 +32,18 @@ const undrawn = /^(?:\p{Default_Ignorable_Code_Point}|\p{Cc})+$/u;
 export const uncopied = '\u2063';
 /** written before a drawn `│` to copy it and the space on each side as one tab. */
 export const tabbed = '\u2062';
+
+const linkOf = ({ styles }: StyledChar) =>
+  styles.find(({ code }) => code.startsWith('\u001b]8;'))?.code;
+
+/** `text` without the characters that take no cell, which is what of it a copy keeps. */
+export function shown(text: string): string {
+  let kept = '';
+
+  for (const { char } of drawn(text)) kept += char.value;
+
+  return kept;
+}
 
 /**
  * each character of `line` that takes cells, with the columns it covers up to but not including `end`, as Ink lays
@@ -63,20 +76,20 @@ function* drawn(line: string) {
   }
 }
 
-/** `line` cut at columns `start` and `end`, with what the cells inside copy as. */
+/** `line` cut at columns `start` and `end`, with what each cell inside copies as and its link's code. */
 function cut(line: string, start: number, end: number) {
   const before: StyledChar[] = [];
   const inside: StyledChar[] = [];
   const after: StyledChar[] = [];
+  const copied: { text: string; link: string | undefined }[] = [];
   let width = 0;
-  let copied = '';
 
   for (const { char, start: from, end: next, copied: text } of drawn(line)) {
     // a wide character is selected when either of its cells is
     if (next <= start) before.push(char);
     else if (from < end) {
       inside.push(char);
-      copied += text;
+      copied.push({ text, link: linkOf(char) });
     } else after.push(char);
 
     width = next;
@@ -84,9 +97,6 @@ function cut(line: string, start: number, end: number) {
 
   return { before, inside, after, width, copied };
 }
-
-const linkOf = ({ styles }: StyledChar) =>
-  styles.find(({ code }) => code.startsWith('\u001b]8;'))?.code;
 
 const wordBreak = /^[\s'"`()[\]{}<>│]$/u;
 
@@ -211,7 +221,8 @@ export function highlight(line: string, start: number, end: number): string {
 /**
  * plain text from `start` through `end`, skipping images and joining each copied row after the first with `joint`.
  * a marked quote rule goes with the space after it, and a marked table rule with the space on each side becomes a tab,
- * where that space is a `joint` too.
+ * where that space is a `joint` too. a link that copies its destination gets it in parentheses after its last selected
+ * cell that isn't a space, once for a label wrapped over rows.
  */
 export function selectedText(
   lines: Pick<readonly string[], 'at'>,
@@ -220,20 +231,54 @@ export function selectedText(
   joint: (row: number) => string,
 ): string {
   let text: string | undefined;
+  // `end` is past the link's last cell that isn't a space, so a row's trailing space stays after the destination
+  let open: { destination: string; end: number } | undefined;
+  // a link's cells share one code, so its destination is worked out once
+  let link: string | undefined;
+  let destination: string | undefined;
+
+  const close = () => {
+    if (!open) return;
+
+    text = `${text!.slice(0, open.end)} (${open.destination})${text!.slice(open.end)}`;
+    open = undefined;
+  };
 
   for (let row = start.row; row <= end.row; row++) {
     const line = lines.at(row)!;
 
     if (line.includes(placeholder)) continue;
 
-    text = text === undefined ? '' : text + joint(row);
-
-    text += cut(
+    const cells = cut(
       line,
       row === start.row ? start.column : 0,
       row === end.row ? end.column + 1 : Infinity,
     ).copied;
+
+    const joined = text === undefined ? '' : joint(row);
+
+    // a label goes on over a wrap, not over a line break in its source
+    if (joined.includes('\n')) close();
+
+    text = (text ?? '') + joined;
+
+    for (const cell of cells) {
+      if (cell.link !== link) {
+        link = cell.link;
+        destination = copiedDestination(link);
+      }
+
+      if (destination !== open?.destination) close();
+
+      if (destination) open ??= { destination, end: text.length };
+
+      text += cell.text;
+
+      if (open && cell.text.trim()) open.end = text.length;
+    }
   }
+
+  close();
 
   return (
     (text ?? '')
