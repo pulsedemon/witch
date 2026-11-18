@@ -10,7 +10,7 @@ import { scratch } from '../fixtures/scratch.js';
 const component = 'export function Component() {\n  return null;\n}\n';
 const hook = 'export function useThing() {\n  return 1;\n}\n';
 
-/** lints `files` under the repository's config in a scratch project; each file's rule ids, by path. */
+/** lints `files` under the repository's config in a scratch project; each file's reported rules and their severities, by path. */
 async function lint(files: Readonly<Record<string, string>>) {
   const root = await scratch('witch-eslint-filenames-');
   const repository = fileURLToPath(new URL('../../', import.meta.url));
@@ -111,6 +111,30 @@ test('ESLint names a TS file after the hook that is its only runtime export, and
       true,
     ],
     ['src/Widget.tsx', hook, true],
+    ['src/source.ts', 'export const limit = 1;\n', true],
+    ['src/defaulted.ts', `${hook}\nexport default 1;\n`, true],
+    ['src/starred.ts', `export * from './source.js';\n\n${hook}`, true],
+    [
+      'src/destructured.ts',
+      `export const { limit } = { limit: 1 };\n\n${hook}`,
+      true,
+    ],
+    // exports that leave nothing at runtime don't make a module mixed
+    [
+      'src/default-type.ts',
+      `export default interface Thing {\n  value: number;\n}\n\n${hook}`,
+      false,
+    ],
+    [
+      'src/starred-type.ts',
+      `export type * from './source.js';\n\n${hook}`,
+      false,
+    ],
+    [
+      'src/listed-type.ts',
+      `type Thing = number;\n\n${hook}\nexport { type Thing };\n`,
+      false,
+    ],
   ] as const;
 
   assert.deepEqual(
