@@ -139,6 +139,44 @@ export function textEnd(line: string): number | undefined {
   return last;
 }
 
+/**
+ * where a selection's end at `at` goes for one arrow key. ← and → step by drawn character, so a wide one takes one
+ * press, and wrap between rows at the row's last text column. ↑ and ↓ keep the column. `last` is the last row.
+ */
+export function stepEnd(
+  lines: Pick<readonly string[], 'at'>,
+  at: Point,
+  direction: 'left' | 'right' | 'up' | 'down',
+  last: number,
+): Point {
+  const { row, column } = at;
+
+  if (direction === 'up') return { row: Math.max(0, row - 1), column };
+
+  if (direction === 'down') return { row: Math.min(last, row + 1), column };
+
+  const line = lines.at(row)!;
+  const end = textEnd(line) ?? 0;
+  const starts = [...drawn(line)].map(({ start }) => start);
+  const covering = starts.findLastIndex((start) => start <= column);
+
+  if (direction === 'right') {
+    const next = starts[covering + 1];
+
+    if (next !== undefined && next <= end) return { row, column: next };
+
+    return row < last ? { row: row + 1, column: 0 } : at;
+  }
+
+  if (column > end) return { row, column: end };
+
+  if (covering > 0) return { row, column: starts[covering - 1]! };
+
+  return row > 0
+    ? { row: row - 1, column: textEnd(lines.at(row - 1)!) ?? 0 }
+    : at;
+}
+
 /** columns `start` up to but not including `end` of a row, drawn as Ghostty draws a selection, in the window's colors swapped. */
 export function highlight(line: string, start: number, end: number): string {
   // inverting a placeholder changes the color that names its image
@@ -197,4 +235,86 @@ export function selectedText(
       // starting only at a run's first space keeps a long run of spaces before text linear
       .replace(/(?<! ) +$/gm, '')
   );
+}
+
+/** the first and last cell of the word or line at a cell, or none where there is no text to select. */
+export function spanOf(
+  transcript: {
+    lines: Pick<readonly string[], 'at'>;
+    lineAt(row: number): { first: number; last: number };
+  },
+  { row, column }: Point,
+  unit: 'word' | 'line',
+): [Point, Point] | undefined {
+  if (unit === 'word') {
+    const word = wordAt(transcript.lines.at(row)!, column);
+
+    return (
+      word && [
+        { row, column: word.start },
+        { row, column: word.end },
+      ]
+    );
+  }
+
+  const { first, last } = transcript.lineAt(row);
+
+  // a line's last rows can hold only characters that are not drawn
+  for (let end = last; end >= first; end--) {
+    const column = textEnd(transcript.lines.at(end)!);
+
+    if (column !== undefined)
+      return [
+        { row: first, column: 0 },
+        { row: end, column },
+      ];
+  }
+
+  return undefined;
+}
+
+/** the first cell and the last text cell of `lines`, or none when no row holds text. */
+export function textEnds(
+  lines: Pick<readonly string[], 'at' | 'length'>,
+): [Point, Point] | undefined {
+  for (let row = lines.length - 1; row >= 0; row--) {
+    const column = textEnd(lines.at(row)!);
+
+    if (column !== undefined)
+      return [
+        { row: 0, column: 0 },
+        { row, column },
+      ];
+  }
+
+  return undefined;
+}
+
+/** whether a selection from `start` through `end` highlights any cell of rows `top` through `bottom`; images and rows past it draw none. */
+export function drawsIn(
+  lines: Pick<readonly string[], 'at'>,
+  start: Point,
+  end: Point,
+  top: number,
+  bottom: number,
+  width: number,
+): boolean {
+  for (
+    let row = Math.max(top, start.row);
+    row <= Math.min(end.row, bottom);
+    row++
+  ) {
+    const line = lines.at(row)!;
+
+    if (
+      highlight(
+        line,
+        row === start.row ? start.column : 0,
+        row === end.row ? end.column + 1 : width,
+      ) !== line
+    )
+      return true;
+  }
+
+  return false;
 }

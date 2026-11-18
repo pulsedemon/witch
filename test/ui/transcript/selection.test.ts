@@ -6,6 +6,7 @@ import { hyperlink } from '../../../src/ui/links.js';
 import {
   highlight,
   selectedText,
+  stepEnd,
   tabbed,
   textEnd,
   uncopied,
@@ -220,4 +221,47 @@ test("a row's text ends at its last drawn character other than a space", () => {
   assert.equal(textEnd(`a${red('日')}b  `), 3);
   assert.equal(textEnd('   '), undefined);
   assert.equal(textEnd('\u200b\u00ad'), undefined);
+});
+
+test("a selection's end steps by drawn character and row, and wraps at the text's end", () => {
+  const lines = ['ab', '', 'three 日本 four'];
+
+  const step = (
+    row: number,
+    column: number,
+    direction: Parameters<typeof stepEnd>[2],
+  ) => stepEnd(lines, { row, column }, direction, 2);
+
+  assert.deepEqual(step(2, 5, 'right'), { row: 2, column: 6 });
+  // across a wide character in one press, from either of its cells
+  assert.deepEqual(step(2, 6, 'right'), { row: 2, column: 8 });
+  assert.deepEqual(step(2, 8, 'left'), { row: 2, column: 6 });
+  assert.deepEqual(step(2, 7, 'left'), { row: 2, column: 5 });
+  assert.deepEqual(step(2, 14, 'right'), { row: 2, column: 14 });
+  assert.deepEqual(step(0, 1, 'right'), { row: 1, column: 0 });
+  assert.deepEqual(step(1, 0, 'right'), { row: 2, column: 0 });
+  assert.deepEqual(step(2, 0, 'left'), { row: 1, column: 0 });
+  assert.deepEqual(step(1, 0, 'left'), { row: 0, column: 1 });
+  assert.deepEqual(step(0, 0, 'left'), { row: 0, column: 0 });
+  // from the empty cells past the text
+  assert.deepEqual(step(0, 30, 'left'), { row: 0, column: 1 });
+  assert.deepEqual(step(0, 30, 'right'), { row: 1, column: 0 });
+  assert.deepEqual(step(2, 9, 'up'), { row: 1, column: 9 });
+  assert.deepEqual(step(0, 9, 'up'), { row: 0, column: 9 });
+  assert.deepEqual(step(2, 9, 'down'), { row: 2, column: 9 });
+});
+
+test("a selection's end wraps from a wide character that starts or ends its row's text", () => {
+  const step = (
+    lines: string[],
+    row: number,
+    column: number,
+    direction: 'left' | 'right',
+  ) => stepEnd(lines, { row, column }, direction, lines.length - 1);
+
+  assert.deepEqual(step(['a日', 'x'], 0, 1, 'right'), { row: 1, column: 0 });
+  assert.deepEqual(step(['a日', 'x'], 0, 2, 'right'), { row: 1, column: 0 });
+  assert.deepEqual(step(['a日'], 0, 1, 'right'), { row: 0, column: 1 });
+  assert.deepEqual(step(['a', '日本'], 1, 1, 'left'), { row: 0, column: 0 });
+  assert.deepEqual(step(['日本'], 0, 1, 'left'), { row: 0, column: 1 });
 });

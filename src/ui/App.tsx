@@ -50,10 +50,12 @@ import type { Browsing } from './input/drafts.js';
 import { useClick, useHover, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell, Pointer } from './terminal/mouse.js';
 import {
+  drawsIn,
   highlight,
   selectedText,
-  textEnd,
-  wordAt,
+  spanOf,
+  stepEnd,
+  textEnds,
 } from './transcript/selection.js';
 import type { Point, RangeEnd } from './transcript/selection.js';
 import { Activity } from './status/Activity.js';
@@ -294,6 +296,10 @@ export function App({
   };
 
   const ends = endsOf(range);
+
+  /** the selection's ends while the transcript shows; another view covering it leaves nothing to copy or move. */
+  const selection = () =>
+    transcriptBox.current ? endsOf(rangeRef.current) : undefined;
 
   // a range or a held press off its text drops, so it can't come back with the width or the tool
   useEffect(() => {
@@ -850,37 +856,8 @@ export function App({
     setRange({ from, to });
   };
 
-  /** the first and last cell of the word or line at a cell, or none where there is no text to select. */
-  const spanAt = (
-    { row, column }: Point,
-    unit: 'word' | 'line',
-  ): [Point, Point] | undefined => {
-    if (unit === 'word') {
-      const word = wordAt(transcript.lines.at(row)!, column);
-
-      return (
-        word && [
-          { row, column: word.start },
-          { row, column: word.end },
-        ]
-      );
-    }
-
-    const { first, last } = transcript.lineAt(row);
-
-    // a line's last rows can hold only characters that are not drawn
-    for (let end = last; end >= first; end--) {
-      const column = textEnd(transcript.lines.at(end)!);
-
-      if (column !== undefined)
-        return [
-          { row: first, column: 0 },
-          { row: end, column },
-        ];
-    }
-
-    return undefined;
-  };
+  const spanAt = (at: Point, unit: 'word' | 'line') =>
+    spanOf(transcript, at, unit);
 
   /** the tool whose `+ ✓` cells a press is on; they hold no link, so a click on them toggles it. */
   const markerOf = (pressed: RangeEnd | undefined) => {
@@ -1015,10 +992,15 @@ export function App({
       ...(spanAt(at, unit) ?? [at]),
     ].sort((a, b) => a.row - b.row || a.column - b.column);
 
-    const from = rangeEnd(ends[0]!);
-    const to = rangeEnd(ends.at(-1)!);
+    const start = rangeEnd(ends[0]!);
+    const stop = rangeEnd(ends.at(-1)!);
 
-    if (from && to) select(from, to);
+    // `to` is the end the drag is on, as in a cell drag, so Shift+arrows move that one
+    const back =
+      at.row < pressed.row ||
+      (at.row === pressed.row && at.column < pressed.column);
+
+    if (start && stop) select(back ? stop : start, back ? start : stop);
 
     return pastEdge;
   };
@@ -1104,10 +1086,9 @@ export function App({
 
     if (key.super && input === 'c') {
       // nothing copies while another view covers the transcript, and blank rows or images hold no text to replace the clipboard with
-      const selected = endsOf(rangeRef.current);
+      const selected = selection();
 
       const text =
-        transcriptBox.current &&
         selected &&
         selectedText(transcript.lines, ...selected, transcript.joinBefore);
 
@@ -1116,34 +1097,70 @@ export function App({
       return;
     }
 
+    // Ghostty keeps Cmd+A for its own selection
+    if (key.ctrl && key.shift && input === 'a') {
+      const [from, to] = (
+        (transcriptBox.current && textEnds(transcript.lines)) ||
+        []
+      ).map(rangeEnd);
+
+      if (from && to) {
+        endPress();
+        select(from, to);
+      }
+
+      return;
+    }
+
+    const direction = (['left', 'right', 'up', 'down'] as const).find(
+      (arrow) => key[`${arrow}Arrow`],
+    );
+
+    const moved = rangeRef.current;
+
+    if (
+      direction &&
+      moved &&
+      key.shift &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.super &&
+      selection()
+    ) {
+      const next = stepEnd(
+        transcript.lines,
+        pointOf(moved.to)!,
+        direction,
+        transcript.lines.length - 1,
+      );
+
+      const end = rangeEnd(next);
+
+      if (end) {
+        endPress();
+        select(moved.from, end);
+        const { top, height } = viewport(topRef.current, seenRef.current);
+
+        if (next.row < top) scrollBy(next.row - top);
+        else if (next.row > top + height - 1)
+          scrollBy(next.row - (top + height - 1));
+      }
+
+      return;
+    }
+
     if (key.escape && transcriptBox.current) {
       const selected = endsOf(rangeRef.current);
       const { top, height } = viewport(topRef.current, seenRef.current);
 
-      if (selected) {
-        const [start, end] = selected;
+      if (
+        selected &&
+        drawsIn(transcript.lines, ...selected, top, top + height - 1, bodyWidth)
+      ) {
+        endPress();
+        setRange(undefined);
 
-        for (
-          let row = Math.max(top, start.row);
-          row <= Math.min(end.row, top + height - 1);
-          row++
-        ) {
-          const line = transcript.lines.at(row)!;
-
-          if (
-            highlight(
-              line,
-              row === start.row ? start.column : 0,
-              row === end.row ? end.column + 1 : bodyWidth,
-            ) === line
-          )
-            continue;
-
-          endPress();
-          setRange(undefined);
-
-          return;
-        }
+        return;
       }
     }
 
@@ -1396,6 +1413,7 @@ export function App({
             onChange={changeComposer}
             onSubmit={submitComposer}
             onArrow={arrow}
+            shiftArrows={() => !!selection()}
             onPaste={coordinator.paste}
           />
         </Box>
