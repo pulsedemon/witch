@@ -226,7 +226,7 @@ function startsContainer(opener: '[' | '{', next: string) {
 
 /** only complete encoded JSON selects another escape level; bracketed prose does not. */
 function nestedContainer(text: string) {
-  if (!/^"\s*[{[]/u.test(text)) return false;
+  if (!/^"(?:\s|\\[nrt])*[{[]/u.test(text)) return false;
 
   try {
     JSON.parse(JSON.parse(text) as string);

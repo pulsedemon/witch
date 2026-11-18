@@ -395,14 +395,19 @@ test('nested JSON retains files after primitive values and encoded whitespace', 
     JSON.stringify({ t: 'a\nnotes.md' }, null, 2),
     JSON.stringify([1, true, null, {}, 'a\nnotes.md']),
   ]) {
-    const text = JSON.stringify(inner);
-    const output = linkify(text, '/work');
+    for (const prefix of ['', '\n', '\t', '\r', ' \n\t\r '])
+      for (const text of [
+        JSON.stringify(prefix + inner),
+        JSON.stringify({ result: prefix + inner }),
+      ]) {
+        const output = linkify(text, '/work');
 
-    assert.deepEqual(linkSpans(output), [
-      { text: 'notes.md', target: 'vscode://file/work/notes.md' },
-    ]);
+        assert.deepEqual(linkSpans(output), [
+          { text: 'notes.md', target: 'vscode://file/work/notes.md' },
+        ]);
 
-    assert.equal(stripAnsi(output), text);
+        assert.equal(stripAnsi(output), text);
+      }
   }
 });
 
