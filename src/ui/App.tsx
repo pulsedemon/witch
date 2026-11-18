@@ -928,7 +928,8 @@ export function App({
       pressedAt.current = end;
       const streak = pressStreak.current;
 
-      // presses count by screen cell, and a first click can move other text under it, as an opened link's notice does
+      // presses count by screen cell, and other text can come under it between them: an opened link's notice
+      // moves the rows, and streamed output rewrites one
       const before =
         end &&
         streak &&
@@ -936,7 +937,8 @@ export function App({
         streak.end.anchor.item === end.anchor.item &&
         streak.end.anchor.line === end.anchor.line &&
         streak.end.anchor.offset === end.anchor.offset &&
-        streak.end.column === end.column
+        streak.end.column === end.column &&
+        streak.end.text === end.text
           ? streak.before
           : presses - 1;
 
@@ -1007,7 +1009,6 @@ export function App({
         setInterval(() => {
           // a resize can bring the held cell back inside the transcript
           if (
-            !pressedAt.current ||
             !edgeScroll.current ||
             !latestPoint.current('drag', edgeScroll.current.cell)
           )

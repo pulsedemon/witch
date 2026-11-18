@@ -277,7 +277,6 @@ export async function runWitch(
   const stdin = new MouseInput(process.stdin);
   // output can scroll another link under the pointer before the release, so a click opens the one it pressed
   let pressed: string | undefined;
-  let opened: string | undefined;
 
   const hover = ({ column, row }: Cell) => {
     const shape = screen.point(column, row);
@@ -296,10 +295,8 @@ export async function runWitch(
   stdin.on('click', (presses: number) => {
     const link = pressed;
 
-    // the first click of a double or triple click already opened it, unless that moved another link under the pointer
-    if (!link || (presses > 1 && link === opened)) return;
-
-    opened = link;
+    // only the first click of a double or triple click opens a link
+    if (!link || presses > 1) return;
 
     graphics
       .save(link)
