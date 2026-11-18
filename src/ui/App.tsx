@@ -261,6 +261,8 @@ export function App({
   const pressedAt = useRef<RangeEnd>(undefined);
   /** what the held press selects by: a double click's words, a triple click's lines. */
   const pressedUnit = useRef<'cell' | 'word' | 'line'>('cell');
+  /** the last press's text and how many presses its cell had seen before that text came under it. */
+  const pressStreak = useRef<{ end: RangeEnd; before: number }>(undefined);
   /** the scrolling of a drag held past the transcript's top or bottom, and the cell it is held on. */
   const edgeScroll = useRef<{ timer: NodeJS.Timeout; cell: Cell }>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
@@ -924,9 +926,25 @@ export function App({
         return false;
 
       pressedAt.current = end;
+      const streak = pressStreak.current;
+
+      // presses count by screen cell, and a first click can move other text under it, as an opened link's notice does
+      const before =
+        end &&
+        streak &&
+        presses > 1 &&
+        streak.end.anchor.item === end.anchor.item &&
+        streak.end.anchor.line === end.anchor.line &&
+        streak.end.anchor.offset === end.anchor.offset &&
+        streak.end.column === end.column
+          ? streak.before
+          : presses - 1;
+
+      pressStreak.current = end && { end, before };
+      const repeats = presses - before;
 
       pressedUnit.current =
-        presses < 2 || markerOf(end) ? 'cell' : presses === 2 ? 'word' : 'line';
+        repeats < 2 || markerOf(end) ? 'cell' : repeats === 2 ? 'word' : 'line';
 
       const span =
         pressedUnit.current !== 'cell' && spanAt(at, pressedUnit.current);
@@ -987,9 +1005,13 @@ export function App({
       timer:
         edgeScroll.current?.timer ??
         setInterval(() => {
-          if (pressedAt.current && edgeScroll.current)
-            latestPoint.current('drag', edgeScroll.current.cell);
-          else stopEdgeScroll();
+          // a resize can bring the held cell back inside the transcript
+          if (
+            !pressedAt.current ||
+            !edgeScroll.current ||
+            !latestPoint.current('drag', edgeScroll.current.cell)
+          )
+            stopEdgeScroll();
         }, 50),
     };
   });

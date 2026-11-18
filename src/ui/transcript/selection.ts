@@ -67,7 +67,7 @@ const wordBreak = /^[\s'"`()[\]{}<>│]$/u;
 
 /**
  * the first and last column of the word at `column`: the cells around it up to whitespace, a quote, a bracket or a
- * table rule, without the punctuation that ends a sentence after it. on a link it is the link's cells on this row,
+ * table rule, without any `.`, `,`, `;`, `:`, `!` or `?` that ends it. on a link it is the link's cells on this row,
  * so a linked path with spaces stays whole. none on a space or one of those marks.
  */
 export function wordAt(
