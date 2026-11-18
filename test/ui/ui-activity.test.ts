@@ -259,6 +259,58 @@ test('the working row counts quiet time from the agent’s last update and names
   }
 });
 
+test('the working row says how long ago the model reasoned', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+  vi.setSystemTime(400_000);
+  const items = [said('Merging main now.', 175_000)];
+
+  const { app, coordinator } = fake({
+    phase: 'running',
+    activityStartedAt: 100_000,
+    items,
+    reasonedAt: 381_000,
+  });
+
+  const ui = show(createElement(App, { coordinator: app, onExit() {} }));
+
+  const row = () =>
+    ui
+      .text()
+      .split('\n')
+      .find((line) => line.includes('QUIET'))
+      ?.trim() ?? '';
+
+  try {
+    await until('the last reasoning', () =>
+      row().endsWith('| QUIET 3M45S | THOUGHT 19S AGO'),
+    );
+
+    coordinator.publish({
+      items: [...items, call('pnpm check', 390_000, false)],
+      reasonedAt: 395_000,
+    });
+
+    await until('reasoning beside a running tool', () =>
+      row().endsWith('| QUIET 10S | THOUGHT 5S AGO | RUNNING pnpm check'),
+    );
+
+    coordinator.publish({
+      items: [
+        ...items,
+        call('pnpm check', 390_000, false),
+        { ...said('Checks pass.', 400_000), id: 'turn/a/said-2' },
+      ],
+    });
+
+    await until('a newer message', () =>
+      row().endsWith('| QUIET 0S | RUNNING pnpm check'),
+    );
+  } finally {
+    ui.unmount();
+    vi.useRealTimers();
+  }
+});
+
 test('the agent’s latest message stays above the tool window while a diff fills the transcript', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
   vi.setSystemTime(1_000_000);

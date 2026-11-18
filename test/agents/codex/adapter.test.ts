@@ -651,6 +651,31 @@ test("a command streams its output into one tool that completes once in the comm
   }
 });
 
+test("a finished reasoning item reports that the agent reasoned, once, and a familiar's does not", async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+
+  const reasoned = () =>
+    events.flatMap(({ type }, index) => (type === 'reasoned' ? [index] : []));
+
+  try {
+    assert.equal((await session.send('tool')).status, 'completed');
+    const command = events.findIndex((event) => event.type === 'tool');
+    assert.equal(reasoned().length, 1);
+    assert.ok(reasoned()[0]! < command);
+    events.length = 0;
+
+    assert.equal(
+      (await within(session.send('familiar-work'), 3000, 'turn')).status,
+      'completed',
+    );
+
+    assert.deepEqual(reasoned(), []);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test("Codex items are titled by what they act on, with a path under the session's directory shown relative and a path field's path named for its link, a familiar's collab call or activity under Witch's name, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
 

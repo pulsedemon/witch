@@ -1145,12 +1145,15 @@ for await (const line of lines) {
         content: [],
       });
 
-      item('item/started', 'worker-thread', {
+      const thinking = {
         type: 'reasoning',
         id: 'w-r',
         summary: [],
         content: [],
-      });
+      };
+
+      item('item/started', 'worker-thread', thinking);
+      item('item/completed', 'worker-thread', thinking);
 
       const command = {
         type: 'commandExecution',
@@ -1409,14 +1412,15 @@ for await (const line of lines) {
         item: { type: 'userMessage', id: 'user-1', content: [] },
       });
 
-      notify('item/completed', {
-        item: {
-          type: 'reasoning',
-          id: 'reasoning-1',
-          summary: [],
-          content: [],
-        },
-      });
+      const reasoning = {
+        type: 'reasoning',
+        id: 'reasoning-1',
+        summary: [],
+        content: [],
+      };
+
+      notify('item/started', { item: reasoning });
+      notify('item/completed', { item: reasoning });
 
       notify('item/started', {
         threadId: 'native-thread',

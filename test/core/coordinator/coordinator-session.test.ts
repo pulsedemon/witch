@@ -93,6 +93,27 @@ test('the pentacle follows foreground work and every running local task', async 
   }
 });
 
+test("a live session's reasoning report reaches the snapshot with its time", async () => {
+  const { coordinator, a, b } = await fixture();
+  vi.useFakeTimers({ toFake: ['Date'] });
+
+  try {
+    vi.setSystemTime(10_000);
+    a.sessions[0]!.options.onEvent({ type: 'reasoned' });
+    assert.equal(coordinator.snapshot.reasonedAt, 10_000);
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    vi.setSystemTime(20_000);
+    a.sessions[0]!.options.onEvent({ type: 'reasoned' });
+    assert.equal(coordinator.snapshot.reasonedAt, 10_000);
+    vi.setSystemTime(30_000);
+    b.sessions[0]!.options.onEvent({ type: 'reasoned' });
+    assert.equal(coordinator.snapshot.reasonedAt, 30_000);
+  } finally {
+    vi.useRealTimers();
+    await coordinator.close();
+  }
+});
+
 test("a session's usage at connect and while it lists its models reaches the snapshot, a closed session's later usage does not, and a failed handoff clears it", async () => {
   const { coordinator, a } = await fixture(undefined, (a, b) => {
     a.connectUsage = { context: 1 };

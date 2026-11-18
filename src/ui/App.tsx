@@ -1126,6 +1126,7 @@ export function App({
               key={state.activityStartedAt}
               startedAt={state.activityStartedAt}
               quietSince={agent?.quietSince}
+              reasonedAt={agent?.reasonedAt}
               doing={agent?.doing}
             />
           )}

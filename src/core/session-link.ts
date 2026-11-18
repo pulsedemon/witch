@@ -507,6 +507,8 @@ export class SessionLink {
       if (this.live(agent)) host.background(event, conversation.cwd);
     } else if (event.type === 'running') {
       if (this.live(agent)) host.publish({ nativeRunning: event.running });
+    } else if (event.type === 'reasoned') {
+      if (this.live(agent)) host.publish({ reasonedAt: Date.now() });
     } else if (event.type === 'spell') {
       host.display(castRow(event.cast, conversation.cwd));
     } else if (event.type === 'retracted') {

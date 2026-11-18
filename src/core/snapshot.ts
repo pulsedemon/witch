@@ -49,6 +49,8 @@ export interface Snapshot {
   completedTurn?: string;
   /** the native agent reports it runs, as Claude Code does on its own when a brew ends. */
   nativeRunning?: boolean;
+  /** when the live session's agent last reported reasoning, in epoch milliseconds. */
+  reasonedAt?: number;
   /** a Witch-started turn answering peer requests holds the phase. */
   answering?: boolean;
   /** Witch is admitting, running or reconciling a turn it started itself: a peer answer, a repair or Copilot feedback. */

@@ -33,6 +33,25 @@ test('a stored effort reaches Claude Code on connect and shows before any model 
   }
 });
 
+test("a thinking block reports that the agent reasoned, without its text and without a familiar's", async () => {
+  const events: AgentEvent[] = [];
+  const { session } = await fixture((event) => events.push(event));
+
+  try {
+    assert.equal((await session.send('think')).status, 'completed');
+
+    assert.equal(
+      events.filter(({ type }) => type === 'reasoned').length,
+      2,
+      JSON.stringify(events),
+    );
+
+    assert.ok(!JSON.stringify(events).includes('secret plan'));
+  } finally {
+    await session.close();
+  }
+});
+
 test('refresh consumes a fresh native catalog without replacing the default system prompt', async () => {
   const { session, cwd } = await fixture();
 

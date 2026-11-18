@@ -9,6 +9,8 @@ export interface AgentActivity {
   doing?: string;
   /** the newest message among them, on one line. */
   message?: { text: string; at: number };
+  /** when the model last reported reasoning, while that is newer than `quietSince`. */
+  reasonedAt?: number;
 }
 
 // a row shows far less, and a long reply is cleaned on every update while it streams
@@ -18,7 +20,8 @@ export function agentActivity({
   phase,
   activityStartedAt,
   items,
-}: Pick<Snapshot, 'phase' | 'activityStartedAt' | 'items'>):
+  reasonedAt,
+}: Pick<Snapshot, 'phase' | 'activityStartedAt' | 'items' | 'reasonedAt'>):
   AgentActivity | undefined {
   // a handoff's turns run in switching and keep the plain row, as every working phase but running does
   if (phase !== 'running') return;
@@ -56,5 +59,11 @@ export function agentActivity({
       };
   }
 
-  return { quietSince, doing, message };
+  return {
+    quietSince,
+    doing,
+    message,
+    // strictly newer: Codex ends a reasoning step as it starts the message after it, and the message is what shows
+    ...(reasonedAt !== undefined && reasonedAt > quietSince && { reasonedAt }),
+  };
 }
