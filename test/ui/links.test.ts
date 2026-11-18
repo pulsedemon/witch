@@ -28,9 +28,9 @@ function linkSpans(text: string) {
   let current: (typeof spans)[number] | undefined;
 
   for (const { value, styles } of styledCharsFromTokens(tokenize(text))) {
-    const target = styles
-      .find(({ code }) => code.startsWith('\u001b]8;;'))
-      ?.code.slice(5, -1);
+    const code = styles.find(({ code }) => code.startsWith('\u001b]8;'))?.code;
+    // the target follows the params, which a link that copies its destination fills
+    const target = code?.slice(code.indexOf(';', 4) + 1, -1);
 
     if (!target) current = undefined;
     else if (current?.target === target) current.text += value;
@@ -804,19 +804,19 @@ test('a #L location links as a line and column, a heading fragment drops, and a 
 
   assert.ok(
     markdown('[Rules](docs/rules.md#shared-memory)', '/work').includes(
-      '\u001b]8;;vscode://file/work/docs/rules.md\u0007',
+      '\u001b]8;copy=target;vscode://file/work/docs/rules.md\u0007',
     ),
   );
 
   assert.ok(
     markdown('[Src](src/a.ts#L10C2)', '/work').includes(
-      '\u001b]8;;vscode://file/work/src/a.ts:10:2\u0007',
+      '\u001b]8;copy=target;vscode://file/work/src/a.ts:10:2\u0007',
     ),
   );
 
   for (const target of ['', '#goal', '#L10'])
     assert.ok(
-      !markdown(`[Top](${target})`, '/work').includes('\u001b]8;;vscode'),
+      !markdown(`[Top](${target})`, '/work').includes('vscode://'),
       target,
     );
 });

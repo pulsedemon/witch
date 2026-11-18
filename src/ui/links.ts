@@ -5,8 +5,9 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { present } from '../persistence/directories.js';
 import { resolveFile, unescapePath } from '../paths.js';
+import { copiedLink, destination, linkedFile } from './link-destination.js';
 import { imageFile } from './transcript/images.js';
-import { tabbed, uncopied } from './transcript/selection.js';
+import { shown, tabbed, uncopied } from './transcript/selection.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
@@ -83,15 +84,11 @@ async function located(
   url: string,
   memory: () => Promise<string[]>,
 ): Promise<{ open: string } | { notice: string }> {
-  const file = /^vscode:\/\/file(\/.*?)((?::\d+){0,2})$/.exec(url);
+  const file = linkedFile(url);
 
-  const path = file
-    ? decodeURIComponent(file[1]!)
-    : url.startsWith('file://')
-      ? fileURLToPath(url)
-      : undefined;
+  if (!file) return { open: url };
 
-  if (path === undefined) return { open: url };
+  const { path, location } = file;
 
   if (await present(path)) return { open: url };
 
@@ -104,7 +101,7 @@ async function located(
     if (await present(join(directory, name))) notes.push(join(directory, name));
 
   if (notes.length === 1)
-    return { open: linkTarget(notes[0]! + (file?.[2] ?? ''), '/') };
+    return { open: linkTarget(notes[0]! + location, '/') };
 
   return {
     notice: notes.length
@@ -113,7 +110,13 @@ async function located(
   };
 }
 
-export function hyperlink(text: string, target: string, cwd: string): string {
+/** `text` linked to `target`. with `copied`, a copy of it carries the destination after it, unless the destination cannot be decoded or some of it would not show. */
+export function hyperlink(
+  text: string,
+  target: string,
+  cwd: string,
+  copied = false,
+): string {
   if (
     /^[a-z][a-z\d+.-]*:/i.test(target) &&
     !/^(https?:|file:|vscode:)/i.test(target) &&
@@ -133,21 +136,27 @@ export function hyperlink(text: string, target: string, cwd: string): string {
 
   if (!target.includes('/')) bareNames.add(url);
 
+  const copy = copied ? destination(url) : undefined;
+
+  const opening =
+    copy !== undefined && shown(copy) === copy
+      ? copiedLink(url)
+      : `\u001b]8;;${url}\u0007`;
+
   // keep underlining inside each line's link so clipped rows still open.
   // ansi-escapes adds tmux passthrough that Ink drops, so emit OSC 8 directly.
   return text
     .split('\n')
-    .map(
-      (line) =>
-        `\u001b]8;;${url}\u0007${colors.underline(line)}\u001b]8;;\u0007`,
-    )
+    .map((line) => `${opening}${colors.underline(line)}\u001b]8;;\u0007`)
     .join('\n');
 }
 
+/** `explicit` is a link written with its own label, or any image. it copies its destination when its label as drawn isn't the target. */
 export function markdownLink(
   text: string,
   target: string,
   cwd: string,
+  explicit: boolean,
 ): string {
   if (!/^[a-z][a-z\d+.-]*:/i.test(target)) {
     // a heading anchor is no part of the file; only a `#L12` location after a file is kept
@@ -165,7 +174,7 @@ export function markdownLink(
     }
   }
 
-  return hyperlink(text, target, cwd);
+  return hyperlink(text, target, cwd, explicit && shown(text) !== target);
 }
 
 // a file reference outranks every link but these
