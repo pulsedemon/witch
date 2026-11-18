@@ -224,6 +224,19 @@ function startsContainer(opener: '[' | '{', next: string) {
       );
 }
 
+/** only complete encoded JSON selects another escape level; bracketed prose does not. */
+function nestedContainer(text: string) {
+  if (!/^"\s*[{[]/u.test(text)) return false;
+
+  try {
+    JSON.parse(JSON.parse(text) as string);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** keep JSON context across bounded pieces without changing terminal path escaping. */
 function fileSections(text: string, previous?: FileContext) {
   const sections: { start: number; end: number; json: boolean }[] = [];
@@ -288,15 +301,7 @@ function fileSections(text: string, previous?: FileContext) {
       if (text[end] === '\\' && text[end + 1] !== '\n') end++;
 
     const stop = text[end] === '"' ? end + 1 : Math.min(end, text.length);
-
-    // an encoded string delimiter distinguishes nested JSON from bracketed prose.
-    const nested =
-      containers === 0 &&
-      !member &&
-      /^\s*[{[](?:[\s[\]{},:]|\\[nrt]|(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,\]}]|\\[nrt]))*\\"/u.test(
-        text.slice(index + 1, end),
-      );
-
+    const nested = nestedContainer(text.slice(index, stop));
     const json = containers > 0 || member || nested;
 
     if (json) {

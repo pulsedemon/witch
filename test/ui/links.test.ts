@@ -294,7 +294,11 @@ test('file paths beside JSON escapes retain their own labels and targets at both
   ] as const) {
     const json = JSON.stringify({ t: value });
 
-    for (const text of [json, JSON.stringify(json)])
+    for (const text of [
+      json,
+      JSON.stringify(json),
+      JSON.stringify({ result: json }),
+    ])
       for (const output of [
         linkify(text, '/work'),
         markdown(`\`\`\`json\n${text}\n\`\`\``, '/work'),
@@ -1234,6 +1238,19 @@ test('text with more than four `xn--` labels on a line is left unlinked instead 
 
       assert.equal(stripAnsi(output), text);
     }
+  }
+
+  for (const text of [
+    `${labels}com/\nsee src/app.ts`,
+    `see src/app.ts\n${labels}com/`,
+  ]) {
+    const output = linkify(text, '/work');
+
+    assert.deepEqual(linkSpans(output), [
+      { text: 'src/app.ts', target: 'vscode://file/work/src/app.ts' },
+    ]);
+
+    assert.equal(stripAnsi(output), text);
   }
 
   // a backslash before the newline hides it from the search for a boundary, and the lines are still decided apart
