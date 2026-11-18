@@ -7,18 +7,16 @@ import type { TurnResult } from '../../agents/types.js';
 import type { SessionCoordination } from './coordination.js';
 import type { PeerRequest } from './peer-requests.js';
 
-const peerAnswerSchema = z.strictObject({
-  answers: z
-    .array(
-      z.strictObject({
-        id: z.string().uuid(),
-        message: z.string().trim().min(1),
-      }),
-    )
-    .min(1),
+export const peerAnswer = z.strictObject({
+  id: z.string().uuid(),
+  message: z.string().trim().min(1),
 });
 
-export type PeerAnswer = z.infer<typeof peerAnswerSchema>['answers'][number];
+const peerAnswerSchema = z.strictObject({
+  answers: z.array(peerAnswer).min(1),
+});
+
+export type PeerAnswer = z.infer<typeof peerAnswer>;
 
 export const peerAnswerOutputSchema = z.toJSONSchema(peerAnswerSchema, {
   target: 'draft-7',
