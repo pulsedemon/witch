@@ -409,7 +409,7 @@ function fileMatches(
 
     for (
       let index = sectionIndex;
-      !piece.plain && index < sections.length;
+      !piece.guarded && index < sections.length;
       index++
     ) {
       const section = sections[index]!;
@@ -518,6 +518,7 @@ function bareLinks(
   text: string,
   cwd: string,
   sourceFiles: FileMatch[],
+  webOnly = false,
 ): string {
   // a skipped URL must not become a file link; no link crosses a newline.
   if (backtracks(text)) {
@@ -543,12 +544,15 @@ function bareLinks(
 
         start = end + 1;
 
-        return backtracks(line) ? line : bareLinks(line, cwd, matches);
+        return backtracks(line) ? line : bareLinks(line, cwd, matches, webOnly);
       })
       .join('\n');
   }
 
-  const links = webMatches(text);
+  const links = webMatches(text).filter(
+    (match) => !webOnly || webLink.test(match.text),
+  );
+
   sourceFiles = outsideWebLinks(text, sourceFiles, links);
   let output = '';
   let offset = 0;
@@ -613,14 +617,31 @@ function bareLinks(
 
 interface Piece {
   text: string;
-  /** drawn as it is, without a search for links. */
-  plain: boolean;
+  guarded: boolean;
 }
 
 // linkify-it rescans suffixes, and wrapping repeats each target per row.
 const pieceSize = 2000;
 // the characters linkify-it reads no link across. `\s` is not the same set: it has U+FEFF, which a link can hold
 const separator = /[\p{Z}\p{Cc}]/u;
+
+function guardedLinks(text: string, cwd: string): string {
+  let output = '';
+  let start = 0;
+
+  for (const stop of [...text.matchAll(breaks), undefined]) {
+    const end = stop?.index ?? text.length;
+    const span = text.slice(start, end);
+
+    output +=
+      (span.length <= pieceSize ? bareLinks(span, cwd, [], true) : span) +
+      (stop?.[0] ?? '');
+
+    start = end + (stop?.[0].length ?? 0);
+  }
+
+  return output;
+}
 
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
@@ -674,10 +695,10 @@ function pieces(text: string): Piece[] {
       for (; start + pieceSize < end; start += pieceSize)
         result.push({
           text: text.slice(start, start + pieceSize),
-          plain: false,
+          guarded: false,
         });
 
-      result.push({ text: text.slice(start, end), plain: false });
+      result.push({ text: text.slice(start, end), guarded: false });
     }
 
     start = end;
@@ -741,7 +762,7 @@ function unbroken(
 
 /**
  * an overlong run with a possible link, cut after quotes into pieces that can be searched.
- * a quote ends every web link, escaped or not; a stretch with no quote past one piece stays plain.
+ * a quote ends every web link, escaped or not; a stretch with no quote past one piece stays guarded.
  * a dropped path that escapes a quote can link in fragments.
  */
 function cutAfterQuotes(text: string, start: number, stop: number): Piece[] {
@@ -749,7 +770,7 @@ function cutAfterQuotes(text: string, start: number, stop: number): Piece[] {
 
   while (start < stop) {
     let end = Math.min(start + pieceSize, stop);
-    let plain = false;
+    let guarded = false;
 
     if (end < stop) {
       const before = text.slice(start, end).lastIndexOf('"') + 1;
@@ -758,11 +779,11 @@ function cutAfterQuotes(text: string, start: number, stop: number): Piece[] {
       else {
         const after = text.slice(end, stop).indexOf('"') + 1;
         end = after ? end + after : stop;
-        plain = true;
+        guarded = true;
       }
     }
 
-    result.push({ text: text.slice(start, end), plain });
+    result.push({ text: text.slice(start, end), guarded });
     start = end;
   }
 
@@ -786,7 +807,7 @@ function linked(
     visible += buffer;
 
     chunks.push(
-      ...(target ? [{ text: buffer, plain: true, target }] : pieces(buffer)),
+      ...(target ? [{ text: buffer, guarded: true, target }] : pieces(buffer)),
     );
 
     buffer = '';
@@ -828,8 +849,8 @@ function linked(
     .map((piece, index) =>
       piece.target
         ? hyperlink(piece.text, piece.target, cwd)
-        : piece.plain
-          ? piece.text
+        : piece.guarded
+          ? guardedLinks(piece.text, cwd)
           : bareLinks(piece.text, cwd, matches[index]!),
     )
     .join('');

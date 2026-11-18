@@ -562,7 +562,7 @@ test('long JSON written inside a JSON string, or holding a value longer than one
       [after],
     ],
     [JSON.stringify({ blob: 'A'.repeat(5000), url: after }), [after]],
-    // a value longer than one input stays plain whatever it holds, so no part of it becomes a target
+    // an oversized URL or path must not become a partial link
     [
       JSON.stringify({
         blob: `https://example.com/${'A'.repeat(2500)}`,
@@ -1096,6 +1096,13 @@ test('long runs of filename characters, and links on many lines or one, link in 
       ':',
     );
 
+  const escapedUrls = (count: number) =>
+    JSON.stringify(
+      Array.from({ length: count }, (_, n) => `https://example.com/${n}`).join(
+        '\n',
+      ),
+    );
+
   for (const [input, small, large] of [
     ...['-', '.', '@', 'é', '+', ',', '%'].map(
       (character) =>
@@ -1103,6 +1110,7 @@ test('long runs of filename characters, and links on many lines or one, link in 
     ),
     ['lines of links', links(500, '\n'), links(2000, '\n')] as const,
     ['a line of links', links(500, ' '), links(2000, ' ')] as const,
+    ['escaped URL lists', escapedUrls(500), escapedUrls(2000)] as const,
     // sized so the smaller input takes several milliseconds, which the runner's CPU clock can measure
     ...(
       [
