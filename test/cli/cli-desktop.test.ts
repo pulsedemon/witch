@@ -312,6 +312,15 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       expected,
     );
 
+    await wait('the copy sign', () => stripAnsi(output).includes('COPIED'));
+
+    // a complete phase row drawn after the last sign, so this copy's sign can't pass for a later copy's
+    await wait('the copy sign lapsed', () => {
+      const text = stripAnsi(output);
+
+      return /IDLE[^\n]*\n/.test(text.slice(text.lastIndexOf('COPIED')));
+    });
+
     const opens = () =>
       messages.filter((m) => m.file === '/usr/bin/open').length;
 
@@ -397,6 +406,10 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
         assert.equal(opens(), opened);
 
       await configure('none');
+
+      if (kind === 'copy')
+        assert.ok(!stripAnsi(output.slice(failedAt)).includes('COPIED'));
+
       await finish(held);
       const next = ++turn;
 
