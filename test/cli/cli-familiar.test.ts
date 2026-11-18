@@ -15,7 +15,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
 import { parseCommand } from '../../src/cli/cli-control.js';
-import { FamiliarReports } from '../../src/cli/familiar-run.js';
+import {
+  FamiliarReports,
+  watchSuspension,
+} from '../../src/cli/familiar-run.js';
 import { ControlHost } from '../../src/persistence/control.js';
 import type {
   ControlRequest,
@@ -611,4 +614,27 @@ test('familiar CLI arguments reject mixed actions and conflicting native stream 
     ]).familiar?.args,
     ['--model', 'opus', '--permission-mode', 'manual'],
   );
+});
+
+test('a run reports the time its process was suspended and stays silent without a gap', () => {
+  vi.useFakeTimers({ now: 0 });
+
+  try {
+    const steady = watchSuspension();
+    vi.advanceTimersByTime(60_000);
+    assert.equal(steady(), undefined);
+    const slept = watchSuspension();
+    vi.advanceTimersByTime(4000);
+    // the clock moves 26 minutes with no timer firing, as across a sleep
+    vi.setSystemTime(Date.now() + 26 * 60_000);
+    vi.advanceTimersByTime(2000);
+    vi.setSystemTime(Date.now() + 25 * 60_000);
+
+    assert.equal(
+      slept(),
+      'This run was suspended for 51M02S of its 51M06S, as when the Mac sleeps, so its elapsed time overstates its work.',
+    );
+  } finally {
+    vi.useRealTimers();
+  }
 });
