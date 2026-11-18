@@ -120,6 +120,14 @@ export class ClaudeProjection {
         this.messages()?.append(id, text);
         this.options.onEvent({ type: 'text', id, text });
       }
+
+      if (
+        (event.type === 'content_block_start' &&
+          event.content_block.type === 'thinking') ||
+        (event.type === 'content_block_delta' &&
+          event.delta.type === 'thinking_delta')
+      )
+        this.options.onEvent({ type: 'reasoned' });
     } else if (
       message.type === 'assistant' &&
       message.parent_tool_use_id === null

@@ -1567,7 +1567,27 @@ for await (const line of lines) {
       state('idle');
     } else if (lastPrompt === 'quit early')
       process.stderr.write('quitting early\n', () => process.exit(0));
-    else if (lastPrompt === 'add skill') {
+    else if (lastPrompt === 'think') {
+      const thought = {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: 'secret plan' },
+      };
+
+      streamEvent(
+        {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'thinking', thinking: '', signature: '' },
+        },
+        null,
+      );
+
+      streamEvent(thought, null);
+      streamEvent(thought, 'toolu_familiar');
+      assistant('done');
+      finish();
+    } else if (lastPrompt === 'add skill') {
       send({
         type: 'system',
         subtype: 'commands_changed',

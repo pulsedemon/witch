@@ -1106,6 +1106,10 @@ class CodexSession implements AgentSession {
                 },
               });
           }
+        } else if (type === 'reasoning') {
+          // Codex reports a reasoning step only when it ends
+          if (message.method === 'item/completed')
+            this.options.onEvent({ type: 'reasoned' });
         } else if (!untooled.includes(type)) {
           this.options.onEvent(
             itemTool(

@@ -20,10 +20,12 @@ const frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 export function Activity({
   startedAt,
   quietSince,
+  reasonedAt,
   doing,
 }: {
   startedAt: number;
   quietSince?: number;
+  reasonedAt?: number;
   doing?: string;
 }) {
   const [start] = useState(Date.now);
@@ -53,6 +55,13 @@ export function Activity({
           : [
               // the clock ticks behind an update that just arrived
               colors.dim(`QUIET ${elapsed(Math.max(0, now - quietSince))}`),
+            ]),
+        ...(reasonedAt === undefined
+          ? []
+          : [
+              colors.dim(
+                `THOUGHT ${elapsed(Math.max(0, now - reasonedAt))} AGO`,
+              ),
             ]),
         ...(doing ? [colors.dim(doing)] : []),
       ])}
