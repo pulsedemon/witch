@@ -299,7 +299,7 @@ function pieces(text: string): Piece[] {
 
   for (let start = 0; start < text.length;) {
     let end = Math.min(start + pieceSize, text.length);
-    let plain = false;
+    let linkable = false;
 
     const after = (separator: RegExp) => {
       let cut = end;
@@ -333,10 +333,10 @@ function pieces(text: string): Piece[] {
       }
 
       if (boundary) end = boundary;
-      else ({ end, plain } = unbroken(text, start, end));
+      else ({ end, linkable } = unbroken(text, start, end));
     }
 
-    if (plain) result.push(...quoted(text, start, end));
+    if (linkable) result.push(...quoted(text, start, end));
     else {
       for (; start + pieceSize < end; start += pieceSize)
         result.push({
@@ -354,18 +354,18 @@ function pieces(text: string): Piece[] {
 }
 
 /**
- * mark an overlong run with a possible link plain, for `quoted` to cut, so no fragment of a web link becomes a target.
+ * find where an overlong run ends and whether it may hold a link. `quoted` cuts one that may, so no fragment of a web link becomes a target.
  * scan its boundary once, including when no link is possible and it can be split.
  */
 function unbroken(
   text: string,
   start: number,
   end: number,
-): { end: number; plain: boolean } {
+): { end: number; linkable: boolean } {
   // a newline after a backslash is no boundary to `pieces`, and no link crosses it, so each line is decided alone
   const line = text.slice(start, end).lastIndexOf('\n') + 1;
 
-  if (line) return { end: start + line, plain: false };
+  if (line) return { end: start + line, linkable: false };
 
   const boundary = new RegExp(separator, 'gu');
   boundary.lastIndex = end;
@@ -373,7 +373,7 @@ function unbroken(
 
   return {
     end: stop,
-    plain: stop > end && urls.pretest(text.slice(start, stop)),
+    linkable: stop > end && urls.pretest(text.slice(start, stop)),
   };
 }
 
