@@ -8,20 +8,9 @@ import { test, vi } from 'vitest';
 import { JobWatch } from '../../../src/core/jobs/jobs.js';
 import type { Row } from '../../../src/core/jobs/jobs.js';
 import * as processes from '../../../src/persistence/process.js';
+import { orphanRow } from '../../fixtures/jobs.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until } from '../../fixtures/within.js';
-
-/** a process launchd adopted, alone in a group of its own. */
-function orphanRow(pid: number): Row {
-  return {
-    pid,
-    ppid: 1,
-    pgid: pid,
-    name: 'node',
-    leadsSession: false,
-    identity: `${pid} a`,
-  };
-}
 
 test('marked app roots exclude their trees, while commands and tools stay jobs', async () => {
   const app = orphanRow(5100701);
@@ -386,7 +375,7 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
 
     try {
       await jobs.list();
-      rows = [...services.keys()].map(orphanRow);
+      rows = [...services.keys()].map((pid) => orphanRow(pid));
 
       assert.deepEqual(
         (await jobs.list()).map(({ group }) => group),
