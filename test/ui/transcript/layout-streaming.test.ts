@@ -325,6 +325,34 @@ test('provisional blanks keep parsing and wrapping bounded through visible and c
   }
 });
 
+test('malformed terminated OSC revises cached quoted filenames as visible text changes', () => {
+  for (const end of ['\u0007', '\u009c', '\u001b\\']) {
+    for (const sameChunk of [false, true]) {
+      const prefix = '[\n"src/a\\b.ts"\n\u001b]8;x' + end + '\n';
+      const layout = new TranscriptLayout();
+      const expanded = new Map([['tool', true]]);
+      let items: DisplayItem[] = [];
+
+      for (const text of [
+        ...(sameChunk ? [prefix + 'x'] : [prefix, 'x']),
+        ';https://x.test/' + end,
+        '\n]\n',
+      ]) {
+        items = applyDisplayUpdate(items, tool(text));
+        const frame = layout.render(items, 80, expanded);
+        const fresh = new TranscriptLayout().render(items, 80, expanded);
+        assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+
+        if (text.endsWith('x')) {
+          assert.ok(
+            frame.lines.at(2)!.includes('vscode://file/work/src/a%5Cb.ts'),
+          );
+        }
+      }
+    }
+  }
+});
+
 test('provisional whitespace keeps an explicit target through split chunks and resize', () => {
   const open = '\u001b]8;;https://x.test/\u0007';
   const close = '\u001b]8;;\u0007';

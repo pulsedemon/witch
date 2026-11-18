@@ -217,6 +217,8 @@ function jsonBreaks(text: string, nested: boolean) {
   return result;
 }
 
+const jsonDelimiter = /^\s*(?:[:,}\]]|$)/u;
+
 const jsonPrimitive =
   /^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,}\]]|$)/u;
 
@@ -316,7 +318,7 @@ function fileSections(text: string, boundary: number, previous?: FileContext) {
 
     const stop = text[end] === '"' ? end + 1 : Math.min(end, text.length);
 
-    if (text[end] === '"' && !/^\s*(?:[:,}\]]|$)/u.test(text.slice(stop))) {
+    if (text[end] === '"' && !jsonDelimiter.test(text.slice(stop))) {
       containers = 0;
       member = false;
     }
@@ -978,17 +980,18 @@ export function linkifyAppend(
 
       const rendered = prefix.text.slice(0, prefix.text.lastIndexOf('\n') + 1);
       const tail = suffix.text.slice(rendered.length).split('\n');
+      const mode = jsonDelimiter.test(suffix.visible) ? 'json' : 'terminal';
 
       return {
         ...previous,
         complete: [],
         pending: previous.pending + text,
-        tail: quoted.json + '\n' + renderedPrefix + suffix.text,
+        tail: quoted[mode] + '\n' + renderedPrefix + suffix.text,
         provisional: {
           ...previous.provisional,
           renderedPrefix: renderedPrefix + rendered,
           line: { text: raw.slice(boundary.end), target: prefix.target },
-          mode: 'json',
+          mode,
           tailLines: tail.length,
         },
         provisionalUpdate: {
@@ -1074,12 +1077,9 @@ export function linkifyAppend(
         json: stable.text.slice(0, first),
         terminal: alternative.slice(0, alternative.indexOf('\n')),
       },
-      mode: incompleteStyle(
-        pending.slice(stableEnd),
-        plain(pending.slice(stableEnd)),
-      )
-        ? 'terminal'
-        : 'json',
+      mode: jsonDelimiter.test(plain(pending.slice(stableEnd)))
+        ? 'json'
+        : 'terminal',
       context: stable.context,
       tailLines:
         stable === suffix
