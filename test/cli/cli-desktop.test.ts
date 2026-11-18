@@ -294,7 +294,8 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       first,
     ]);
 
-    const expected = `label${changed.split('/').at(-1)!.padStart(3, '0')}`;
+    // the rows are labeled links, so the copy carries the address the pointer found
+    const expected = `label${changed.split('/').at(-1)!.padStart(3, '0')} (${changed})`;
 
     write(
       mouse('press', 1, 4) +

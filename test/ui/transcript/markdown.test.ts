@@ -21,7 +21,11 @@ test('relative link targets resolve against their own base or stay text without 
     '[Ports](ports.md) [Line](ports.md:3) [Abs](/work/abs.md) [Web](https://example.com/x) docs/rules.md';
 
   const links = (output: string, targets: string[]) =>
-    targets.every((target) => output.includes(`\u001b]8;;${target}\u0007`));
+    targets.every(
+      (target) =>
+        output.includes(`\u001b]8;;${target}\u0007`) ||
+        output.includes(`\u001b]8;copy=target;${target}\u0007`),
+    );
 
   const kept = [
     'vscode://file/work/abs.md',
@@ -254,7 +258,7 @@ test('late and nested definitions rebuild earlier references and retain the firs
     for (const frame of frames.slice(1)) {
       assert.ok(
         frame.includes(
-          '\u001b]8;;vscode://file/work/src/guide.ts\u0007\u001b[4mGuide',
+          '\u001b]8;copy=target;vscode://file/work/src/guide.ts\u0007\u001b[4mGuide',
         ),
       );
 
