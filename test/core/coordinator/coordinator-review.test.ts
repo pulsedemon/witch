@@ -591,6 +591,24 @@ test('a name quoted as file completion inserts it is reviewed', async (t) => {
   );
 });
 
+test('a target whose name holds a line break refuses, quoted or escaped', async (t) => {
+  const h = await harness(t);
+  await writeFile(join(h.cwd, 'a\nb.md'), 'x\n');
+  const targets = ['"a\nb.md"', 'a\\\nb.md', '@"a\nb.md"'];
+
+  for (const argument of targets)
+    assert.equal(await h.coordinator.review(argument), false, argument);
+
+  assert.deepEqual(
+    h.notices().filter((text) => text.startsWith('Review refused')),
+    targets.map(
+      () => 'Review refused: "a\\nb.md" has a line break in its name',
+    ),
+  );
+
+  assert.equal(h.rounds.length, 0);
+});
+
 test('a target whose name starts with two dots is inside the directory', async (t) => {
   const h = await harness(t);
   await writeFile(join(h.cwd, '..notes.md'), 'x\n');
