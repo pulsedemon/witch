@@ -924,3 +924,56 @@ test('wrapped body rows drop the space they broke at and keep indentation and co
     'def',
   ]);
 });
+
+test("a line's rows are every row wrapped from it, and stop at the next line, the next item and each diff row", () => {
+  const items: DisplayItem[] = [
+    {
+      id: 'a',
+      kind: 'assistant',
+      text: 'alpha beta gamma delta epsilon\nnext',
+      cwd: '/work',
+    },
+    { id: 'n', kind: 'notice', text: 'notice words', cwd: '/work' },
+    {
+      id: 't',
+      kind: 'tool',
+      title: 'Edit',
+      text: '',
+      cwd: '/work',
+      done: true,
+      diff: [
+        {
+          path: '/work/a.txt',
+          kind: 'add',
+          hunks: [{ oldStart: 0, newStart: 1, lines: ['+' + 'x'.repeat(20)] }],
+        },
+      ],
+    },
+  ];
+
+  const layout = new TranscriptLayout().render(items, 12, new Map());
+
+  assert.deepEqual(layout.lines.slice().map(stripAnsi), [
+    'Assistant',
+    'alpha beta ',
+    'gamma delta ',
+    'epsilon',
+    'next',
+    '',
+    'notice words',
+    '',
+    '− ✓ Edit',
+    'Create',
+    './a.txt +1',
+    '1 +xxxxxxxxx',
+    '   xxxxxxxxx',
+    '   xx       ',
+    '',
+  ]);
+
+  for (const row of [1, 2, 3])
+    assert.deepEqual(layout.lineAt(row), { first: 1, last: 3 });
+
+  for (const row of [4, 5, 6, 11, 12, 13])
+    assert.deepEqual(layout.lineAt(row), { first: row, last: row });
+});

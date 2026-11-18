@@ -194,12 +194,14 @@ test("clicking a tool's marker toggles it and a click on its title text does not
   const { app } = fake({ items: [said('start'), tool('alpha')] });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
-  const click = (column: number) => {
-    const at = ui
+  const toolRow = () =>
+    ui
       .text()
       .split('\n')
       .findIndex((line) => line.includes('alpha tool'));
 
+  const click = (column: number) => {
+    const at = toolRow();
     ui.stdin.write(left('press', column, at) + left('release', column, at));
   };
 
@@ -209,9 +211,15 @@ test("clicking a tool's marker toggles it and a click on its title text does not
     await delay(60);
     assert.ok(!ui.text().includes('alpha output'));
     click(1);
-    await until('the open tool', () => ui.text().includes('alpha output'));
+    await delay(60);
     assert.ok(ui.text().includes('− ✓ alpha tool'));
-    click(1);
+    const at = toolRow();
+    // a double click's second press on the marker selects nothing
+    ui.stdin.write(left('press', 1, at));
+    await delay(60);
+    assert.ok(ui.text().includes('alpha output'));
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(left('release', 1, at));
     await until('the closed tool', () => !ui.text().includes('alpha output'));
   } finally {
     ui.unmount();

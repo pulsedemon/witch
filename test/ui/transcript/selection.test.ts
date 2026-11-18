@@ -6,6 +6,8 @@ import { hyperlink } from '../../../src/ui/links.js';
 import {
   highlight,
   selectedText,
+  textEnd,
+  wordAt,
 } from '../../../src/ui/transcript/selection.js';
 
 const red = (text: string) => `\u001b[31m${text}\u001b[39m`;
@@ -153,4 +155,24 @@ test('a selection starting on image rows joins only after its first copied row',
   );
 
   assert.deepEqual(calls, [3]);
+});
+
+test('a word runs between spaces, quotes and brackets, keeps a path with its line and column whole, drops the punctuation that ends a sentence and counts a wide character as two cells', () => {
+  assert.deepEqual(wordAt('see src/a.ts:12:3 now', 9), { start: 4, end: 16 });
+
+  assert.deepEqual(wordAt(`say ${red('"hello"')} there`, 6), {
+    start: 5,
+    end: 9,
+  });
+
+  assert.deepEqual(wordAt('call (beta) now', 7), { start: 6, end: 9 });
+  assert.deepEqual(wordAt('the end.', 5), { start: 4, end: 6 });
+  assert.deepEqual(wordAt('a日b c', 2), { start: 0, end: 3 });
+  assert.equal(wordAt('alpha beta', 5), undefined);
+});
+
+test("a row's text ends at its last drawn character other than a space", () => {
+  assert.equal(textEnd(`a${red('日')}b  `), 3);
+  assert.equal(textEnd('   '), undefined);
+  assert.equal(textEnd('\u200b\u00ad'), undefined);
 });

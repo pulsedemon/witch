@@ -31,7 +31,8 @@ function input() {
   const read: string[] = [];
   const wheel: number[] = [];
   const hovers: Cell[] = [];
-  let clicks = 0;
+  const clicked: number[] = [];
+  const presses: number[] = [];
   const pointer: [Pointer, Cell][] = [];
 
   mouse.on('readable', () => {
@@ -42,13 +43,25 @@ function input() {
 
   mouse.on('wheel', (rows: number) => wheel.push(rows));
   mouse.on('hover', (cell: Cell) => hovers.push(cell));
-  mouse.on('click', () => clicks++);
+  mouse.on('click', (count: number) => clicked.push(count));
 
-  mouse.on('pointer', (kind: Pointer, cell: Cell) =>
-    pointer.push([kind, cell]),
-  );
+  mouse.on('pointer', (kind: Pointer, cell: Cell, count?: number) => {
+    pointer.push([kind, cell]);
 
-  return { source, mouse, read, wheel, hovers, clicks: () => clicks, pointer };
+    if (kind === 'press') presses.push(count!);
+  });
+
+  return {
+    source,
+    mouse,
+    read,
+    wheel,
+    hovers,
+    clicks: () => clicked.length,
+    clicked,
+    presses,
+    pointer,
+  };
 }
 
 function noMouse(found: ReturnType<typeof input>) {
@@ -143,30 +156,39 @@ test('the keys and reports in one read arrive in the order they were sent', () =
   assert.deepEqual(read, ['a', 'b', 'c']);
 });
 
-test('a report split across reads waits for its end', () => {
+test('a report split across reads waits for its end, and a double click split across reads or batched in one counts both presses', () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
   for (let split = 1; split < press.length; split++) {
-    const { source, read, clicks, pointer } = input();
+    const { source, read, clicked, presses, pointer } = input();
     source.emit('data', 'x' + press.slice(0, split));
     assert.deepEqual(read, ['x'], `press prefix ${split}`);
     source.emit('data', press.slice(split));
     source.emit('data', release.slice(0, split));
     source.emit('data', release.slice(split) + 'y');
+    source.emit('data', press.slice(0, split));
+    source.emit('data', press.slice(split) + release.slice(0, split));
+    source.emit('data', release.slice(split));
     assert.deepEqual(read, ['x', 'y']);
-    assert.equal(clicks(), 1);
-    assert.deepEqual(pointer, pair);
+    assert.deepEqual(clicked, [1, 2]);
+    assert.deepEqual(presses, [1, 2]);
+    assert.deepEqual(pointer, [...pair, ...pair]);
   }
 
-  const { source, read, clicks, pointer } = input();
-  source.emit('data', 'x');
+  const bytes = input();
+  bytes.source.emit('data', 'x');
 
-  for (const byte of press + release) source.emit('data', byte);
+  for (const byte of press + release + press + release)
+    bytes.source.emit('data', byte);
 
-  source.emit('data', 'y');
-  assert.deepEqual(read, ['x', 'y']);
-  assert.equal(clicks(), 1);
-  assert.deepEqual(pointer, pair);
+  bytes.source.emit('data', 'y');
+  assert.deepEqual(bytes.read, ['x', 'y']);
+  assert.deepEqual(bytes.clicked, [1, 2]);
+  assert.deepEqual(bytes.pointer, [...pair, ...pair]);
+  const batched = input();
+  batched.source.emit('data', press + release + press + release);
+  assert.deepEqual(batched.presses, [1, 2]);
+  assert.deepEqual(batched.clicked, [1, 2]);
 });
 
 test('ambiguous prefixes expire once at 20 ms', () => {
@@ -457,6 +479,40 @@ test('a press dragged off its cell is a drag, not a click, even released where i
     ['drag', { column: 4, row: 4 }],
     ['release', { column: 4, row: 4 }],
   ]);
+});
+
+test('presses on one cell count up while each follows the last within 500 ms, a click carries its press count, and another cell, a wheel step or a drag starts again at one', () => {
+  vi.useFakeTimers({ toFake: ['performance'] });
+  const { source, presses, clicked } = input();
+
+  const click = (column: number) =>
+    source.emit('data', `\u001b[<0;${column};5M\u001b[<0;${column};5m`);
+
+  click(5);
+  vi.advanceTimersByTime(499);
+  click(5);
+  vi.advanceTimersByTime(499);
+  click(5);
+  assert.deepEqual(presses, [1, 2, 3]);
+  vi.advanceTimersByTime(500);
+  click(5);
+  vi.advanceTimersByTime(501);
+  click(5);
+  assert.deepEqual(presses, [1, 2, 3, 4, 1]);
+  click(6);
+  click(6);
+  source.emit('data', '\u001b[<65;6;5M');
+  click(6);
+  click(6);
+
+  source.emit(
+    'data',
+    '\u001b[<0;6;5M\u001b[<32;7;5M\u001b[<32;6;5M\u001b[<0;6;5m',
+  );
+
+  click(6);
+  assert.deepEqual(presses, [1, 2, 3, 4, 1, 1, 2, 1, 2, 3, 1]);
+  assert.deepEqual(clicked, [1, 2, 3, 4, 1, 1, 2, 1, 2, 1]);
 });
 
 test('a wheel step while the button is down keeps its release from clicking', () => {

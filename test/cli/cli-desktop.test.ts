@@ -311,7 +311,16 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       expected,
     );
 
-    assert.equal(messages.filter((m) => m.file === '/usr/bin/open').length, 1);
+    const opens = () =>
+      messages.filter((m) => m.file === '/usr/bin/open').length;
+
+    assert.equal(opens(), 1);
+    const click = mouse('press', 1, 4) + mouse('release', 1, 4);
+    write(click + click);
+    await wait('opened double-clicked link', () => opens() > 1);
+    // a second open would follow the first at once
+    await delay(200);
+    assert.equal(opens(), 2);
     let turn = 0;
 
     for (const [kind, failure, errorText] of [
@@ -349,7 +358,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       await wait('clickable target', () => linkCell(matches));
       const cell = linkCell(matches)!;
       const failedAt = output.length;
-      const opened = messages.filter((m) => m.file === '/usr/bin/open').length;
+      const opened = opens();
 
       if (kind === 'copy')
         write(
@@ -377,10 +386,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
         );
 
       if (kind === 'malformed' || kind === 'memory')
-        assert.equal(
-          messages.filter((m) => m.file === '/usr/bin/open').length,
-          opened,
-        );
+        assert.equal(opens(), opened);
 
       await configure('none');
       await finish(held);
