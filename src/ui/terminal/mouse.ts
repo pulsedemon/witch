@@ -188,7 +188,7 @@ export function useClick(handler: () => void): void {
   useMouse('click', handler);
 }
 
-/** runs `handler` for each report that is not the left button's or the wheel's, such as motion with no button held. */
+/** runs `handler` for each report that is not the left button's or a vertical wheel step, such as motion with no button held. */
 export function useHover(handler: () => void): void {
   useMouse('hover', handler);
 }

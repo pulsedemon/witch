@@ -946,7 +946,7 @@ export function App({
       const repeats = presses - before;
 
       pressedUnit.current =
-        repeats < 2 || markerOf(end) ? 'cell' : repeats === 2 ? 'word' : 'line';
+        repeats < 2 ? 'cell' : repeats === 2 ? 'word' : 'line';
 
       const span =
         pressedUnit.current !== 'cell' && spanAt(at, pressedUnit.current);

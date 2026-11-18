@@ -216,7 +216,7 @@ test("clicking a tool's marker toggles it and a click on its title text does not
     await until('the open tool', () => ui.text().includes('alpha output'));
     assert.ok(ui.text().includes('− ✓ alpha tool'));
     const at = toolRow();
-    // a second press on the marker stays a plain press, so a drag from it selects cells, not whole words
+    // the first click rewrote the marker, so the press after it is a first press: a drag from it selects cells, not whole words
     ui.stdin.write(left('press', 1, at));
     ui.stdin.write(left('drag', 6, at));
 
