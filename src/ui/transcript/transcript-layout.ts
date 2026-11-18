@@ -595,6 +595,24 @@ export class TranscriptLayout {
       return positions[low - 1];
     };
 
+    /** `row` and the row above it when both are wrapped from one line of one item, and a copy joins them. */
+    const wrappedOnto = (row: number) => {
+      const here = positionAt(row);
+      const above = positionAt(row - 1);
+
+      if (!here || !above || here[0] !== above[0]) return undefined;
+
+      const current = rendered.get(here[0])!.row(row - here[1]);
+      const previous = rendered.get(above[0])!.row(row - 1 - above[1]);
+
+      return current &&
+        previous &&
+        !current.copyBreak &&
+        current.anchor.line === previous.anchor.line
+        ? { current, previous }
+        : undefined;
+    };
+
     return {
       items: shown,
       shownAs,
@@ -607,21 +625,11 @@ export class TranscriptLayout {
       blocks,
       starts,
       joinBefore(row: number): string {
-        const here = positionAt(row);
-        const above = positionAt(row - 1);
+        const wrapped = wrappedOnto(row);
 
-        if (!here || !above || here[0] !== above[0]) return '\n';
+        if (!wrapped) return '\n';
 
-        const current = rendered.get(here[0])!.row(row - here[1]);
-        const previous = rendered.get(above[0])!.row(row - 1 - above[1]);
-
-        if (
-          !current ||
-          !previous ||
-          current.copyBreak ||
-          current.anchor.line !== previous.anchor.line
-        )
-          return '\n';
+        const { current, previous } = wrapped;
 
         // a wrap that changed more than trimming has no source offset to reconstruct.
         if (current.anchor.offset < 0 || previous.anchor.offset < 0) return ' ';
@@ -632,6 +640,17 @@ export class TranscriptLayout {
           stripAnsi(previous.text).length;
 
         return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
+      },
+      /** the first and last row of the line `row` is wrapped from. */
+      lineAt(row: number): { first: number; last: number } {
+        let first = row;
+        let last = row;
+
+        while (wrappedOnto(first)) first--;
+
+        while (wrappedOnto(last + 1)) last++;
+
+        return { first, last };
       },
       anchorAt(row: number): ScrollAnchor | undefined {
         const entry = positionAt(row);

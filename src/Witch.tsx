@@ -292,10 +292,11 @@ export async function runWitch(
     if (pointer === 'press') pressed = screen.linkAt(cell.column, cell.row);
   });
 
-  stdin.on('click', () => {
+  stdin.on('click', (presses: number) => {
     const link = pressed;
 
-    if (!link) return;
+    // the first click of a double or triple click already opened it
+    if (!link || presses > 1) return;
 
     graphics
       .save(link)

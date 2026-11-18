@@ -5,6 +5,8 @@ import { useStdin } from 'ink';
 /** button reports and all motion, with SGR coordinates. Shift+drag still selects text natively. */
 export const captureMouse = '\u001b[?1003h\u001b[?1006h';
 export const releaseMouse = '\u001b[?1006l\u001b[?1003l';
+/** how long after a press another on its cell still counts with it, as a double or triple click. */
+const repeatWithin = 500;
 // eslint-disable-next-line no-control-regex
 const report = /\u001b\[<(\d+);(\d+);(\d+)([Mm])/g;
 // reject each Escape run once to keep non-mouse input linear
@@ -34,8 +36,9 @@ interface Source {
 
 /**
  * the stdin Ink reads, with mouse reports taken out: the left button emits `pointer` with what it did and the cell,
- * a release on its press's cell with no drag or wheel step between emits `click`, and a wheel step emits `wheel`
- * with the rows to scroll, -1 up and 1 down. any other report, such as motion with no button or another button held,
+ * and for a press how many presses in a row its cell has now had, each within 500 ms of the last with no drag or
+ * wheel step between. a release on its press's cell with no drag or wheel step between emits `click` with that
+ * count, and a wheel step emits `wheel` with the rows to scroll, -1 up and 1 down. any other report, such as motion with no button or another button held,
  * emits `hover` with the cell. ambiguous escape prefixes wait 20 ms for mouse input before reaching Ink;
  * slower early fragments can reach Ink as keys.
  */
@@ -46,6 +49,7 @@ export class MouseInput extends EventEmitter {
   private escapeTimer: ReturnType<typeof setTimeout> | undefined;
   /** the cell the left button went down on, until it moves or scrolls what is under it. */
   private pressed: Cell | undefined;
+  private lastPress: { cell: Cell; at: number; count: number } | undefined;
 
   constructor(private readonly source: Source) {
     super();
@@ -115,13 +119,27 @@ export class MouseInput extends EventEmitter {
 
       if (button === 64 || button === 65) {
         this.pressed = undefined;
+        this.lastPress = undefined;
         this.emit('wheel', button === 64 ? -1 : 1);
       } else if (button === 0 && kind === 'M') {
+        const at = performance.now();
+        const last = this.lastPress;
+
+        const count =
+          last &&
+          last.cell.column === cell.column &&
+          last.cell.row === cell.row &&
+          at - last.at <= repeatWithin
+            ? last.count + 1
+            : 1;
+
+        this.lastPress = { cell, at, count };
         this.pressed = cell;
-        this.emit('pointer', 'press', cell);
+        this.emit('pointer', 'press', cell, count);
       } else if (button === 32) {
         // held motion is reported only on reaching a new cell, so a drag has left the press cell
         this.pressed = undefined;
+        this.lastPress = undefined;
         this.emit('pointer', 'drag', cell);
       } else if (button === 0) {
         // held motion reports every cell it reaches, so a release elsewhere follows reports that went missing
@@ -129,7 +147,7 @@ export class MouseInput extends EventEmitter {
           this.pressed?.column === cell.column &&
           this.pressed.row === cell.row
         )
-          this.emit('click');
+          this.emit('click', this.lastPress?.count ?? 1);
 
         this.pressed = undefined;
         this.emit('pointer', 'release', cell);
@@ -166,9 +184,14 @@ export function useClick(handler: () => void): void {
   useMouse('click', handler);
 }
 
-/** runs `handler` for each left press, drag and release. outside a MouseInput none arrive. */
+/** runs `handler` for each report that is not the left button's or the wheel's, such as motion with no button held. */
+export function useHover(handler: () => void): void {
+  useMouse('hover', handler);
+}
+
+/** runs `handler` for each left press, drag and release, a press with its count. outside a MouseInput none arrive. */
 export function usePointer(
-  handler: (pointer: Pointer, cell: Cell) => void,
+  handler: (pointer: Pointer, cell: Cell, presses?: number) => void,
 ): void {
   useMouse('pointer', handler);
 }

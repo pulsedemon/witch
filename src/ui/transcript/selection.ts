@@ -28,27 +28,89 @@ export interface RangeEnd {
 // Ink draws neither invisible characters nor controls, so they take no cell and are never copied
 const undrawn = /^(?:\p{Default_Ignorable_Code_Point}|\p{Cc})+$/u;
 
-/** `line` cut at columns `start` and `end`, measured as Ink lays characters out. */
+/** each character of `line` that takes cells, with the columns it covers up to but not including `end`, as Ink lays them out. */
+function* drawn(line: string) {
+  let start = 0;
+
+  for (const char of styledCharsFromTokens(tokenize(line))) {
+    if (undrawn.test(char.value)) continue;
+
+    const end = start + Math.max(1, stringWidth(char.value));
+    yield { char, start, end };
+    start = end;
+  }
+}
+
+/** `line` cut at columns `start` and `end`. */
 function cut(line: string, start: number, end: number) {
   const before: StyledChar[] = [];
   const inside: StyledChar[] = [];
   const after: StyledChar[] = [];
   let width = 0;
 
-  for (const char of styledCharsFromTokens(tokenize(line))) {
-    if (undrawn.test(char.value)) continue;
-
+  for (const { char, start: from, end: next } of drawn(line)) {
     // a wide character is selected when either of its cells is
-    const next = width + Math.max(1, stringWidth(char.value));
-
     if (next <= start) before.push(char);
-    else if (width < end) inside.push(char);
+    else if (from < end) inside.push(char);
     else after.push(char);
 
     width = next;
   }
 
   return { before, inside, after, width };
+}
+
+const linkOf = ({ styles }: StyledChar) =>
+  styles.find(({ code }) => code.startsWith('\u001b]8;'))?.code;
+
+const wordBreak = /^[\s'"`()[\]{}<>│]$/u;
+
+/**
+ * the first and last column of the word at `column`: the cells around it up to whitespace, a quote, a bracket or a
+ * table rule, without the punctuation that ends a sentence after it. on a link it is the link's cells on this row,
+ * so a linked path with spaces stays whole. none on a space or one of those marks.
+ */
+export function wordAt(
+  line: string,
+  column: number,
+): { start: number; end: number } | undefined {
+  const cells = [...drawn(line)];
+
+  const at = cells.findIndex(
+    ({ start, end }) => column >= start && column < end,
+  );
+
+  if (at < 0) return undefined;
+
+  const link = linkOf(cells[at]!.char);
+
+  const inWord = (index: number) =>
+    link
+      ? linkOf(cells[index]!.char) === link
+      : !wordBreak.test(cells[index]!.char.value);
+
+  if (!inWord(at)) return undefined;
+
+  let first = at;
+  let last = at;
+
+  while (first > 0 && inWord(first - 1)) first--;
+
+  while (last < cells.length - 1 && inWord(last + 1)) last++;
+
+  if (!link) while (last > at && /[.,;:]/.test(cells[last]!.char.value)) last--;
+
+  return { start: cells[first]!.start, end: cells[last]!.end - 1 };
+}
+
+/** the last column of `line` that holds a character other than a space, or none in a blank row. */
+export function textEnd(line: string): number | undefined {
+  let last: number | undefined;
+
+  for (const { char, end } of drawn(line))
+    if (char.value.trim()) last = end - 1;
+
+  return last;
 }
 
 /** columns `start` up to but not including `end` of a row, drawn as Ghostty draws a selection, in the window's colors swapped. */
