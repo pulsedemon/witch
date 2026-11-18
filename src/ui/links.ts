@@ -185,6 +185,7 @@ interface FileMatch {
   lastIndex: number;
   text: string;
   path: string;
+  json: boolean;
 }
 
 interface FileContext {
@@ -308,6 +309,33 @@ function fileSections(text: string, previous?: FileContext) {
   return { sections, context: { containers, key, member } };
 }
 
+function fileCandidates(
+  text: string,
+  offset: number,
+  json: boolean,
+): FileMatch[] {
+  const matches: FileMatch[] = [];
+
+  for (const match of text.matchAll(files)) {
+    const quoted = match[1];
+    const label = quoted ?? match[0].replace(/[.,;!?]+$/, '');
+
+    if (!quoted && !label.includes('/') && !sourceFile.test(label)) continue;
+
+    const index = offset + match.index + (quoted ? 1 : 0);
+
+    matches.push({
+      index,
+      lastIndex: index + label.length,
+      text: label,
+      path: quoted || json ? label : unescapePath(label),
+      json,
+    });
+  }
+
+  return matches;
+}
+
 function fileMatches(
   text: string,
   pieces: readonly Piece[],
@@ -335,23 +363,7 @@ function fileMatches(
 
       const start = Math.max(offset, section.start);
       const chunk = text.slice(start, Math.min(end, section.end));
-
-      for (const match of chunk.matchAll(files)) {
-        const quoted = match[1];
-        const label = quoted ?? match[0].replace(/[.,;!?]+$/, '');
-
-        if (!quoted && !label.includes('/') && !sourceFile.test(label))
-          continue;
-
-        const index = start - offset + match.index + (quoted ? 1 : 0);
-
-        matches.push({
-          index,
-          lastIndex: index + label.length,
-          text: label,
-          path: quoted || section.json ? label : unescapePath(label),
-        });
-      }
+      matches.push(...fileCandidates(chunk, start - offset, section.json));
     }
 
     offset = end;
@@ -389,6 +401,55 @@ function webMatches(
   return result;
 }
 
+/** recover uncovered file references without replacing a winning URL's neighboring web links. */
+function outsideWebLinks(
+  text: string,
+  sources: FileMatch[],
+  links: ReturnType<typeof webMatches>,
+) {
+  let index = 0;
+
+  return sources.flatMap((source) => {
+    while (links[index] && links[index]!.lastIndex <= source.index) index++;
+
+    let end = index;
+    let explicit = false;
+
+    for (; links[end] && links[end]!.index < source.lastIndex; end++)
+      explicit ||= webLink.test(links[end]!.text);
+
+    if (!explicit) return [source];
+
+    let start = source.index;
+    const matches: FileMatch[] = [];
+
+    for (let next = index; next < end; next++) {
+      const link = links[next]!;
+
+      matches.push(
+        ...fileCandidates(
+          text.slice(start, Math.max(start, link.index)),
+          start,
+          source.json,
+        ),
+      );
+
+      start = Math.max(start, link.lastIndex);
+    }
+
+    if (start < source.lastIndex)
+      matches.push(
+        ...fileCandidates(
+          text.slice(start, source.lastIndex),
+          start,
+          source.json,
+        ),
+      );
+
+    return matches;
+  });
+}
+
 function bareLinks(
   text: string,
   cwd: string,
@@ -423,6 +484,8 @@ function bareLinks(
       .join('\n');
   }
 
+  const links = webMatches(text);
+  sourceFiles = outsideWebLinks(text, sourceFiles, links);
   let output = '';
   let offset = 0;
   let fileIndex = 0;
@@ -441,7 +504,7 @@ function bareLinks(
     }
   };
 
-  for (const match of webMatches(text)) {
+  for (const match of links) {
     if (match.index < offset) continue;
 
     emitFiles(match.index);
@@ -592,7 +655,8 @@ function unbroken(
 
   if (stop > end && !guarded)
     for (const match of text.slice(start, stop).matchAll(files)) {
-      if (match.index >= end - start) break;
+      if (match.index >= end - start)
+        return { end: start + match.index, guarded: false, run };
 
       if (match.index + match[0].length > end - start) {
         if (match.index > 0)

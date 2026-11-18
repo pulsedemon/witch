@@ -441,6 +441,52 @@ test('a long colon-separated path list keeps every complete directory target', (
   assert.equal(stripAnsi(output), text);
 });
 
+test('an explicit URL keeps neighboring file links in a quoted JSON value', () => {
+  const a = { text: 'src/a.ts', target: 'vscode://file/work/src/a.ts' };
+  const b = { text: 'src/b.ts', target: 'vscode://file/work/src/b.ts' };
+  const url = { text: 'https://example.com', target: 'https://example.com' };
+
+  for (const [value, expected] of [
+    ['src/a.ts https://example.com', [a, url]],
+    [
+      'www.example.com/1 src/b.ts',
+      [{ text: 'www.example.com/1', target: 'http://www.example.com/1' }, b],
+    ],
+    ['src/a.ts https://example.com src/b.ts', [a, url, b]],
+  ] as const) {
+    const json = JSON.stringify({ t: value });
+
+    for (const text of [json, JSON.stringify(json)]) {
+      const first = linkifyAppend(text.slice(0, 20), '/work');
+
+      const next = linkifyAppend(
+        first.pending + text.slice(20) + '\n',
+        '/work',
+        first.target,
+        first.context,
+      );
+
+      for (const output of [
+        linkify(text, '/work'),
+        markdown(`\`\`\`json\n${text}\n\`\`\``, '/work'),
+        next.complete.join('\n'),
+      ]) {
+        assert.deepEqual(linkSpans(output), expected, text);
+        assert.equal(stripAnsi(output), text);
+      }
+    }
+  }
+});
+
+test('an oversized file after the first bounded piece never becomes a partial target', () => {
+  for (const length of [2000, 4000]) {
+    const text = `${'x'.repeat(length)})(/tmp/${'a'.repeat(2500)}`;
+    const output = linkify(text, '/work');
+    assert.deepEqual(linkSpans(output), []);
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
 test('long JSON written inside a JSON string, or holding a value longer than one linkify-it input, links the URLs that fit one input, and text outside the cut run links as before', () => {
   const sixty = Array.from({ length: 60 }, (_, n) => ({
     url: `https://example.com/${n}`,
