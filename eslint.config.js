@@ -31,36 +31,27 @@ const pascalCaseTsx = {
   },
 };
 
-/** the runtime names a module exports; a default export or `export *` counts as one that is no hook. */
+const typeDeclarations = ['TSInterfaceDeclaration', 'TSTypeAliasDeclaration'];
+
+/** one entry per runtime export of a module: its name, or undefined for one that has none, such as `export *`, a default expression or a destructured binding. */
 function runtimeExports(program) {
   return program.body.flatMap((node) => {
-    if (node.type === 'ExportDefaultDeclaration') return ['default'];
-
-    if (node.type === 'ExportAllDeclaration')
-      return node.exportKind === 'type' ? [] : ['*'];
-
-    if (node.type !== 'ExportNamedDeclaration' || node.exportKind === 'type')
+    if (!node.type.startsWith('Export') || node.exportKind === 'type')
       return [];
 
     const declared = node.declaration;
 
-    if (!declared)
+    if (node.type === 'ExportNamedDeclaration' && !declared)
       return node.specifiers
         .filter(({ exportKind }) => exportKind !== 'type')
-        .map(({ exported }) => exported.name ?? exported.value);
+        .map(({ exported }) => exported.name);
 
-    if (declared.type === 'VariableDeclaration')
-      return declared.declarations.flatMap(({ id }) =>
-        id.type === 'Identifier' ? [id.name] : ['pattern'],
-      );
+    if (declared?.type === 'VariableDeclaration')
+      return declared.declarations.map(({ id }) => id.name);
 
-    return [
-      'FunctionDeclaration',
-      'ClassDeclaration',
-      'TSEnumDeclaration',
-    ].includes(declared.type)
-      ? [declared.id.name]
-      : [];
+    return typeDeclarations.includes(declared?.type)
+      ? []
+      : [declared?.id?.name];
   });
 }
 
@@ -78,9 +69,8 @@ const hookFilename = {
         const [hook, ...others] = runtimeExports(node);
 
         if (
-          hook &&
           !others.length &&
-          /^use[A-Z0-9]/.test(hook) &&
+          /^use[A-Z0-9]/.test(hook ?? '') &&
           basename(context.filename) !== `${hook}.ts`
         )
           context.report({ node, messageId: 'filename', data: { hook } });
