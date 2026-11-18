@@ -216,6 +216,8 @@ test("a double or triple click on a tool's marker in one read toggles it each ti
     const click = left('press', 1, at) + left('release', 1, at);
     // two toggles leave the row as it was, so only the marker keeps the second press from selecting its word
     ui.stdin.write(click + click + CMD_C);
+    // a new count, so a tool only the first click of each batch toggled would end closed
+    vi.advanceTimersByTime(600);
     ui.stdin.write(click + click + click + CMD_C);
     await until('the open tool', () => ui.text().includes('alpha output'));
     assert.ok(!ui.frame().includes('\u001b[7m'));
