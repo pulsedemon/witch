@@ -188,11 +188,12 @@ function sentenceEnd(text: string): number {
   return length;
 }
 
-// a raw quote, or a JSON escape with the character it escapes. a lone backslash before any other character can belong to a query, as in `?q=\d+`
-const breaks = /"|\\{2,}["bfnrtu]?|\\["bfnrtu]/gu;
+// a raw quote, or a JSON escape other than `\/` with what it escapes. a lone backslash before any other character can belong to a query, as in `?q=\d+`.
+// `\/` is no break: `https:\/\/host\/path` would link the host alone
+const breaks = /"|\\+(?:u[\da-fA-F]{4}|["bfnrt])|\\{2,}/gu;
 
 /**
- * linkify-it's matches with no raw double quote and no JSON escape, which end a URL written in JSON.
+ * linkify-it's matches with no raw double quote and no JSON escape but `\/`, which end a URL written in JSON.
  * linkify-it pairs quotes inside a path, so minified JSON would join a URL to the keys after it.
  */
 function webMatches(
@@ -353,7 +354,7 @@ function pieces(text: string): Piece[] {
 }
 
 /**
- * mark an overlong run with a possible link plain, for `quoted` to cut, so no fragment becomes a target.
+ * mark an overlong run with a possible link plain, for `quoted` to cut, so no fragment of a web link becomes a target.
  * scan its boundary once, including when no link is possible and it can be split.
  */
 function unbroken(
@@ -379,6 +380,7 @@ function unbroken(
 /**
  * an overlong run with a possible link, cut after quotes into pieces that can be searched.
  * a quote ends every web link, escaped or not; a stretch with no quote past one piece stays plain.
+ * a dropped path that escapes a quote can link in fragments.
  */
 function quoted(text: string, start: number, stop: number): Piece[] {
   const result: Piece[] = [];

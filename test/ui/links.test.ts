@@ -154,6 +154,7 @@ test('a URL before a JSON escape links alone, a URL after the escape links too, 
 
   const search = String.raw`https://github.com/search?q=foo\.bar&type=code`;
   const fragment = String.raw`https://example.com/doc#a\c`;
+  const under = String.raw`https://example.com/?q=\under`;
 
   for (const [text, spans] of [
     [JSON.stringify({ t: 'see https://example.com/1\nnext' }), one],
@@ -230,6 +231,16 @@ test('a URL before a JSON escape links alone, a URL after the escape links too, 
         { target: 'http://example.org/b.md', text: 'example.org/b.md' },
       ],
     ],
+    // a Unicode escape goes with its four hex digits, which would otherwise start the next host
+    [
+      JSON.stringify({ t: 'https://example.com/1\u0000www.example.org/2' }),
+      [
+        { target: 'https://example.com/1', text: 'https://example.com/1' },
+        { target: 'http://www.example.org/2', text: 'www.example.org/2' },
+      ],
+    ],
+    // `\u` with no hex digits after it is no JSON escape
+    [`see ${under} ok`, [{ target: under, text: under }]],
     // `\/` is no break: the host alone would link without its path
     [String.raw`{"u":"https:\/\/example.com\/a\/b"}`, []],
   ] as const) {
