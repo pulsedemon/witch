@@ -370,10 +370,28 @@ test('terminal paths keep escaped letters and backslashes, including quoted lite
   }
 });
 
-test('a JSON escaped backslash does not consume the first letter of the next file', () => {
-  const json = String.raw`{"t":"a\\notes.md"}`;
+test('bracketed text before a literal JSON backslash preserves the filename first letter', () => {
+  for (const prefix of ['', '[', '{']) {
+    const json = JSON.stringify({ t: prefix + String.raw`a\notes.md` });
 
-  for (const text of [json, JSON.stringify(json)]) {
+    for (const text of [json, JSON.stringify(json)]) {
+      const output = linkify(text, '/work');
+
+      assert.deepEqual(linkSpans(output), [
+        { text: 'notes.md', target: 'vscode://file/work/notes.md' },
+      ]);
+
+      assert.equal(stripAnsi(output), text);
+    }
+  }
+});
+
+test('nested JSON retains files after primitive values and encoded whitespace', () => {
+  for (const inner of [
+    JSON.stringify({ t: 'a\nnotes.md' }, null, 2),
+    JSON.stringify([1, true, null, {}, 'a\nnotes.md']),
+  ]) {
+    const text = JSON.stringify(inner);
     const output = linkify(text, '/work');
 
     assert.deepEqual(linkSpans(output), [
@@ -1077,6 +1095,11 @@ test('long runs of filename characters, and links on many lines or one, link in 
         ] as const,
     ),
     ['a line of JSON emails', emails(500), emails(2000)] as const,
+    [
+      'bracketed numeric prose',
+      JSON.stringify({ t: '[' + '1'.repeat(16000) + 'x' }),
+      JSON.stringify({ t: '[' + '1'.repeat(64000) + 'x' }),
+    ] as const,
     [
       'nested JSON file references',
       escapedFiles(500),

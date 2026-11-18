@@ -278,7 +278,13 @@ function fileSections(text: string, previous?: FileContext) {
       if (text[end] === '\\' && text[end + 1] !== '\n') end++;
 
     const stop = text[end] === '"' ? end + 1 : Math.min(end, text.length);
-    const nested = /^\s*[{[]/u.test(text.slice(index + 1, end));
+
+    // an encoded string delimiter distinguishes nested JSON from bracketed prose.
+    const nested =
+      /^\s*[{[](?:[\s[\]{},:]|\\[nrt]|(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,\]}]|\\[nrt]))*\\"/u.test(
+        text.slice(index + 1, end),
+      );
+
     const json = containers > 0 || member || nested;
 
     if (json) {
