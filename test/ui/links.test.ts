@@ -216,7 +216,6 @@ test('a URL before a JSON escape links alone, a URL after the escape links too, 
       JSON.stringify({ t: 'see\nwww.example.com/x' }),
       [{ target: 'http://www.example.com/x', text: 'www.example.com/x' }],
     ],
-    // the quoted value reads as one file path, which must not be drawn again after the link inside it
     [
       JSON.stringify({ t: 'www.example.com/1\nexample.org/2' }),
       [
@@ -224,6 +223,7 @@ test('a URL before a JSON escape links alone, a URL after the escape links too, 
         { target: 'http://example.org/2', text: 'example.org/2' },
       ],
     ],
+    // the quoted value reads as one file path, which must not be drawn again after the link inside it
     [
       '"www.example.com/a example.org/b.md"',
       [
@@ -246,6 +246,297 @@ test('a URL before a JSON escape links alone, a URL after the escape links too, 
   ] as const) {
     const output = linkify(text, '/work');
     assert.deepEqual(linkSpans(output), spans, text);
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
+test('file paths beside JSON escapes retain their own labels and targets at both serialization levels', () => {
+  const app = { text: 'src/app.ts', target: 'vscode://file/work/src/app.ts' };
+  const a = { text: 'src/a.ts', target: 'vscode://file/work/src/a.ts' };
+  const b = { text: 'src/b.ts', target: 'vscode://file/work/src/b.ts' };
+
+  for (const [value, expected] of [
+    ['a\nsrc/app.ts', [app]],
+    ['a\tsrc/app.ts:3', [{ text: 'src/app.ts:3', target: `${app.target}:3` }]],
+    [
+      'a\nnotes.md',
+      [{ text: 'notes.md', target: 'vscode://file/work/notes.md' }],
+    ],
+    [
+      'a\n/Users/me/x.ts',
+      [{ text: '/Users/me/x.ts', target: 'vscode://file/Users/me/x.ts' }],
+    ],
+    ['src/a.ts\nsrc/b.ts', [a, b]],
+    [
+      '/Users/me/a.ts\n/Users/me/b.ts',
+      [
+        { text: '/Users/me/a.ts', target: 'vscode://file/Users/me/a.ts' },
+        { text: '/Users/me/b.ts', target: 'vscode://file/Users/me/b.ts' },
+      ],
+    ],
+    [
+      'a\n~/x.ts',
+      [
+        {
+          text: '~/x.ts',
+          target: `vscode://file${homedir().split('/').map(encodeURIComponent).join('/')}/x.ts`,
+        },
+      ],
+    ],
+    [
+      'src/a.ts\nhttps://example.com/x\nsrc/b.ts',
+      [
+        a,
+        { text: 'https://example.com/x', target: 'https://example.com/x' },
+        b,
+      ],
+    ],
+  ] as const) {
+    const json = JSON.stringify({ t: value });
+
+    for (const text of [
+      json,
+      JSON.stringify(json),
+      JSON.stringify({ result: json }),
+    ])
+      for (const output of [
+        linkify(text, '/work'),
+        markdown(`\`\`\`json\n${text}\n\`\`\``, '/work'),
+      ]) {
+        assert.deepEqual(linkSpans(output), expected, text);
+        assert.equal(stripAnsi(output), text);
+      }
+  }
+
+  const member = '  "t": "a\\nsrc/app.ts"';
+  assert.deepEqual(linkSpans(linkify(member, '/work')), [app]);
+  assert.equal(stripAnsi(linkify(member, '/work')), member);
+  const first = linkifyAppend(member + '\n', '/work');
+  const next = linkifyAppend('x', '/work', first);
+  assert.equal(next.pending, 'x');
+
+  assert.equal(
+    [...first.complete, ...next.complete, next.tail].join('\n'),
+    linkify(member + '\nx', '/work'),
+  );
+});
+
+test('JSON file context survives bounded pieces, skipped oversized values and streamed escape fragments', () => {
+  const expected = [
+    { text: 'src/a.ts', target: 'vscode://file/work/src/a.ts' },
+    { text: 'src/b.ts', target: 'vscode://file/work/src/b.ts' },
+  ];
+
+  for (const pad of ['', 'x'.repeat(1975), `./${'x'.repeat(5000)}.ts`]) {
+    const json = JSON.stringify({ pad, t: 'src/a.ts\nsrc/b.ts' });
+
+    for (const text of [json, JSON.stringify(json)]) {
+      const output = linkify(text, '/work');
+      assert.deepEqual(linkSpans(output), expected, text);
+      assert.equal(stripAnsi(output), text);
+
+      for (const cut of [text.indexOf('\\') + 1, text.lastIndexOf('"') - 1]) {
+        const first = linkifyAppend(text.slice(0, cut), '/work');
+        const next = linkifyAppend(text.slice(cut) + '\n', '/work', first);
+
+        assert.deepEqual(
+          linkSpans(next.complete.join('\n')),
+          expected,
+          `${pad.length}: ${cut}`,
+        );
+
+        assert.equal(stripAnsi(next.complete.join('\n')), text);
+        assert.equal(next.pending, '');
+        assert.equal(next.tail, '');
+      }
+    }
+  }
+});
+
+test('terminal paths keep escaped letters and backslashes, including quoted literal backslashes', () => {
+  for (const [text, label, target] of [
+    [
+      String.raw`/tmp/\notes.md`,
+      String.raw`/tmp/\notes.md`,
+      'vscode://file/tmp/notes.md',
+    ],
+    [
+      String.raw`/tmp/a\\b.ts`,
+      String.raw`/tmp/a\\b.ts`,
+      'vscode://file/tmp/a%5Cb.ts',
+    ],
+    [
+      String.raw`"src/a\b.ts"`,
+      String.raw`src/a\b.ts`,
+      'vscode://file/work/src/a%5Cb.ts',
+    ],
+  ] as const) {
+    const output = linkify(text, '/work');
+    assert.deepEqual(linkSpans(output), [{ text: label, target }]);
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
+test('bracketed text before a literal JSON backslash preserves the filename first letter', () => {
+  for (const prefix of ['', '[', '{', '["', '{"x":"']) {
+    const json = JSON.stringify({ t: prefix + String.raw`a\notes.md` });
+
+    for (const text of [json, JSON.stringify(json)]) {
+      const output = linkify(text, '/work');
+
+      assert.deepEqual(linkSpans(output), [
+        { text: 'notes.md', target: 'vscode://file/work/notes.md' },
+      ]);
+
+      assert.equal(stripAnsi(output), text);
+    }
+  }
+});
+
+test('nested JSON retains files after primitive values and encoded whitespace', () => {
+  for (const inner of [
+    JSON.stringify({ t: 'a\nnotes.md' }, null, 2),
+    JSON.stringify([1, true, null, {}, 'a\nnotes.md']),
+    JSON.stringify([['a\nnotes.md']]),
+    JSON.stringify([[1], {}, 'a\nnotes.md']),
+  ]) {
+    for (const prefix of ['', '\n', '\t', '\r', ' \n\t\r '])
+      for (const text of [
+        prefix + inner,
+        JSON.stringify(prefix + inner),
+        JSON.stringify({ result: prefix + inner }),
+      ]) {
+        const output = linkify(text, '/work');
+
+        assert.deepEqual(linkSpans(output), [
+          { text: 'notes.md', target: 'vscode://file/work/notes.md' },
+        ]);
+
+        assert.equal(stripAnsi(output), text);
+      }
+  }
+});
+
+test('shell brackets and brackets inside quoted paths do not change later quoted filenames', () => {
+  for (const prefix of [
+    String.raw`'src/[draft.ts'`,
+    '`src/[draft.ts`',
+    '[ -f',
+    '[[ -f',
+    '[ { -f',
+    '[1/3',
+  ]) {
+    const text = `${prefix} "src/a\\b.ts"`;
+    const output = linkify(text, '/work');
+
+    assert.deepEqual(linkSpans(output).at(-1), {
+      text: String.raw`src/a\b.ts`,
+      target: 'vscode://file/work/src/a%5Cb.ts',
+    });
+
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
+test('shell comparisons preserve quoted literal backslashes in either operand', () => {
+  for (const [path, target] of [
+    [String.raw`src/a\b.ts`, 'vscode://file/work/src/a%5Cb.ts'],
+    [String.raw`/tmp/a\notes.md`, 'vscode://file/tmp/a%5Cnotes.md'],
+  ])
+    for (const [open, close, operator] of [
+      ['[[', ']]', '=='],
+      ['[', ']', '='],
+      ['[', ']', '-eq'],
+    ])
+      for (const [left, right] of [
+        ['"$x"', `"${path}"`],
+        [`"${path}"`, '"$x"'],
+      ]) {
+        const text = `${open} ${left} ${operator} ${right} ${close}`;
+        const output = linkify(text, '/work');
+        assert.deepEqual(linkSpans(output), [{ text: path, target }]);
+        assert.equal(stripAnsi(output), text);
+      }
+});
+
+test('a raw newline ends a quoted path even after a backslash', () => {
+  const text = 'x "C:\\temp\\\n{"t":"a\\nsrc/app.ts"}';
+  const output = linkify(text, '/work');
+
+  assert.deepEqual(linkSpans(output), [
+    { text: 'src/app.ts', target: 'vscode://file/work/src/app.ts' },
+  ]);
+
+  assert.equal(stripAnsi(output), text);
+});
+
+test('JSON context crosses an explicit link without changing its destination', () => {
+  const text =
+    '{"t":"\u001b]8;;https://example.com\u0007a\u001b]8;;\u0007\\nsrc/app.ts"}';
+
+  const output = linkify(text, '/work');
+
+  assert.deepEqual(linkSpans(output), [
+    { text: 'a', target: 'https://example.com' },
+    { text: 'src/app.ts', target: 'vscode://file/work/src/app.ts' },
+  ]);
+
+  assert.equal(stripAnsi(output), String.raw`{"t":"a\nsrc/app.ts"}`);
+});
+
+test('a long colon-separated path list keeps every complete directory target', () => {
+  const paths = Array.from({ length: 150 }, (_, n) => `/opt/t${1000 + n}/bin`);
+  const text = paths.join(':');
+  const output = linkify(text, '/work');
+
+  assert.deepEqual(
+    linkSpans(output),
+    paths.map((path) => ({ text: path, target: `vscode://file${path}` })),
+  );
+
+  assert.equal(stripAnsi(output), text);
+});
+
+test('an explicit URL keeps neighboring file links in a quoted JSON value', () => {
+  const a = { text: 'src/a.ts', target: 'vscode://file/work/src/a.ts' };
+  const b = { text: 'src/b.ts', target: 'vscode://file/work/src/b.ts' };
+  const url = { text: 'https://example.com', target: 'https://example.com' };
+
+  for (const [value, expected] of [
+    ['src/a.ts https://example.com', [a, url]],
+    [
+      'www.example.com/1 src/b.ts',
+      [{ text: 'www.example.com/1', target: 'http://www.example.com/1' }, b],
+    ],
+    ['src/a.ts https://example.com src/b.ts', [a, url, b]],
+    [
+      'src/a.ts README.md https://example.com',
+      [a, { text: 'README.md', target: 'vscode://file/work/README.md' }, url],
+    ],
+  ] as const) {
+    const json = JSON.stringify({ t: value });
+
+    for (const text of [json, JSON.stringify(json)]) {
+      const first = linkifyAppend(text.slice(0, 20), '/work');
+      const next = linkifyAppend(text.slice(20) + '\n', '/work', first);
+
+      for (const output of [
+        linkify(text, '/work'),
+        markdown(`\`\`\`json\n${text}\n\`\`\``, '/work'),
+        next.complete.join('\n'),
+      ]) {
+        assert.deepEqual(linkSpans(output), expected, text);
+        assert.equal(stripAnsi(output), text);
+      }
+    }
+  }
+});
+
+test('an oversized file after the first bounded piece never becomes a partial target', () => {
+  for (const length of [2000, 4000]) {
+    const text = `${'x'.repeat(length)})(/tmp/${'a'.repeat(2500)}`;
+    const output = linkify(text, '/work');
+    assert.deepEqual(linkSpans(output), []);
     assert.equal(stripAnsi(output), text);
   }
 });
@@ -469,13 +760,7 @@ test('filename boundaries preserve prose and complete names', () => {
 
 test('a non-ASCII filename keeps its whole target through appends and wrapping', () => {
   const first = linkifyAppend('docs/', '/proj');
-
-  const next = linkifyAppend(
-    first.pending + 'über/x.md\n',
-    '/proj',
-    first.target,
-  );
-
+  const next = linkifyAppend('über/x.md\n', '/proj', first);
   const text = next.complete.join('\n');
   const target = 'vscode://file/proj/docs/%C3%BCber/x.md';
   assert.equal(stripAnsi(text), 'docs/über/x.md');
@@ -797,6 +1082,20 @@ test('long runs of filename characters, and links on many lines or one, link in 
       ]),
     );
 
+  const escapedFiles = (count: number) =>
+    JSON.stringify(
+      JSON.stringify(
+        Array.from({ length: count }, (_, n) => ({
+          files: `src/a${n}.ts\nsrc/b${n}.ts`,
+        })),
+      ),
+    );
+
+  const directories = (count: number) =>
+    Array.from({ length: count }, (_, n) => `/opt/t${100000 + n}/bin`).join(
+      ':',
+    );
+
   for (const [input, small, large] of [
     ...['-', '.', '@', 'é', '+', ',', '%'].map(
       (character) =>
@@ -826,6 +1125,21 @@ test('long runs of filename characters, and links on many lines or one, link in 
         ] as const,
     ),
     ['a line of JSON emails', emails(500), emails(2000)] as const,
+    [
+      'bracketed numeric prose',
+      JSON.stringify({ t: '[' + '1'.repeat(16000) + 'x' }),
+      JSON.stringify({ t: '[' + '1'.repeat(64000) + 'x' }),
+    ] as const,
+    [
+      'nested JSON file references',
+      escapedFiles(500),
+      escapedFiles(2000),
+    ] as const,
+    [
+      'colon-separated directories',
+      directories(16000),
+      directories(64000),
+    ] as const,
     [
       'nested JSON with its only possible link at the end',
       sparse(32000),
@@ -906,12 +1220,7 @@ test('overlong bare URLs stay readable without partial hyperlink targets', () =>
     `https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`,
   ]) {
     const first = linkifyAppend(text.slice(0, 1998), '/work');
-
-    const next = linkifyAppend(
-      first.pending + text.slice(1998) + '\n',
-      '/work',
-      first.target,
-    );
+    const next = linkifyAppend(text.slice(1998) + '\n', '/work', first);
 
     for (const output of [
       linkify(text, '/work'),
@@ -950,6 +1259,19 @@ test('text with more than four `xn--` labels on a line is left unlinked instead 
 
       assert.equal(stripAnsi(output), text);
     }
+  }
+
+  for (const text of [
+    `${labels}com/\nsee src/app.ts`,
+    `see src/app.ts\n${labels}com/`,
+  ]) {
+    const output = linkify(text, '/work');
+
+    assert.deepEqual(linkSpans(output), [
+      { text: 'src/app.ts', target: 'vscode://file/work/src/app.ts' },
+    ]);
+
+    assert.equal(stripAnsi(output), text);
   }
 
   // a backslash before the newline hides it from the search for a boundary, and the lines are still decided apart
@@ -1062,7 +1384,38 @@ test('plain text keeps no link, including one that stripping a sequence would bu
 test('streaming links retain their targets and unresolved controls across chunks', () => {
   const target = 'https://x.test/';
 
-  const cases = [
+  const cases: {
+    text: string;
+    plain: string;
+    linked: boolean;
+    words?: string[];
+  }[] = [
+    {
+      text: '[\n"/tmp/a\\notes.md"\n["x"\n]\n',
+      plain: '[\n"/tmp/a\\notes.md"\n["x"\n]\n',
+      linked: false,
+    },
+    {
+      text: '[\n"src/a.ts\\nsrc/b.ts"\n\u001b[0m\n]\n',
+      plain: '[\n"src/a.ts\\nsrc/b.ts"\n\n]\n',
+      linked: false,
+    },
+    {
+      text: '[\n"one"\n\u001b]0;title\n[\n"x"\n\u0007',
+      plain: '[\n"one"\n',
+      linked: false,
+    },
+    {
+      text: '[\n"one"\n\u001b\u001b[0m[31m\n]\n',
+      plain: '[\n"one"\n[31m\n]\n',
+      linked: false,
+    },
+    ...['', '[\n'].map((before) => ({
+      text: `${before}\u001b]8;;${target}\u0007${before ? '' : '[\n'}"one"\n\u001b[0m \t\n]\n\u001b]8;;\u0007`,
+      plain: '[\n"one"\n \t\n]\n',
+      linked: true,
+      words: ['"one"', ' \t'],
+    })),
     {
       text: '\u001b]8;x\u0007\nfoo;https://x.test/\u0007one\ntwo',
       plain: 'one\ntwo',
@@ -1100,17 +1453,15 @@ test('streaming links retain their targets and unresolved controls across chunks
 
     for (const chunks of streams) {
       let text = '';
-      let pending = '';
-      let carried: string | undefined;
+      let carried: ReturnType<typeof linkifyAppend> | undefined;
       const complete: string[] = [];
       let actual = '';
 
       for (const chunk of chunks) {
         text += chunk;
-        const next = linkifyAppend(pending + chunk, '/work', carried);
+        const next = linkifyAppend(chunk, '/work', carried);
         complete.push(...next.complete);
-        pending = next.pending;
-        carried = next.target;
+        carried = next;
         actual = [...complete, next.tail].join('\n');
 
         assert.equal(
@@ -1124,7 +1475,7 @@ test('streaming links retain their targets and unresolved controls across chunks
       assert.equal(actual.includes(`\u001b]8;;${target}\u0007`), sample.linked);
 
       if (sample.linked) {
-        for (const word of ['one', 'two'])
+        for (const word of sample.words ?? ['one', 'two'])
           assert.ok(
             actual.includes(
               `\u001b]8;;${target}\u0007\u001b[4m${word}\u001b[24m\u001b]8;;\u0007`,

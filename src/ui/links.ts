@@ -139,18 +139,6 @@ export function hyperlink(text: string, target: string, cwd: string): string {
     .join('\n');
 }
 
-function fileLinks(text: string, cwd: string): string {
-  return text.replace(files, (match: string, quoted: string | undefined) => {
-    if (quoted) return match[0] + hyperlink(quoted, quoted, cwd) + match.at(-1);
-
-    const path = match.replace(/[.,;!?]+$/, '');
-
-    if (!path.includes('/') && !sourceFile.test(path)) return match;
-
-    return hyperlink(path, unescapePath(path), cwd) + match.slice(path.length);
-  });
-}
-
 export function markdownLink(
   text: string,
   target: string,
@@ -192,6 +180,255 @@ function sentenceEnd(text: string): number {
 // `\/` is no break: `https:\/\/host\/path` would link the host alone
 const breaks = /"|\\+(?:u[\da-fA-F]{4}|["bfnrt])|\\{2,}/gu;
 
+interface FileMatch {
+  index: number;
+  lastIndex: number;
+  text: string;
+  path: string;
+  json: boolean;
+}
+
+interface FileContext {
+  containers: number;
+  key: boolean;
+  member: boolean;
+  needsDelimiter: boolean;
+  pending?: { opener: '[' | '{'; depth: number };
+}
+
+function jsonBreaks(text: string, nested: boolean) {
+  const result: { index: number; length: number }[] = [];
+  const width = nested ? 2 : 1;
+
+  for (const match of text.matchAll(/"|(\\+)(u[\da-fA-F]{4}|["bfnrt])?/gu)) {
+    const slashes = match[1]?.length ?? 0;
+    const escaped = match[2];
+
+    if (slashes === 1 && !escaped) continue;
+
+    const literal = slashes >= width && slashes % (width * 2) < width;
+
+    result.push({
+      index: match.index,
+      length: literal && escaped !== '"' ? slashes : match[0].length,
+    });
+  }
+
+  return result;
+}
+
+const jsonDelimiter = /^\s*(?:[:,}\]]|$)/u;
+
+const jsonPrimitive =
+  /^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,}\]]|$)/u;
+
+function startsContainer(opener: '[' | '{', next: string) {
+  return opener === '{'
+    ? /^["}]/u.test(next)
+    : /^["\]]/u.test(next) || jsonPrimitive.test(next);
+}
+
+/** only complete encoded JSON selects another escape level; bracketed prose does not. */
+function nestedContainer(text: string) {
+  if (!/^"(?:\s|\\[nrt])*[{[]/u.test(text)) return false;
+
+  try {
+    JSON.parse(JSON.parse(text) as string);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** preserve a prefix's file targets by keeping the following line available as lookahead. */
+function fileSections(text: string, boundary: number, previous?: FileContext) {
+  const sections: { start: number; end: number; json: boolean }[] = [];
+  const quotedFile = new RegExp(files.source, 'uy');
+  let start = 0;
+
+  let { containers, key, member, pending, needsDelimiter } = previous ?? {
+    containers: 0,
+    key: false,
+    member: false,
+    needsDelimiter: false,
+    pending: undefined,
+  };
+
+  for (let index = 0; index < boundary; index++) {
+    const char = text[index]!;
+
+    if (/\s/u.test(char)) continue;
+
+    needsDelimiter = false;
+
+    if (pending) {
+      if (pending.opener === '[' && (char === '[' || char === '{')) {
+        pending = { opener: char, depth: pending.depth + 1 };
+
+        continue;
+      }
+
+      if (startsContainer(pending.opener, text.slice(index)))
+        containers += pending.depth;
+
+      pending = undefined;
+    }
+
+    if (char === '\\') {
+      if (text[index + 1] !== '\n') index++;
+
+      continue;
+    }
+
+    if (char === "'" || char === '`') {
+      quotedFile.lastIndex = index;
+      const quoted = quotedFile.exec(text);
+
+      if (quoted?.[1]) {
+        index += quoted[0].length - 1;
+        key = false;
+        member = false;
+
+        continue;
+      }
+    }
+
+    if (char !== '"') {
+      if (char === '{' || char === '[') pending = { opener: char, depth: 1 };
+      else if (char === '}' || char === ']')
+        containers = Math.max(0, containers - 1);
+      else if (containers > 0 && char !== ',' && char !== ':') {
+        const primitive = jsonPrimitive.exec(text.slice(index));
+
+        if (primitive) index += primitive[0].length - 1;
+        else containers = 0;
+      }
+
+      member = key && char === ':';
+      key = false;
+
+      continue;
+    }
+
+    let end = index + 1;
+
+    for (; end < text.length && text[end] !== '"' && text[end] !== '\n'; end++)
+      if (text[end] === '\\' && text[end + 1] !== '\n') end++;
+
+    const stop = text[end] === '"' ? end + 1 : Math.min(end, text.length);
+
+    if (text[end] === '"' && !jsonDelimiter.test(text.slice(stop))) {
+      containers = 0;
+      member = false;
+    }
+
+    const nested = nestedContainer(text.slice(index, stop));
+    const json = containers > 0 || member || nested;
+
+    if (json) {
+      const separators = jsonBreaks(text.slice(index, stop), nested);
+
+      if (separators.some((match) => text[index + match.index] === '\\')) {
+        sections.push({ start, end: index, json: false });
+        let from = index;
+
+        for (const match of separators) {
+          const before = index + match.index;
+          sections.push({ start: from, end: before, json: true });
+          from = before + match.length;
+        }
+
+        sections.push({ start: from, end: stop, json: true });
+        start = stop;
+      }
+    }
+
+    key = text[end] === '"';
+    needsDelimiter = key && (containers > 0 || member) && !nested;
+    member = false;
+    index = stop - 1;
+  }
+
+  sections.push({ start, end: boundary, json: false });
+
+  return {
+    sections,
+    context: { containers, key, member, pending, needsDelimiter },
+  };
+}
+
+function fileCandidates(
+  text: string,
+  offset: number,
+  json: boolean,
+): FileMatch[] {
+  const matches: FileMatch[] = [];
+
+  for (const match of text.matchAll(files)) {
+    const quoted = match[1];
+    const label = quoted ?? match[0].replace(/[.,;!?]+$/, '');
+
+    if (!quoted && !label.includes('/') && !sourceFile.test(label)) continue;
+
+    const index = offset + match.index + (quoted ? 1 : 0);
+
+    matches.push({
+      index,
+      lastIndex: index + label.length,
+      text: label,
+      path: quoted || json ? label : unescapePath(label),
+      json,
+    });
+  }
+
+  return matches;
+}
+
+function fileMatches(
+  text: string,
+  pieces: readonly Piece[],
+  following: string,
+  previous?: FileContext,
+) {
+  const { sections, context } = fileSections(
+    text + following,
+    text.length,
+    previous,
+  );
+
+  let sectionIndex = 0;
+  let offset = 0;
+
+  const matches = pieces.map((piece) => {
+    const matches: FileMatch[] = [];
+    const end = offset + piece.text.length;
+
+    while (sections[sectionIndex] && sections[sectionIndex]!.end <= offset)
+      sectionIndex++;
+
+    for (
+      let index = sectionIndex;
+      !piece.plain && index < sections.length;
+      index++
+    ) {
+      const section = sections[index]!;
+
+      if (section.start >= end) break;
+
+      const start = Math.max(offset, section.start);
+      const chunk = text.slice(start, Math.min(end, section.end));
+      matches.push(...fileCandidates(chunk, start - offset, section.json));
+    }
+
+    offset = end;
+
+    return matches;
+  });
+
+  return { matches, context };
+}
+
 /**
  * linkify-it's matches with no raw double quote and no JSON escape but `\/`, which end a URL written in JSON.
  * linkify-it pairs quotes inside a path, so minified JSON would join a URL to the keys after it.
@@ -219,32 +456,124 @@ function webMatches(
   return result;
 }
 
-function bareLinks(text: string, cwd: string): string {
+/** recover uncovered file references without replacing a winning URL's neighboring web links. */
+function outsideWebLinks(
+  text: string,
+  sources: FileMatch[],
+  links: ReturnType<typeof webMatches>,
+) {
+  let index = 0;
+
+  return sources.flatMap((source) => {
+    while (links[index] && links[index]!.lastIndex <= source.index) index++;
+
+    let end = index;
+    let explicit = false;
+
+    for (; links[end] && links[end]!.index < source.lastIndex; end++)
+      explicit ||= webLink.test(links[end]!.text);
+
+    if (!explicit) return [source];
+
+    let start = source.index;
+    const matches: FileMatch[] = [];
+
+    for (let next = index; next < end; next++) {
+      const link = links[next]!;
+
+      if (
+        !webLink.test(link.text) &&
+        !link.text.includes('/') &&
+        sourceFile.test(
+          link.text.slice(0, link.text.length - sentenceEnd(link.text)),
+        )
+      )
+        continue;
+
+      matches.push(
+        ...fileCandidates(
+          text.slice(start, Math.max(start, link.index)),
+          start,
+          source.json,
+        ),
+      );
+
+      start = Math.max(start, link.lastIndex);
+    }
+
+    if (start < source.lastIndex)
+      matches.push(
+        ...fileCandidates(
+          text.slice(start, source.lastIndex),
+          start,
+          source.json,
+        ),
+      );
+
+    return matches;
+  });
+}
+
+function bareLinks(
+  text: string,
+  cwd: string,
+  sourceFiles: FileMatch[],
+): string {
   // a skipped URL must not become a file link; no link crosses a newline.
-  if (backtracks(text))
+  if (backtracks(text)) {
+    let start = 0;
+    let index = 0;
+
     return text
       .split('\n')
-      .map((line) => (backtracks(line) ? line : bareLinks(line, cwd)))
-      .join('\n');
+      .map((line) => {
+        const end = start + line.length;
+        const matches: FileMatch[] = [];
 
+        while (sourceFiles[index] && sourceFiles[index]!.lastIndex <= end) {
+          const match = sourceFiles[index++]!;
+
+          if (match.index >= start)
+            matches.push({
+              ...match,
+              index: match.index - start,
+              lastIndex: match.lastIndex - start,
+            });
+        }
+
+        start = end + 1;
+
+        return backtracks(line) ? line : bareLinks(line, cwd, matches);
+      })
+      .join('\n');
+  }
+
+  const links = webMatches(text);
+  sourceFiles = outsideWebLinks(text, sourceFiles, links);
   let output = '';
   let offset = 0;
-
-  const sourceFiles = [...text.matchAll(files)].filter(
-    (match) =>
-      !!match[1] || match[0].includes('/') || sourceFile.test(match[0]),
-  );
-
   let fileIndex = 0;
 
-  for (const match of webMatches(text)) {
+  const emitFiles = (end: number) => {
+    while (sourceFiles[fileIndex] && sourceFiles[fileIndex]!.lastIndex <= end) {
+      const source = sourceFiles[fileIndex++]!;
+
+      if (source.index < offset) continue;
+
+      output +=
+        text.slice(offset, source.index) +
+        hyperlink(source.text, source.path, cwd);
+
+      offset = source.lastIndex;
+    }
+  };
+
+  for (const match of links) {
     if (match.index < offset) continue;
 
-    while (
-      sourceFiles[fileIndex] &&
-      sourceFiles[fileIndex]!.index + sourceFiles[fileIndex]![0].length <=
-        match.index
-    )
+    emitFiles(match.index);
+
+    while (sourceFiles[fileIndex] && sourceFiles[fileIndex]!.index < offset)
       fileIndex++;
 
     const source = sourceFiles[fileIndex];
@@ -256,15 +585,16 @@ function bareLinks(text: string, cwd: string): string {
       source.index < match.lastIndex
     ) {
       output +=
-        fileLinks(text.slice(offset, source.index), cwd) +
-        fileLinks(source[0], cwd);
+        text.slice(offset, source.index) +
+        hyperlink(source.text, source.path, cwd);
 
-      offset = source.index + source[0].length;
+      offset = source.lastIndex;
+      fileIndex++;
 
       continue;
     }
 
-    output += fileLinks(text.slice(offset, match.index), cwd);
+    output += text.slice(offset, match.index);
     const punctuation = sentenceEnd(match.text);
 
     output += hyperlink(
@@ -276,7 +606,9 @@ function bareLinks(text: string, cwd: string): string {
     offset = match.lastIndex - punctuation;
   }
 
-  return output + fileLinks(text.slice(offset), cwd);
+  emitFiles(text.length);
+
+  return output + text.slice(offset);
 }
 
 interface Piece {
@@ -296,6 +628,7 @@ const separator = /[\p{Z}\p{Cc}]/u;
  */
 function pieces(text: string): Piece[] {
   const result: Piece[] = [];
+  let run: UnbrokenRun | undefined;
 
   for (let start = 0; start < text.length;) {
     let end = Math.min(start + pieceSize, text.length);
@@ -333,7 +666,7 @@ function pieces(text: string): Piece[] {
       }
 
       if (boundary) end = boundary;
-      else ({ end, guarded } = unbroken(text, start, end));
+      else ({ end, guarded, run } = unbroken(text, start, end, run));
     }
 
     if (guarded) result.push(...cutAfterQuotes(text, start, end));
@@ -353,28 +686,56 @@ function pieces(text: string): Piece[] {
   return result;
 }
 
-/**
- * find where an overlong run ends. one that runs past `end` with a possible link is guarded:
- * `cutAfterQuotes` cuts it, so no fragment of a web link becomes a target.
- * scan its boundary once, including when no link is possible and it can be split.
- */
+interface UnbrokenRun {
+  end: number;
+  web: boolean;
+}
+
+/** reuse a run's boundary and URL check when a file-aligned cut leaves its suffix for the next piece. */
 function unbroken(
   text: string,
   start: number,
   end: number,
-): { end: number; guarded: boolean } {
+  run?: UnbrokenRun,
+): { end: number; guarded: boolean; run?: UnbrokenRun } {
   // a newline after a backslash is no boundary to `pieces`, and no link crosses it, so each line is decided alone
   const line = text.slice(start, end).lastIndexOf('\n') + 1;
 
   if (line) return { end: start + line, guarded: false };
 
-  const boundary = new RegExp(separator, 'gu');
-  boundary.lastIndex = end;
-  const stop = boundary.exec(text)?.index ?? text.length;
+  if (!run || start >= run.end) {
+    const boundary = new RegExp(separator, 'gu');
+    boundary.lastIndex = end;
+    const stop = boundary.exec(text)?.index ?? text.length;
+
+    run = {
+      end: stop,
+      web: stop > end && urls.pretest(text.slice(start, stop)),
+    };
+  }
+
+  const stop = run.end;
+  let guarded = stop > end && run.web;
+
+  if (stop > end && !guarded)
+    for (const match of text.slice(start, stop).matchAll(files)) {
+      if (match.index >= end - start)
+        return { end: start + match.index, guarded: false, run };
+
+      if (match.index + match[0].length > end - start) {
+        if (match.index > 0)
+          return { end: start + match.index, guarded: false, run };
+
+        guarded = true;
+
+        break;
+      }
+    }
 
   return {
     end: stop,
-    guarded: stop > end && urls.pretest(text.slice(start, stop)),
+    guarded,
+    run,
   };
 }
 
@@ -408,35 +769,72 @@ function cutAfterQuotes(text: string, start: number, stop: number): Piece[] {
   return result;
 }
 
-function linked(text: string, cwd: string, target?: string) {
-  let output = '';
+function linked(
+  text: string,
+  cwd: string,
+  target?: string,
+  previous?: FileContext,
+  following = '',
+) {
+  const chunks: (Piece & { target?: string })[] = [];
+  let visible = '';
   let buffer = '';
+  let line = { text: '', target };
+  let firstLine: string | undefined;
 
   const flush = () => {
-    output += target
-      ? hyperlink(buffer, target, cwd)
-      : pieces(buffer)
-          .map((piece) =>
-            piece.plain ? piece.text : bareLinks(piece.text, cwd),
-          )
-          .join('');
+    visible += buffer;
+
+    chunks.push(
+      ...(target ? [{ text: buffer, plain: true, target }] : pieces(buffer)),
+    );
 
     buffer = '';
   };
 
   for (const token of tokenize(text)) {
+    line.text += token.type === 'char' ? token.value : token.code;
+
     if (token.type === 'ansi' && token.code.startsWith('\u001b]8;')) {
       flush();
       const separator = token.code.indexOf(';', 4);
       const terminator = token.code.endsWith('\u001b\\') ? 2 : 1;
       target = token.code.slice(separator + 1, -terminator) || undefined;
-    } else if (token.type === 'char' && !controls.test(token.value))
+    } else if (token.type === 'char' && !controls.test(token.value)) {
       buffer += token.value;
+      const newline = token.value.lastIndexOf('\n');
+
+      if (newline >= 0) {
+        firstLine ??= line.text.slice(
+          0,
+          line.text.length - token.value.length + newline + 1,
+        );
+
+        line = { text: token.value.slice(newline + 1), target };
+      }
+    }
   }
 
   flush();
 
-  return { text: output, target };
+  const { matches, context } = fileMatches(
+    visible,
+    chunks,
+    following,
+    previous,
+  );
+
+  const output = chunks
+    .map((piece, index) =>
+      piece.target
+        ? hyperlink(piece.text, piece.target, cwd)
+        : piece.plain
+          ? piece.text
+          : bareLinks(piece.text, cwd, matches[index]!),
+    )
+    .join('');
+
+  return { text: output, target, context, visible, line, firstLine };
 }
 
 export function linkify(text: string, cwd: string): string {
@@ -455,14 +853,21 @@ function oscEnd(text: string, start: number): number {
   return -1;
 }
 
-/** a later delimiter can make the tokenizer consume an earlier OSC and its following lines. */
-function completeLinesEnd(text: string): number {
+/** retain raw line offsets without counting newlines inside OSC sequences. */
+function appendBoundary(text: string) {
   let complete = 0;
+  let lastQuoteLine = 0;
+  let quotedLine = 0;
 
   for (let index = 0; index < text.length; index++) {
     const char = text[index];
 
-    if (char === '\n') complete = index + 1;
+    if (char === '"') lastQuoteLine = complete;
+
+    if (char === '\n') {
+      complete = index + 1;
+      quotedLine = lastQuoteLine;
+    }
 
     if ((char !== '\u001b' && char !== '\u009b') || text[index + 1] !== ']')
       continue;
@@ -471,16 +876,29 @@ function completeLinesEnd(text: string): number {
       ? text.indexOf(';', index + 4)
       : index + 1;
 
-    if (start < 0) return complete;
+    if (start < 0) return { end: complete, quotedLine, oscStart: index };
 
     const end = oscEnd(text, start + 1);
 
-    if (end < 0) return complete;
+    if (end < 0) return { end: complete, quotedLine, oscStart: index };
 
     index = end - 1;
   }
 
-  return complete;
+  return { end: complete, quotedLine, oscStart: undefined };
+}
+
+function incompleteStyle(raw: string, visible: string): boolean {
+  const escape = Math.max(
+    raw.lastIndexOf('\u001b['),
+    raw.lastIndexOf('\u009b['),
+  );
+
+  return (
+    escape >= 0 &&
+    /^[\d;]*$/u.test(raw.slice(escape + 2)) &&
+    /^\s*\[[\d;]*$/u.test(visible)
+  );
 }
 
 export interface LinkedAppend {
@@ -488,27 +906,195 @@ export interface LinkedAppend {
   tail: string;
   pending: string;
   target?: string;
+  context?: FileContext;
+  /** cache both interpretations so split escapes can revise the quote without revisiting blank lines. */
+  provisional?: {
+    renderedPrefix: string;
+    line: { text: string; target?: string };
+    quoted: { json: string; terminal: string };
+    mode: 'json' | 'terminal';
+    context: FileContext;
+    tailLines: number;
+  };
+  /** replace the unsettled suffix, promoting only lines that later bytes cannot remove. */
+  provisionalUpdate?: { replace: number; complete: string[]; tail: string[] };
 }
 
-/** retain raw text until later bytes can no longer change its rendered lines. */
+/** append a new chunk, retaining raw text until later bytes cannot change its rendered lines. */
 export function linkifyAppend(
   text: string,
   cwd: string,
-  target?: string,
+  previous?: LinkedAppend,
 ): LinkedAppend {
-  const end = completeLinesEnd(text);
+  if (previous?.provisional) {
+    const { renderedPrefix, line, quoted, context, tailLines } =
+      previous.provisional;
+
+    const raw = line.text + text;
+    const suffix = linked(raw, cwd, line.target, context);
+    const blank = /^\s*$/u.test(suffix.visible);
+    const incomplete = incompleteStyle(suffix.line.text, suffix.visible);
+    const boundary = appendBoundary(raw);
+
+    if ((blank || incomplete) && boundary.oscStart === undefined) {
+      const mode = blank ? 'json' : 'terminal';
+      const lines = suffix.text.split('\n');
+      const tail = lines.pop()!;
+
+      return {
+        ...previous,
+        complete: [],
+        pending: previous.pending + text,
+        tail: quoted[mode] + '\n' + renderedPrefix + suffix.text,
+        provisional: {
+          ...previous.provisional,
+          renderedPrefix:
+            renderedPrefix +
+            suffix.text.slice(0, suffix.text.lastIndexOf('\n') + 1),
+          line: suffix.line,
+          mode,
+          tailLines: 1,
+        },
+        provisionalUpdate: {
+          replace: tailLines,
+          complete: lines,
+          tail: [tail],
+        },
+      };
+    }
+
+    if (
+      boundary.oscStart !== undefined &&
+      /^\s*$/u.test(
+        linked(raw.slice(0, boundary.oscStart), cwd, line.target, context)
+          .visible,
+      )
+    ) {
+      const prefix = linked(
+        raw.slice(0, boundary.end),
+        cwd,
+        line.target,
+        context,
+      );
+
+      const rendered = prefix.text.slice(0, prefix.text.lastIndexOf('\n') + 1);
+      const tail = suffix.text.slice(rendered.length).split('\n');
+      const mode = jsonDelimiter.test(suffix.visible) ? 'json' : 'terminal';
+
+      return {
+        ...previous,
+        complete: [],
+        pending: previous.pending + text,
+        tail: quoted[mode] + '\n' + renderedPrefix + suffix.text,
+        provisional: {
+          ...previous.provisional,
+          renderedPrefix: renderedPrefix + rendered,
+          line: { text: raw.slice(boundary.end), target: prefix.target },
+          mode,
+          tailLines: tail.length,
+        },
+        provisionalUpdate: {
+          replace: tailLines,
+          complete: prefix.text.split('\n').slice(0, -1),
+          tail,
+        },
+      };
+    }
+  }
+
+  text = (previous?.pending ?? '') + text;
+  let { target, context } = previous ?? {};
+  const boundary = appendBoundary(text);
+  let end = boundary.end;
   let complete: string[] = [];
+  let provisional = false;
 
   if (end) {
-    const prefix = linked(text.slice(0, end), cwd, target);
-    complete = prefix.text.split('\n');
-    complete.pop();
-    target = prefix.target;
+    let prefix = linked(text.slice(0, end), cwd, target, context);
+    const trailing = text.slice(end);
+    const following = plain(trailing);
+
+    const unsettled =
+      /^\s*$/u.test(following) ||
+      incompleteStyle(trailing, following) ||
+      (boundary.oscStart !== undefined &&
+        /^\s*$/u.test(plain(text.slice(end, boundary.oscStart))));
+
+    if (prefix.context.needsDelimiter && unsettled) {
+      provisional = true;
+      end = boundary.quotedLine;
+      const raw = text.slice(0, end);
+      const following = prefix.visible.slice(plain(raw).length);
+      prefix = linked(raw, cwd, target, context, following);
+    } else if (prefix.context.needsDelimiter) {
+      prefix = linked(text.slice(0, end), cwd, target, context, following);
+    }
+
+    if (end) {
+      complete = prefix.text.split('\n');
+      complete.pop();
+      target = prefix.target;
+      context = prefix.context;
+    }
   }
 
   const pending = text.slice(end);
+  const suffix = linked(pending, cwd, target, context);
+  const stableEnd = boundary.end - end;
 
-  return { complete, tail: linked(pending, cwd, target).text, pending, target };
+  const stable =
+    provisional && stableEnd < pending.length
+      ? linked(pending.slice(0, stableEnd), cwd, target, context)
+      : suffix;
+
+  let cache: LinkedAppend['provisional'];
+
+  if (
+    provisional &&
+    stable.context.needsDelimiter &&
+    /^\s*$/u.test(stable.visible.slice(stable.visible.lastIndexOf('\n') + 1))
+  ) {
+    const first = stable.text.indexOf('\n');
+
+    const alternative = linked(
+      stable.firstLine! + '\u001b[',
+      cwd,
+      target,
+      context,
+    ).text;
+
+    cache = {
+      renderedPrefix: stable.text.slice(
+        first + 1,
+        stable.text.lastIndexOf('\n') + 1,
+      ),
+      line:
+        stable === suffix
+          ? suffix.line
+          : { text: pending.slice(stableEnd), target: stable.target },
+      quoted: {
+        json: stable.text.slice(0, first),
+        terminal: alternative.slice(0, alternative.indexOf('\n')),
+      },
+      mode: jsonDelimiter.test(plain(pending.slice(stableEnd)))
+        ? 'json'
+        : 'terminal',
+      context: stable.context,
+      tailLines:
+        stable === suffix
+          ? 1
+          : suffix.text.split('\n').length - stable.text.split('\n').length + 1,
+    };
+  }
+
+  return {
+    complete,
+    tail: suffix.text,
+    pending,
+    target,
+    context,
+    provisional: cache,
+  };
 }
 
 /** agent-written text with no escapes or links. strip-ansi can't stand in, since removing one sequence can join its neighbours into another. */

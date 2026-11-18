@@ -45,7 +45,469 @@ const tool = (text: string, done = false): DisplayItem => ({
 const early =
   'PASS src/a.ts:1 https://example.com/a\nPASS test/b.test.ts:2\nrun';
 
-test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
+test('JSON array context follows completed tool lines and ends at the closing bracket', () => {
+  for (const [open, close] of [
+    ['[', ']'],
+    ['[[', ']]'],
+  ]) {
+    let items = applyDisplayUpdate([], tool(open + '\n'));
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    layout.render(items, 100, expanded);
+
+    const files = [
+      'vscode://file/work/src/a.ts',
+      'vscode://file/work/src/b.ts',
+    ];
+
+    for (const [suffix, expected, plain] of [
+      ['"x",\n', [], open + '\n"x",\n'],
+      [
+        '"src/a.ts\\nsrc/b.ts"\n',
+        files,
+        open + '\n"x",\n"src/a.ts\\nsrc/b.ts"\n',
+      ],
+      [
+        close + '\n"src/a\\b.ts"',
+        [...files, 'vscode://file/work/src/a%5Cb.ts'],
+        open + '\n"x",\n"src/a.ts\\nsrc/b.ts"\n' + close + '\n"src/a\\b.ts"',
+      ],
+    ] as const) {
+      items = applyDisplayUpdate(items, tool(suffix));
+      const frame = layout.render(items, 100, expanded);
+      const body = frame.lines.slice(1, -1).join('\n');
+
+      assert.deepEqual(
+        body
+          .split('\u001b]8;;')
+          .slice(1)
+          .map((part) => part.slice(0, part.indexOf('\u0007')))
+          .filter(Boolean),
+        expected,
+      );
+
+      assert.equal(stripAnsi(body), plain);
+    }
+  }
+});
+
+test('a streamed opener waits for its next token before treating quoted paths as JSON', () => {
+  for (const opener of ['[', '{', '[[', '[\n[']) {
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    let items: DisplayItem[] = [];
+
+    for (const chunk of [opener + '\n', ' \n', '-f "src/a\\b.ts"\n']) {
+      items = applyDisplayUpdate(items, tool(chunk));
+      layout.render(items, 100, expanded);
+    }
+
+    const frame = layout.render(items, 100, expanded);
+    const body = frame.lines.slice(1, -1).join('\n');
+
+    assert.deepEqual(
+      body
+        .split('\u001b]8;;')
+        .slice(1)
+        .map((part) => part.slice(0, part.indexOf('\u0007')))
+        .filter(Boolean),
+      ['vscode://file/work/src/a%5Cb.ts'],
+    );
+
+    assert.equal(stripAnsi(body), opener + '\n \n-f "src/a\\b.ts"\n');
+  }
+});
+
+test('a streamed comparison reclassifies a quoted filename before or after its operator', () => {
+  for (const [left, right] of [
+    ['"$x"', '"src/a\\b.ts"'],
+    ['"src/a\\b.ts"', '"$x"'],
+  ]) {
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    let items: DisplayItem[] = [];
+    const chunks = ['[[\n', left + '\n', ' \n', '==\n', right + ' ]]\n'];
+
+    for (const chunk of chunks) {
+      items = applyDisplayUpdate(items, tool(chunk));
+      const frame = layout.render(items, 100, expanded);
+
+      assert.deepEqual(
+        frame.lines.slice(),
+        new TranscriptLayout().render(items, 100, expanded).lines.slice(),
+      );
+    }
+
+    const body = layout
+      .render(items, 100, expanded)
+      .lines.slice(1, -1)
+      .join('\n');
+
+    assert.deepEqual(
+      body
+        .split('\u001b]8;;')
+        .slice(1)
+        .map((part) => part.slice(0, part.indexOf('\u0007')))
+        .filter(Boolean),
+      ['vscode://file/work/src/a%5Cb.ts'],
+    );
+
+    assert.equal(stripAnsi(body), chunks.join(''));
+  }
+});
+
+test('provisional quoted lines keep bounded parsing and wrapping across blank appends', () => {
+  const segment = Intl.Segmenter.prototype.segment;
+  const normalize = String.prototype.normalize;
+  let parsed = 0;
+  let wrapped = 0;
+  let measure = false;
+
+  vi.spyOn(Intl.Segmenter.prototype, 'segment').mockImplementation(function (
+    this: Intl.Segmenter,
+    text: string,
+  ) {
+    if (measure) parsed += text.length;
+
+    return segment.call(this, text);
+  });
+
+  vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
+    this: string,
+    form?: string,
+  ) {
+    if (measure) wrapped += this.length;
+
+    return normalize.call(this, form);
+  });
+
+  for (const chunks of [
+    ['\n'],
+    [' \t\n'],
+    [' ', '\t', '\n'],
+    ['\u001b[0m\n'],
+    ['\u001b', '[0m\n'],
+    ['\u001b[', '0m\n'],
+    ['\u001b[0', 'm\n'],
+    ['\u009b[', '0m\n'],
+    ['\u001b]0;t', 'itle\u0007\n'],
+    ['\u00a0', '\n'],
+    ['\u0007\n'],
+  ]) {
+    const counts: { parsed: number; wrapped: number }[] = [];
+
+    for (const count of [1000, 4000]) {
+      const layout = new TranscriptLayout();
+      const expanded = new Map([['tool', true]]);
+      const prefix = '[\n"src/a.ts"\n';
+      let items = applyDisplayUpdate([], tool(prefix));
+      const before = layout.render(items, 80, expanded);
+      const saved = before.lines.slice();
+      const anchors = saved.map((_, row) => before.anchorAt(row));
+      parsed = 0;
+      wrapped = 0;
+      measure = true;
+
+      for (let index = 0; index < count; index++)
+        for (const chunk of chunks) {
+          items = applyDisplayUpdate(items, tool(chunk));
+          layout.render(items, 80, expanded);
+        }
+
+      measure = false;
+      const provisional = layout.render(items, 80, expanded);
+      const current = new TranscriptLayout().render(items, 80, expanded);
+      assert.deepEqual(provisional.lines.slice(), current.lines.slice());
+
+      for (let row = 0; row < current.lines.length; row++)
+        assert.deepEqual(provisional.anchorAt(row), current.anchorAt(row));
+
+      measure = true;
+      items = applyDisplayUpdate(items, tool(']\n'));
+      const final = layout.render(items, 80, expanded);
+      measure = false;
+      counts.push({ parsed, wrapped });
+      const fresh = new TranscriptLayout().render(items, 80, expanded);
+      assert.deepEqual(final.lines.slice(), fresh.lines.slice());
+      assert.deepEqual(before.lines.slice(), saved);
+
+      assert.deepEqual(
+        saved.map((_, row) => before.anchorAt(row)),
+        anchors,
+      );
+
+      assert.ok(final.lines.at(2)!.includes('vscode://file/work/src/a.ts'));
+      assert.equal(stripAnsi(final.lines.at(-3)!), ']');
+    }
+
+    const [small, large] = counts;
+
+    assert.ok(
+      large!.parsed <= small!.parsed * 5,
+      `${JSON.stringify(chunks)} parsed ${small!.parsed} then ${large!.parsed} characters`,
+    );
+
+    assert.ok(
+      large!.wrapped <= small!.wrapped * 5,
+      `${JSON.stringify(chunks)} wrapped ${small!.wrapped} then ${large!.wrapped} characters`,
+    );
+  }
+});
+
+test('provisional blanks keep parsing and wrapping bounded through visible and control chunks', () => {
+  const segment = Intl.Segmenter.prototype.segment;
+  const normalize = String.prototype.normalize;
+  let work = 0;
+
+  vi.spyOn(Intl.Segmenter.prototype, 'segment').mockImplementation(function (
+    this: Intl.Segmenter,
+    text: string,
+  ) {
+    work += text.length;
+
+    return segment.call(this, text);
+  });
+
+  vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
+    this: string,
+    form?: string,
+  ) {
+    work += this.length;
+
+    return normalize.call(this, form);
+  });
+
+  for (const [first, chunk, close, expected] of [
+    ['x', 'x', '', 'x'.repeat(51)],
+    ['x\u001b]0;t', 'x', '\u0007', 'x'],
+    ['\u001b]0;t', 'x', '\u0007', ''],
+    ['\u001b]0;t\nmore', 'x', '\u0007', ''],
+    ['\u001b[', ';', 'm', ''],
+    ['\u009b[', ';', 'm', ''],
+  ] as const) {
+    const counts: number[] = [];
+
+    for (const count of [1000, 4000]) {
+      const layout = new TranscriptLayout();
+      const expanded = new Map([['tool', true]]);
+      const prefix = '[\n"src/a\\b.ts"\n' + '\n'.repeat(count);
+      const initial = first.startsWith('x') ? prefix : prefix + first;
+      let items = applyDisplayUpdate([], tool(initial));
+      layout.render(items, 80, expanded);
+
+      if (first.startsWith('x')) {
+        items = applyDisplayUpdate(items, tool(first));
+        layout.render(items, 80, expanded);
+      }
+
+      work = 0;
+
+      for (let index = 0; index < 50; index++) {
+        items = applyDisplayUpdate(items, tool(chunk));
+        layout.render(items, 80, expanded);
+      }
+
+      counts.push(work);
+
+      assert.deepEqual(
+        layout.render(items, 80, expanded).lines.slice(),
+        new TranscriptLayout().render(items, 80, expanded).lines.slice(),
+      );
+
+      items = applyDisplayUpdate(items, tool(close));
+      const frame = layout.render(items, 80, expanded);
+      const fresh = new TranscriptLayout().render(items, 80, expanded);
+      assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+      assert.equal(stripAnsi(frame.lines.at(-2)!), expected);
+    }
+
+    assert.equal(counts[1], counts[0]);
+  }
+});
+
+test('malformed terminated OSC revises cached quoted filenames as visible text changes', () => {
+  for (const end of ['\u0007', '\u009c', '\u001b\\']) {
+    for (const sameChunk of [false, true]) {
+      const prefix = '[\n"src/a\\b.ts"\n\u001b]8;x' + end + '\n';
+      const layout = new TranscriptLayout();
+      const expanded = new Map([['tool', true]]);
+      let items: DisplayItem[] = [];
+
+      for (const text of [
+        ...(sameChunk ? [prefix + 'x'] : [prefix, 'x']),
+        ';https://x.test/' + end,
+        '\n]\n',
+      ]) {
+        items = applyDisplayUpdate(items, tool(text));
+        const frame = layout.render(items, 80, expanded);
+        const fresh = new TranscriptLayout().render(items, 80, expanded);
+        assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+
+        if (text.endsWith('x')) {
+          assert.ok(
+            frame.lines.at(2)!.includes('vscode://file/work/src/a%5Cb.ts'),
+          );
+        }
+      }
+    }
+  }
+});
+
+test('blank control chunks retain malformed OSC until later bytes settle its extent', () => {
+  for (const end of ['\u0007', '\u009c', '\u001b\\']) {
+    for (const sameChunk of [false, true]) {
+      const prefix = '[\n"one"\n';
+      const malformed = '\u001b]8;x' + end + '\n';
+
+      const chunks = [
+        ...(sameChunk ? [prefix + malformed] : [prefix, malformed]),
+        '\u001b]0;;https://x.test/' + end,
+      ];
+
+      sameAsFull(
+        chunks.map((text) => ({
+          updates: [tool(text)],
+          width: 80,
+          expanded: ['tool'],
+        })),
+      );
+
+      const items = foldDisplayUpdates(chunks.map((text) => tool(text)));
+
+      const frame = new TranscriptLayout().render(
+        items,
+        80,
+        new Map([['tool', true]]),
+      );
+
+      assert.equal(stripAnsi(frame.lines.slice(1, -1).join('\n')), prefix);
+    }
+  }
+});
+
+test('provisional whitespace keeps an explicit target through split chunks and resize', () => {
+  const open = '\u001b]8;;https://x.test/\u0007';
+  const close = '\u001b]8;;\u0007';
+
+  for (const prefix of [open + '[\n"one"\n', '[\n' + open + '"one"\n']) {
+    const frames = [
+      prefix,
+      ' ',
+      '\u001b]8;;https://y.test/\u0007',
+      '\t',
+      open,
+      '\n',
+      ' \t\n',
+      ']\n' + close,
+    ].map((text, index) => ({
+      updates: [tool(text)],
+      width: index === 2 ? 13 : 80,
+      expanded: ['tool'],
+    }));
+
+    sameAsFull(frames);
+  }
+});
+
+test('partial style escapes revise only the quoted line while earlier frames stay stable', () => {
+  const layout = new TranscriptLayout();
+  const expanded = new Map([['tool', true]]);
+  let items: DisplayItem[] = [];
+
+  const snapshots: {
+    frame: ReturnType<TranscriptLayout['render']>;
+    lines: string[];
+  }[] = [];
+
+  for (const [chunk, width] of [
+    ['[\n"src/a.ts\\nsrc/b.ts"\n', 80],
+    [' \n'.repeat(50), 80],
+    ['\u001b[', 80],
+    ['0', 13],
+    ['m\n', 13],
+    ['\u001b[31;', 13],
+    ['1m\n', 80],
+    [']\n', 80],
+  ] as const) {
+    items = applyDisplayUpdate(items, tool(chunk));
+    const frame = layout.render(items, width, expanded);
+    const fresh = new TranscriptLayout().render(items, width, expanded);
+    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+
+    for (let row = 0; row < fresh.lines.length; row++)
+      assert.deepEqual(frame.anchorAt(row), fresh.anchorAt(row));
+
+    for (const saved of snapshots)
+      assert.deepEqual(saved.frame.lines.slice(), saved.lines);
+
+    snapshots.push({ frame, lines: frame.lines.slice() });
+  }
+});
+
+test('committing a quoted path retains the following line that established terminal escaping', () => {
+  const layout = new TranscriptLayout();
+  const expanded = new Map([['tool', true]]);
+  let items: DisplayItem[] = [];
+
+  for (const chunk of [
+    '[\n"/tmp/a\\notes.md"\n',
+    '["x"\n',
+    ']\n',
+    '"src/a\\b.ts"\n',
+  ]) {
+    items = applyDisplayUpdate(items, tool(chunk));
+    const frame = layout.render(items, 100, expanded);
+    const fresh = new TranscriptLayout().render(items, 100, expanded);
+    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+  }
+
+  const body = layout
+    .render(items, 100, expanded)
+    .lines.slice(1, -1)
+    .join('\n');
+
+  assert.deepEqual(
+    body
+      .split('\u001b]8;;')
+      .slice(1)
+      .map((part) => part.slice(0, part.indexOf('\u0007')))
+      .filter(Boolean),
+    ['vscode://file/tmp/a%5Cnotes.md', 'vscode://file/work/src/a%5Cb.ts'],
+  );
+
+  assert.equal(
+    stripAnsi(body),
+    '[\n"/tmp/a\\notes.md"\n["x"\n]\n"src/a\\b.ts"\n',
+  );
+});
+
+test('an OSC sequence completed later rebuilds the uncertain tail', () => {
+  sameAsFull(
+    ['[\n"src/a.ts"\n', '\u001b]0;title\n[\n"x"\n', '\u0007'].map((text) => ({
+      updates: [tool(text)],
+      width: 80,
+      expanded: ['tool'],
+    })),
+  );
+
+  for (const end of ['\u0007', '\u009c', '\u001b\\']) {
+    const frames = [
+      '[\n"src/a.ts\\nsrc/b.ts"\n',
+      ' \n'.repeat(30),
+      '\u001b[',
+      '0m \n\u001b]8;;https://x.test/\u0007 \n\u001b]0;title\n[\n"x"\n',
+      'more',
+      end + '\n',
+      ']\n',
+    ].map((text, index) => ({
+      updates: [tool(text)],
+      width: index === 4 ? 13 : 80,
+      expanded: ['tool'],
+    }));
+
+    sameAsFull(frames);
+  }
+
   for (const stable of ['', 'stable\n']) {
     const prefix =
       stable +
