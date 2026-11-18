@@ -525,7 +525,9 @@ export function App({
       Math.max(0, top + rows * (page ? height : 1)),
     );
 
-    setTop(next === maxTop ? null : (transcript.anchorAt(next) ?? null));
+    // an anchored view can reach the bottom after output shrinks without resuming follow mode
+    if (next !== top || (next === maxTop && topRef.current !== null))
+      setTop(next === maxTop ? null : (transcript.anchorAt(next) ?? null));
 
     return next !== top;
   };
@@ -830,6 +832,22 @@ export function App({
     return anchor && { anchor, column, width, text: transcript.lines.at(row)! };
   };
 
+  const select = (from: RangeEnd, to: RangeEnd) => {
+    const same = (a: RangeEnd, b: RangeEnd) =>
+      a.anchor.item === b.anchor.item &&
+      a.anchor.line === b.anchor.line &&
+      a.anchor.offset === b.anchor.offset &&
+      a.column === b.column &&
+      a.width === b.width &&
+      a.text === b.text;
+
+    const previous = rangeRef.current;
+
+    if (previous && same(previous.from, from) && same(previous.to, to)) return;
+
+    setRange({ from, to });
+  };
+
   /** the first and last cell of the word or line at a cell, or none where there is no text to select. */
   const spanAt = (
     { row, column }: Point,
@@ -968,7 +986,7 @@ export function App({
 
       const [from, to] = span ? span.map(rangeEnd) : [];
 
-      if (from && to) setRange({ from, to });
+      if (from && to) select(from, to);
 
       return false;
     }
@@ -984,7 +1002,7 @@ export function App({
     const pressed = unit !== 'cell' && pointOf(pressedAt.current);
 
     if (!pressed) {
-      setRange({ from: pressedAt.current, to: end });
+      select(pressedAt.current, end);
 
       return pastEdge;
     }
@@ -998,7 +1016,7 @@ export function App({
     const from = rangeEnd(ends[0]!);
     const to = rangeEnd(ends.at(-1)!);
 
-    if (from && to) setRange({ from, to });
+    if (from && to) select(from, to);
 
     return pastEdge;
   };
