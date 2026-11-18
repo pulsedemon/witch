@@ -142,6 +142,179 @@ test('a URL in minified or escaped JSON links alone, ending at the quote after i
   assert.equal(stripAnsi(output), long);
 });
 
+test('a URL before a JSON escape links alone, a URL after the escape links too, and a backslash that is no JSON escape stays in its link', () => {
+  const one = [
+    { target: 'https://example.com/1', text: 'https://example.com/1' },
+  ];
+
+  const two = [
+    ...one,
+    { target: 'https://example.com/2', text: 'https://example.com/2' },
+  ];
+
+  const search = String.raw`https://github.com/search?q=foo\.bar&type=code`;
+  const fragment = String.raw`https://example.com/doc#a\c`;
+  const under = String.raw`https://example.com/?q=\under`;
+
+  for (const [text, spans] of [
+    [JSON.stringify({ t: 'see https://example.com/1\nnext' }), one],
+    [JSON.stringify({ t: 'see https://example.com/1\tnext' }), one],
+    [JSON.stringify({ t: 'see https://example.com/1\\next' }), one],
+    [
+      JSON.stringify({ t: 'see www.example.com/1\nnext' }),
+      [{ target: 'http://www.example.com/1', text: 'www.example.com/1' }],
+    ],
+    [JSON.stringify({ t: 'see https://example.com/1.\nnext' }), one],
+    [
+      JSON.stringify({ t: 'https://example.com/1\nhttps://example.com/2' }),
+      two,
+    ],
+    [
+      JSON.stringify(JSON.stringify({ t: 'see https://example.com/1\nnext' })),
+      one,
+    ],
+    // a URL parser keeps a backslash in a query or fragment
+    [`see ${search} ok`, [{ target: search, text: search }]],
+    [fragment, [{ target: fragment, text: fragment }]],
+    // only an escape's own character goes with its backslashes, so `www` keeps its first letter
+    [
+      JSON.stringify({
+        u: 'https://example.com/a\nb',
+        p: 'C:\\www.example.com/x',
+      }),
+      [
+        { target: 'https://example.com/a', text: 'https://example.com/a' },
+        { target: 'http://www.example.com/x', text: 'www.example.com/x' },
+      ],
+    ],
+    [
+      JSON.stringify(
+        JSON.stringify({ t: 'https://example.com/1\nhttps://example.com/2' }),
+      ),
+      two,
+    ],
+    // a URL with no path ends before the backslash, and a URL after an escape is found only once the text is split
+    [
+      JSON.stringify({ t: 'https://example.com\nhttps://example.org/2' }),
+      [
+        { target: 'https://example.com', text: 'https://example.com' },
+        { target: 'https://example.org/2', text: 'https://example.org/2' },
+      ],
+    ],
+    [
+      JSON.stringify({ t: 'https://example.com\nwww.example.org/2' }),
+      [
+        { target: 'https://example.com', text: 'https://example.com' },
+        { target: 'http://www.example.org/2', text: 'www.example.org/2' },
+      ],
+    ],
+    [
+      JSON.stringify({ t: 'see\nhttps://example.com/x' }),
+      [{ target: 'https://example.com/x', text: 'https://example.com/x' }],
+    ],
+    [
+      JSON.stringify({ t: 'see\nwww.example.com/x' }),
+      [{ target: 'http://www.example.com/x', text: 'www.example.com/x' }],
+    ],
+    // the quoted value reads as one file path, which must not be drawn again after the link inside it
+    [
+      JSON.stringify({ t: 'www.example.com/1\nexample.org/2' }),
+      [
+        { target: 'http://www.example.com/1', text: 'www.example.com/1' },
+        { target: 'http://example.org/2', text: 'example.org/2' },
+      ],
+    ],
+    [
+      '"www.example.com/a example.org/b.md"',
+      [
+        { target: 'http://www.example.com/a', text: 'www.example.com/a' },
+        { target: 'http://example.org/b.md', text: 'example.org/b.md' },
+      ],
+    ],
+    // a Unicode escape goes with its four hex digits, which would otherwise start the next host
+    [
+      JSON.stringify({ t: 'https://example.com/1\u0000www.example.org/2' }),
+      [
+        { target: 'https://example.com/1', text: 'https://example.com/1' },
+        { target: 'http://www.example.org/2', text: 'www.example.org/2' },
+      ],
+    ],
+    // `\u` with no hex digits after it is no JSON escape
+    [`see ${under} ok`, [{ target: under, text: under }]],
+    // `\/` is no break: the host alone would link without its path
+    [String.raw`{"u":"https:\/\/example.com\/a\/b"}`, []],
+  ] as const) {
+    const output = linkify(text, '/work');
+    assert.deepEqual(linkSpans(output), spans, text);
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
+test('long JSON written inside a JSON string, or holding a value longer than one linkify-it input, links the URLs that fit one input, and text outside the cut run links as before', () => {
+  const sixty = Array.from({ length: 60 }, (_, n) => ({
+    url: `https://example.com/${n}`,
+    n,
+  }));
+
+  const all = sixty.map(({ url }) => url);
+  const after = 'https://example.com/after';
+  const dropped = String.raw`=/Users/me/a\"b.png`;
+
+  for (const [text, targets] of [
+    // every quote is escaped, so the run has no raw quote to cut at
+    [JSON.stringify(JSON.stringify(sixty)), all],
+    [JSON.stringify(JSON.stringify(JSON.stringify(sixty))), all],
+    // one value is longer than an input, so its window holds no quote and the cut waits for the next one
+    [JSON.stringify({ blob: 'A'.repeat(2500), url: after }), [after]],
+    [
+      JSON.stringify(JSON.stringify({ blob: 'A'.repeat(2500), url: after })),
+      [after],
+    ],
+    [JSON.stringify({ blob: 'A'.repeat(5000), url: after }), [after]],
+    // a value longer than one input stays plain whatever it holds, so no part of it becomes a target
+    [
+      JSON.stringify({
+        blob: `https://example.com/${'A'.repeat(2500)}`,
+        url: after,
+      }),
+      [after],
+    ],
+    [JSON.stringify({ data: `/9j/${'A'.repeat(3000)}`, url: after }), [after]],
+    [JSON.stringify({ blob: `./${'A'.repeat(5000)}.ts`, url: after }), [after]],
+    // a run with no possible link is not cut after quotes, so a dropped path keeps its escaped quote
+    [
+      `${'x'.repeat(1500)}${dropped})${'y'.repeat(900)} end`,
+      ['file:///Users/me/a%22b.png'],
+    ],
+    // the cut run ends at the escaped space, where the next piece starts as before
+    [
+      `@${'x'.repeat(1497)}\\"${'x'.repeat(999)}\\ )(src/app.ts)(@${'x'.repeat(1500)} end`,
+      ['vscode://file/work/src/app.ts'],
+    ],
+    // text after the run is not joined to its `xn--` labels, which would leave the line unlinked
+    [
+      `${JSON.stringify(
+        JSON.stringify(
+          Array.from({ length: 80 }, () => ({
+            url: 'https://xn--bcher-kva.example/n',
+          })),
+        ),
+      )} https://example.com/after and src/app.ts more`,
+      [after, 'vscode://file/work/src/app.ts'],
+    ],
+  ] as const) {
+    const output = linkify(text, '/work');
+
+    assert.deepEqual(
+      linkSpans(output).map((span) => span.target),
+      targets,
+      text.slice(0, 80),
+    );
+
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
 test('a link is underlined inside its OSC 8 sequence on each of its lines, and a target that cannot open stays plain text', () => {
   const link = (text: string) =>
     `\u001b]8;;https://example.com\u0007\u001b[4m${text}\u001b[24m\u001b]8;;\u0007`;
@@ -615,6 +788,15 @@ test('long runs of filename characters, and links on many lines or one, link in 
   const punctuation = (count: number) =>
     `https://example.com/${'.'.repeat(count)}b `.repeat(64);
 
+  // the only possible link ends the line, so a cut that rescans the rest of the run on each piece grows with its square
+  const sparse = (count: number) =>
+    JSON.stringify(
+      JSON.stringify([
+        ...Array.from({ length: count }, (_, k) => ({ k })),
+        { email: 'dev@example.com' },
+      ]),
+    );
+
   for (const [input, small, large] of [
     ...['-', '.', '@', 'é', '+', ',', '%'].map(
       (character) =>
@@ -644,6 +826,11 @@ test('long runs of filename characters, and links on many lines or one, link in 
         ] as const,
     ),
     ['a line of JSON emails', emails(500), emails(2000)] as const,
+    [
+      'nested JSON with its only possible link at the end',
+      sparse(32000),
+      sparse(128000),
+    ] as const,
     [
       'punctuation inside searched links',
       punctuation(400),

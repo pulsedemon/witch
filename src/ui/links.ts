@@ -188,22 +188,24 @@ function sentenceEnd(text: string): number {
   return length;
 }
 
+// a raw quote, or a JSON escape other than `\/` with what it escapes. a lone backslash before any other character can belong to a query, as in `?q=\d+`.
+// `\/` is no break: `https:\/\/host\/path` would link the host alone
+const breaks = /"|\\+(?:u[\da-fA-F]{4}|["bfnrt])|\\{2,}/gu;
+
 /**
- * linkify-it's matches with no raw double quote, which no URL holds.
+ * linkify-it's matches with no raw double quote and no JSON escape but `\/`, which end a URL written in JSON.
  * linkify-it pairs quotes inside a path, so minified JSON would join a URL to the keys after it.
  */
 function webMatches(
   text: string,
 ): Pick<Match, 'index' | 'lastIndex' | 'text' | 'url'>[] {
-  const matches = urls.match(text) ?? [];
-
-  if (!matches.some((match) => match.text.includes('"'))) return matches;
-
   const result: ReturnType<typeof webMatches> = [];
   let start = 0;
 
-  for (const segment of text.split('"')) {
-    for (const match of urls.match(segment) ?? [])
+  for (const stop of [...text.matchAll(breaks), undefined]) {
+    const end = stop?.index ?? text.length;
+
+    for (const match of urls.match(text.slice(start, end)) ?? [])
       result.push({
         index: start + match.index,
         lastIndex: start + match.lastIndex,
@@ -211,7 +213,7 @@ function webMatches(
         url: match.url,
       });
 
-    start += segment.length + 1;
+    start = end + (stop?.[0].length ?? 0);
   }
 
   return result;
@@ -247,7 +249,12 @@ function bareLinks(text: string, cwd: string): string {
 
     const source = sourceFiles[fileIndex];
 
-    if (!webLink.test(match.text) && source && source.index < match.lastIndex) {
+    if (
+      !webLink.test(match.text) &&
+      source &&
+      source.index >= offset &&
+      source.index < match.lastIndex
+    ) {
       output +=
         fileLinks(text.slice(offset, source.index), cwd) +
         fileLinks(source[0], cwd);
@@ -258,14 +265,7 @@ function bareLinks(text: string, cwd: string): string {
     }
 
     output += fileLinks(text.slice(offset, match.index), cwd);
-    let escape = 0;
-
-    // a backslash before a quote escapes it, as in JSON written inside a JSON string
-    if (text[match.lastIndex] === '"')
-      while (match.text[match.text.length - 1 - escape] === '\\') escape++;
-
-    const punctuation =
-      escape + sentenceEnd(match.text.slice(0, match.text.length - escape));
+    const punctuation = sentenceEnd(match.text);
 
     output += hyperlink(
       match.text.slice(0, match.text.length - punctuation),
@@ -299,7 +299,7 @@ function pieces(text: string): Piece[] {
 
   for (let start = 0; start < text.length;) {
     let end = Math.min(start + pieceSize, text.length);
-    let plain = false;
+    let guarded = false;
 
     const after = (separator: RegExp) => {
       let cut = end;
@@ -333,14 +333,20 @@ function pieces(text: string): Piece[] {
       }
 
       if (boundary) end = boundary;
-      else ({ end, plain } = unbroken(text, start, end));
+      else ({ end, guarded } = unbroken(text, start, end));
     }
 
-    if (!plain)
+    if (guarded) result.push(...cutAfterQuotes(text, start, end));
+    else {
       for (; start + pieceSize < end; start += pieceSize)
-        result.push({ text: text.slice(start, start + pieceSize), plain });
+        result.push({
+          text: text.slice(start, start + pieceSize),
+          plain: false,
+        });
 
-    result.push({ text: text.slice(start, end), plain });
+      result.push({ text: text.slice(start, end), plain: false });
+    }
+
     start = end;
   }
 
@@ -348,18 +354,19 @@ function pieces(text: string): Piece[] {
 }
 
 /**
- * keep an overlong run with a possible link plain, so no fragment becomes a target.
+ * find where an overlong run ends. one that runs past `end` with a possible link is guarded:
+ * `cutAfterQuotes` cuts it, so no fragment of a web link becomes a target.
  * scan its boundary once, including when no link is possible and it can be split.
  */
 function unbroken(
   text: string,
   start: number,
   end: number,
-): { end: number; plain: boolean } {
+): { end: number; guarded: boolean } {
   // a newline after a backslash is no boundary to `pieces`, and no link crosses it, so each line is decided alone
   const line = text.slice(start, end).lastIndexOf('\n') + 1;
 
-  if (line) return { end: start + line, plain: false };
+  if (line) return { end: start + line, guarded: false };
 
   const boundary = new RegExp(separator, 'gu');
   boundary.lastIndex = end;
@@ -367,8 +374,38 @@ function unbroken(
 
   return {
     end: stop,
-    plain: stop > end && urls.pretest(text.slice(start, stop)),
+    guarded: stop > end && urls.pretest(text.slice(start, stop)),
   };
+}
+
+/**
+ * an overlong run with a possible link, cut after quotes into pieces that can be searched.
+ * a quote ends every web link, escaped or not; a stretch with no quote past one piece stays plain.
+ * a dropped path that escapes a quote can link in fragments.
+ */
+function cutAfterQuotes(text: string, start: number, stop: number): Piece[] {
+  const result: Piece[] = [];
+
+  while (start < stop) {
+    let end = Math.min(start + pieceSize, stop);
+    let plain = false;
+
+    if (end < stop) {
+      const before = text.slice(start, end).lastIndexOf('"') + 1;
+
+      if (before) end = start + before;
+      else {
+        const after = text.slice(end, stop).indexOf('"') + 1;
+        end = after ? end + after : stop;
+        plain = true;
+      }
+    }
+
+    result.push({ text: text.slice(start, end), plain });
+    start = end;
+  }
+
+  return result;
 }
 
 function linked(text: string, cwd: string, target?: string) {
