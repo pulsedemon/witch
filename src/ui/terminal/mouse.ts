@@ -36,8 +36,8 @@ interface Source {
 
 /**
  * the stdin Ink reads, with mouse reports taken out: the left button emits `pointer` with what it did and the cell,
- * and for a press how many presses in a row its cell has now had, each within 500 ms of the last with no drag or
- * wheel step between. a release on its press's cell with no drag or wheel step between emits `click` with that
+ * and for a press how many presses in a row its cell has now had, each within 500 ms of the last, which clicked,
+ * with no drag or wheel step between. a release on its press's cell with no drag or wheel step between emits `click` with that
  * count, and a wheel step emits `wheel` with the rows to scroll, -1 up and 1 down. any other report, such as motion with no button or another button held,
  * emits `hover` with the cell. ambiguous escape prefixes wait 20 ms for mouse input before reaching Ink;
  * slower early fragments can reach Ink as keys.
@@ -125,8 +125,10 @@ export class MouseInput extends EventEmitter {
         const at = performance.now();
         const last = this.lastPress;
 
+        // a press still down when the next arrives lost its release, and never clicked
         const count =
           last &&
+          !this.pressed &&
           last.cell.column === cell.column &&
           last.cell.row === cell.row &&
           at - last.at <= repeatWithin

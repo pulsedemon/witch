@@ -99,7 +99,7 @@ export function wordAt(
   while (last < cells.length - 1 && inWord(last + 1)) last++;
 
   if (!link)
-    while (last > at && /[.,;:!?]/.test(cells[last]!.char.value)) last--;
+    while (last > first && /[.,;:!?]/.test(cells[last]!.char.value)) last--;
 
   return { start: cells[first]!.start, end: cells[last]!.end - 1 };
 }
