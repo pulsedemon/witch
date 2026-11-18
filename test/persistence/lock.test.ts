@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { constants } from 'node:fs';
-import { access, chmod, writeFile } from 'node:fs/promises';
+import { access, chmod, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
@@ -172,6 +172,29 @@ test('batch observation preserves path identity and filesystem failures', async 
   }
 });
 
+/** runs `run` with the lock query's perl loading `module` from `directory` first. */
+async function preloaded(
+  directory: string,
+  module: string,
+  run: () => Promise<void>,
+): Promise<void> {
+  const previous = {
+    PERL5LIB: process.env.PERL5LIB,
+    PERL5OPT: process.env.PERL5OPT,
+  };
+
+  try {
+    process.env.PERL5LIB = directory;
+    process.env.PERL5OPT = `-M${module}`;
+    await run();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 test('query failure never reports an unlocked file', async () => {
   const root = await scratch('witch-lock-query-failure-');
   const file = join(root, 'free');
@@ -182,21 +205,60 @@ test('query failure never reports an unlocked file', async () => {
     'die "injected lock query failure\\n";\n',
   );
 
-  const previous = {
-    PERL5LIB: process.env.PERL5LIB,
-    PERL5OPT: process.env.PERL5OPT,
-  };
-
-  try {
-    process.env.PERL5LIB = root;
-    process.env.PERL5OPT = '-MFailLockQuery';
-    await assert.rejects(lockedFiles([file]), /injected lock query failure/);
-  } finally {
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  }
+  await preloaded(root, 'FailLockQuery', () =>
+    assert.rejects(lockedFiles([file]), /injected lock query failure/),
+  );
 
   assert.deepEqual(await lockedFiles([file]), new Map());
 });
+
+test.skipIf(process.platform !== 'linux')(
+  "a lock listed by any of the table's reads is reported, with the latest mode",
+  async () => {
+    const root = await scratch('witch-lock-tables-');
+
+    const cases = [
+      ['third', [undefined, undefined, 'WRITE'], 'exclusive'],
+      ['second', [undefined, 'WRITE', undefined], 'exclusive'],
+      ['first', ['READ', undefined, undefined], 'shared'],
+      ['downgraded', ['WRITE', 'WRITE', 'READ'], 'shared'],
+      ['upgraded', ['READ', 'READ', 'WRITE'], 'exclusive'],
+    ] as const;
+
+    const tables = ['', '', ''];
+
+    for (const [name, modes] of cases) {
+      const file = join(root, name);
+      await writeFile(file, '');
+      // a device number passes 32 bits, where a number's shift wraps
+      const { dev, ino } = await stat(file, { bigint: true });
+      const major = ((dev >> 8n) & 0xfffn) | ((dev >> 32n) & 0xfffff000n);
+      const minor = (dev & 0xffn) | ((dev >> 12n) & 0xffffff00n);
+
+      for (const [pass, mode] of modes.entries())
+        if (mode)
+          tables[pass] +=
+            `1: FLOCK  ADVISORY  ${mode} 1 ${major.toString(16)}:${minor.toString(16)}:${ino} 0 EOF\n`;
+    }
+
+    await writeFile(
+      join(root, 'LockTables.pm'),
+      `my @tables = (${tables.map((table) => `'${table}'`).join(', ')});
+my $read = 0;
+*CORE::GLOBAL::open = sub (*;$@) {
+  return CORE::open($_[0], '<', \\$tables[$read++])
+    if @_ == 3 && $_[2] eq '/proc/locks';
+  return @_ == 3 ? CORE::open($_[0], $_[1], $_[2]) : CORE::open($_[0], $_[1]);
+};
+1;
+`,
+    );
+
+    await preloaded(root, 'LockTables', async () => {
+      assert.deepEqual(
+        await lockedFiles(cases.map(([name]) => join(root, name))),
+        new Map(cases.map(([name, , mode]) => [join(root, name), mode])),
+      );
+    });
+  },
+);
