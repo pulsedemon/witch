@@ -33,9 +33,9 @@ const pascalCaseTsx = {
 
 const typeDeclarations = ['TSInterfaceDeclaration', 'TSTypeAliasDeclaration'];
 
-/** one entry per runtime export of a module: its name, or undefined for one that has none, such as `export *`, a default expression or a destructured binding. */
+/** the distinct names a module exports at runtime, where undefined stands for every export with no name to read, such as `export *`, a default expression or a destructuring pattern. */
 function runtimeExports(program) {
-  return program.body.flatMap((node) => {
+  const names = program.body.flatMap((node) => {
     if (!node.type.startsWith('Export') || node.exportKind === 'type')
       return [];
 
@@ -53,6 +53,9 @@ function runtimeExports(program) {
       ? []
       : [declared?.id?.name];
   });
+
+  // an overloaded function is exported once per signature
+  return [...new Set(names)];
 }
 
 const hookFilename = {
