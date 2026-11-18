@@ -10,7 +10,7 @@ import { runs } from '../../persistence/process.js';
 import type { StateStore } from '../../persistence/store.js';
 import { branchInOperation, operationIn } from './branch-operations.js';
 import { runCommand } from './command.js';
-import { retainedDefaultBranch } from './head-retention.js';
+import { headRetention } from './head-retention.js';
 import { escapeRegExp, removePlans } from './merged-plans.js';
 import type { PlanRemoval } from './merged-plans.js';
 import { sharedRebuild } from './shared-rebuild.js';
@@ -452,8 +452,8 @@ interface HeadRemote {
   upstream?: string;
   tracking?: string;
   merges?: string;
-  /** the repository retains merged heads, and this one is still on its remote */
-  keeps: boolean;
+  /** a same-repository, non-default head can be cleaned up while its remote tip is unchanged */
+  eligible: boolean;
   /** why the retention policy couldn't be read */
   unread: string;
 }
@@ -465,7 +465,7 @@ interface HeadRemote {
 async function headRemote(
   git: Git,
   pullRequest: PullRequest,
-  defaultBranch: () => Promise<string | undefined>,
+  policy: () => ReturnType<typeof headRetention>,
   stopped: (error: unknown) => never,
   signal?: AbortSignal,
   remote?: string,
@@ -494,22 +494,27 @@ async function headRemote(
   // a failed lookup falls back to waiting for GitHub's deletion, and is named only if the branch stays
   let unread = '';
 
-  const keeps =
-    onRemote() &&
-    (await defaultBranch()
-      .then((name) => name !== undefined && name !== branch)
-      .catch((error: unknown) => {
+  const retention = onRemote()
+    ? await policy().catch((error: unknown) => {
         if (error === signal?.reason) throw error;
 
         unread = errorMessage(error).trim();
 
-        return false;
-      }));
+        return undefined;
+      })
+    : undefined;
+
+  const eligible =
+    retention !== undefined && retention.defaultBranch !== branch;
 
   // GitHub can delete the branch, or someone push to it, while the lookup runs
   if (onRemote()) [upstream, tracking, merges] = await track();
 
-  while (!keeps && onRemote() && deleting(pullRequest)) {
+  while (
+    (!eligible || retention?.deletes) &&
+    onRemote() &&
+    deleting(pullRequest)
+  ) {
     await delay(2000, undefined, { signal }).catch(() =>
       signal?.throwIfAborted(),
     );
@@ -517,14 +522,14 @@ async function headRemote(
     [upstream, tracking, merges] = await track();
   }
 
-  return { upstream, tracking, merges, keeps, unread };
+  return { upstream, tracking, merges, eligible, unread };
 }
 
 /** why a merged branch whose last commit is `tip` has to stay, or nothing when it can go. */
 function staying(
   { number, branch, commit }: PullRequest,
   tip: string,
-  { upstream, tracking, merges, keeps, unread }: HeadRemote,
+  { upstream, tracking, merges, eligible, unread }: HeadRemote,
 ): { text: string; cleaned: false } | undefined {
   const stays = (why: string) => ({
     text: `#${number} merged, but ${why}, so it stays.`,
@@ -542,12 +547,11 @@ function staying(
       `${branch} tracks ${upstream} rather than its own remote branch`,
     );
 
-  // a kept branch has to be at the merged commit or gone. any other has to be gone, since GitHub deletes a merged head
-  // branch but leaves a long-lived one such as develop
-  if (keeps && tracking && tracking !== '[gone]')
+  // only an unchanged remote tip permits deleting a local head whose remote branch remains
+  if (eligible && tracking && tracking !== '[gone]')
     return stays(`${branch}'s remote branch has changed since`);
 
-  if (!keeps && tracking !== '[gone]')
+  if (!eligible && tracking !== '[gone]')
     return {
       text: `#${number} merged, but ${branch} is still on its remote, so it stays${unread && ` (couldn't read whether the repository keeps merged branches: ${unread})`}.`,
       cleaned: false,
@@ -635,11 +639,8 @@ async function clean(
   signal?: AbortSignal,
 ): Promise<{ text: string; cleaned: boolean } | 'changed' | undefined> {
   const { number, branch, commit, base } = pullRequest;
-  let policy: Promise<string | undefined> | undefined;
-
-  const defaultBranch = () =>
-    (policy ??= retainedDefaultBranch(pullRequest, cwd, signal));
-
+  let retention: ReturnType<typeof headRetention> | undefined;
+  const policy = () => (retention ??= headRetention(pullRequest, cwd, signal));
   const stopped = stopping(pullRequest, signal);
 
   if (progress.switchHead) {
@@ -724,13 +725,7 @@ async function clean(
         };
     }
 
-    const remote = await headRemote(
-      git,
-      pullRequest,
-      defaultBranch,
-      stopped,
-      signal,
-    );
+    const remote = await headRemote(git, pullRequest, policy, stopped, signal);
 
     // a detach takes the base's upstream as it is now, so its own remote is fetched here, before the checks below, since
     // a slow fetch gives another terminal time to switch or edit
@@ -916,7 +911,10 @@ async function clean(
 
   if (refs.some(retained))
     try {
-      const name = await defaultBranch();
+      const retention = await policy();
+
+      const name =
+        retention && !retention.deletes ? retention.defaultBranch : undefined;
 
       if (name && refs.some((ref) => retained(ref) && ref.name !== name)) {
         const remote = progress.remote!;
@@ -1106,7 +1104,7 @@ async function cleanLeft(
     const remote = await headRemote(
       git,
       pullRequest,
-      () => retainedDefaultBranch(pullRequest, cwd, signal),
+      () => headRetention(pullRequest, cwd, signal),
       stopped,
       signal,
       name && name !== '.' ? name : undefined,

@@ -3,12 +3,12 @@ import { runCommand } from './command.js';
 import { gitHubRepository } from './repository.js';
 import type { PullRequest } from './repository.js';
 
-/** the default branch of a repository that retains its own merged heads; forks don't inherit the base's policy. */
-export async function retainedDefaultBranch(
-  { url, number }: PullRequest,
+/** forks do not inherit the base repository's head-retention policy. */
+export async function headRetention(
+  { url, number }: Pick<PullRequest, 'url' | 'number'>,
   cwd: string,
   signal?: AbortSignal,
-): Promise<string | undefined> {
+): Promise<{ defaultBranch: string; deletes: boolean } | undefined> {
   const github = gitHubRepository(url);
 
   if (!github) return undefined;
@@ -66,5 +66,7 @@ export async function retainedDefaultBranch(
   if (fork !== 'true' && fork !== 'false')
     throw new Error(`isCrossRepository was ${fork || 'empty'}`);
 
-  return deletes === 'false' && fork === 'false' ? base : undefined;
+  return fork === 'false'
+    ? { defaultBranch: base, deletes: deletes === 'true' }
+    : undefined;
 }

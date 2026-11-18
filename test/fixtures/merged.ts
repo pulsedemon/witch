@@ -104,7 +104,7 @@ export const branches = async (checkout: string) =>
     )
   ).split('\n');
 
-/** a pull request url `retainedDefaultBranch` reads as GitHub's, which `pullRequest`'s url isn't. */
+/** a pull request url `headRetention` reads as GitHub's, which `pullRequest`'s url isn't. */
 export const url = 'https://github.test/o/r/pull/7';
 
 const lookup = [
