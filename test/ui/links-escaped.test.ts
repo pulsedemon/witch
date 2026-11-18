@@ -58,6 +58,7 @@ test('oversized values beside JSON escapes stay unlinked without hiding a neighb
 
 test('escape recovery never exposes a partial oversized terminal path', () => {
   assertLinks(`/tmp/${'a'.repeat(2500)}\\notes.ts`, []);
+  assertLinks(`/tmp/${'a'.repeat(2500)}\\nexample.com/notes`, []);
 
   assertLinks(
     `/tmp/${'a'.repeat(1800)}\\nhttps://example.com/${'b'.repeat(2200)}.ts`,

@@ -562,7 +562,7 @@ test('long JSON written inside a JSON string, or holding a value longer than one
       [after],
     ],
     [JSON.stringify({ blob: 'A'.repeat(5000), url: after }), [after]],
-    // a value longer than one input stays plain whatever it holds, so no part of it becomes a target
+    // an oversized URL or path must not become a partial link
     [
       JSON.stringify({
         blob: `https://example.com/${'A'.repeat(2500)}`,
