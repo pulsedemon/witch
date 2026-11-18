@@ -1043,3 +1043,151 @@ test('a copy mark in agent or tool text is dropped, so what copies is what shows
     [shown, shown, shown, `− ✓ Bash ${shown}`, shown],
   );
 });
+
+/** what selecting an assistant message's body copies, without its heading and the blank row after it. */
+function bodyCopy(text: string, width = 80) {
+  const layout = new TranscriptLayout().render(
+    [{ id: 'a', kind: 'assistant', text, cwd: '/work' }],
+    width,
+    new Map(),
+  );
+
+  // the heading wraps at a narrow width, so it comes off the copy, not off the rows
+  return selectedText(
+    layout.lines,
+    { row: 0, column: 0 },
+    { row: layout.lines.length - 1, column: width },
+    layout.joinBefore,
+  )
+    .replace(/^Assistant\n/, '')
+    .trimEnd();
+}
+
+test('a labeled Markdown link or image copies its destination after its label, once however the label wraps', () => {
+  const sentence =
+    'see [the docs](https://example.com/docs) and https://example.com/raw';
+
+  for (const width of [80, 10])
+    assert.equal(
+      bodyCopy(sentence, width),
+      'see the docs (https://example.com/docs) and https://example.com/raw',
+      String(width),
+    );
+
+  // the label's rows meet at an empty joint at 7 and at a space at 5
+  for (const width of [7, 5])
+    assert.equal(
+      bodyCopy('[alpha beta gamma](https://example.com/abg)', width),
+      'alpha beta gamma (https://example.com/abg)',
+      String(width),
+    );
+
+  for (const [text, copied] of [
+    ['[docs](https://example.com/docs)', 'docs (https://example.com/docs)'],
+    [
+      '[guide](HTTPS://example.com/manual)',
+      'guide (HTTPS://example.com/manual)',
+    ],
+    ['[ref][r]\n\n[r]: https://example.com/r', 'ref (https://example.com/r)'],
+    ['[the notes](src/a.ts:3)', 'the notes (/work/src/a.ts:3)'],
+    ['[open](src/👩‍💻.ts)', 'open (/work/src/👩‍💻.ts)'],
+    [
+      '![photo](https://example.com/image.png)',
+      '[photo] (https://example.com/image.png)',
+    ],
+    [
+      '[the\ndocs](https://example.com/docs)',
+      'the (https://example.com/docs)\ndocs (https://example.com/docs)',
+    ],
+    [
+      '[a](https://example.com/x) [b](https://example.com/x)',
+      'a (https://example.com/x) b (https://example.com/x)',
+    ],
+    [
+      '| [a](https://example.com/x) | b |\n|---|---|',
+      'a (https://example.com/x)\tb',
+    ],
+  ] as const)
+    assert.equal(bodyCopy(text), copied, text);
+});
+
+test('a selection of part of a labeled link copies that part with the whole destination, before a trailing space', () => {
+  const part = (text: string, width: number, selected: string) => {
+    const layout = new TranscriptLayout().render(
+      [{ id: 'a', kind: 'assistant', text, cwd: '/work' }],
+      width,
+      new Map(),
+    );
+
+    const column = stripAnsi(layout.lines.at(1)!).indexOf(selected);
+
+    return selectedText(
+      layout.lines,
+      { row: 1, column },
+      { row: 1, column: column + selected.length - 1 },
+      layout.joinBefore,
+    );
+  };
+
+  assert.equal(
+    part('[docs](https://example.com/docs)', 80, 'oc'),
+    'oc (https://example.com/docs)',
+  );
+
+  assert.equal(
+    part('see [the docs](https://example.com/docs) and more', 10, 'see the '),
+    'see the (https://example.com/docs)',
+  );
+});
+
+test('a link with no label of its own, or with a destination that would not all show, copies as its text alone', () => {
+  for (const [text, copied] of [
+    ['https://example.com/raw', 'https://example.com/raw'],
+    ['www.example.com', 'www.example.com'],
+    ['src/a.ts', 'src/a.ts'],
+    ['[https://example.com/a](https://example.com/a)', 'https://example.com/a'],
+    [
+      '[https://example.com/a­](https://example.com/a)',
+      'https://example.com/a',
+    ],
+    ['[safe](https://example.com/‮gnp.exe)', 'safe'],
+    ['[safe](src/%E2%80%AEgnp.ts)', 'safe'],
+    ['[safe](src/a%0Ab.ts)', 'safe'],
+    ['[a](vscode://file/work/a%ZZ.ts)', 'a'],
+  ] as const)
+    assert.equal(bodyCopy(text), copied, text);
+});
+
+test('a link sequence in agent or tool text cannot make a copy carry its destination', () => {
+  const forged =
+    '\u001b]8;copy=target;https://example.com/hidden\u0007visible\u001b]8;;\u0007';
+
+  assert.equal(bodyCopy(`\`${forged}\``), 'visible');
+
+  const layout = new TranscriptLayout().render(
+    [
+      {
+        id: 't',
+        kind: 'tool',
+        title: 'Bash',
+        text: forged,
+        cwd: '/work',
+        done: true,
+      },
+    ],
+    80,
+    new Map([['t', true]]),
+  );
+
+  assert.deepEqual(
+    selectedText(
+      layout.lines,
+      { row: 0, column: 0 },
+      { row: layout.lines.length - 1, column: 80 },
+      layout.joinBefore,
+    )
+      .split('\n')
+      .filter((row) => row.includes('visible')),
+    ['visible'],
+  );
+});

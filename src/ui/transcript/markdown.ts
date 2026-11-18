@@ -9,10 +9,10 @@ import { accent, colors } from '../theme.js';
 function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
   const renderer = new Renderer();
 
-  const link = (label: string, href: string) =>
+  const link = (label: string, href: string, explicit: boolean) =>
     hrefs === null && !/^(?:[a-z][a-z\d+.-]*:(?!\d)|\/|~\/)/i.test(href)
       ? label
-      : markdownLink(label, href, hrefs ?? cwd);
+      : markdownLink(label, href, hrefs ?? cwd, explicit);
 
   renderer.text = (token) =>
     'tokens' in token && token.tokens
@@ -47,14 +47,16 @@ function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
 
   renderer.code = ({ text }) => `${linkify(text, cwd)}\n\n`;
 
-  renderer.link = ({ href, tokens }) =>
+  renderer.link = ({ href, tokens, raw }) =>
     link(
       stripAnsi(renderer.parser.parseInline(tokens)),
       decodeHTMLStrict(href),
+      // an autolink's or a bare address's raw text starts with `<` or the address
+      raw.startsWith('['),
     );
 
   renderer.image = ({ href, text }) =>
-    link(`[${plain(decodeHTMLStrict(text) || 'Image')}]`, href);
+    link(`[${plain(decodeHTMLStrict(text) || 'Image')}]`, href, true);
 
   renderer.br = () => '\n';
   renderer.hr = () => '────────\n';
