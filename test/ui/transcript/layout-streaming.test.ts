@@ -313,6 +313,43 @@ test('partial style escapes revise only the quoted line while earlier frames sta
   }
 });
 
+test('committing a quoted path retains the following line that established terminal escaping', () => {
+  const layout = new TranscriptLayout();
+  const expanded = new Map([['tool', true]]);
+  let items: DisplayItem[] = [];
+
+  for (const chunk of [
+    '[\n"/tmp/a\\notes.md"\n',
+    '["x"\n',
+    ']\n',
+    '"src/a\\b.ts"\n',
+  ]) {
+    items = applyDisplayUpdate(items, tool(chunk));
+    const frame = layout.render(items, 100, expanded);
+    const fresh = new TranscriptLayout().render(items, 100, expanded);
+    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+  }
+
+  const body = layout
+    .render(items, 100, expanded)
+    .lines.slice(1, -1)
+    .join('\n');
+
+  assert.deepEqual(
+    body
+      .split('\u001b]8;;')
+      .slice(1)
+      .map((part) => part.slice(0, part.indexOf('\u0007')))
+      .filter(Boolean),
+    ['vscode://file/tmp/a%5Cnotes.md', 'vscode://file/work/src/a%5Cb.ts'],
+  );
+
+  assert.equal(
+    stripAnsi(body),
+    '[\n"/tmp/a\\notes.md"\n["x"\n]\n"src/a\\b.ts"\n',
+  );
+});
+
 test('an OSC sequence completed later rebuilds the uncertain tail', () => {
   sameAsFull(
     ['[\n"src/a.ts"\n', '\u001b]0;title\n[\n"x"\n', '\u0007'].map((text) => ({

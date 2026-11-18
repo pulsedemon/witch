@@ -238,8 +238,8 @@ function nestedContainer(text: string) {
   }
 }
 
-/** keep JSON context across bounded pieces without changing terminal path escaping. */
-function fileSections(text: string, previous?: FileContext) {
+/** preserve a prefix's file targets by keeping the following line available as lookahead. */
+function fileSections(text: string, boundary: number, previous?: FileContext) {
   const sections: { start: number; end: number; json: boolean }[] = [];
   const quotedFile = new RegExp(files.source, 'uy');
   let start = 0;
@@ -251,7 +251,7 @@ function fileSections(text: string, previous?: FileContext) {
     pending: undefined,
   };
 
-  for (let index = 0; index < text.length; index++) {
+  for (let index = 0; index < boundary; index++) {
     const char = text[index]!;
 
     if (/\s/u.test(char)) continue;
@@ -343,7 +343,7 @@ function fileSections(text: string, previous?: FileContext) {
     index = stop - 1;
   }
 
-  sections.push({ start, end: text.length, json: false });
+  sections.push({ start, end: boundary, json: false });
 
   return { sections, context: { containers, key, member, pending } };
 }
@@ -378,9 +378,15 @@ function fileCandidates(
 function fileMatches(
   text: string,
   pieces: readonly Piece[],
+  following: string,
   previous?: FileContext,
 ) {
-  const { sections, context } = fileSections(text, previous);
+  const { sections, context } = fileSections(
+    text + following,
+    text.length,
+    previous,
+  );
+
   let sectionIndex = 0;
   let offset = 0;
 
@@ -758,6 +764,7 @@ function linked(
   cwd: string,
   target?: string,
   previous?: FileContext,
+  following = '',
 ) {
   const chunks: (Piece & { target?: string })[] = [];
   let visible = '';
@@ -799,7 +806,13 @@ function linked(
   }
 
   flush();
-  const { matches, context } = fileMatches(visible, chunks, previous);
+
+  const { matches, context } = fileMatches(
+    visible,
+    chunks,
+    following,
+    previous,
+  );
 
   const output = chunks
     .map((piece, index) =>
@@ -988,7 +1001,9 @@ export function linkifyAppend(
     if (prefix.context.containers && prefix.context.key) {
       provisional = boundary.oscStart === undefined;
       end = boundary.quotedLine;
-      prefix = linked(text.slice(0, end), cwd, target, context);
+      const raw = text.slice(0, end);
+      const following = prefix.visible.slice(plain(raw).length);
+      prefix = linked(raw, cwd, target, context, following);
     }
 
     if (end) {
