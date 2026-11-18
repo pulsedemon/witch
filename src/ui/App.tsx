@@ -49,7 +49,7 @@ import type { Browsing } from './input/drafts.js';
 import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell } from './terminal/mouse.js';
 import { highlight } from './transcript/selection.js';
-import { useSelection } from './transcript/selection-state.js';
+import { useSelection } from './transcript/useSelection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
 import { castTitle, useCasting } from './status/cast.js';
