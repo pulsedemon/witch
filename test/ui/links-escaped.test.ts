@@ -56,7 +56,7 @@ test('oversized values beside JSON escapes stay unlinked without hiding a neighb
   }
 });
 
-test('escape recovery never exposes a partial oversized terminal path', () => {
+test('escape recovery rejects file and fuzzy-domain fragments', () => {
   assertLinks(`/tmp/${'a'.repeat(2500)}\\notes.ts`, []);
   assertLinks(`/tmp/${'a'.repeat(2500)}\\nexample.com/notes`, []);
 

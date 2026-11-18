@@ -617,7 +617,6 @@ function bareLinks(
 
 interface Piece {
   text: string;
-  /** only bounded explicit URLs can be recovered without exposing partial file paths. */
   guarded: boolean;
 }
 
