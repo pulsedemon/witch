@@ -107,6 +107,9 @@ interface Props {
   /** runs before ↑/↓ move the cursor; `true` keeps the cursor where it is. */
   onArrow?(direction: 'up' | 'down', buffer: InputBuffer): boolean;
 
+  /** true while something else takes Shift+arrows, so the cursor stays. */
+  shiftArrows?(): boolean;
+
   /** replaces a paste, given the text before the cursor; never called in shell mode, where a path stays a path. */
   onPaste?(text: string, before: string): string | undefined;
 }
@@ -124,6 +127,7 @@ export function Input({
   onChange,
   onSubmit,
   onArrow,
+  shiftArrows,
   onPaste,
 }: Props) {
   const [state, current, setState] = useLiveState(() =>
@@ -238,6 +242,9 @@ export function Input({
 
       // Ghostty sends Cmd+←, Cmd+→ and Cmd+Delete as Ctrl+A, Ctrl+E and Ctrl+U
       if (key.ctrl) {
+        // Ctrl+Shift+A selects the transcript
+        if (key.shift && input === 'a') return;
+
         if (input === 'a' || input === 'e' || input === 'u') {
           const {
             mark,
@@ -270,6 +277,13 @@ export function Input({
       }
 
       if (key.meta || key.super) return;
+
+      if (
+        key.shift &&
+        (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow) &&
+        shiftArrows?.()
+      )
+        return;
 
       if (key.return) {
         if (key.shift && multiline) insert('\n');
