@@ -16,6 +16,11 @@ export const first = (ui: { text(): string }) =>
 
 export const wheelUp = '\u001b[<64;10;10M';
 export const CMD_C = '\u001b[99;9u';
+export const CTRL_SHIFT_A = '\u001b[97;6u';
+export const SHIFT_LEFT = '\u001b[1;2D';
+export const SHIFT_RIGHT = '\u001b[1;2C';
+export const SHIFT_UP = '\u001b[1;2A';
+export const SHIFT_DOWN = '\u001b[1;2B';
 
 /** App at 60 by 24 unless sized, with each text it copies. */
 export function mounted(app: Coordinator, columns = 60, rows = 24) {

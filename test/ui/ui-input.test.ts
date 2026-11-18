@@ -746,6 +746,41 @@ test('browser elicitation confirms without JSON form content', async () => {
   }
 });
 
+test('Ctrl+Shift+A leaves the cursor where Ctrl+A moves it home, and Shift+← moves it unless something else takes Shift+arrows', async () => {
+  const typed = async (keys: string[], shiftArrows?: () => boolean) => {
+    let sent = '';
+
+    const ui = await mount(
+      createElement(Input, {
+        width: 60,
+        height: 4,
+        active: true,
+        shiftArrows,
+        onSubmit: (value: string) => {
+          sent = value;
+
+          return true;
+        },
+      }),
+    );
+
+    try {
+      for (const data of ['xy', ...keys, 'z', '\r'])
+        await press(ui.stdin, data);
+
+      return sent;
+    } finally {
+      await unmount(ui);
+    }
+  };
+
+  assert.equal(await typed(['\u0001']), 'zxy');
+  assert.equal(await typed(['\u001b[97;6u']), 'xyz');
+  assert.equal(await typed(['\u001b[1;2D']), 'xzy');
+  assert.equal(await typed(['\u001b[1;2D'], () => true), 'xyz');
+  assert.equal(await typed(['\u001b[1;2D'], () => false), 'xzy');
+});
+
 // Ghostty 1.3.1 sends a modifier's own report before the key, and turns Cmd+←, Cmd+→, Cmd+Delete, Option+← and Option+→ into legacy bytes
 const CMD = '\u001b[57444;9u';
 const OPT = '\u001b[57443;3u';
