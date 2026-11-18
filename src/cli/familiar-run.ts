@@ -13,6 +13,7 @@ import {
   ControlTimeoutError,
 } from '../persistence/control.js';
 import type { ControlBinding, ControlResult } from '../persistence/control.js';
+import { elapsed } from '../ui/status/elapsed.js';
 
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
 export class FamiliarReports {
@@ -180,4 +181,36 @@ export async function registerFamiliar(
   }
 
   if (stopped()) throw new Error('Familiar stopped before launch.');
+}
+
+const suspendedGapMs = 30_000;
+
+/**
+ * totals the wall-clock time this process didn't run, such as the Mac sleeping under a closed lid, which no
+ * sleep assertion prevents. the returned function ends the watch and words the total for the report.
+ */
+export function watchSuspension(): () => string | undefined {
+  const started = Date.now();
+  let last = started;
+  let suspended = 0;
+
+  const measure = () => {
+    const now = Date.now();
+
+    if (now - last > suspendedGapMs) suspended += now - last;
+
+    last = now;
+  };
+
+  const timer = setInterval(measure, 2000);
+  timer.unref();
+
+  return () => {
+    clearInterval(timer);
+    measure();
+
+    return suspended
+      ? `This run was suspended for ${elapsed(suspended)} of its ${elapsed(Date.now() - started)}, as when the Mac sleeps, so its elapsed time overstates its work.`
+      : undefined;
+  };
 }
