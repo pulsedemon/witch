@@ -821,7 +821,7 @@ export function App({
   }, [covered]);
 
   useEffect(() => stopEdgeScroll, []);
-  // any report but the left button's or the wheel's ends the press: motion with no button held means its release went missing
+  // any report but the left button's or a vertical wheel step ends the press: motion with no button held means its release went missing
   useHover(endPress);
 
   const rangeEnd = ({ row, column }: Point): RangeEnd | undefined => {
@@ -945,8 +945,9 @@ export function App({
       pressStreak.current = end && { end, before };
       const repeats = presses - before;
 
+      // two clicks on a marker in one read toggle it back to the text it had, so the count alone would select it
       pressedUnit.current =
-        repeats < 2 ? 'cell' : repeats === 2 ? 'word' : 'line';
+        repeats < 2 || markerOf(end) ? 'cell' : repeats === 2 ? 'word' : 'line';
 
       const span =
         pressedUnit.current !== 'cell' && spanAt(at, pressedUnit.current);
