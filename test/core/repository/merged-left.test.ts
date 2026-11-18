@@ -160,32 +160,36 @@ test('a pull request that merges while its checkout sits on the base is cleaned 
   await noConfig(checkout);
 });
 
-test('a pull request that merges while its checkout sits on the base deletes the branch in a repository that keeps merged heads', async () => {
-  const { root, origin, checkout, other, tip } = await merged();
-  await merge(other, 'feat/x', true);
-  await git(checkout, 'switch', 'main');
+for (const deletes of [false, true])
+  test(`a retained head is cleaned up from the base with automatic deletion ${deletes ? 'enabled' : 'disabled'}`, async () => {
+    const { root, origin, checkout, other, tip } = await merged();
+    await merge(other, 'feat/x', true);
+    await git(checkout, 'switch', 'main');
+    await write(join(plans(checkout), 'x.md'), plan);
+    const mergedAt = new Date(Date.now() - 60_000).toISOString();
 
-  assert.deepEqual(
-    await withGh(root, answering('false\nmain\nfalse\n'), () =>
-      cleanUpMerge(checkout, { ...pullRequest(tip), url }, idle),
-    ),
-    {
-      text: '#7 merged: stayed on main and pulled, deleted branch feat/x.',
-      cleaned: true,
-    },
-  );
+    assert.deepEqual(
+      await withGh(root, answering(`${deletes}\nmain\nfalse\n`), () =>
+        cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
+      ),
+      {
+        text: '#7 merged: stayed on main and pulled, deleted branch feat/x, and plan x.md.',
+        cleaned: true,
+      },
+    );
 
-  // the remote copy is still there, so only the retention lookup let the branch go
-  assert.equal(await git(origin, 'rev-parse', 'feat/x'), tip);
-  assert.deepEqual(await branches(checkout), ['main']);
+    // the remote copy is still there, so only the retention lookup let the branch go
+    assert.equal(await git(origin, 'rev-parse', 'feat/x'), tip);
+    assert.deepEqual(await branches(checkout), ['main']);
 
-  assert.equal(
-    await git(checkout, 'rev-parse', 'main'),
-    await git(other, 'rev-parse', 'HEAD'),
-  );
+    assert.equal(
+      await git(checkout, 'rev-parse', 'main'),
+      await git(other, 'rev-parse', 'HEAD'),
+    );
 
-  await noConfig(checkout);
-});
+    assert.equal(await exists(join(plans(checkout), 'x.md')), false);
+    await noConfig(checkout);
+  });
 
 test("a pull request that merges while its checkout sits on a base tracking another remote fetches the head branch's own", async () => {
   const { root, origin, checkout, other, tip } = await merged();

@@ -68,7 +68,45 @@ test("a head branch GitHub deletes after the first fetch goes, even past the del
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
-test("a head branch the repository keeps after merging goes at once, also once deleted during the lookup, unless its remote branch moved before or during it, it's the default branch or a fork's, or the repository deletes merged branches or its settings can't be read", async () => {
+test('a retained head pushed during the deletion wait keeps its local branch and plan', async () => {
+  const { root, origin, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x', true);
+  await git(other, 'switch', 'feat/x');
+  await git(other, 'commit', '--allow-empty', '-m', 'after merge');
+  await git(other, 'push', 'origin', 'feat/x:later');
+  const later = await git(origin, 'rev-parse', 'later');
+  const count = join(root, 'fetch-count');
+  const plan = join(plans(checkout), 'x.md');
+  await write(plan, '`git switch -c feat/x`.\n');
+  const mergedAt = new Date().toISOString();
+
+  const result = await withGit(
+    root,
+    `if (args.includes('fetch')) {
+      const file = ${JSON.stringify(count)};
+      const count = existsSync(file) ? Number(readFileSync(file, 'utf8')) + 1 : 1;
+      writeFileSync(file, String(count));
+      if (count === 3) run(['--git-dir', ${JSON.stringify(origin)}, 'update-ref', 'refs/heads/feat/x', ${JSON.stringify(later)}], 'pipe');
+    }`,
+    () =>
+      withGh(root, answering('true\nmain\nfalse\n'), () =>
+        cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
+      ),
+  );
+
+  assert.deepEqual(result, {
+    text: "#7 merged, but feat/x's remote branch has changed since, so it stays.",
+    cleaned: false,
+  });
+
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+  assert.equal(await git(checkout, 'rev-parse', 'HEAD'), tip);
+  assert.equal(await git(origin, 'rev-parse', 'feat/x'), later);
+  assert.equal(await git(checkout, 'config', 'branch.feat/x.remote'), 'origin');
+  assert.equal(await exists(plan), true);
+});
+
+test('a retained head goes only with an unchanged remote tip and a verified same-repository, non-default branch', async () => {
   // the default branch waits out GitHub's deletion like any branch the repository might delete
   for (const { gh, moved, ago, result, cleaned } of [
     {
@@ -76,7 +114,8 @@ test("a head branch the repository keeps after merging goes at once, also once d
       moved: '',
       ago: 0,
       cleaned: true,
-      result: '#7 merged: switched to main and pulled, deleted branch feat/x.',
+      result:
+        '#7 merged: switched to main and pulled, deleted branch feat/x, and plan x.md.',
     },
     {
       gh: answering('false\nmain\nfalse\n'),
@@ -91,7 +130,8 @@ test("a head branch the repository keeps after merging goes at once, also once d
       moved: 'deleted',
       ago: 0,
       cleaned: true,
-      result: '#7 merged: switched to main and pulled, deleted branch feat/x.',
+      result:
+        '#7 merged: switched to main and pulled, deleted branch feat/x, and plan x.md.',
     },
     {
       gh: answering('false\nmain\nfalse\n'),
@@ -112,9 +152,25 @@ test("a head branch the repository keeps after merging goes at once, also once d
       gh: answering('true\nmain\nfalse\n'),
       moved: '',
       ago: 60_000,
+      cleaned: true,
+      result:
+        '#7 merged: switched to main and pulled, deleted branch feat/x, and plan x.md.',
+    },
+    ...['before', 'during'].map((moved) => ({
+      gh: answering('true\nmain\nfalse\n'),
+      moved,
+      ago: 60_000,
+      cleaned: false,
+      result:
+        "#7 merged, but feat/x's remote branch has changed since, so it stays.",
+    })),
+    ...['true\nfeat/x\nfalse\n', 'true\nmain\ntrue\n'].map((settings) => ({
+      gh: answering(settings),
+      moved: '',
+      ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
-    },
+    })),
     {
       gh: answering('null\nmain\nfalse\n'),
       moved: '',
@@ -157,6 +213,8 @@ test("a head branch the repository keeps after merging goes at once, also once d
   ]) {
     const { root, origin, checkout, other, tip } = await merged();
     await merge(other, 'feat/x', true);
+    await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
+    const base = await git(origin, 'rev-parse', 'main');
     let script = gh;
 
     if (moved === 'deleted')
@@ -183,6 +241,15 @@ test("a head branch the repository keeps after merging goes at once, also once d
     );
 
     assert.deepEqual(outcome, { text: result, cleaned });
+    assert.equal(await exists(join(plans(checkout), 'x.md')), !cleaned);
+
+    if (cleaned) {
+      assert.equal(await git(checkout, 'rev-parse', 'HEAD'), base);
+
+      await assert.rejects(
+        git(checkout, 'config', '--get', 'branch.feat/x.remote'),
+      );
+    }
 
     assert.equal(
       await git(
@@ -254,6 +321,32 @@ async function older(
 
   return tip;
 }
+
+test('a head left behind with automatic deletion enabled is cleaned up without pruning other retained branches', async () => {
+  const { root, origin, checkout, other, tip } = await merged();
+  const old = await older(checkout, other, 'feat/old');
+  await merge(other, 'feat/x', true);
+  await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
+  const base = await git(origin, 'rev-parse', 'main');
+  const mergedAt = new Date(Date.now() - 60_000).toISOString();
+
+  const result = await withGh(root, answering('true\nmain\nfalse\n'), () =>
+    cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
+  );
+
+  assert.equal(typeof result === 'object' && result.cleaned, true);
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
+  assert.equal(await git(checkout, 'rev-parse', 'HEAD'), base);
+  assert.deepEqual(await branches(checkout), ['feat/old', 'main']);
+  assert.equal(await git(checkout, 'rev-parse', 'feat/old'), old);
+  assert.equal(await git(origin, 'rev-parse', 'feat/x'), tip);
+  assert.equal(await git(origin, 'rev-parse', 'feat/old'), old);
+  assert.equal(await exists(join(plans(checkout), 'x.md')), false);
+
+  await assert.rejects(
+    git(checkout, 'config', '--get', 'branch.feat/x.remote'),
+  );
+});
 
 for (const keepHead of [true, false])
   test(`older retained branches go with a ${keepHead ? 'retained' : 'deleted'} head while ineligible branches and remote refs stay`, async () => {

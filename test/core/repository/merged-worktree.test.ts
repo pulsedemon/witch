@@ -5,11 +5,14 @@ import { test } from 'vitest';
 import { cleanUpMerge } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import {
+  answering,
   branches,
   idle,
   merge,
   merged,
   pullRequest,
+  url,
+  withGh,
   write,
 } from '../../fixtures/merged.js';
 import { git } from '../../fixtures/git.js';
@@ -70,6 +73,38 @@ test("a merged branch in a worktree whose base another worktree holds detaches a
   assert.deepEqual(await branches(checkout), ['main']);
   assert.equal(await git(launcher, 'branch', '--show-current'), 'main');
   assert.equal(await git(launcher, 'rev-parse', 'HEAD'), held);
+});
+
+test('a retained head with automatic deletion enabled is cleaned up from a linked worktree', async () => {
+  const { root, origin, launcher, checkout, other, tip } = await merged(
+    {},
+    [],
+    true,
+  );
+
+  await merge(other, 'feat/x', true);
+  const held = await git(launcher, 'rev-parse', 'HEAD');
+  const base = await git(origin, 'rev-parse', 'main');
+  const plan = join(checkout, 'docs/superpowers/plans/x.md');
+  await write(plan, '`git switch -c feat/x`.\n');
+  const mergedAt = new Date(Date.now() - 60_000).toISOString();
+
+  const result = await withGh(root, answering('true\nmain\nfalse\n'), () =>
+    cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
+  );
+
+  assert.equal(typeof result === 'object' && result.cleaned, true);
+  await assert.rejects(git(checkout, 'symbolic-ref', '-q', 'HEAD'));
+  assert.equal(await git(checkout, 'rev-parse', 'HEAD'), base);
+  assert.deepEqual(await branches(checkout), ['main']);
+  assert.equal(await git(launcher, 'branch', '--show-current'), 'main');
+  assert.equal(await git(launcher, 'rev-parse', 'HEAD'), held);
+  assert.equal(await git(origin, 'rev-parse', 'feat/x'), tip);
+  assert.equal(await exists(plan), false);
+
+  await assert.rejects(
+    git(checkout, 'config', '--get', 'branch.feat/x.remote'),
+  );
 });
 
 test('a merged branch in a worktree detaches while the base is free, so the launcher can switch back to it', async () => {
