@@ -1,7 +1,7 @@
 import type { Row } from '../../src/core/jobs/jobs.js';
 
 /**
- * invented pids sit above Linux's highest, 4194304, so none can be the test process's own pid, which a read
+ * invented pids sit above Linux's pid limit, 4194304, so none can be the test process's own pid, which a read
  * treats as Witch. a command with the agent's pid would be its own parent and never end a read.
  */
 export const agentRow: Row = {

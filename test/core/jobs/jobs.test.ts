@@ -808,7 +808,7 @@ test("a ! command's group handed to track is a job from the first read, though i
 
 test('a group handed to track while a read runs is a job at the next read and after, along with the groups its process starts', async () => {
   // a `!` command's shell is Witch's own child, which a read never walks from by identity as it does an orphan.
-  // pids above 4194304, Linux's highest, can't be this test's
+  // pids above 4194304, Linux's pid limit, can't be this test's
   const shell: Row = {
     pid: 5100000,
     ppid: process.pid,
