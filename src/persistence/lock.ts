@@ -45,14 +45,18 @@ for my $path (@paths) {
   push @files, $file;
   push @results, 0;
 }
-open(my $table, '<', '/proc/locks') or die "Cannot inspect locks: $!";
 my %locks;
-while (my $line = <$table>) {
-  if ($line =~ /^\\d+:\\s+FLOCK\\s+ADVISORY\\s+(READ|WRITE)\\s+\\d+\\s+([0-9a-f]+):([0-9a-f]+):(\\d+)\\s+0\\s+EOF\\s*$/) {
-    $locks{join(':', hex($2), hex($3), $4)} = $1 eq 'READ' ? 1 : 2;
+# the kernel pages this file by entry index, so a lock released mid-read hides a held one.
+# three reads reduce that, not remove it
+for (1 .. 3) {
+  open(my $table, '<', '/proc/locks') or die "Cannot inspect locks: $!";
+  while (my $line = <$table>) {
+    if ($line =~ /^\\d+:\\s+FLOCK\\s+ADVISORY\\s+(READ|WRITE)\\s+\\d+\\s+([0-9a-f]+):([0-9a-f]+):(\\d+)\\s+0\\s+EOF\\s*$/) {
+      $locks{join(':', hex($2), hex($3), $4)} = $1 eq 'READ' ? 1 : 2;
+    }
   }
+  close($table) or die "Cannot close lock table: $!";
 }
-close($table) or die "Cannot close lock table: $!";
 for my $index (0 .. $#files) {
   next unless $files[$index];
   my @stat = stat($files[$index]);

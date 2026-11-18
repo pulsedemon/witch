@@ -34,12 +34,12 @@ const closing = (child: ChildProcess) =>
 
 /** a group the watch tracks once handed over, standing in for a server a command left behind. */
 const job: Row = {
-  pid: 4242,
+  pid: 5004242,
   ppid: 1,
-  pgid: 4242,
+  pgid: 5004242,
   name: 'node',
   leadsSession: true,
-  identity: '4242 a',
+  identity: '5004242 a',
 };
 
 /** a watch over `rows`, read only when a test lists it. */

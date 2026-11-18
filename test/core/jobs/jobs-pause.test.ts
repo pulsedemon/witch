@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import { JobWatch } from '../../../src/core/jobs/jobs.js';
 import type { Row } from '../../../src/core/jobs/jobs.js';
+import { leaders, orphanRow } from '../../fixtures/jobs.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until } from '../../fixtures/within.js';
 
@@ -17,27 +18,6 @@ async function stopped(reads: () => number): Promise<number> {
   }
 
   assert.fail('the reads never stopped');
-}
-
-async function leaders(pids: number[]) {
-  return pids.map((pid) => ({
-    pid,
-    pgid: pid,
-    cpu: 0,
-    startedAt: 0,
-    command: '',
-  }));
-}
-
-function orphanRow(pid: number): Row {
-  return {
-    pid,
-    ppid: 1,
-    pgid: pid,
-    name: 'node',
-    leadsSession: false,
-    identity: `${pid} a`,
-  };
 }
 
 test('an inactive watch stops reading once a fresh read finds nothing it tracks, and activity resumes it', async () => {
@@ -104,7 +84,7 @@ test('an inactive watch keeps reading for settle after activity or its last job 
     jobs.setActive(false);
     await stopped(() => reads.length);
     assert.ok(reads.at(-1)! - ended >= 150);
-    const job = orphanRow(100951);
+    const job = orphanRow(5100951);
     rows = [job];
     const before = reads.length;
     jobs.track(job.pgid);
@@ -146,7 +126,7 @@ test('a read that began before activity ended does not pause the watch', async (
 });
 
 test('a tracked group keeps an inactive watch reading', async () => {
-  const job = orphanRow(100961);
+  const job = orphanRow(5100961);
   let reads = 0;
 
   const jobs = new JobWatch({
@@ -201,11 +181,11 @@ test('a job list while paused finds an orphan and resumes the reads', async () =
     });
 
     const count = await stopped(() => reads);
-    rows = [orphanRow(100971)];
+    rows = [orphanRow(5100971)];
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100971],
+      [5100971],
     );
 
     await until('a timer read', () => reads > count + 1, 5);
@@ -215,7 +195,7 @@ test('a job list while paused finds an orphan and resumes the reads', async () =
 });
 
 test('a watch is live while a group is tracked and from the end of activity until a read after it', async () => {
-  const job = orphanRow(4242);
+  const job = orphanRow(5004242);
   let rows: Row[] = [];
   let held: Promise<void> | undefined;
 
@@ -248,7 +228,7 @@ test('a watch is live while a group is tracked and from the end of activity unti
     await jobs.list();
     assert.deepEqual(state(), [false, 2]);
     // tmux keeps the watch reading without giving it a job
-    rows = [{ ...orphanRow(4300), name: 'tmux' }];
+    rows = [{ ...orphanRow(5004300), name: 'tmux' }];
     await jobs.list();
     assert.deepEqual(state(), [false, 2]);
     rows = [];

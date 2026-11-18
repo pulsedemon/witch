@@ -8,37 +8,26 @@ import { test, vi } from 'vitest';
 import { JobWatch } from '../../../src/core/jobs/jobs.js';
 import type { Row } from '../../../src/core/jobs/jobs.js';
 import * as processes from '../../../src/persistence/process.js';
+import { orphanRow } from '../../fixtures/jobs.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until } from '../../fixtures/within.js';
 
-/** a process launchd adopted, alone in a group of its own. */
-function orphanRow(pid: number): Row {
-  return {
-    pid,
-    ppid: 1,
-    pgid: pid,
-    name: 'node',
-    leadsSession: false,
-    identity: `${pid} a`,
-  };
-}
-
 test('marked app roots exclude their trees, while commands and tools stay jobs', async () => {
-  const app = orphanRow(100701);
-  const helper = { ...orphanRow(100702), ppid: app.pid, pgid: app.pid };
-  const terminal = { ...orphanRow(100703), ppid: helper.pid };
-  const direct = { ...orphanRow(100705), pgid: 100704 };
-  const plain = orphanRow(100706);
-  const crashHandler = { ...orphanRow(100708), pgid: 100707 };
-  const xcodePython = orphanRow(100709);
-  const frameworkPython = orphanRow(100711);
-  const jdk = orphanRow(100712);
-  const codeHelper = { ...orphanRow(100714), pgid: 100713 };
-  const job = orphanRow(100715);
-  const browser = { ...orphanRow(100716), ppid: job.pid, pgid: job.pid };
-  const renderer = { ...orphanRow(100717), ppid: browser.pid, pgid: job.pid };
-  const unmarkedApp = orphanRow(100718);
-  const markedChild = { ...orphanRow(100719), ppid: unmarkedApp.pid };
+  const app = orphanRow(5100701);
+  const helper = { ...orphanRow(5100702), ppid: app.pid, pgid: app.pid };
+  const terminal = { ...orphanRow(5100703), ppid: helper.pid };
+  const direct = { ...orphanRow(5100705), pgid: 5100704 };
+  const plain = orphanRow(5100706);
+  const crashHandler = { ...orphanRow(5100708), pgid: 5100707 };
+  const xcodePython = orphanRow(5100709);
+  const frameworkPython = orphanRow(5100711);
+  const jdk = orphanRow(5100712);
+  const codeHelper = { ...orphanRow(5100714), pgid: 5100713 };
+  const job = orphanRow(5100715);
+  const browser = { ...orphanRow(5100716), ppid: job.pid, pgid: job.pid };
+  const renderer = { ...orphanRow(5100717), ppid: browser.pid, pgid: job.pid };
+  const unmarkedApp = orphanRow(5100718);
+  const markedChild = { ...orphanRow(5100719), ppid: unmarkedApp.pid };
 
   const later = [
     app,
@@ -124,7 +113,7 @@ test('marked app roots exclude their trees, while commands and tools stay jobs',
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100704, 100706, 100709, 100711, 100712, 100715, 100719],
+      [5100704, 5100706, 5100709, 5100711, 5100712, 5100715, 5100719],
     );
 
     assert.deepEqual(
@@ -148,12 +137,12 @@ test('marked app roots exclude their trees, while commands and tools stay jobs',
 
 for (const joins of ['later', 'in the read that opens the app']) {
   test(`a marked process that joins the group of an opened app or its terminal ${joins} brings back neither the app nor its terminals`, async () => {
-    const app = orphanRow(100801);
-    const terminal = { ...orphanRow(100802), ppid: app.pid };
+    const app = orphanRow(5100801);
+    const terminal = { ...orphanRow(5100802), ppid: app.pid };
 
     const strays = [
-      { ...orphanRow(100803), pgid: app.pid },
-      { ...orphanRow(100804), pgid: terminal.pid },
+      { ...orphanRow(5100803), pgid: app.pid },
+      { ...orphanRow(5100804), pgid: terminal.pid },
     ];
 
     const tables = [
@@ -222,8 +211,8 @@ for (const joins of ['later', 'in the read that opens the app']) {
 }
 
 test('an excluded app keeps an inactive watch reading', async () => {
-  const app = orphanRow(100901);
-  const terminal = { ...orphanRow(100902), ppid: app.pid };
+  const app = orphanRow(5100901);
+  const terminal = { ...orphanRow(5100902), ppid: app.pid };
   let rows: Row[] = [];
   let reads = 0;
 
@@ -336,11 +325,11 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
     const directory = await scratch('witch-jobs-');
 
     const services = new Map([
-      [100951, 'application.com.witch-test.editor.2'],
-      [100952, undefined],
-      [100953, '0'],
-      [100955, '0'],
-      ...(service ? [[100954, service] as const] : []),
+      [5100951, 'application.com.witch-test.editor.2'],
+      [5100952, undefined],
+      [5100953, '0'],
+      [5100955, '0'],
+      ...(service ? [[5100954, service] as const] : []),
     ]);
 
     let rows: Row[] = [];
@@ -355,7 +344,7 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
           const application = services.get(pid);
 
           const argument =
-            pid === 100955
+            pid === 5100955
               ? ' XPC_SERVICE_NAME=application.com.witch-test.argument'
               : '';
 
@@ -386,11 +375,13 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
 
     try {
       await jobs.list();
-      rows = [...services.keys()].map(orphanRow);
+      rows = [...services.keys()].map((pid) => orphanRow(pid));
 
       assert.deepEqual(
         (await jobs.list()).map(({ group }) => group),
-        service ? [100952, 100953, 100955, 100954] : [100952, 100953, 100955],
+        service
+          ? [5100952, 5100953, 5100955, 5100954]
+          : [5100952, 5100953, 5100955],
       );
     } finally {
       if (original === undefined) delete process.env.XPC_SERVICE_NAME;

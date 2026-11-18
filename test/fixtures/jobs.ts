@@ -1,13 +1,16 @@
 import type { Row } from '../../src/core/jobs/jobs.js';
 
-/** an agent whose pid is above macOS's highest, since a command with the agent's pid would be its own parent and never end a read. */
+/**
+ * invented pids sit above Linux's pid limit, 4194304, so none can be the test process's own pid, which a read
+ * treats as Witch. a command with the agent's pid would be its own parent and never end a read.
+ */
 export const agentRow: Row = {
-  pid: 100_000,
+  pid: 5_100_000,
   ppid: process.pid,
-  pgid: 100_000,
+  pgid: 5_100_000,
   name: 'node',
   leadsSession: false,
-  identity: '100000 a',
+  identity: '5100000 a',
 };
 
 export function commandRows(group: number, identity: string): Row[] {
