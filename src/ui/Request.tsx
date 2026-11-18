@@ -6,9 +6,9 @@ import { fullFormats } from 'ajv-formats/dist/formats.js';
 import type { UserRequest, UserResponse } from '../agents/types.js';
 import { errorMessage } from '../errors.js';
 import { Input } from './input/Input.js';
-import { useKeysReady } from './input/keys-ready.js';
+import { useKeysReady } from './input/useKeysReady.js';
 import { linkify, plain } from './links.js';
-import { useLiveState } from './live-state.js';
+import { useLiveState } from './useLiveState.js';
 import { piped } from './theme.js';
 import {
   canExpandDiff,

@@ -13,7 +13,7 @@ import stripAnsi from 'strip-ansi';
 import { boundaries, editInput, initialInput, lineAt } from './input-buffer.js';
 import type { Edit, InputBuffer, Step } from './input-buffer.js';
 import { split, visible, wrap } from './input-layout.js';
-import { useLiveState } from '../live-state.js';
+import { useLiveState } from '../useLiveState.js';
 
 const backward = new Set<Edit['type']>([
   'backspace',
