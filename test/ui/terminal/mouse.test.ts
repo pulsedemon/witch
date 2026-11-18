@@ -515,6 +515,15 @@ test('presses on one cell count up while each follows the last within 500 ms, a 
   assert.deepEqual(clicked, [1, 2, 3, 4, 1, 1, 2, 1, 2, 1]);
 });
 
+test('a press released on another cell with no drag report between clicks nothing, and the next click on its cell is a first click', () => {
+  vi.useFakeTimers({ toFake: ['performance'] });
+  const { source, presses, clicked } = input();
+  source.emit('data', '\u001b[<0;5;5M\u001b[<0;9;5m');
+  source.emit('data', '\u001b[<0;5;5M\u001b[<0;5;5m');
+  assert.deepEqual(presses, [1, 1]);
+  assert.deepEqual(clicked, [1]);
+});
+
 test('a wheel step while the button is down keeps its release from clicking', () => {
   const { source, wheel, clicks } = input();
   source.emit('data', '\u001b[<0;5;5M\u001b[<65;5;5M\u001b[<0;5;5m');

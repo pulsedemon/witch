@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { setTimeout as delay } from 'node:timers/promises';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import type { DisplayItem } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
 import { fake, left, show, DOWN, ENTER, UP } from '../fixtures/ui.js';
@@ -191,6 +191,8 @@ test('a selected tool that joins a group leaves the group selected', async () =>
 });
 
 test("clicking a tool's marker toggles it and a click on its title text does not", async () => {
+  // the clock stands still, so every press on one cell counts with the last
+  vi.useFakeTimers({ toFake: ['performance'] });
   const { app } = fake({ items: [said('start'), tool('alpha')] });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
@@ -211,15 +213,19 @@ test("clicking a tool's marker toggles it and a click on its title text does not
     await delay(60);
     assert.ok(!ui.text().includes('alpha output'));
     click(1);
-    await delay(60);
+    await until('the open tool', () => ui.text().includes('alpha output'));
     assert.ok(ui.text().includes('− ✓ alpha tool'));
     const at = toolRow();
-    // a double click's second press on the marker selects nothing
+    // a second press on the marker stays a plain press, so a drag from it selects cells, not whole words
     ui.stdin.write(left('press', 1, at));
-    await delay(60);
-    assert.ok(ui.text().includes('alpha output'));
-    assert.ok(!ui.frame().includes('\u001b[7m'));
-    ui.stdin.write(left('release', 1, at));
+    ui.stdin.write(left('drag', 6, at));
+
+    await until('the cells highlighted', () =>
+      ui.frame().includes('\u001b[7m− ✓ al\u001b[27m'),
+    );
+
+    ui.stdin.write(left('release', 6, at));
+    click(1);
     await until('the closed tool', () => !ui.text().includes('alpha output'));
   } finally {
     ui.unmount();
