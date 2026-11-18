@@ -188,22 +188,23 @@ function sentenceEnd(text: string): number {
   return length;
 }
 
+// a raw quote, or a JSON escape with the character it escapes. a lone backslash before any other character can belong to a query, as in `?q=\d+`
+const breaks = /"|\\{2,}["bfnrtu]?|\\["bfnrtu]/gu;
+
 /**
- * linkify-it's matches with no raw double quote, which no URL holds.
+ * linkify-it's matches with no raw double quote and no JSON escape, which end a URL written in JSON.
  * linkify-it pairs quotes inside a path, so minified JSON would join a URL to the keys after it.
  */
 function webMatches(
   text: string,
 ): Pick<Match, 'index' | 'lastIndex' | 'text' | 'url'>[] {
-  const matches = urls.match(text) ?? [];
-
-  if (!matches.some((match) => match.text.includes('"'))) return matches;
-
   const result: ReturnType<typeof webMatches> = [];
   let start = 0;
 
-  for (const segment of text.split('"')) {
-    for (const match of urls.match(segment) ?? [])
+  for (const stop of [...text.matchAll(breaks), undefined]) {
+    const end = stop?.index ?? text.length;
+
+    for (const match of urls.match(text.slice(start, end)) ?? [])
       result.push({
         index: start + match.index,
         lastIndex: start + match.lastIndex,
@@ -211,7 +212,7 @@ function webMatches(
         url: match.url,
       });
 
-    start += segment.length + 1;
+    start = end + (stop?.[0].length ?? 0);
   }
 
   return result;
@@ -247,7 +248,12 @@ function bareLinks(text: string, cwd: string): string {
 
     const source = sourceFiles[fileIndex];
 
-    if (!webLink.test(match.text) && source && source.index < match.lastIndex) {
+    if (
+      !webLink.test(match.text) &&
+      source &&
+      source.index >= offset &&
+      source.index < match.lastIndex
+    ) {
       output +=
         fileLinks(text.slice(offset, source.index), cwd) +
         fileLinks(source[0], cwd);
@@ -258,14 +264,7 @@ function bareLinks(text: string, cwd: string): string {
     }
 
     output += fileLinks(text.slice(offset, match.index), cwd);
-    let escape = 0;
-
-    // a backslash before a quote escapes it, as in JSON written inside a JSON string
-    if (text[match.lastIndex] === '"')
-      while (match.text[match.text.length - 1 - escape] === '\\') escape++;
-
-    const punctuation =
-      escape + sentenceEnd(match.text.slice(0, match.text.length - escape));
+    const punctuation = sentenceEnd(match.text);
 
     output += hyperlink(
       match.text.slice(0, match.text.length - punctuation),

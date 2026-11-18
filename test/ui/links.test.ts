@@ -142,6 +142,103 @@ test('a URL in minified or escaped JSON links alone, ending at the quote after i
   assert.equal(stripAnsi(output), long);
 });
 
+test('a URL before a JSON escape links alone, a URL after the escape links too, and a backslash that is no JSON escape stays in its link', () => {
+  const one = [
+    { target: 'https://example.com/1', text: 'https://example.com/1' },
+  ];
+
+  const two = [
+    ...one,
+    { target: 'https://example.com/2', text: 'https://example.com/2' },
+  ];
+
+  const search = String.raw`https://github.com/search?q=foo\.bar&type=code`;
+  const fragment = String.raw`https://example.com/doc#a\c`;
+
+  for (const [text, spans] of [
+    [JSON.stringify({ t: 'see https://example.com/1\nnext' }), one],
+    [JSON.stringify({ t: 'see https://example.com/1\tnext' }), one],
+    [JSON.stringify({ t: 'see https://example.com/1\\next' }), one],
+    [
+      JSON.stringify({ t: 'see www.example.com/1\nnext' }),
+      [{ target: 'http://www.example.com/1', text: 'www.example.com/1' }],
+    ],
+    [JSON.stringify({ t: 'see https://example.com/1.\nnext' }), one],
+    [
+      JSON.stringify({ t: 'https://example.com/1\nhttps://example.com/2' }),
+      two,
+    ],
+    [
+      JSON.stringify(JSON.stringify({ t: 'see https://example.com/1\nnext' })),
+      one,
+    ],
+    // a URL parser keeps a backslash in a query or fragment
+    [`see ${search} ok`, [{ target: search, text: search }]],
+    [fragment, [{ target: fragment, text: fragment }]],
+    // only an escape's own character goes with its backslashes, so `www` keeps its first letter
+    [
+      JSON.stringify({
+        u: 'https://example.com/a\nb',
+        p: 'C:\\www.example.com/x',
+      }),
+      [
+        { target: 'https://example.com/a', text: 'https://example.com/a' },
+        { target: 'http://www.example.com/x', text: 'www.example.com/x' },
+      ],
+    ],
+    [
+      JSON.stringify(
+        JSON.stringify({ t: 'https://example.com/1\nhttps://example.com/2' }),
+      ),
+      two,
+    ],
+    // a URL with no path ends before the backslash, and a URL after an escape is found only once the text is split
+    [
+      JSON.stringify({ t: 'https://example.com\nhttps://example.org/2' }),
+      [
+        { target: 'https://example.com', text: 'https://example.com' },
+        { target: 'https://example.org/2', text: 'https://example.org/2' },
+      ],
+    ],
+    [
+      JSON.stringify({ t: 'https://example.com\nwww.example.org/2' }),
+      [
+        { target: 'https://example.com', text: 'https://example.com' },
+        { target: 'http://www.example.org/2', text: 'www.example.org/2' },
+      ],
+    ],
+    [
+      JSON.stringify({ t: 'see\nhttps://example.com/x' }),
+      [{ target: 'https://example.com/x', text: 'https://example.com/x' }],
+    ],
+    [
+      JSON.stringify({ t: 'see\nwww.example.com/x' }),
+      [{ target: 'http://www.example.com/x', text: 'www.example.com/x' }],
+    ],
+    // the quoted value reads as one file path, which must not be drawn again after the link inside it
+    [
+      JSON.stringify({ t: 'www.example.com/1\nexample.org/2' }),
+      [
+        { target: 'http://www.example.com/1', text: 'www.example.com/1' },
+        { target: 'http://example.org/2', text: 'example.org/2' },
+      ],
+    ],
+    [
+      '"www.example.com/a example.org/b.md"',
+      [
+        { target: 'http://www.example.com/a', text: 'www.example.com/a' },
+        { target: 'http://example.org/b.md', text: 'example.org/b.md' },
+      ],
+    ],
+    // `\/` is no break: the host alone would link without its path
+    [String.raw`{"u":"https:\/\/example.com\/a\/b"}`, []],
+  ] as const) {
+    const output = linkify(text, '/work');
+    assert.deepEqual(linkSpans(output), spans, text);
+    assert.equal(stripAnsi(output), text);
+  }
+});
+
 test('a link is underlined inside its OSC 8 sequence on each of its lines, and a target that cannot open stays plain text', () => {
   const link = (text: string) =>
     `\u001b]8;;https://example.com\u0007\u001b[4m${text}\u001b[24m\u001b]8;;\u0007`;
