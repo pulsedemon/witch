@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
-import { fake, left, openCommand } from '../fixtures/ui.js';
+import {
+  DOWN,
+  ENTER,
+  TAB,
+  fake,
+  left,
+  openCommand,
+  tools,
+} from '../fixtures/ui.js';
 import {
   CMD_C,
   CTRL_SHIFT_A,
@@ -207,4 +215,73 @@ test('Ctrl+Shift+A selects nothing under a page or in an empty conversation', as
   } finally {
     empty.ui.unmount();
   }
+});
+
+test('with a selection, Shift+↓ moves its end and leaves an open completion list on its choice', async () => {
+  const { app } = fake({
+    items,
+    skills: [
+      { name: 'x-one', description: 'First skill' },
+      { name: 'x-two', description: 'Second skill' },
+    ],
+  });
+
+  const mount = mounted(app);
+  const { ui } = mount;
+
+  try {
+    await until('the reply', () => ui.text().includes('three 日本 four'));
+    ui.stdin.write('/x');
+    await until('the list', () => ui.text().includes('/x-two Second skill'));
+    ui.stdin.write(click(2, 2) + click(2, 2));
+    assert.equal(await copyAfter(mount), 'alpha');
+    assert.equal(await copyAfter(mount, SHIFT_DOWN), 'alpha beta gamma\n');
+    // Tab completes the list's choice, still its first
+    ui.stdin.write(TAB);
+    await until('the list closed', () => !ui.text().includes('Second skill'));
+    assert.ok(ui.text().includes('/x-one'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('with a selection, Shift+↓ moves its end and leaves the focused tool chosen', async () => {
+  /** focuses the tools, runs `keys` and returns the output of the tool Enter then opens. */
+  const opened = async (
+    keys: (mount: ReturnType<typeof mounted>) => unknown,
+  ) => {
+    const mount = mounted(fake({ items: [items[0]!, ...tools('a')] }).app);
+    const { ui } = mount;
+
+    try {
+      await until('the tools', () => ui.text().includes('a tool 2'));
+      ui.stdin.write('\t');
+      await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
+      await keys(mount);
+      ui.stdin.write(ENTER);
+      await until('a tool open', () => ui.text().includes('a output'));
+
+      return /a output \d/.exec(ui.text())![0];
+    } finally {
+      ui.unmount();
+    }
+  };
+
+  const untouched = await opened(() => {});
+
+  const afterDown = await opened(async ({ ui }) => {
+    ui.stdin.write(DOWN);
+    await delay(20);
+  });
+
+  assert.notEqual(afterDown, untouched);
+
+  assert.equal(
+    await opened(async (mount) => {
+      mount.ui.stdin.write(click(2, 2) + click(2, 2));
+      assert.equal(await copyAfter(mount), 'alpha');
+      assert.equal(await copyAfter(mount, SHIFT_DOWN), 'alpha beta gamma\n');
+    }),
+    untouched,
+  );
 });

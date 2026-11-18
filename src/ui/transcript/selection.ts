@@ -139,24 +139,28 @@ export function textEnd(line: string): number | undefined {
   return last;
 }
 
+/** the last column of `line` a selection's end can rest on; an image row draws and copies nothing. */
+const endOf = (line: string) =>
+  line.includes(placeholder) ? undefined : textEnd(line);
+
 /**
  * where a selection's end at `at` goes for one arrow key. ← and → step by drawn character, so a wide one takes one
- * press, and wrap between rows at the row's last text column. ↑ and ↓ keep the column. `last` is the last row.
+ * press, and wrap between rows at the row's last text column. ↑ and ↓ keep the column.
  */
 export function stepEnd(
-  lines: Pick<readonly string[], 'at'>,
+  lines: Pick<readonly string[], 'at' | 'length'>,
   at: Point,
   direction: 'left' | 'right' | 'up' | 'down',
-  last: number,
 ): Point {
   const { row, column } = at;
+  const last = lines.length - 1;
 
   if (direction === 'up') return { row: Math.max(0, row - 1), column };
 
   if (direction === 'down') return { row: Math.min(last, row + 1), column };
 
   const line = lines.at(row)!;
-  const end = textEnd(line) ?? 0;
+  const end = endOf(line) ?? 0;
   const starts = [...drawn(line)].map(({ start }) => start);
   const covering = starts.findLastIndex((start) => start <= column);
 
@@ -173,7 +177,7 @@ export function stepEnd(
   if (covering > 0) return { row, column: starts[covering - 1]! };
 
   return row > 0
-    ? { row: row - 1, column: textEnd(lines.at(row - 1)!) ?? 0 }
+    ? { row: row - 1, column: endOf(lines.at(row - 1)!) ?? 0 }
     : at;
 }
 
@@ -278,7 +282,7 @@ export function textEnds(
   lines: Pick<readonly string[], 'at' | 'length'>,
 ): [Point, Point] | undefined {
   for (let row = lines.length - 1; row >= 0; row--) {
-    const column = textEnd(lines.at(row)!);
+    const column = endOf(lines.at(row)!);
 
     if (column !== undefined)
       return [

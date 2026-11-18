@@ -9,6 +9,7 @@ import {
   stepEnd,
   tabbed,
   textEnd,
+  textEnds,
   uncopied,
   wordAt,
 } from '../../../src/ui/transcript/selection.js';
@@ -230,7 +231,7 @@ test("a selection's end steps by drawn character and row, and wraps at the text'
     row: number,
     column: number,
     direction: Parameters<typeof stepEnd>[2],
-  ) => stepEnd(lines, { row, column }, direction, 2);
+  ) => stepEnd(lines, { row, column }, direction);
 
   assert.deepEqual(step(2, 5, 'right'), { row: 2, column: 6 });
   // across a wide character in one press, from either of its cells
@@ -257,11 +258,32 @@ test("a selection's end wraps from a wide character that starts or ends its row'
     row: number,
     column: number,
     direction: 'left' | 'right',
-  ) => stepEnd(lines, { row, column }, direction, lines.length - 1);
+  ) => stepEnd(lines, { row, column }, direction);
 
   assert.deepEqual(step(['a日', 'x'], 0, 1, 'right'), { row: 1, column: 0 });
   assert.deepEqual(step(['a日', 'x'], 0, 2, 'right'), { row: 1, column: 0 });
   assert.deepEqual(step(['a日'], 0, 1, 'right'), { row: 0, column: 1 });
   assert.deepEqual(step(['a', '日本'], 1, 1, 'left'), { row: 0, column: 0 });
   assert.deepEqual(step(['日本'], 0, 1, 'left'), { row: 0, column: 1 });
+});
+
+test('the whole text ends on the last row that holds text, and an end steps over an image row', () => {
+  const image = placeholder.repeat(4);
+  const lines = ['You', 'hello', image, ''];
+
+  assert.deepEqual(textEnds(lines), [
+    { row: 0, column: 0 },
+    { row: 1, column: 4 },
+  ]);
+
+  assert.equal(textEnds([image, '', '  ']), undefined);
+
+  const step = (row: number, column: number, direction: 'left' | 'right') =>
+    stepEnd(['ab', image, 'cd'], { row, column }, direction);
+
+  assert.deepEqual(step(0, 1, 'right'), { row: 1, column: 0 });
+  assert.deepEqual(step(1, 0, 'right'), { row: 2, column: 0 });
+  assert.deepEqual(step(1, 2, 'left'), { row: 1, column: 0 });
+  assert.deepEqual(step(1, 0, 'left'), { row: 0, column: 1 });
+  assert.deepEqual(step(2, 0, 'left'), { row: 1, column: 0 });
 });

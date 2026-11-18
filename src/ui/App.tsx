@@ -1127,13 +1127,7 @@ export function App({
       !key.super &&
       selection()
     ) {
-      const next = stepEnd(
-        transcript.lines,
-        pointOf(moved.to)!,
-        direction,
-        transcript.lines.length - 1,
-      );
-
+      const next = stepEnd(transcript.lines, pointOf(moved.to)!, direction);
       const end = rangeEnd(next);
 
       if (end) {
