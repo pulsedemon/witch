@@ -110,7 +110,7 @@ async function located(
   };
 }
 
-/** `text` linked to `target`. with `copied`, a copy of it carries the destination after it, unless some of the destination would not show. */
+/** `text` linked to `target`. with `copied`, a copy of it carries the destination after it, unless the destination cannot be decoded or some of it would not show. */
 export function hyperlink(
   text: string,
   target: string,
@@ -151,7 +151,7 @@ export function hyperlink(
     .join('\n');
 }
 
-/** `explicit` is a link or image written with its own label, which copies its destination when the label isn't the target. */
+/** `explicit` is a link written with its own label, or any image. it copies its destination when its label as drawn isn't the target. */
 export function markdownLink(
   text: string,
   target: string,
