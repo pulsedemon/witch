@@ -1075,6 +1075,23 @@ export function App({
       return;
     }
 
+    if (key.escape && transcriptBox.current) {
+      const selected = endsOf(rangeRef.current);
+      const { top, height } = viewport(topRef.current, seenRef.current);
+
+      if (
+        selected &&
+        height > 0 &&
+        selected[0].row < top + height &&
+        selected[1].row >= top
+      ) {
+        endPress();
+        setRange(undefined);
+
+        return;
+      }
+    }
+
     if (request) return;
 
     const modified = key.ctrl || key.meta || key.super;
