@@ -595,7 +595,7 @@ export class TranscriptLayout {
       return positions[low - 1];
     };
 
-    /** `row` and the row above it when both are wrapped from one line of one item, and a copy joins them. */
+    /** `row` and the row above it when both are wrapped from one line of one item and `row` is no diff or image row. */
     const wrappedOnto = (row: number) => {
       const here = positionAt(row);
       const above = positionAt(row - 1);
@@ -641,7 +641,7 @@ export class TranscriptLayout {
 
         return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
       },
-      /** the first and last row of the line `row` is wrapped from, as a copy joins them; each diff or image row is its own line. */
+      /** the first and last row of the line `row` is wrapped from; each diff or image row is its own line. */
       lineAt(row: number): { first: number; last: number } {
         let first = row;
         let last = row;
