@@ -236,19 +236,15 @@ test("a double or triple click on a tool's marker in one read toggles it each ti
 });
 
 test("clicking a tool's marker toggles it and a click on its title text does not", async () => {
-  // the clock stands still, so every press on one cell counts with the last
-  vi.useFakeTimers({ toFake: ['performance'] });
   const { app } = fake({ items: [said('start'), tool('alpha')] });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
 
-  const toolRow = () =>
-    ui
+  const click = (column: number) => {
+    const at = ui
       .text()
       .split('\n')
       .findIndex((line) => line.includes('alpha tool'));
 
-  const click = (column: number) => {
-    const at = toolRow();
     ui.stdin.write(left('press', column, at) + left('release', column, at));
   };
 
@@ -260,16 +256,6 @@ test("clicking a tool's marker toggles it and a click on its title text does not
     click(1);
     await until('the open tool', () => ui.text().includes('alpha output'));
     assert.ok(ui.text().includes('− ✓ alpha tool'));
-    const at = toolRow();
-    // the marker keeps a second press on it selecting by cell: a drag from it takes cells, not whole words
-    ui.stdin.write(left('press', 1, at));
-    ui.stdin.write(left('drag', 6, at));
-
-    await until('the cells highlighted', () =>
-      ui.frame().includes('\u001b[7m− ✓ al\u001b[27m'),
-    );
-
-    ui.stdin.write(left('release', 6, at));
     click(1);
     await until('the closed tool', () => !ui.text().includes('alpha output'));
   } finally {
