@@ -1113,7 +1113,7 @@ test('a held triple press whose line changes its last row selects the current li
   }
 });
 
-/** fakes the edge scroll's interval and gives the timer count before any drag, which the status line's own interval is part of. */
+/** the timer count before any drag, under faked intervals; the status line's own interval is part of it. */
 async function fakedInterval(ui: { text(): string }) {
   await until('the transcript', () => first(ui) > 0);
 
@@ -1224,7 +1224,7 @@ test('a press held while a page opens and closes ends there, so a later drag sel
 test('a drag held past the edge keeps one 50 ms interval, which a release, a hover report, a resize that drops the press or unmounting clears', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
   const { app } = fake({ items: [long] });
-  const { ui } = mounted(app);
+  const { ui, copied } = mounted(app);
 
   const held = () => {
     ui.stdin.write(left('press', 1, 5));
@@ -1249,9 +1249,13 @@ test('a drag held past the edge keeps one 50 ms interval, which a release, a hov
     assert.equal(vi.getTimerCount(), baseline);
     held();
     assert.equal(vi.getTimerCount(), baseline + 1);
-    // motion with no button held
+    ui.stdin.write(CMD_C);
+    // motion with no button held ends the press, so the drag after it moves no end of the selection
     ui.stdin.write('\u001b[<35;2;1M');
     assert.equal(vi.getTimerCount(), baseline);
+    ui.stdin.write(left('drag', 3, 8) + CMD_C);
+    await until('both copies', () => copied.length > 1);
+    assert.equal(copied[1], copied[0]);
     held();
     ui.resize(80);
 

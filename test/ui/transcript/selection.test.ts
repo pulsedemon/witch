@@ -168,6 +168,8 @@ test('a word runs between spaces, quotes and brackets, keeps a path with its lin
   assert.deepEqual(wordAt('call (beta) now', 7), { start: 6, end: 9 });
   assert.deepEqual(wordAt('the end.', 5), { start: 4, end: 6 });
   assert.deepEqual(wordAt('the end!', 5), { start: 4, end: 6 });
+  assert.deepEqual(wordAt('the end.', 7), { start: 4, end: 6 });
+  assert.deepEqual(wordAt('a ... b', 3), { start: 2, end: 2 });
   assert.deepEqual(wordAt('the end?', 5), { start: 4, end: 6 });
   assert.deepEqual(wordAt('a日b c', 2), { start: 0, end: 3 });
   assert.equal(wordAt('alpha beta', 5), undefined);
