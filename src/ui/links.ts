@@ -156,7 +156,7 @@ export function markdownLink(
   text: string,
   target: string,
   cwd: string,
-  explicit = false,
+  explicit: boolean,
 ): string {
   if (!/^[a-z][a-z\d+.-]*:/i.test(target)) {
     // a heading anchor is no part of the file; only a `#L12` location after a file is kept

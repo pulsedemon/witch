@@ -76,12 +76,12 @@ function* drawn(line: string) {
   }
 }
 
-/** `line` cut at columns `start` and `end`, with what each cell inside copies as and the destination its link copies. */
+/** `line` cut at columns `start` and `end`, with what each cell inside copies as and its link's code. */
 function cut(line: string, start: number, end: number) {
   const before: StyledChar[] = [];
   const inside: StyledChar[] = [];
   const after: StyledChar[] = [];
-  const copied: { text: string; destination: string | undefined }[] = [];
+  const copied: { text: string; link: string | undefined }[] = [];
   let width = 0;
 
   for (const { char, start: from, end: next, copied: text } of drawn(line)) {
@@ -89,7 +89,7 @@ function cut(line: string, start: number, end: number) {
     if (next <= start) before.push(char);
     else if (from < end) {
       inside.push(char);
-      copied.push({ text, destination: copiedDestination(linkOf(char)) });
+      copied.push({ text, link: linkOf(char) });
     } else after.push(char);
 
     width = next;
@@ -222,7 +222,7 @@ export function highlight(line: string, start: number, end: number): string {
  * plain text from `start` through `end`, skipping images and joining each copied row after the first with `joint`.
  * a marked quote rule goes with the space after it, and a marked table rule with the space on each side becomes a tab,
  * where that space is a `joint` too. a link that copies its destination gets it in parentheses after its last selected
- * cell, once for a label wrapped over rows.
+ * cell that isn't a space, once for a label wrapped over rows.
  */
 export function selectedText(
   lines: Pick<readonly string[], 'at'>,
@@ -233,6 +233,9 @@ export function selectedText(
   let text: string | undefined;
   // `end` is past the link's last cell that isn't a space, so a row's trailing space stays after the destination
   let open: { destination: string; end: number } | undefined;
+  // a link's cells share one code, so its destination is worked out once
+  let link: string | undefined;
+  let destination: string | undefined;
 
   const close = () => {
     if (!open) return;
@@ -260,10 +263,14 @@ export function selectedText(
     text = (text ?? '') + joined;
 
     for (const cell of cells) {
-      if (cell.destination !== open?.destination) close();
+      if (cell.link !== link) {
+        link = cell.link;
+        destination = copiedDestination(link);
+      }
 
-      if (cell.destination)
-        open ??= { destination: cell.destination, end: text.length };
+      if (destination !== open?.destination) close();
+
+      if (destination) open ??= { destination, end: text.length };
 
       text += cell.text;
 
