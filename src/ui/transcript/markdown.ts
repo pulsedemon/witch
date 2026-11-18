@@ -3,6 +3,7 @@ import { Marked, Parser, Renderer } from 'marked';
 import type { Token } from 'marked';
 import stripAnsi from 'strip-ansi';
 import { markdownLink, linkify, plain } from '../links.js';
+import { tabbed, uncopied } from './selection.js';
 import { accent, colors } from '../theme.js';
 
 function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
@@ -64,7 +65,7 @@ function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
       .parse(tokens)
       .trimEnd()
       .split('\n')
-      .map((line) => `│ ${line}`)
+      .map((line) => `${uncopied}│ ${line}`)
       .join('\n')}\n\n`;
 
   /** each block of an item on its own line, with a checkbox kept on the line it marks. */
@@ -106,7 +107,7 @@ function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
       .join('\n')}\n\n`;
 
   renderer.table = ({ header, rows }) =>
-    `${[header, ...rows].map((row) => row.map((cell) => renderer.parser.parseInline(cell.tokens)).join(' │ ')).join('\n')}\n\n`;
+    `${[header, ...rows].map((row) => row.map((cell) => renderer.parser.parseInline(cell.tokens)).join(` ${tabbed}│ `)).join('\n')}\n\n`;
 
   return renderer;
 }

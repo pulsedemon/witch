@@ -6,7 +6,9 @@ import { hyperlink } from '../../../src/ui/links.js';
 import {
   highlight,
   selectedText,
+  tabbed,
   textEnd,
+  uncopied,
   wordAt,
 } from '../../../src/ui/transcript/selection.js';
 
@@ -105,6 +107,45 @@ test('selected text joins wrapped rows, breaks between lines, drops trailing spa
     selectedText(lines, { row: 1, column: 6 }, { row: 2, column: 7 }, joint),
     'with only the word',
   );
+});
+
+test('a copy leaves out a marked rule and the space after it, turns a marked table rule and its spaces into one tab, and keeps a rule nothing marked', () => {
+  const copy = (rows: string[], joint = '\n') =>
+    selectedText(
+      rows,
+      { row: 0, column: 0 },
+      { row: rows.length - 1, column: 99 },
+      () => joint,
+    );
+
+  assert.equal(copy([`  ${uncopied}│ ${uncopied}│ inner`]), '  inner');
+
+  assert.equal(
+    copy([`${uncopied}│ first`, `${uncopied}│ `, `${uncopied}│ second`]),
+    'first\n\nsecond',
+  );
+
+  assert.equal(copy([`a ${tabbed}│ b`, `1 ${tabbed}│ 2`]), 'a\tb\n1\t2');
+  // a cell's own spaces stay
+  assert.equal(copy([`a   ${tabbed}│  b`]), 'a  \t b');
+  // a wrap trimmed the space beside the rule and the join put it back
+  assert.equal(copy([`${uncopied}│`, 'inner'], ' '), 'inner');
+  assert.equal(copy([`alpha ${tabbed}│`, 'beta'], ' '), 'alpha\tbeta');
+  assert.equal(copy(['│   ├── src']), '│   ├── src');
+  // a mark before any other character changes nothing
+  assert.equal(copy([`see${uncopied} this ${tabbed}x`]), 'see this x');
+
+  assert.equal(
+    selectedText(
+      [`${uncopied}│ quoted`],
+      { row: 0, column: 2 },
+      { row: 0, column: 4 },
+      () => '',
+    ),
+    'quo',
+  );
+
+  assert.equal(highlight(`${uncopied}│ q`, 2, 3), `│ ${inverse('q')}`);
 });
 
 test('selected text drops trailing spaces in time linear in a long run of spaces before text', () => {
