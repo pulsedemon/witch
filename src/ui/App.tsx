@@ -880,7 +880,11 @@ export function App({
       pressedNewMessages.current = false;
     }
 
+    // a press anywhere but on the same transcript text, another view included, ends the run of presses on it
+    const streak = pressStreak.current;
+
     if (pointer === 'press') {
+      pressStreak.current = undefined;
       setRange(undefined);
 
       if (newMessagesBox.current) {
@@ -924,7 +928,6 @@ export function App({
         return false;
 
       pressedAt.current = end;
-      const streak = pressStreak.current;
 
       // presses count by screen cell, and other text can come under it between them: an opened link's notice
       // moves the rows, and streamed output rewrites one
