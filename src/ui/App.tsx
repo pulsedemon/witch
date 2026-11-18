@@ -1075,6 +1075,37 @@ export function App({
       return;
     }
 
+    if (key.escape && transcriptBox.current) {
+      const selected = endsOf(rangeRef.current);
+      const { top, height } = viewport(topRef.current, seenRef.current);
+
+      if (selected) {
+        const [start, end] = selected;
+
+        for (
+          let row = Math.max(top, start.row);
+          row <= Math.min(end.row, top + height - 1);
+          row++
+        ) {
+          const line = transcript.lines.at(row)!;
+
+          if (
+            highlight(
+              line,
+              row === start.row ? start.column : 0,
+              row === end.row ? end.column + 1 : bodyWidth,
+            ) === line
+          )
+            continue;
+
+          endPress();
+          setRange(undefined);
+
+          return;
+        }
+      }
+    }
+
     if (request) return;
 
     const modified = key.ctrl || key.meta || key.super;
