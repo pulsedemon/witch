@@ -264,6 +264,7 @@ test('long JSON written inside a JSON string, or holding a value longer than one
     // every quote is escaped, so the run has no raw quote to cut at
     [JSON.stringify(JSON.stringify(sixty)), all],
     [JSON.stringify(JSON.stringify(JSON.stringify(sixty))), all],
+    // one value is longer than an input, so its window holds no quote and the cut waits for the next one
     [JSON.stringify({ blob: 'A'.repeat(2500), url: after }), [after]],
     [
       JSON.stringify(JSON.stringify({ blob: 'A'.repeat(2500), url: after })),
@@ -280,7 +281,7 @@ test('long JSON written inside a JSON string, or holding a value longer than one
     ],
     [JSON.stringify({ data: `/9j/${'A'.repeat(3000)}`, url: after }), [after]],
     [JSON.stringify({ blob: `./${'A'.repeat(5000)}.ts`, url: after }), [after]],
-    // a run with no possible link is not cut, so a dropped path keeps its escaped quote
+    // a run with no possible link is not cut after quotes, so a dropped path keeps its escaped quote
     [
       `${'x'.repeat(1500)}${dropped})${'y'.repeat(900)} end`,
       ['file:///Users/me/a%22b.png'],
