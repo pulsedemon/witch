@@ -36,6 +36,7 @@ import {
   peerRequestSchema,
 } from '../core/coordination/peer-requests.js';
 import type { PeerRequest } from '../core/coordination/peer-requests.js';
+import { peerAnswer } from '../core/coordination/peer-answers.js';
 import type { PeerAnswer } from '../core/coordination/peer-answers.js';
 import {
   entry,
@@ -59,6 +60,22 @@ const ledgerSchema = z.discriminatedUnion('version', [
 ]);
 
 export type Ledger = { claims: TaskClaim[]; selections: SelectionTicket[] };
+
+const queuedWriteSchema = z.discriminatedUnion('kind', [
+  z.object({
+    conversation: z.string(),
+    kind: z.enum(['confirm', 'resume']),
+    pauses: z.array(z.string()),
+  }),
+  z.object({
+    conversation: z.string(),
+    kind: z.literal('answer'),
+    answers: z.array(peerAnswer).readonly(),
+  }),
+]);
+
+/** a pause or answer write made for `conversation` that a busy ledger held back. */
+export type QueuedWrite = z.infer<typeof queuedWriteSchema>;
 
 /** runs under the coordination lock with the reconciled ledger, throwing to refuse the operation. */
 export type Verify = (ledger: Ledger) => Promise<void>;
@@ -224,7 +241,9 @@ export class CoordinationStore {
 
   static async open(store: StateStore): Promise<CoordinationStore> {
     const directory = join(store.root, 'coordination');
-    await mkdir(join(directory, 'sessions'), { recursive: true, mode: 0o700 });
+
+    for (const child of ['sessions', 'queued-writes'])
+      await mkdir(join(directory, child), { recursive: true, mode: 0o700 });
 
     return new CoordinationStore(directory, store);
   }
@@ -465,6 +484,37 @@ export class CoordinationStore {
         next: requests.map((request, index) => updates.get(index) ?? request),
       };
     });
+  }
+
+  /** saved outside the ledger lock, for a ledger still busy when Witch exits. */
+  async keepQueuedWrites(writes: readonly QueuedWrite[]): Promise<void> {
+    await writeJson(
+      join(this.directory, 'queued-writes', `${randomUUID()}.json`),
+      writes,
+    );
+  }
+
+  /** removes the saved files only once every one has parsed, so a bad file loses nothing; another Witch taking them too only repeats idempotent writes. */
+  async takeQueuedWrites(): Promise<QueuedWrite[]> {
+    const directory = join(this.directory, 'queued-writes');
+    const files: string[] = [];
+    const writes: QueuedWrite[] = [];
+
+    for (const name of await readdir(directory)) {
+      if (!name.endsWith('.json')) continue;
+
+      const file = join(directory, name);
+      const saved = await readJson(file, z.array(queuedWriteSchema));
+
+      if (!saved) continue;
+
+      files.push(file);
+      writes.push(...saved);
+    }
+
+    for (const file of files) await rm(file, { force: true });
+
+    return writes;
   }
 
   /** the pauses the conversation issued or receives. */

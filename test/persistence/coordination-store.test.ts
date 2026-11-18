@@ -21,6 +21,7 @@ import {
   CoordinationStore,
   DeadlineExpired,
 } from '../../src/persistence/coordination.js';
+import type { QueuedWrite } from '../../src/persistence/coordination.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { entry, pauseStatuses } from '../../src/core/coordination/pauses.js';
 import { identifyProcess } from '../../src/persistence/process.js';
@@ -1267,4 +1268,28 @@ test('a ledger read keeps the failure of a probe that exited by itself as its ti
     }),
     /Command failed/,
   );
+});
+
+test('queued writes kept by one store are taken back by another, and an unreadable file keeps them all', async () => {
+  const root = await scratch('witch-queued-writes-');
+  const kept = await CoordinationStore.open(await StateStore.open(root));
+  const answer = { id: randomUUID(), message: 'Port 4000' };
+
+  const writes: QueuedWrite[] = [
+    { conversation: 'a', kind: 'confirm', pauses: ['p1'] },
+    { conversation: 'b', kind: 'resume', pauses: ['p2', 'p3'] },
+    { conversation: 'c', kind: 'answer', answers: [answer] },
+  ];
+
+  await kept.keepQueuedWrites(writes);
+  const taker = await CoordinationStore.open(await StateStore.open(root));
+  assert.deepEqual(await taker.takeQueuedWrites(), writes);
+  assert.deepEqual(await taker.takeQueuedWrites(), []);
+  const directory = join(root, 'coordination', 'queued-writes');
+  await kept.keepQueuedWrites([writes[0]!]);
+  await writeFile(join(directory, 'malformed.json'), '[{"kind":"other"}]');
+  const before = (await readdir(directory)).sort();
+  await assert.rejects(taker.takeQueuedWrites());
+  assert.deepEqual((await readdir(directory)).sort(), before);
+  assert.equal(before.length, 2);
 });

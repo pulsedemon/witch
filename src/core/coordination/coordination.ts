@@ -9,7 +9,11 @@ import {
   checkDeadline,
   DeadlineExpired,
 } from '../../persistence/coordination.js';
-import type { Ledger, Verify } from '../../persistence/coordination.js';
+import type {
+  Ledger,
+  QueuedWrite,
+  Verify,
+} from '../../persistence/coordination.js';
 import { ControlHost } from '../../persistence/control.js';
 import type {
   ControlBinding,
@@ -166,11 +170,8 @@ export class SessionCoordination {
   private claimReleases = new Set<string>();
   private maintaining?: Promise<void>;
   private handing?: Promise<void>;
-  /** writes that must outlast a busy ledger, each for the conversation that made it; ticks retry them and deactivation tries once more. */
-  private queuedWrites: (
-    | { conversation: string; kind: 'confirm' | 'resume'; pauses: string[] }
-    | { conversation: string; kind: 'answer'; answers: readonly PeerAnswer[] }
-  )[] = [];
+  /** writes that must outlast a busy ledger; ticks retry them, deactivation tries once more, and a close saves the rest for the next Witch to start. */
+  private queuedWrites: QueuedWrite[] = [];
   private flushingWrites?: Promise<void>;
   private ending = false;
   private closed = false;
@@ -277,10 +278,13 @@ export class SessionCoordination {
 
     if (!identity) throw new Error('Witch process identity is unavailable.');
 
+    const registry = await CoordinationStore.open(store);
+    const saved = await registry.takeQueuedWrites();
+
     const coordination = new SessionCoordination(
       store,
       memory,
-      await CoordinationStore.open(store),
+      registry,
       directory,
       prefix,
       identity,
@@ -324,6 +328,8 @@ export class SessionCoordination {
       throw error;
     }
 
+    coordination.queuedWrites.push(...saved);
+    void coordination.flushQueuedWrites();
     coordination.timer = setInterval(() => coordination.tick(), 2000);
     coordination.timer.unref();
 
@@ -676,6 +682,14 @@ export class SessionCoordination {
     return this.flushingWrites;
   }
 
+  /** the last flush ran when the conversation deactivated, so whatever a busy ledger still holds back goes to disk. */
+  private async keepQueuedWrites(): Promise<void> {
+    await this.flushingWrites;
+
+    if (this.queuedWrites.length)
+      await this.registry.keepQueuedWrites(this.queuedWrites.splice(0));
+  }
+
   beginTurn(turn: string): void {
     const active = this.admit();
 
@@ -892,8 +906,12 @@ export class SessionCoordination {
       try {
         await this.deactivate();
       } finally {
-        if (!options.restart && this.state?.conversation)
-          await this.releaseConversation(this.state.conversation.id);
+        try {
+          await this.keepQueuedWrites();
+        } finally {
+          if (!options.restart && this.state?.conversation)
+            await this.releaseConversation(this.state.conversation.id);
+        }
       }
     } finally {
       await Promise.all([this.host.close(), this.familiarHost.close()]);
