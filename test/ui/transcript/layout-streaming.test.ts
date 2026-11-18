@@ -77,6 +77,33 @@ test('JSON array context follows completed tool lines and ends at the closing br
   }
 });
 
+test('a streamed opener waits for its next token before treating quoted paths as JSON', () => {
+  for (const opener of ['[', '{']) {
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    let items: DisplayItem[] = [];
+
+    for (const chunk of [opener + '\n', ' \n', '-f "src/a\\b.ts"\n']) {
+      items = applyDisplayUpdate(items, tool(chunk));
+      layout.render(items, 100, expanded);
+    }
+
+    const frame = layout.render(items, 100, expanded);
+    const body = frame.lines.slice(1, -1).join('\n');
+
+    assert.deepEqual(
+      body
+        .split('\u001b]8;;')
+        .slice(1)
+        .map((part) => part.slice(0, part.indexOf('\u0007')))
+        .filter(Boolean),
+      ['vscode://file/work/src/a%5Cb.ts'],
+    );
+
+    assert.equal(stripAnsi(body), opener + '\n \n-f "src/a\\b.ts"\n');
+  }
+});
+
 test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
   for (const stable of ['', 'stable\n']) {
     const prefix =

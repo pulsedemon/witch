@@ -371,7 +371,7 @@ test('terminal paths keep escaped letters and backslashes, including quoted lite
 });
 
 test('bracketed text before a literal JSON backslash preserves the filename first letter', () => {
-  for (const prefix of ['', '[', '{']) {
+  for (const prefix of ['', '[', '{', '["', '{"x":"']) {
     const json = JSON.stringify({ t: prefix + String.raw`a\notes.md` });
 
     for (const text of [json, JSON.stringify(json)]) {

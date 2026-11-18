@@ -192,6 +192,7 @@ interface FileContext {
   containers: number;
   key: boolean;
   member: boolean;
+  pending?: '[' | '{';
 }
 
 function jsonBreaks(text: string, nested: boolean) {
@@ -215,22 +216,37 @@ function jsonBreaks(text: string, nested: boolean) {
   return result;
 }
 
+function startsContainer(opener: '[' | '{', next: string) {
+  return opener === '{'
+    ? /^["}]/u.test(next)
+    : /^(?:["{[\]]|(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,\]]|$))/u.test(
+        next,
+      );
+}
+
 /** keep JSON context across bounded pieces without changing terminal path escaping. */
 function fileSections(text: string, previous?: FileContext) {
   const sections: { start: number; end: number; json: boolean }[] = [];
   const quotedFile = new RegExp(files.source, 'uy');
   let start = 0;
 
-  let { containers, key, member } = previous ?? {
+  let { containers, key, member, pending } = previous ?? {
     containers: 0,
     key: false,
     member: false,
+    pending: undefined,
   };
 
   for (let index = 0; index < text.length; index++) {
     const char = text[index]!;
 
     if (/\s/u.test(char)) continue;
+
+    if (pending) {
+      if (startsContainer(pending, text.slice(index))) containers++;
+
+      pending = undefined;
+    }
 
     if (char === '\\') {
       if (text[index + 1] !== '\n') index++;
@@ -255,14 +271,8 @@ function fileSections(text: string, previous?: FileContext) {
       if (char === '{' || char === '[') {
         const next = text.slice(index + 1).trimStart();
 
-        if (
-          char === '{'
-            ? /^(?:["}]|$)/u.test(next)
-            : /^(?:["{[\]]|(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,\]]|$)|$)/u.test(
-                next,
-              )
-        )
-          containers++;
+        if (!next) pending = char;
+        else if (startsContainer(char, next)) containers++;
       } else if (char === '}' || char === ']')
         containers = Math.max(0, containers - 1);
 
@@ -281,6 +291,8 @@ function fileSections(text: string, previous?: FileContext) {
 
     // an encoded string delimiter distinguishes nested JSON from bracketed prose.
     const nested =
+      containers === 0 &&
+      !member &&
       /^\s*[{[](?:[\s[\]{},:]|\\[nrt]|(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,\]}]|\\[nrt]))*\\"/u.test(
         text.slice(index + 1, end),
       );
@@ -312,7 +324,7 @@ function fileSections(text: string, previous?: FileContext) {
 
   sections.push({ start, end: text.length, json: false });
 
-  return { sections, context: { containers, key, member } };
+  return { sections, context: { containers, key, member, pending } };
 }
 
 function fileCandidates(
