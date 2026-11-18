@@ -1,7 +1,7 @@
 import type { Snapshot } from '../../core/snapshot.js';
 import { oneLine } from '../links.js';
 
-/** what the agent's own rows say of its work: those after its newest row unchanged since the Witch operation began. */
+/** what the agent's own rows, those after its newest row unchanged since the Witch operation began, and its last reported reasoning say of its work. */
 export interface AgentActivity {
   /** when one of those rows last changed, else when that operation began, in epoch milliseconds. */
   quietSince: number;

@@ -109,14 +109,14 @@ test('agent activity skips rows that are not the agent’s own without stopping 
 test("agent activity passes on reasoning only while it is newer than the agent's rows", () => {
   const items = [said('turn/a/said', 120_000, 'merging main')];
 
-  const reasonedAt = (reasoned: number, rows: DisplayItem[]) =>
+  const activity = (reasoned: number, rows: DisplayItem[]) =>
     agentActivity({ ...running, items: rows, reasonedAt: reasoned });
 
-  assert.equal(reasonedAt(150_000, items)?.reasonedAt, 150_000);
-  assert.ok(!('reasonedAt' in reasonedAt(120_000, items)!));
-  assert.ok(!('reasonedAt' in reasonedAt(110_000, items)!));
-  assert.ok(!('reasonedAt' in reasonedAt(99_000, [])!));
-  assert.equal(reasonedAt(100_001, [])?.reasonedAt, 100_001);
+  assert.equal(activity(150_000, items)?.reasonedAt, 150_000);
+  assert.ok(!('reasonedAt' in activity(120_000, items)!));
+  assert.ok(!('reasonedAt' in activity(110_000, items)!));
+  assert.ok(!('reasonedAt' in activity(99_000, [])!));
+  assert.equal(activity(100_001, [])?.reasonedAt, 100_001);
 });
 
 test('agent activity covers the running phase and nothing else', () => {
