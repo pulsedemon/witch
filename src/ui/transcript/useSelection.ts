@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { measureElement } from 'ink';
 import type { DOMElement, Key } from 'ink';
 import type { RefObject } from 'react';
-import { useLiveState } from '../live-state.js';
+import { useLiveState } from '../useLiveState.js';
 import { useHover } from '../terminal/mouse.js';
 import type { Cell, Pointer } from '../terminal/mouse.js';
 import {

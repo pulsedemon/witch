@@ -31,15 +31,80 @@ const pascalCaseTsx = {
   },
 };
 
+/** the runtime names a module exports; a default export or `export *` counts as one that is no hook. */
+function runtimeExports(program) {
+  return program.body.flatMap((node) => {
+    if (node.type === 'ExportDefaultDeclaration') return ['default'];
+
+    if (node.type === 'ExportAllDeclaration')
+      return node.exportKind === 'type' ? [] : ['*'];
+
+    if (node.type !== 'ExportNamedDeclaration' || node.exportKind === 'type')
+      return [];
+
+    const declared = node.declaration;
+
+    if (!declared)
+      return node.specifiers
+        .filter(({ exportKind }) => exportKind !== 'type')
+        .map(({ exported }) => exported.name ?? exported.value);
+
+    if (declared.type === 'VariableDeclaration')
+      return declared.declarations.flatMap(({ id }) =>
+        id.type === 'Identifier' ? [id.name] : ['pattern'],
+      );
+
+    return [
+      'FunctionDeclaration',
+      'ClassDeclaration',
+      'TSEnumDeclaration',
+    ].includes(declared.type)
+      ? [declared.id.name]
+      : [];
+  });
+}
+
+const hookFilename = {
+  meta: {
+    type: 'suggestion',
+    schema: [],
+    messages: {
+      filename: 'Name this file {{hook}}.ts after the hook it exports.',
+    },
+  },
+  create(context) {
+    return {
+      Program(node) {
+        const [hook, ...others] = runtimeExports(node);
+
+        if (
+          hook &&
+          !others.length &&
+          /^use[A-Z0-9]/.test(hook) &&
+          basename(context.filename) !== `${hook}.ts`
+        )
+          context.report({ node, messageId: 'filename', data: { hook } });
+      },
+    };
+  },
+};
+
 export default defineConfig(
   { ignores: ['dist/**', '.superpowers/**', 'docs/superpowers/**'] },
   js.configs.recommended,
   tseslint.configs.recommended,
   {
-    files: ['**/*.tsx'],
-    plugins: { witch: { rules: { 'pascal-case-tsx': pascalCaseTsx } } },
-    rules: { 'witch/pascal-case-tsx': 'error' },
+    plugins: {
+      witch: {
+        rules: {
+          'pascal-case-tsx': pascalCaseTsx,
+          'hook-filename': hookFilename,
+        },
+      },
+    },
   },
+  { files: ['**/*.tsx'], rules: { 'witch/pascal-case-tsx': 'error' } },
+  { files: ['**/*.ts'], rules: { 'witch/hook-filename': 'error' } },
   {
     plugins: { '@stylistic': stylistic },
     rules: {

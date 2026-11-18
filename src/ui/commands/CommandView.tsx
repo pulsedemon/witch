@@ -23,7 +23,7 @@ import { helpText } from './help.js';
 import { Input } from '../input/Input.js';
 import type { InputHandle } from '../input/Input.js';
 import { hyperlink, linkify, oneLine, plain } from '../links.js';
-import { useLiveState } from '../live-state.js';
+import { useLiveState } from '../useLiveState.js';
 import { markdown } from '../transcript/markdown.js';
 import { chooseModel } from './model-choice.js';
 import { coordinationText } from './peers.js';
