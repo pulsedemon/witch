@@ -913,6 +913,34 @@ test('a double press highlights the word under it before its release and Cmd+C c
   }
 });
 
+test('a second press on a cell whose text changed under it since the first is a first press on that text', async () => {
+  // the clock stands still, so the second press counts with the first by its cell
+  vi.useFakeTimers({ toFake: ['performance'] });
+  const said = { id: 'u', kind: 'user' as const, text: words, cwd: '/work' };
+  const { app, coordinator } = fake({ items: [said] });
+  const { ui } = mounted(app);
+
+  try {
+    await until('the message', () => ui.text().includes('alpha beta'));
+    ui.stdin.write(click(8, 2));
+
+    coordinator.publish({
+      items: [{ ...said, id: 'n', text: 'first second third' }, said],
+    });
+
+    await until('the message above', () => ui.text().includes('first second'));
+    ui.stdin.write(left('press', 8, 2));
+    ui.stdin.write(left('drag', 10, 2));
+
+    // a drag by cells, where one after a double press would take all of `second`
+    await until('the cells highlighted', () =>
+      ui.frame().includes('\u001b[7meco\u001b[27m'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('a double press, a held drag and Cmd+C in one read copy the whole words dragged over', async () => {
   const { app } = fake({
     items: [
