@@ -299,7 +299,7 @@ function pieces(text: string): Piece[] {
 
   for (let start = 0; start < text.length;) {
     let end = Math.min(start + pieceSize, text.length);
-    let linkable = false;
+    let guarded = false;
 
     const after = (separator: RegExp) => {
       let cut = end;
@@ -333,10 +333,10 @@ function pieces(text: string): Piece[] {
       }
 
       if (boundary) end = boundary;
-      else ({ end, linkable } = unbroken(text, start, end));
+      else ({ end, guarded } = unbroken(text, start, end));
     }
 
-    if (linkable) result.push(...quoted(text, start, end));
+    if (guarded) result.push(...cutAfterQuotes(text, start, end));
     else {
       for (; start + pieceSize < end; start += pieceSize)
         result.push({
@@ -354,18 +354,19 @@ function pieces(text: string): Piece[] {
 }
 
 /**
- * find where an overlong run ends and whether it may hold a link. `quoted` cuts one that may, so no fragment of a web link becomes a target.
+ * find where an overlong run ends. one that runs past `end` with a possible link is guarded:
+ * `cutAfterQuotes` cuts it, so no fragment of a web link becomes a target.
  * scan its boundary once, including when no link is possible and it can be split.
  */
 function unbroken(
   text: string,
   start: number,
   end: number,
-): { end: number; linkable: boolean } {
+): { end: number; guarded: boolean } {
   // a newline after a backslash is no boundary to `pieces`, and no link crosses it, so each line is decided alone
   const line = text.slice(start, end).lastIndexOf('\n') + 1;
 
-  if (line) return { end: start + line, linkable: false };
+  if (line) return { end: start + line, guarded: false };
 
   const boundary = new RegExp(separator, 'gu');
   boundary.lastIndex = end;
@@ -373,7 +374,7 @@ function unbroken(
 
   return {
     end: stop,
-    linkable: stop > end && urls.pretest(text.slice(start, stop)),
+    guarded: stop > end && urls.pretest(text.slice(start, stop)),
   };
 }
 
@@ -382,7 +383,7 @@ function unbroken(
  * a quote ends every web link, escaped or not; a stretch with no quote past one piece stays plain.
  * a dropped path that escapes a quote can link in fragments.
  */
-function quoted(text: string, start: number, stop: number): Piece[] {
+function cutAfterQuotes(text: string, start: number, stop: number): Piece[] {
   const result: Piece[] = [];
 
   while (start < stop) {

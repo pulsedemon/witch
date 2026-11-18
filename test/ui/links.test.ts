@@ -250,7 +250,7 @@ test('a URL before a JSON escape links alone, a URL after the escape links too, 
   }
 });
 
-test('long JSON written inside a JSON string, or holding a value longer than one linkify-it input, links every URL that fits one input, and text outside the cut run links as before', () => {
+test('long JSON written inside a JSON string, or holding a value longer than one linkify-it input, links the URLs that fit one input, and text outside the cut run links as before', () => {
   const sixty = Array.from({ length: 60 }, (_, n) => ({
     url: `https://example.com/${n}`,
     n,
