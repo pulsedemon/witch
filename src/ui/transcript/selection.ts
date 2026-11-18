@@ -139,13 +139,12 @@ export function textEnd(line: string): number | undefined {
   return last;
 }
 
-/** the last column of `line` a selection's end can rest on; an image row draws and copies nothing. */
-const endOf = (line: string) =>
-  line.includes(placeholder) ? undefined : textEnd(line);
+const image = (line: string) => line.includes(placeholder);
 
 /**
  * where a selection's end at `at` goes for one arrow key. ← and → step by drawn character, so a wide one takes one
- * press, and wrap between rows at the row's last text column. ↑ and ↓ keep the column.
+ * press, and wrap between rows at the row's last text column. ↑ and ↓ keep the column. no key lands on an image
+ * row, which draws and copies nothing: each passes over it, or stays when only image rows are left that way.
  */
 export function stepEnd(
   lines: Pick<readonly string[], 'at' | 'length'>,
@@ -153,32 +152,38 @@ export function stepEnd(
   direction: 'left' | 'right' | 'up' | 'down',
 ): Point {
   const { row, column } = at;
-  const last = lines.length - 1;
+  const back = direction === 'left' || direction === 'up';
+  let beside = row + (back ? -1 : 1);
 
-  if (direction === 'up') return { row: Math.max(0, row - 1), column };
+  while (beside >= 0 && beside < lines.length && image(lines.at(beside)!))
+    beside += back ? -1 : 1;
 
-  if (direction === 'down') return { row: Math.min(last, row + 1), column };
+  const wrapped = (place: (line: string) => number): Point =>
+    beside >= 0 && beside < lines.length
+      ? { row: beside, column: place(lines.at(beside)!) }
+      : at;
+
+  if (direction === 'up' || direction === 'down') return wrapped(() => column);
 
   const line = lines.at(row)!;
-  const end = endOf(line) ?? 0;
+  const onImage = image(line);
+  const end = textEnd(line) ?? 0;
   const starts = [...drawn(line)].map(({ start }) => start);
   const covering = starts.findLastIndex((start) => start <= column);
 
   if (direction === 'right') {
     const next = starts[covering + 1];
 
-    if (next !== undefined && next <= end) return { row, column: next };
-
-    return row < last ? { row: row + 1, column: 0 } : at;
+    return !onImage && next !== undefined && next <= end
+      ? { row, column: next }
+      : wrapped(() => 0);
   }
 
-  if (column > end) return { row, column: end };
+  if (!onImage && column > end) return { row, column: end };
 
-  if (covering > 0) return { row, column: starts[covering - 1]! };
-
-  return row > 0
-    ? { row: row - 1, column: endOf(lines.at(row - 1)!) ?? 0 }
-    : at;
+  return !onImage && covering > 0
+    ? { row, column: starts[covering - 1]! }
+    : wrapped((previous) => textEnd(previous) ?? 0);
 }
 
 /** columns `start` up to but not including `end` of a row, drawn as Ghostty draws a selection, in the window's colors swapped. */
@@ -282,7 +287,8 @@ export function textEnds(
   lines: Pick<readonly string[], 'at' | 'length'>,
 ): [Point, Point] | undefined {
   for (let row = lines.length - 1; row >= 0; row--) {
-    const column = endOf(lines.at(row)!);
+    const line = lines.at(row)!;
+    const column = image(line) ? undefined : textEnd(line);
 
     if (column !== undefined)
       return [

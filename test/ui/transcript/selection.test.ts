@@ -267,23 +267,36 @@ test("a selection's end wraps from a wide character that starts or ends its row'
   assert.deepEqual(step(['日本'], 0, 1, 'left'), { row: 0, column: 1 });
 });
 
-test('the whole text ends on the last row that holds text, and an end steps over an image row', () => {
+test('the whole text ends on the last row that holds text, and no arrow key lands an end on an image row', () => {
   const image = placeholder.repeat(4);
-  const lines = ['You', 'hello', image, ''];
 
-  assert.deepEqual(textEnds(lines), [
+  assert.deepEqual(textEnds(['You', 'hello', image, '']), [
     { row: 0, column: 0 },
     { row: 1, column: 4 },
   ]);
 
   assert.equal(textEnds([image, '', '  ']), undefined);
 
-  const step = (row: number, column: number, direction: 'left' | 'right') =>
-    stepEnd(['ab', image, 'cd'], { row, column }, direction);
+  const step = (
+    lines: string[],
+    row: number,
+    column: number,
+    direction: Parameters<typeof stepEnd>[2],
+  ) => stepEnd(lines, { row, column }, direction);
 
-  assert.deepEqual(step(0, 1, 'right'), { row: 1, column: 0 });
-  assert.deepEqual(step(1, 0, 'right'), { row: 2, column: 0 });
-  assert.deepEqual(step(1, 2, 'left'), { row: 1, column: 0 });
-  assert.deepEqual(step(1, 0, 'left'), { row: 0, column: 1 });
-  assert.deepEqual(step(2, 0, 'left'), { row: 1, column: 0 });
+  const around = ['ab', image, image, 'cd'];
+  assert.deepEqual(step(around, 0, 1, 'right'), { row: 3, column: 0 });
+  assert.deepEqual(step(around, 3, 0, 'left'), { row: 0, column: 1 });
+  assert.deepEqual(step(around, 0, 1, 'down'), { row: 3, column: 1 });
+  assert.deepEqual(step(around, 3, 1, 'up'), { row: 0, column: 1 });
+  // an end a drag left on an image row leaves it on any key
+  assert.deepEqual(step(around, 1, 2, 'left'), { row: 0, column: 1 });
+  assert.deepEqual(step(around, 2, 2, 'right'), { row: 3, column: 0 });
+  assert.deepEqual(step(around, 2, 2, 'up'), { row: 0, column: 2 });
+  // with only image rows that way, the end stays
+  const edges = [image, 'ab', image];
+  assert.deepEqual(step(edges, 1, 1, 'right'), { row: 1, column: 1 });
+  assert.deepEqual(step(edges, 1, 0, 'left'), { row: 1, column: 0 });
+  assert.deepEqual(step(edges, 1, 1, 'down'), { row: 1, column: 1 });
+  assert.deepEqual(step(edges, 1, 1, 'up'), { row: 1, column: 1 });
 });
