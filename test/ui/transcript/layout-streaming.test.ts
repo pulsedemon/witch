@@ -118,6 +118,44 @@ test('a streamed opener waits for its next token before treating quoted paths as
   }
 });
 
+test('a streamed comparison reclassifies a quoted filename before or after its operator', () => {
+  for (const [left, right] of [
+    ['"$x"', '"src/a\\b.ts"'],
+    ['"src/a\\b.ts"', '"$x"'],
+  ]) {
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    let items: DisplayItem[] = [];
+    const chunks = ['[[\n', left + '\n', ' \n', '==\n', right + ' ]]\n'];
+
+    for (const chunk of chunks) {
+      items = applyDisplayUpdate(items, tool(chunk));
+      const frame = layout.render(items, 100, expanded);
+
+      assert.deepEqual(
+        frame.lines.slice(),
+        new TranscriptLayout().render(items, 100, expanded).lines.slice(),
+      );
+    }
+
+    const body = layout
+      .render(items, 100, expanded)
+      .lines.slice(1, -1)
+      .join('\n');
+
+    assert.deepEqual(
+      body
+        .split('\u001b]8;;')
+        .slice(1)
+        .map((part) => part.slice(0, part.indexOf('\u0007')))
+        .filter(Boolean),
+      ['vscode://file/work/src/a%5Cb.ts'],
+    );
+
+    assert.equal(stripAnsi(body), chunks.join(''));
+  }
+});
+
 test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
   for (const stable of ['', 'stable\n']) {
     const prefix =

@@ -395,6 +395,7 @@ test('nested JSON retains files after primitive values and encoded whitespace', 
     JSON.stringify({ t: 'a\nnotes.md' }, null, 2),
     JSON.stringify([1, true, null, {}, 'a\nnotes.md']),
     JSON.stringify([['a\nnotes.md']]),
+    JSON.stringify([[1], {}, 'a\nnotes.md']),
   ]) {
     for (const prefix of ['', '\n', '\t', '\r', ' \n\t\r '])
       for (const text of [
@@ -432,6 +433,27 @@ test('shell brackets and brackets inside quoted paths do not change later quoted
 
     assert.equal(stripAnsi(output), text);
   }
+});
+
+test('shell comparisons preserve quoted literal backslashes in either operand', () => {
+  for (const [path, target] of [
+    [String.raw`src/a\b.ts`, 'vscode://file/work/src/a%5Cb.ts'],
+    [String.raw`/tmp/a\notes.md`, 'vscode://file/tmp/a%5Cnotes.md'],
+  ])
+    for (const [open, close, operator] of [
+      ['[[', ']]', '=='],
+      ['[', ']', '='],
+      ['[', ']', '-eq'],
+    ])
+      for (const [left, right] of [
+        ['"$x"', `"${path}"`],
+        [`"${path}"`, '"$x"'],
+      ]) {
+        const text = `${open} ${left} ${operator} ${right} ${close}`;
+        const output = linkify(text, '/work');
+        assert.deepEqual(linkSpans(output), [{ text: path, target }]);
+        assert.equal(stripAnsi(output), text);
+      }
 });
 
 test('a raw newline ends a quoted path even after a backslash', () => {

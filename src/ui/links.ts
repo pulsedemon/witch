@@ -216,12 +216,13 @@ function jsonBreaks(text: string, nested: boolean) {
   return result;
 }
 
+const jsonPrimitive =
+  /^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,}\]]|$)/u;
+
 function startsContainer(opener: '[' | '{', next: string) {
   return opener === '{'
     ? /^["}]/u.test(next)
-    : /^(?:["\]]|(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,\]]|$))/u.test(
-        next,
-      );
+    : /^["\]]/u.test(next) || jsonPrimitive.test(next);
 }
 
 /** only complete encoded JSON selects another escape level; bracketed prose does not. */
@@ -291,6 +292,12 @@ function fileSections(text: string, previous?: FileContext) {
       if (char === '{' || char === '[') pending = { opener: char, depth: 1 };
       else if (char === '}' || char === ']')
         containers = Math.max(0, containers - 1);
+      else if (containers > 0 && char !== ',' && char !== ':') {
+        const primitive = jsonPrimitive.exec(text.slice(index));
+
+        if (primitive) index += primitive[0].length - 1;
+        else containers = 0;
+      }
 
       member = key && char === ':';
       key = false;
@@ -304,6 +311,12 @@ function fileSections(text: string, previous?: FileContext) {
       if (text[end] === '\\' && text[end + 1] !== '\n') end++;
 
     const stop = text[end] === '"' ? end + 1 : Math.min(end, text.length);
+
+    if (text[end] === '"' && !/^\s*(?:[:,}\]]|$)/u.test(text.slice(stop))) {
+      containers = 0;
+      member = false;
+    }
+
     const nested = nestedContainer(text.slice(index, stop));
     const json = containers > 0 || member || nested;
 
@@ -793,14 +806,21 @@ function oscEnd(text: string, start: number): number {
   return -1;
 }
 
-/** a later delimiter can make the tokenizer consume an earlier OSC and its following lines. */
-function completeLinesEnd(text: string): number {
+/** retain raw line offsets without counting newlines inside OSC sequences. */
+function appendBoundary(text: string) {
   let complete = 0;
+  let lastQuoteLine = 0;
+  let quotedLine = 0;
 
   for (let index = 0; index < text.length; index++) {
     const char = text[index];
 
-    if (char === '\n') complete = index + 1;
+    if (char === '"') lastQuoteLine = complete;
+
+    if (char === '\n') {
+      complete = index + 1;
+      quotedLine = lastQuoteLine;
+    }
 
     if ((char !== '\u001b' && char !== '\u009b') || text[index + 1] !== ']')
       continue;
@@ -809,16 +829,16 @@ function completeLinesEnd(text: string): number {
       ? text.indexOf(';', index + 4)
       : index + 1;
 
-    if (start < 0) return complete;
+    if (start < 0) return { end: complete, quotedLine };
 
     const end = oscEnd(text, start + 1);
 
-    if (end < 0) return complete;
+    if (end < 0) return { end: complete, quotedLine };
 
     index = end - 1;
   }
 
-  return complete;
+  return { end: complete, quotedLine };
 }
 
 export interface LinkedAppend {
@@ -836,15 +856,24 @@ export function linkifyAppend(
   target?: string,
   context?: FileContext,
 ): LinkedAppend {
-  const end = completeLinesEnd(text);
+  const boundary = appendBoundary(text);
+  let end = boundary.end;
   let complete: string[] = [];
 
   if (end) {
-    const prefix = linked(text.slice(0, end), cwd, target, context);
-    complete = prefix.text.split('\n');
-    complete.pop();
-    target = prefix.target;
-    context = prefix.context;
+    let prefix = linked(text.slice(0, end), cwd, target, context);
+
+    if (prefix.context.containers && prefix.context.key) {
+      end = boundary.quotedLine;
+      prefix = linked(text.slice(0, end), cwd, target, context);
+    }
+
+    if (end) {
+      complete = prefix.text.split('\n');
+      complete.pop();
+      target = prefix.target;
+      context = prefix.context;
+    }
   }
 
   const pending = text.slice(end);
