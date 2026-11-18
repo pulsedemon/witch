@@ -311,6 +311,14 @@ test('file paths beside JSON escapes retain their own labels and targets at both
   const member = '  "t": "a\\nsrc/app.ts"';
   assert.deepEqual(linkSpans(linkify(member, '/work')), [app]);
   assert.equal(stripAnsi(linkify(member, '/work')), member);
+  const first = linkifyAppend(member + '\n', '/work');
+  const next = linkifyAppend('x', '/work', first);
+  assert.equal(next.pending, 'x');
+
+  assert.equal(
+    [...first.complete, ...next.complete, next.tail].join('\n'),
+    linkify(member + '\nx', '/work'),
+  );
 });
 
 test('JSON file context survives bounded pieces, skipped oversized values and streamed escape fragments', () => {

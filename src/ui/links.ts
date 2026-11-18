@@ -192,6 +192,7 @@ interface FileContext {
   containers: number;
   key: boolean;
   member: boolean;
+  needsDelimiter: boolean;
   pending?: { opener: '[' | '{'; depth: number };
 }
 
@@ -244,10 +245,11 @@ function fileSections(text: string, boundary: number, previous?: FileContext) {
   const quotedFile = new RegExp(files.source, 'uy');
   let start = 0;
 
-  let { containers, key, member, pending } = previous ?? {
+  let { containers, key, member, pending, needsDelimiter } = previous ?? {
     containers: 0,
     key: false,
     member: false,
+    needsDelimiter: false,
     pending: undefined,
   };
 
@@ -255,6 +257,8 @@ function fileSections(text: string, boundary: number, previous?: FileContext) {
     const char = text[index]!;
 
     if (/\s/u.test(char)) continue;
+
+    needsDelimiter = false;
 
     if (pending) {
       if (pending.opener === '[' && (char === '[' || char === '{')) {
@@ -339,13 +343,17 @@ function fileSections(text: string, boundary: number, previous?: FileContext) {
     }
 
     key = text[end] === '"';
+    needsDelimiter = key && (containers > 0 || member) && !nested;
     member = false;
     index = stop - 1;
   }
 
   sections.push({ start, end: boundary, json: false });
 
-  return { sections, context: { containers, key, member, pending } };
+  return {
+    sections,
+    context: { containers, key, member, pending, needsDelimiter },
+  };
 }
 
 function fileCandidates(
@@ -878,6 +886,19 @@ function appendBoundary(text: string) {
   return { end: complete, quotedLine, oscStart: undefined };
 }
 
+function incompleteStyle(raw: string, visible: string): boolean {
+  const escape = Math.max(
+    raw.lastIndexOf('\u001b['),
+    raw.lastIndexOf('\u009b['),
+  );
+
+  return (
+    escape >= 0 &&
+    /^[\d;]*$/u.test(raw.slice(escape + 2)) &&
+    /^\s*\[[\d;]*$/u.test(visible)
+  );
+}
+
 export interface LinkedAppend {
   complete: string[];
   tail: string;
@@ -910,16 +931,7 @@ export function linkifyAppend(
     const raw = line.text + text;
     const suffix = linked(raw, cwd, line.target, context);
     const blank = /^\s*$/u.test(suffix.visible);
-
-    const escape = Math.max(
-      suffix.line.text.lastIndexOf('\u001b['),
-      suffix.line.text.lastIndexOf('\u009b['),
-    );
-
-    const incomplete =
-      escape >= 0 &&
-      /^[\d;]*$/u.test(suffix.line.text.slice(escape + 2)) &&
-      /^\s*\[[\d;]*$/u.test(suffix.visible);
+    const incomplete = incompleteStyle(suffix.line.text, suffix.visible);
 
     if (blank || incomplete) {
       const mode = blank ? 'json' : 'terminal';
@@ -997,13 +1009,22 @@ export function linkifyAppend(
 
   if (end) {
     let prefix = linked(text.slice(0, end), cwd, target, context);
+    const trailing = text.slice(end);
+    const following = plain(trailing);
 
-    if (prefix.context.containers && prefix.context.key) {
+    const unsettled =
+      /^\s*$/u.test(following) ||
+      incompleteStyle(trailing, following) ||
+      boundary.oscStart !== undefined;
+
+    if (prefix.context.needsDelimiter && unsettled) {
       provisional = boundary.oscStart === undefined;
       end = boundary.quotedLine;
       const raw = text.slice(0, end);
       const following = prefix.visible.slice(plain(raw).length);
       prefix = linked(raw, cwd, target, context, following);
+    } else if (prefix.context.needsDelimiter) {
+      prefix = linked(text.slice(0, end), cwd, target, context, following);
     }
 
     if (end) {
@@ -1020,8 +1041,7 @@ export function linkifyAppend(
 
   if (
     provisional &&
-    suffix.context.containers &&
-    suffix.context.key &&
+    suffix.context.needsDelimiter &&
     /^\s*$/u.test(suffix.visible.slice(suffix.visible.lastIndexOf('\n') + 1))
   ) {
     const first = suffix.text.indexOf('\n');

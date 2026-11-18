@@ -254,6 +254,60 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
   }
 });
 
+test('visible partial lines release earlier provisional blanks from parsing and wrapping', () => {
+  const segment = Intl.Segmenter.prototype.segment;
+  const normalize = String.prototype.normalize;
+  let work = 0;
+
+  vi.spyOn(Intl.Segmenter.prototype, 'segment').mockImplementation(function (
+    this: Intl.Segmenter,
+    text: string,
+  ) {
+    work += text.length;
+
+    return segment.call(this, text);
+  });
+
+  vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
+    this: string,
+    form?: string,
+  ) {
+    work += this.length;
+
+    return normalize.call(this, form);
+  });
+
+  const counts: number[] = [];
+
+  for (const count of [1000, 4000]) {
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+
+    let items = applyDisplayUpdate(
+      [],
+      tool('[\n"src/a.ts"\n' + '\n'.repeat(count)),
+    );
+
+    layout.render(items, 80, expanded);
+    items = applyDisplayUpdate(items, tool('x'));
+    layout.render(items, 80, expanded);
+    work = 0;
+
+    for (let index = 0; index < 50; index++) {
+      items = applyDisplayUpdate(items, tool('x'));
+      layout.render(items, 80, expanded);
+    }
+
+    counts.push(work);
+    const frame = layout.render(items, 80, expanded);
+    const fresh = new TranscriptLayout().render(items, 80, expanded);
+    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+    assert.equal(stripAnsi(frame.lines.at(-2)!), 'x'.repeat(51));
+  }
+
+  assert.equal(counts[1], counts[0]);
+});
+
 test('provisional whitespace keeps an explicit target through split chunks and resize', () => {
   const open = '\u001b]8;;https://x.test/\u0007';
   const close = '\u001b]8;;\u0007';
