@@ -80,7 +80,7 @@ export async function runReviewCommand(
   return true;
 }
 
-/** runs review rounds over the files `argument` names until they settle or stop; undefined when it refuses to start: no router, no files, or a name that isn't a file in the directory. */
+/** runs review rounds over the files `argument` names until they settle or stop; undefined when it refuses to start: no router, no files, a name that isn't a file in the directory, or one that holds a line break. */
 async function runReview(
   argument: string,
   host: ReviewHost,
@@ -101,10 +101,10 @@ async function runReview(
 
   // quotes or a backslash keep a space inside one name
   const named = [
-    ...argument.matchAll(/(?:[^\s"'\\]|\\.|"[^"]*"|'[^']*')+/g),
+    ...argument.matchAll(/(?:[^\s"'\\]|\\[^]|"[^"]*"|'[^']*')+/g),
   ].map(([name]) =>
     name.replace(
-      /\\(.)|"([^"]*)"|'([^']*)'/g,
+      /\\([^])|"([^"]*)"|'([^']*)'/g,
       (_, escaped?: string, double?: string, single?: string) =>
         escaped ?? double ?? single!,
     ),
@@ -132,6 +132,15 @@ async function runReview(
       !exists
     ) {
       host.notice(`Review refused: ${file} is not a file in ${cwd}`);
+
+      return;
+    }
+
+    // the brief and the correction prompt list targets one per line
+    if (/[\n\r]/.test(inside)) {
+      host.notice(
+        `Review refused: ${JSON.stringify(inside)} has a line break in its name`,
+      );
 
       return;
     }
