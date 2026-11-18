@@ -277,13 +277,20 @@ test('provisional blanks keep parsing and wrapping bounded through visible and c
     return normalize.call(this, form);
   });
 
-  for (const first of ['x', 'x\u001b]0;t', '\u001b]0;t', '\u001b]0;t\nmore']) {
+  for (const [first, chunk, close, expected] of [
+    ['x', 'x', '', 'x'.repeat(51)],
+    ['x\u001b]0;t', 'x', '\u0007', 'x'],
+    ['\u001b]0;t', 'x', '\u0007', ''],
+    ['\u001b]0;t\nmore', 'x', '\u0007', ''],
+    ['\u001b[', ';', 'm', ''],
+    ['\u009b[', ';', 'm', ''],
+  ] as const) {
     const counts: number[] = [];
 
     for (const count of [1000, 4000]) {
       const layout = new TranscriptLayout();
       const expanded = new Map([['tool', true]]);
-      const prefix = '[\n"src/a.ts"\n' + '\n'.repeat(count);
+      const prefix = '[\n"src/a\\b.ts"\n' + '\n'.repeat(count);
       const initial = first.startsWith('x') ? prefix : prefix + first;
       let items = applyDisplayUpdate([], tool(initial));
       layout.render(items, 80, expanded);
@@ -296,22 +303,22 @@ test('provisional blanks keep parsing and wrapping bounded through visible and c
       work = 0;
 
       for (let index = 0; index < 50; index++) {
-        items = applyDisplayUpdate(items, tool('x'));
+        items = applyDisplayUpdate(items, tool(chunk));
         layout.render(items, 80, expanded);
       }
 
       counts.push(work);
 
-      if (first !== 'x') items = applyDisplayUpdate(items, tool('\u0007'));
+      assert.deepEqual(
+        layout.render(items, 80, expanded).lines.slice(),
+        new TranscriptLayout().render(items, 80, expanded).lines.slice(),
+      );
 
+      items = applyDisplayUpdate(items, tool(close));
       const frame = layout.render(items, 80, expanded);
       const fresh = new TranscriptLayout().render(items, 80, expanded);
       assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
-
-      assert.equal(
-        stripAnsi(frame.lines.at(-2)!),
-        first === 'x' ? 'x'.repeat(51) : first.startsWith('x') ? 'x' : '',
-      );
+      assert.equal(stripAnsi(frame.lines.at(-2)!), expected);
     }
 
     assert.equal(counts[1], counts[0]);

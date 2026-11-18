@@ -1038,9 +1038,7 @@ export function linkifyAppend(
 
   const pending = text.slice(end);
   const suffix = linked(pending, cwd, target, context);
-
-  const stableEnd =
-    boundary.oscStart === undefined ? pending.length : boundary.end - end;
+  const stableEnd = boundary.end - end;
 
   const stable =
     provisional && stableEnd < pending.length
@@ -1076,12 +1074,17 @@ export function linkifyAppend(
         json: stable.text.slice(0, first),
         terminal: alternative.slice(0, alternative.indexOf('\n')),
       },
-      mode: 'json',
+      mode: incompleteStyle(
+        pending.slice(stableEnd),
+        plain(pending.slice(stableEnd)),
+      )
+        ? 'terminal'
+        : 'json',
       context: stable.context,
       tailLines:
         stable === suffix
           ? 1
-          : suffix.text.slice(stable.text.length).split('\n').length,
+          : suffix.text.split('\n').length - stable.text.split('\n').length + 1,
     };
   }
 
