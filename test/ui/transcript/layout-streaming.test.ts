@@ -45,6 +45,38 @@ const tool = (text: string, done = false): DisplayItem => ({
 const early =
   'PASS src/a.ts:1 https://example.com/a\nPASS test/b.test.ts:2\nrun';
 
+test('JSON array context follows completed tool lines and ends at the closing bracket', () => {
+  let items = applyDisplayUpdate([], tool('[\n'));
+  const layout = new TranscriptLayout();
+  const expanded = new Map([['tool', true]]);
+  layout.render(items, 100, expanded);
+  const files = ['vscode://file/work/src/a.ts', 'vscode://file/work/src/b.ts'];
+
+  for (const [suffix, expected, plain] of [
+    ['"src/a.ts\\nsrc/b.ts"\n', files, '[\n"src/a.ts\\nsrc/b.ts"\n'],
+    [
+      ']\n"src/a\\b.ts"',
+      [...files, 'vscode://file/work/src/a%5Cb.ts'],
+      '[\n"src/a.ts\\nsrc/b.ts"\n]\n"src/a\\b.ts"',
+    ],
+  ] as const) {
+    items = applyDisplayUpdate(items, tool(suffix));
+    const frame = layout.render(items, 100, expanded);
+    const body = frame.lines.slice(1, -1).join('\n');
+
+    assert.deepEqual(
+      body
+        .split('\u001b]8;;')
+        .slice(1)
+        .map((part) => part.slice(0, part.indexOf('\u0007')))
+        .filter(Boolean),
+      expected,
+    );
+
+    assert.equal(stripAnsi(body), plain);
+  }
+});
+
 test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
   for (const stable of ['', 'stable\n']) {
     const prefix =

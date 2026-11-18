@@ -24,7 +24,7 @@ type Expansion = 'closed' | 'preview' | 'full';
 type TextRows = Pick<readonly string[], 'length' | 'at' | 'slice'>;
 
 type Append =
-  | ({ kind: 'tool' } & Pick<LinkedAppend, 'pending' | 'target'>)
+  | ({ kind: 'tool' } & Pick<LinkedAppend, 'pending' | 'target' | 'context'>)
   | { kind: 'assistant'; pending: string }
   | { kind: 'full-markdown' };
 
@@ -228,7 +228,12 @@ function prepare(
     images: sources,
     append:
       linked && !diff && (!graphics || !sources.length)
-        ? { kind: 'tool', pending: linked.pending, target: linked.target }
+        ? {
+            kind: 'tool',
+            pending: linked.pending,
+            target: linked.target,
+            context: linked.context,
+          }
         : item.kind === 'assistant'
           ? assistant
             ? { kind: 'assistant', pending: assistant.pending }
@@ -347,7 +352,12 @@ function extend(
 
   const linked =
     tail.kind === 'tool'
-      ? linkifyAppend(tail.pending + appended, item.cwd, tail.target)
+      ? linkifyAppend(
+          tail.pending + appended,
+          item.cwd,
+          tail.target,
+          tail.context,
+        )
       : undefined;
 
   const content = linked ?? markdownAppend(tail.pending + appended, item.cwd);
@@ -367,7 +377,12 @@ function extend(
     tail: hasBody ? content.tail.split('\n') : [],
     append:
       tail.kind === 'tool'
-        ? { kind: 'tool', pending: content.pending, target: linked?.target }
+        ? {
+            kind: 'tool',
+            pending: content.pending,
+            target: linked?.target,
+            context: linked?.context,
+          }
         : { kind: 'assistant', pending: content.pending },
   };
 
