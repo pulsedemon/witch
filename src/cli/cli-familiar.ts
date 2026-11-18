@@ -12,6 +12,7 @@ import {
   FamiliarReports,
   registerFamiliar,
   saveReport,
+  watchSuspension,
 } from './familiar-run.js';
 import type { ControlBinding } from '../persistence/control.js';
 
@@ -99,6 +100,7 @@ export async function runClaudeFamiliar(
 
   process.on('SIGINT', interrupt);
   process.on('SIGTERM', stop);
+  const suspension = watchSuspension();
 
   try {
     await registerFamiliar(binding, run, name, 'claude', () => !!stopped);
@@ -155,12 +157,20 @@ export async function runClaudeFamiliar(
     });
 
     clearTimeout(drain);
+    const suspended = suspension();
 
-    let terminal = task.closed(
-      code,
-      stopped ?? (reports.error ? null : signal),
-    );
+    const closed = (signal: NodeJS.Signals | null) => {
+      const terminal = task.closed(code, signal);
 
+      return suspended
+        ? {
+            ...terminal,
+            report: [terminal.report, suspended].filter(Boolean).join('\n\n'),
+          }
+        : terminal;
+    };
+
+    let terminal = closed(stopped ?? (reports.error ? null : signal));
     const save = () => saveReport(file, terminal.report ?? '');
     await save();
 
@@ -168,7 +178,7 @@ export async function runClaudeFamiliar(
       await reports.finish(terminal);
     } catch (error) {
       task.failed(errorMessage(error));
-      terminal = task.closed(code, stopped ?? null);
+      terminal = closed(stopped ?? null);
       await save();
     }
 

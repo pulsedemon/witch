@@ -23,6 +23,7 @@ import {
   FamiliarReports,
   registerFamiliar,
   saveReport,
+  watchSuspension,
 } from './familiar-run.js';
 import { questionReply } from '../core/prompts.js';
 import type { ControlBinding } from '../persistence/control.js';
@@ -266,6 +267,7 @@ export async function runCodexFamiliar(
   let status: FamiliarProgress['status'] = 'failed';
   let registered = false;
   const save = () => saveReport(file, report);
+  const suspension = watchSuspension();
 
   try {
     await registerFamiliar(binding, run, name, 'codex', () => stopped);
@@ -381,8 +383,7 @@ export async function runCodexFamiliar(
       );
     }
 
-    if (failure) report = [report, failure].filter(Boolean).join('\n\n');
-
+    report = [report, failure, suspension()].filter(Boolean).join('\n\n');
     await save();
 
     if (registered) {
