@@ -1104,6 +1104,10 @@ test('a labeled Markdown link or image copies its destination after its label, o
       'a (https://example.com/x) b (https://example.com/x)',
     ],
     [
+      '[a](https://example.com/one)[b](https://example.com/two)',
+      'a (https://example.com/one)b (https://example.com/two)',
+    ],
+    [
       '| [a](https://example.com/x) | b |\n|---|---|',
       'a (https://example.com/x)\tb',
     ],
