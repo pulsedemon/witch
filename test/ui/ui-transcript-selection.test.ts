@@ -854,6 +854,69 @@ test('a wheel step while the left button is held preserves the press anchor for 
   }
 });
 
+test('a wheel during a held drag updates the endpoint before Cmd+C in the same read', async () => {
+  const { app } = fake({ items: [long] });
+  const { ui, copied } = mounted(app);
+
+  try {
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
+    ui.stdin.write(wheelUp.repeat(20));
+    await until('twenty rows up', () => first(ui) === bottom - 20);
+    const before = first(ui);
+    ui.stdin.write(left('press', 1, 5) + left('drag', 5, 7));
+    ui.stdin.write('\u001b[<64;6;8M' + CMD_C);
+    await until('one row up', () => first(ui) === before - 1);
+
+    assert.deepEqual(copied, [
+      `row ${before + 4}\n${`row ${before + 5}`.slice(0, 5)}`,
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a wheel that cannot move the transcript leaves a plain press unselected', async () => {
+  const { app } = fake({
+    items: [{ id: 'message', kind: 'assistant', text: 'hello', cwd: '/work' }],
+  });
+
+  const { ui, copied } = mounted(app);
+
+  try {
+    await until('the message', () => ui.text().includes('hello'));
+
+    ui.stdin.write(
+      left('press', 1, 2) + '\u001b[<65;2;3M' + left('release', 1, 2) + CMD_C,
+    );
+
+    await delay(60);
+    assert.deepEqual(copied, []);
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a wheel during a held double press extends the selection by whole words', async () => {
+  const { app } = fake({ items: [long] });
+  const { ui, copied } = mounted(app);
+
+  try {
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
+    ui.stdin.write(wheelUp.repeat(20));
+    await until('twenty rows up', () => first(ui) === bottom - 20);
+    const before = first(ui);
+    ui.stdin.write(click(5, 5) + left('press', 5, 5));
+    ui.stdin.write('\u001b[<65;6;6M' + CMD_C);
+    await until('one row down', () => first(ui) === before + 1);
+    assert.deepEqual(copied, [`${before + 4}\nrow ${before + 5}`]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('a double press highlights the word under it before its release and Cmd+C copies it, on a linked path the whole link, and on a blank row nothing', async () => {
   const path = '/work/my notes.md';
 
@@ -1182,6 +1245,64 @@ async function fakedInterval(ui: { text(): string }) {
 }
 
 const tick = () => vi.advanceTimersByTime(50);
+
+for (const edge of ['top', 'bottom'] as const) {
+  test(`a wheel past the ${edge} selects the visible edge without scrolling twice, and a wheel inside stops held scrolling`, async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const { app } = fake({ items: [long] });
+    const { ui, copied } = mounted(app);
+    const direction = edge === 'top' ? -1 : 1;
+
+    try {
+      const timers = await fakedInterval(ui);
+      const bottom = first(ui);
+      ui.stdin.write(wheelUp.repeat(20));
+      await until('twenty rows up', () => first(ui) === bottom - 20);
+      const before = first(ui);
+
+      assert.equal(
+        ui
+          .text()
+          .split('\n')
+          .findLastIndex((row) => /row \d+/.test(row)),
+        13,
+      );
+
+      ui.stdin.write(left('press', 1, 5));
+
+      ui.stdin.write(
+        `\u001b[<${edge === 'top' ? 64 : 65};2;${edge === 'top' ? 1 : 21}M` +
+          CMD_C,
+      );
+
+      await until('one wheel row', () => first(ui) === before + direction);
+
+      assert.deepEqual(copied, [
+        Array.from(
+          { length: edge === 'top' ? 5 : 9 },
+          (_, n) => `row ${before + (edge === 'top' ? -1 : 4) + n}`,
+        ).join('\n') + '\nr',
+      ]);
+
+      assert.equal(vi.getTimerCount(), timers + 1);
+      tick();
+      await until('one held row', () => first(ui) === before + direction * 2);
+      ui.stdin.write('\u001b[<64;6;8M');
+
+      await until(
+        'wheel back inside',
+        () => first(ui) === before + direction * 2 - 1,
+      );
+
+      assert.equal(vi.getTimerCount(), timers);
+      tick();
+      await delay(60);
+      assert.equal(first(ui), before + direction * 2 - 1);
+    } finally {
+      ui.unmount();
+    }
+  });
+}
 
 test('a drag held below the bottom while more rows arrive copies through the newest row', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });

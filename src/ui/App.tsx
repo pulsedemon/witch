@@ -526,6 +526,8 @@ export function App({
     );
 
     setTop(next === maxTop ? null : (transcript.anchorAt(next) ?? null));
+
+    return next !== top;
   };
 
   const busy = working || ['editing', 'closing'].includes(state.phase);
@@ -872,10 +874,14 @@ export function App({
       : undefined;
   };
 
-  /** applies a left-button report to the selection, and says whether it was a drag held past the transcript's top or bottom. */
-  const point = (pointer: Pointer, { column, row }: Cell, presses = 1) => {
+  /** updates the selection and reports whether the held press is past the transcript's top or bottom. */
+  const point = (
+    pointer: Pointer | 'wheel',
+    { column, row }: Cell,
+    presses = 1,
+  ) => {
     // a press or release ends the drag even while another view covers the transcript
-    if (pointer !== 'drag') {
+    if (pointer === 'press' || pointer === 'release') {
       pressedAt.current = undefined;
       pressedNewMessages.current = false;
     }
@@ -916,8 +922,15 @@ export function App({
     const origin = box.y + Number(currentPinned) - Number(pinned);
     const offset = Math.max(-1, Math.min(shown, row - origin));
 
+    // a wheel already scrolled; a drag reaches the adjacent row its scroll will reveal
+    const selectedOffset =
+      pointer === 'wheel' ? Math.max(0, Math.min(shown - 1, offset)) : offset;
+
     const at = {
-      row: Math.max(0, Math.min(transcript.lines.length - 1, first + offset)),
+      row: Math.max(
+        0,
+        Math.min(transcript.lines.length - 1, first + selectedOffset),
+      ),
       column: Math.max(0, Math.min(bodyWidth - 1, column - box.x)),
     };
 
@@ -965,7 +978,7 @@ export function App({
     // rows of the box under a short transcript are not past its bottom
     const pastEdge = offset < 0 || row - origin >= height;
 
-    if (pastEdge) scrollBy(offset < 0 ? -1 : 1);
+    if (pastEdge && pointer !== 'wheel') scrollBy(offset < 0 ? -1 : 1);
 
     const unit = pressedUnit.current;
     const pressed = unit !== 'cell' && pointOf(pressedAt.current);
@@ -997,7 +1010,11 @@ export function App({
     latestPoint.current = point;
   });
 
-  usePointer((pointer, cell, presses) => {
+  const onPointer = (
+    pointer: Pointer | 'wheel',
+    cell: Cell,
+    presses?: number,
+  ) => {
     if (!point(pointer, cell, presses)) {
       stopEdgeScroll();
 
@@ -1018,7 +1035,9 @@ export function App({
             stopEdgeScroll();
         }, 50),
     };
-  });
+  };
+
+  usePointer(onPointer);
 
   useClick(() => {
     if (
@@ -1035,8 +1054,10 @@ export function App({
     if (tool) toolFocus.toggle(tool, transcript.members(tool.id));
   });
 
-  useWheel((rows) => {
-    if (!request && !recovering && view.kind === 'chat') scrollBy(rows);
+  useWheel((rows, cell) => {
+    if (!request && !recovering && view.kind === 'chat') {
+      if (scrollBy(rows)) onPointer('wheel', cell);
+    }
   });
 
   useInput((input, key) => {
