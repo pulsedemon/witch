@@ -235,6 +235,7 @@ class CodexSession implements AgentSession {
   private readonly account = new CodexAccount();
   private limitsRead?: Promise<void>;
   private automaticCompaction?: CodexCompactionPolicy;
+  private compacting?: { item: string; turn: string };
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -1066,9 +1067,22 @@ class CodexSession implements AgentSession {
 
           if (message.method === 'item/started') {
             if (compact && data.turnId === turn.id) compact.item = id;
+
+            this.compacting = {
+              item: id,
+              turn: stringValue.parse(data.turnId),
+            };
+
+            this.options.onEvent({ type: 'compacting', compacting: true });
           } else {
             if (compact && data.turnId === turn.id && compact.item === id)
               compact.completed = true;
+
+            if (
+              this.compacting?.item === id &&
+              this.compacting.turn === data.turnId
+            )
+              this.endCompaction();
 
             this.options.onEvent({ type: 'compacted' });
           }
@@ -1326,6 +1340,10 @@ class CodexSession implements AgentSession {
   ): void {
     const turn = this.turn;
 
+    // an interrupted or failed attempt can end without a compaction completion item
+    if (this.closed || this.compacting?.turn === completedTurnId)
+      this.endCompaction();
+
     if (turn?.interrupted && (turn.compaction || this.reportedStopTimeout))
       status = 'interrupted';
     else if (
@@ -1365,5 +1383,12 @@ class CodexSession implements AgentSession {
       ...(error ? { error } : {}),
       ...(exhausted && status === 'failed' ? { exhausted } : {}),
     });
+  }
+
+  private endCompaction(): void {
+    if (!this.compacting) return;
+
+    this.compacting = undefined;
+    this.options.onEvent({ type: 'compacting', compacting: false });
   }
 }

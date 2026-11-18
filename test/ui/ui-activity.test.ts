@@ -9,6 +9,89 @@ import { unitFixture } from '../fixtures/coordinator.js';
 import { approval, fake, openCommand, show } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
 
+test('native compaction replaces the activity verb at narrow width without resetting the turn clock', async () => {
+  const { coordinator, a } = await unitFixture();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
+  const gate = new TurnGate();
+  a.gate = gate;
+  const ui = show(createElement(App, { coordinator, onExit() {} }), 36, 24);
+  const sending = coordinator.send('keep working');
+
+  const row = () =>
+    ui
+      .text()
+      .split('\n')
+      .find((line) => line.includes('ESC TO')) ?? '';
+
+  try {
+    await gate.entered;
+    await until('the running activity', () => row().includes('| 0S |'));
+    const verb = row().trim().split(' ')[1];
+    const startedAt = coordinator.snapshot.activityStartedAt;
+    const { onEvent } = a.sessions.at(-1)!.options;
+    clock.mockReturnValue(110_000);
+    onEvent({ type: 'compacting', compacting: true });
+
+    await until('native compaction on the narrow row', () =>
+      row().includes('COMPACTING | 10S |'),
+    );
+
+    assert.equal(coordinator.snapshot.phase, 'running');
+    assert.equal(coordinator.snapshot.activityStartedAt, startedAt);
+    clock.mockReturnValue(115_000);
+    onEvent({ type: 'compacting', compacting: false });
+    onEvent({ type: 'compacted' });
+
+    await until('the original verb returns', () =>
+      row().includes(`${verb} | 15S |`),
+    );
+
+    assert.equal(coordinator.snapshot.activityStartedAt, startedAt);
+
+    assert.ok(
+      coordinator.snapshot.items.some(
+        (item) => item.text === 'Conversation compacted',
+      ),
+    );
+
+    onEvent({ type: 'compacting', compacting: true });
+
+    await until('the second native compaction', () =>
+      row().includes('COMPACTING'),
+    );
+
+    onEvent({ type: 'closed' });
+
+    await until('closure clears the compaction label', () =>
+      row().includes(`${verb} | 15S |`),
+    );
+
+    assert.equal(coordinator.snapshot.nativeCompacting, false);
+  } finally {
+    gate.open();
+    await sending;
+    ui.unmount();
+    clock.mockRestore();
+    await coordinator.close();
+  }
+});
+
+test('disconnect clears native compaction and ignores the closed session’s later events', async () => {
+  const { coordinator, a } = await unitFixture();
+
+  try {
+    const { onEvent } = a.sessions.at(-1)!.options;
+    onEvent({ type: 'compacting', compacting: true });
+    assert.equal(coordinator.snapshot.nativeCompacting, true);
+    await coordinator.close();
+    assert.equal(coordinator.snapshot.nativeCompacting, false);
+    onEvent({ type: 'compacting', compacting: true });
+    assert.equal(coordinator.snapshot.nativeCompacting, false);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('the activity start survives automatic compaction and request updates, then resets for the next operation', async () => {
   const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.connectUsage = { context: 90, contextWindow: 100_000 };

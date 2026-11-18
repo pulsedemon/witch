@@ -1336,6 +1336,7 @@ export function App({
             <Activity
               key={state.activityStartedAt}
               startedAt={state.activityStartedAt}
+              compacting={state.phase === 'running' && state.nativeCompacting}
               quietSince={agent?.quietSince}
               reasonedAt={agent?.reasonedAt}
               doing={agent?.doing}
