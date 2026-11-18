@@ -148,6 +148,8 @@ export class MouseInput extends EventEmitter {
           this.pressed.row === cell.row
         )
           this.emit('click', this.lastPress?.count ?? 1);
+        // a press that never clicked starts no double click
+        else this.lastPress = undefined;
 
         this.pressed = undefined;
         this.emit('pointer', 'release', cell);

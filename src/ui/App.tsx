@@ -819,7 +819,7 @@ export function App({
   }, [covered]);
 
   useEffect(() => stopEdgeScroll, []);
-  // motion with no left button held means its release went missing
+  // a report of motion with no button, or of another button, means the left button's release went missing
   useHover(endPress);
 
   const rangeEnd = ({ row, column }: Point): RangeEnd | undefined => {
