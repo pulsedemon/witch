@@ -497,18 +497,42 @@ test('a queued answer whose last write fails at close fails the close', async (t
   assert.equal((await stored(f, request)).answer, undefined);
 });
 
-test('a queued answer whose last write runs out of time at close is dropped without failing the close', async (t) => {
+test('a queued answer still held by a busy ledger at close is recorded by the next Witch to start', async (t) => {
   const { a, b, claim, f } = await owners(t.onTestFinished);
+  const write = b.coordination.answerPeers.bind(b.coordination);
+  let release: (() => Promise<void>) | undefined;
 
-  vi.spyOn(b.coordination['registry'], 'answerPeers')
-    .mockRejectedValueOnce(new DeadlineExpired())
-    .mockRejectedValueOnce(new DeadlineExpired());
+  b.a.peerReply = (requests) =>
+    JSON.stringify({
+      answers: requests.map(({ id }) => ({ id, message: 'Port 4000' })),
+    });
+
+  vi.spyOn(b.coordination, 'answerPeers').mockImplementationOnce(
+    async (answers) => {
+      release = await holdLedger(f.registry);
+
+      return write(answers);
+    },
+  );
 
   const request = await ask(a, claim, 'Which port?');
-  await refreshed(b);
-  await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
-  await b.coordinator.close();
-  assert.equal((await stored(f, request)).answer, undefined);
+
+  try {
+    await refreshed(b);
+    await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+    // the claim release also waits on the held ledger
+    await assert.rejects(b.coordinator.close(), DeadlineExpired);
+    assert.equal((await stored(f, request)).answer, undefined);
+  } finally {
+    await release?.();
+  }
+
+  await f.start('C');
+
+  await until(
+    'answer recorded',
+    async () => (await stored(f, request)).answer?.message === 'Port 4000',
+  );
 });
 
 test('a queued answer whose write fails during /clear is recorded on a later tick', async (t) => {
