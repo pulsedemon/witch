@@ -31,7 +31,7 @@ interface SelectionOptions {
 
   scrollBy(rows: number): boolean;
 
-  /** true when a press at `cell` lands on something outside the transcript that takes it, such as the new-messages notice. */
+  /** called once for every press, before the transcript is measured, so the caller can record the press; true when something outside the transcript takes it, such as the new-messages notice. */
   covers(cell: Cell): boolean;
 
   /** puts text on the clipboard and calls `copied` once the clipboard holds it. */
@@ -40,13 +40,13 @@ interface SelectionOptions {
   copied(): void;
 }
 
-/** the transcript's selection: its range, the press, click run and edge scroll that drag it, and the keys that copy, extend and clear it. */
+/** the transcript's selection: its range, the press, click run and edge scroll that drag it, and the keys that copy it, select the whole transcript, and extend and clear it. */
 export function useSelection({
   transcript,
   width,
   bodyWidth,
   box: transcriptBox,
-  shown,
+  shown: transcriptShown,
   pinned,
   viewport,
   scrollBy,
@@ -115,8 +115,8 @@ export function useSelection({
 
   // a press still held when another view covers the transcript ends there, so no drag resumes once it closes
   useEffect(() => {
-    if (!shown) endPress();
-  }, [shown]);
+    if (!transcriptShown) endPress();
+  }, [transcriptShown]);
 
   useEffect(() => stopEdgeScroll, []);
   // any report but the left button's or a vertical wheel step ends the press: motion with no button held means its release went missing

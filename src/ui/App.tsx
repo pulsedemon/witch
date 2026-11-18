@@ -482,7 +482,7 @@ export function App({
     return next !== top;
   };
 
-  /** whether a press at `cell` is on the new-messages notice, which then takes the press. */
+  /** records whether a press at `cell` is on the new-messages notice, which then takes the press, and returns it. */
   const pressedOnNewMessages = ({ column, row }: Cell) => {
     if (newMessagesBox.current) {
       const box = measureElement(newMessagesBox.current);
