@@ -13,6 +13,7 @@ export function PhaseRow({
   reading,
   counts,
   exitArmed,
+  copied,
 }: {
   state: Snapshot;
   /** scrolled up from live output in the conversation */
@@ -21,6 +22,8 @@ export function PhaseRow({
   counts: boolean;
   /** a second Ctrl+C now exits */
   exitArmed: boolean;
+  /** the clipboard just took a Cmd+C */
+  copied: boolean;
 }) {
   const { familiars, brews } = taskActivity(state);
 
@@ -33,6 +36,7 @@ export function PhaseRow({
         {piped([
           sessionStatus(state).toUpperCase(),
           ...(exitArmed ? ['PRESS CTRL+C AGAIN TO EXIT'] : []),
+          ...(copied ? ['COPIED'] : []),
           ...(state.native?.permissionMode
             ? [plain(state.native.permissionMode).toUpperCase()]
             : []),

@@ -68,6 +68,7 @@ import { statusFooter } from './status/status-rows.js';
 import { PhaseRow } from './status/PhaseRow.js';
 import { useToolFocus } from './transcript/tool-focus.js';
 import { useExitConfirm } from './exit-confirm.js';
+import { useFlash } from './flash.js';
 import { accent, colors, potion } from './theme.js';
 import { wrapSourceLines } from './wrap.js';
 import type { RuntimeUpdates } from '../core/runtime/runtime-updates.js';
@@ -110,8 +111,8 @@ export function App({
   /** replaces Witch with a fresh one on this conversation; /restart does nothing without it. */
   onRestart?(): void;
 
-  /** puts text on the clipboard, where Cmd+C sends the transcript's selection. */
-  copy?(text: string): void;
+  /** puts text on the clipboard, where Cmd+C sends the transcript's selection, and calls `copied` once the clipboard holds it. */
+  copy?(text: string, copied: () => void): void;
   /** sent once loading and cleanup end idle with nothing reported and tools unfocused, or ahead of a prompt submitted while waiting; otherwise left as the draft. */
   initialPrompt?: string;
 }) {
@@ -207,6 +208,7 @@ export function App({
 
   const toolFocus = useToolFocus(state.conversation?.id);
   const exit = useExitConfirm(onExit);
+  const [copied, showCopied] = useFlash(1000);
   const composer = useRef<InputHandle>(null);
   // this directory's prompts, newest first
   const [prompts, history, setHistory] = useLiveState<string[]>([]);
@@ -1109,7 +1111,7 @@ export function App({
         selected &&
         selectedText(transcript.lines, ...selected, transcript.joinBefore);
 
-      if (text?.trim()) copy?.(text);
+      if (text?.trim()) copy?.(text, showCopied);
 
       return;
     }
@@ -1439,6 +1441,7 @@ export function App({
               reading={top !== null && view.kind === 'chat'}
               counts={!sidebar}
               exitArmed={exit.armed}
+              copied={copied}
             />
           </Box>
           <Box
