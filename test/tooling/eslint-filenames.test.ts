@@ -131,6 +131,11 @@ test('ESLint names a TS file after the hook that is its only runtime export, and
       false,
     ],
     [
+      'src/overloaded.ts',
+      `export function useThing(): number;\n\n${hook}`,
+      false,
+    ],
+    [
       'src/listed-type.ts',
       `type Thing = number;\n\n${hook}\nexport { type Thing };\n`,
       false,
