@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { setTimeout as delay } from 'node:timers/promises';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import type { DisplayItem } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
 import { fake, left, show, DOWN, ENTER, UP } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+import { CMD_C } from '../fixtures/ui-transcript.js';
 
 const tool = (id: string): DisplayItem => ({
   id,
@@ -185,6 +186,50 @@ test('a selected tool that joins a group leaves the group selected', async () =>
 
     assert.ok(!row(ui, 'xray tool').includes('\u001b[7m'));
     assert.ok(!row(ui, 'west tool').includes('\u001b[7m'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test("a double or triple click on a tool's marker in one read toggles it each time and selects nothing", async () => {
+  // the clock stands still, so every press on one cell counts with the last
+  vi.useFakeTimers({ toFake: ['performance'] });
+  const { app } = fake({ items: [said('start'), tool('alpha')] });
+  const copied: string[] = [];
+
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+  );
+
+  try {
+    await until('the tool', () => ui.text().includes('+ ✓ alpha tool'));
+
+    const at = ui
+      .text()
+      .split('\n')
+      .findIndex((line) => line.includes('alpha tool'));
+
+    const click = left('press', 1, at) + left('release', 1, at);
+    // two toggles leave the row as it was, so only the marker keeps the second press from selecting its word
+    ui.stdin.write(click + click + CMD_C);
+    // a new count, so a tool only the first click of each batch toggled would end closed
+    vi.advanceTimersByTime(600);
+    ui.stdin.write(click + click + click + CMD_C);
+    await until('the open tool', () => ui.text().includes('alpha output'));
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+
+    // a copy from either would land before this one
+    ui.stdin.write(
+      left('press', 5, at) + left('drag', 9, at) + left('release', 9, at),
+    );
+
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['alpha']);
   } finally {
     ui.unmount();
   }

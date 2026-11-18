@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -46,8 +47,14 @@ import { useKeysReady } from './input/keys-ready.js';
 import { useLiveState } from './live-state.js';
 import { useDrafts } from './input/drafts.js';
 import type { Browsing } from './input/drafts.js';
-import { useClick, usePointer, useWheel } from './terminal/mouse.js';
-import { highlight, selectedText } from './transcript/selection.js';
+import { useClick, useHover, usePointer, useWheel } from './terminal/mouse.js';
+import type { Cell, Pointer } from './terminal/mouse.js';
+import {
+  highlight,
+  selectedText,
+  textEnd,
+  wordAt,
+} from './transcript/selection.js';
 import type { Point, RangeEnd } from './transcript/selection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
@@ -252,6 +259,12 @@ export function App({
   >(undefined);
 
   const pressedAt = useRef<RangeEnd>(undefined);
+  /** what the held press selects by: a double click's words, a triple click's lines. */
+  const pressedUnit = useRef<'cell' | 'word' | 'line'>('cell');
+  /** the last press's text and how many presses its cell had seen before that text came under it. */
+  const pressStreak = useRef<{ end: RangeEnd; before: number }>(undefined);
+  /** the scrolling of a drag held past the transcript's top or bottom, and the cell it is held on. */
+  const edgeScroll = useRef<{ timer: NodeJS.Timeout; cell: Cell }>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
   const newMessagesBox = useRef<DOMElement>(null);
   const pressedNewMessages = useRef(false);
@@ -790,14 +803,88 @@ export function App({
     return wrapSourceLines(text, bodyWidth);
   }, [recovery, conflict, cwd, bodyWidth]);
 
-  usePointer((pointer, { column, row }) => {
+  const stopEdgeScroll = () => {
+    clearInterval(edgeScroll.current?.timer);
+    edgeScroll.current = undefined;
+  };
+
+  const endPress = () => {
+    pressedAt.current = undefined;
+    stopEdgeScroll();
+  };
+
+  // a press still held when another view covers the transcript ends there, so no drag resumes once it closes
+  useEffect(() => {
+    if (!chat) endPress();
+  }, [chat]);
+
+  useEffect(() => stopEdgeScroll, []);
+  // any report but the left button's or a vertical wheel step ends the press: motion with no button held means its release went missing
+  useHover(endPress);
+
+  const rangeEnd = ({ row, column }: Point): RangeEnd | undefined => {
+    const anchor = transcript.anchorAt(row);
+
+    return anchor && { anchor, column, width, text: transcript.lines.at(row)! };
+  };
+
+  /** the first and last cell of the word or line at a cell, or none where there is no text to select. */
+  const spanAt = (
+    { row, column }: Point,
+    unit: 'word' | 'line',
+  ): [Point, Point] | undefined => {
+    if (unit === 'word') {
+      const word = wordAt(transcript.lines.at(row)!, column);
+
+      return (
+        word && [
+          { row, column: word.start },
+          { row, column: word.end },
+        ]
+      );
+    }
+
+    const { first, last } = transcript.lineAt(row);
+
+    // a line's last rows can hold only characters that are not drawn
+    for (let end = last; end >= first; end--) {
+      const column = textEnd(transcript.lines.at(end)!);
+
+      if (column !== undefined)
+        return [
+          { row: first, column: 0 },
+          { row: end, column },
+        ];
+    }
+
+    return undefined;
+  };
+
+  /** the tool whose `+ ✓` cells a press is on; they hold no link, so a click on them toggles it. */
+  const markerOf = (pressed: RangeEnd | undefined) => {
+    const item = transcript.items.find(({ id }) => id === pressed?.anchor.item);
+
+    return pressed &&
+      item?.kind === 'tool' &&
+      pressed.column < 3 &&
+      transcript.rowOf(pressed.anchor) === transcript.starts.get(item.id)
+      ? item
+      : undefined;
+  };
+
+  /** applies a left-button report to the selection, and says whether it was a drag held past the transcript's top or bottom. */
+  const point = (pointer: Pointer, { column, row }: Cell, presses = 1) => {
     // a press or release ends the drag even while another view covers the transcript
     if (pointer !== 'drag') {
       pressedAt.current = undefined;
       pressedNewMessages.current = false;
     }
 
+    // a press anywhere but on the same transcript text, another view included, ends the run of presses on it
+    const streak = pressStreak.current;
+
     if (pointer === 'press') {
+      pressStreak.current = undefined;
       setRange(undefined);
 
       if (newMessagesBox.current) {
@@ -809,11 +896,11 @@ export function App({
           row >= box.y &&
           row < box.y + box.height;
 
-        if (pressedNewMessages.current) return;
+        if (pressedNewMessages.current) return false;
       }
     }
 
-    if (!transcriptBox.current) return;
+    if (!transcriptBox.current) return false;
 
     const box = measureElement(transcriptBox.current);
 
@@ -829,28 +916,108 @@ export function App({
     const origin = box.y + Number(currentPinned) - Number(pinned);
     const offset = Math.max(-1, Math.min(shown, row - origin));
 
-    const at = Math.max(
-      0,
-      Math.min(transcript.lines.length - 1, first + offset),
-    );
-
-    const anchor = transcript.anchorAt(at);
-
-    const end = anchor && {
-      anchor,
+    const at = {
+      row: Math.max(0, Math.min(transcript.lines.length - 1, first + offset)),
       column: Math.max(0, Math.min(bodyWidth - 1, column - box.x)),
-      width,
-      text: transcript.lines.at(at)!,
     };
 
-    if (pointer === 'press') {
-      if (offset >= 0 && offset < shown && column < box.x + bodyWidth)
-        pressedAt.current = end;
-    } else if (pressedAt.current && end) {
-      if (offset < 0 || offset === shown) scrollBy(offset < 0 ? -1 : 1);
+    const end = rangeEnd(at);
 
-      setRange({ from: pressedAt.current, to: end });
+    if (pointer === 'press') {
+      if (offset < 0 || offset >= shown || column >= box.x + bodyWidth)
+        return false;
+
+      pressedAt.current = end;
+
+      // presses count by screen cell, and other text can come under it between them: an opened link's notice
+      // moves the rows, and streamed output rewrites one
+      const before =
+        end &&
+        streak &&
+        presses > 1 &&
+        streak.end.anchor.item === end.anchor.item &&
+        streak.end.anchor.line === end.anchor.line &&
+        streak.end.anchor.offset === end.anchor.offset &&
+        streak.end.column === end.column &&
+        streak.end.text === end.text
+          ? streak.before
+          : presses - 1;
+
+      pressStreak.current = end && { end, before };
+      const repeats = presses - before;
+
+      // two clicks on a marker in one read toggle it back to the text it had, so the count alone would select it
+      pressedUnit.current =
+        repeats < 2 || markerOf(end) ? 'cell' : repeats === 2 ? 'word' : 'line';
+
+      const span =
+        pressedUnit.current !== 'cell' && spanAt(at, pressedUnit.current);
+
+      const [from, to] = span ? span.map(rangeEnd) : [];
+
+      if (from && to) setRange({ from, to });
+
+      return false;
     }
+
+    if (!pressedAt.current || !end) return false;
+
+    // rows of the box under a short transcript are not past its bottom
+    const pastEdge = offset < 0 || row - origin >= height;
+
+    if (pastEdge) scrollBy(offset < 0 ? -1 : 1);
+
+    const unit = pressedUnit.current;
+    const pressed = unit !== 'cell' && pointOf(pressedAt.current);
+
+    if (!pressed) {
+      setRange({ from: pressedAt.current, to: end });
+
+      return pastEdge;
+    }
+
+    // a drag after a double or triple click selects whole words or lines; a cell stands in where there is none
+    const ends = [
+      ...(spanAt(pressed, unit) ?? [pressed]),
+      ...(spanAt(at, unit) ?? [at]),
+    ].sort((a, b) => a.row - b.row || a.column - b.column);
+
+    const from = rangeEnd(ends[0]!);
+    const to = rangeEnd(ends.at(-1)!);
+
+    if (from && to) setRange({ from, to });
+
+    return pastEdge;
+  };
+
+  // a tick of the edge scroll runs the handler of the render then current, not the one that started it
+  const latestPoint = useRef(point);
+
+  useLayoutEffect(() => {
+    latestPoint.current = point;
+  });
+
+  usePointer((pointer, cell, presses) => {
+    if (!point(pointer, cell, presses)) {
+      stopEdgeScroll();
+
+      return;
+    }
+
+    // held motion is reported only on reaching a new cell, so a pointer resting past the edge sends nothing more
+    edgeScroll.current = {
+      cell,
+      timer:
+        edgeScroll.current?.timer ??
+        setInterval(() => {
+          // a resize can bring the held cell back inside the transcript
+          if (
+            !edgeScroll.current ||
+            !latestPoint.current('drag', edgeScroll.current.cell)
+          )
+            stopEdgeScroll();
+        }, 50),
+    };
   });
 
   useClick(() => {
@@ -863,17 +1030,9 @@ export function App({
       setTop(null);
     }
 
-    // a tool's `+ ✓` cells hold no link, so a click on them toggles it
-    const pressed = pressedAt.current;
-    const item = transcript.items.find(({ id }) => id === pressed?.anchor.item);
+    const tool = markerOf(pressedAt.current);
 
-    if (
-      pressed &&
-      item?.kind === 'tool' &&
-      pressed.column < 3 &&
-      transcript.rowOf(pressed.anchor) === transcript.starts.get(item.id)
-    )
-      toolFocus.toggle(item, transcript.members(item.id));
+    if (tool) toolFocus.toggle(tool, transcript.members(tool.id));
   });
 
   useWheel((rows) => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { App } from '../../src/ui/App.js';
@@ -13,10 +13,13 @@ import {
   wheelUp,
 } from '../fixtures/ui-transcript.js';
 
-test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from above the transcript, the composer or the sidebar selects nothing', async () => {
-  const words =
-    'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
+const click = (column: number, row: number) =>
+  left('press', column, row) + left('release', column, row);
 
+const words =
+  'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
+
+test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from above the transcript, the composer or the sidebar selects nothing', async () => {
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: words, cwd: '/work' }],
   });
@@ -29,7 +32,7 @@ test('a drag over the transcript highlights it and Cmd+C copies it with wrapped 
 
     // each write renders before the next, so Cmd+C reads what the mouse left selected
     for (const data of [
-      left('press', 1, 2) + left('release', 1, 2),
+      click(1, 2),
       left('press', 5, 0),
       left('drag', 5, 2),
       left('release', 5, 2),
@@ -49,11 +52,13 @@ test('a drag over the transcript highlights it and Cmd+C copies it with wrapped 
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, [words]);
-    ui.stdin.write(left('press', 1, 2) + left('release', 1, 2));
+    ui.stdin.write(click(1, 2));
     await until('no highlight', () => !ui.frame().includes('\u001b[7m'));
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.deepEqual(copied, [words]);
+    // a second press on 1,2 would count as a double click
+    ui.stdin.write(click(2, 2));
     drag(ui, [1, 2], [58, 3]);
 
     await until('the highlight again', () =>
@@ -509,9 +514,6 @@ test('a selection drops when output arrives under one of its ends', async () => 
 });
 
 test('a drag into the left margin or above a transcript at its top reaches the edge cell or row, and a press under a short transcript selects nothing', async () => {
-  const words =
-    'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
-
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: words, cwd: '/work' }],
   });
@@ -679,7 +681,7 @@ test('a drag and Cmd+C in one read copy what the drag selected, and a click and 
     );
 
     await until('the highlight', () => ui.frame().includes('\u001b[7mbeta'));
-    ui.stdin.write(left('press', 20, 9) + left('release', 20, 9) + CMD_C);
+    ui.stdin.write(click(20, 9) + CMD_C);
     await delay(60);
     assert.deepEqual(copied, ['alpha']);
   } finally {
@@ -699,12 +701,15 @@ test('a drag past the transcript top or bottom scrolls it a row a move, and past
     const bottom = first(ui);
     ui.stdin.write(left('press', 1, 1));
 
+    // released in the same read, so no held drag keeps scrolling
     ui.stdin.write(
-      left('drag', 1, 0) + left('drag', 2, 0) + left('drag', 3, 0),
+      left('drag', 1, 0) +
+        left('drag', 2, 0) +
+        left('drag', 3, 0) +
+        left('release', 3, 0),
     );
 
     await until('three rows up', () => first(ui) === bottom - 3);
-    ui.stdin.write(left('release', 3, 0));
     await delay(60);
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
@@ -714,7 +719,7 @@ test('a drag past the transcript top or bottom scrolls it a row a move, and past
     ]);
 
     ui.stdin.write(left('press', 1, 1));
-    ui.stdin.write(left('drag', 1, 39));
+    ui.stdin.write(left('drag', 1, 39) + left('release', 1, 39));
     await until('a row down', () => first(ui) === bottom - 2);
   } finally {
     ui.unmount();
@@ -847,4 +852,489 @@ test('a wheel step while the left button is held preserves the press anchor for 
   } finally {
     ui.unmount();
   }
+});
+
+test('a double press highlights the word under it before its release and Cmd+C copies it, on a linked path the whole link, and on a blank row nothing', async () => {
+  const path = '/work/my notes.md';
+
+  const { app } = fake({
+    items: [
+      { id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' },
+      {
+        id: 't',
+        kind: 'tool',
+        title: `Read  ${path}`,
+        path,
+        text: '',
+        cwd: '/work',
+        done: true,
+      },
+    ],
+  });
+
+  const { ui, copied } = mounted(app);
+
+  try {
+    // the message is on row 2, the blank row under it is row 3, and the tool's path runs from column 11 of row 4
+    await until('the tool', () => ui.text().includes('my notes.md'));
+    ui.stdin.write(click(8, 2));
+    ui.stdin.write(left('press', 8, 2));
+
+    await until('the word highlighted', () =>
+      ui.frame().includes('alpha \u001b[7mbeta\u001b[27m gamma'),
+    );
+
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['beta']);
+    ui.stdin.write(left('release', 8, 2));
+    ui.stdin.write(click(20, 4));
+    ui.stdin.write(left('press', 20, 4));
+    await until('the link highlighted', () => ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(left('release', 20, 4) + CMD_C);
+    await until('the second copy', () => copied.length > 1);
+    assert.deepEqual(copied, ['beta', path]);
+    ui.stdin.write(click(8, 3));
+    ui.stdin.write(left('press', 8, 3));
+
+    await until(
+      'no highlight on the blank row',
+      () => !ui.frame().includes('\u001b[7m'),
+    );
+
+    ui.stdin.write(left('release', 8, 3) + CMD_C);
+    // a copy from the blank row would land before this one
+    ui.stdin.write(click(8, 2));
+    ui.stdin.write(left('press', 8, 2) + CMD_C);
+    await until('the third copy', () => copied.length > 2);
+    assert.deepEqual(copied, ['beta', path, 'beta']);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a second press on a cell whose text moved, was rewritten or was covered since the first is a first press on that text', async () => {
+  // the clock stands still, so the second press counts with the first by its cell
+  vi.useFakeTimers({ toFake: ['performance'] });
+  const said = { id: 'u', kind: 'user' as const, text: words, cwd: '/work' };
+  const { app, coordinator } = fake({ items: [said] });
+  const { ui } = mounted(app);
+
+  try {
+    await until('the message', () => ui.text().includes('alpha beta'));
+    ui.stdin.write(click(8, 2));
+
+    coordinator.publish({
+      items: [{ ...said, id: 'n', text: 'first second third' }, said],
+    });
+
+    await until('the message above', () => ui.text().includes('first second'));
+    ui.stdin.write(left('press', 8, 2));
+    ui.stdin.write(left('drag', 10, 2));
+
+    // a drag by cells, where one after a double press would take all of `second`
+    await until('the cells highlighted', () =>
+      ui.frame().includes('\u001b[7meco\u001b[27m'),
+    );
+
+    ui.stdin.write(left('release', 10, 2));
+    ui.stdin.write(click(8, 5));
+
+    // the same row of the same message, rewritten as streamed output rewrites one
+    coordinator.publish({
+      items: [
+        { ...said, id: 'n', text: 'first second third' },
+        { ...said, text: words.replace('beta', 'betamax') },
+      ],
+    });
+
+    await until('the rewritten row', () => ui.text().includes('betamax'));
+    ui.stdin.write(left('press', 8, 5));
+    ui.stdin.write(left('drag', 10, 5));
+
+    await until('its cells highlighted', () =>
+      ui.frame().includes('\u001b[7meta\u001b[27m'),
+    );
+
+    ui.stdin.write(left('release', 10, 5));
+    ui.stdin.write(click(8, 5));
+    await openCommand(ui, '/help', '/new  New');
+    // a press on the page over the same cell is no press on the transcript's text
+    ui.stdin.write(click(8, 5));
+    ui.stdin.write('\u001b');
+    await until('the transcript again', () => ui.text().includes('betamax'));
+    ui.stdin.write(left('press', 8, 5));
+    ui.stdin.write(left('drag', 9, 5));
+
+    await until('two cells highlighted', () =>
+      ui.frame().includes('\u001b[7met\u001b[27m'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a double press, a held drag and Cmd+C in one read copy the whole words dragged over', async () => {
+  const { app } = fake({
+    items: [
+      { id: 'u', kind: 'user', text: 'alpha beta gamma delta', cwd: '/work' },
+    ],
+  });
+
+  const { ui, copied } = mounted(app);
+
+  try {
+    // the message is on row 2, from column 1
+    await until('the message', () => ui.text().includes('gamma delta'));
+
+    ui.stdin.write(
+      click(8, 2) + left('press', 8, 2) + left('drag', 13, 2) + CMD_C,
+    );
+
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['beta gamma']);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a third press on the middle row of a wrapped line highlights all its rows, the last through its text, and copies them as one line, and a fourth keeps it', async () => {
+  const text = `${words} rho sigma tau upsilon phi chi psi omega one two three four five six seven`;
+
+  const { app } = fake({
+    items: [{ id: 'u', kind: 'user', text, cwd: '/work' }],
+  });
+
+  const { ui, copied } = mounted(app);
+  const rows = () => ui.frame().split('\n').slice(2, 5);
+
+  const line = [
+    ' \u001b[7malpha beta gamma delta epsilon zeta eta theta iota kappa  \u001b[27m',
+    ' \u001b[7mlambda mu nu xi omicron pi rho sigma tau upsilon phi chi  \u001b[27m',
+    ' \u001b[7mpsi omega one two three four five six seven\u001b[27m',
+  ];
+
+  try {
+    // the message wraps over rows 2 to 4, from column 1
+    await until('the wrapped message', () => ui.text().includes(' psi omega'));
+    ui.stdin.write(click(5, 3));
+    ui.stdin.write(click(5, 3));
+    ui.stdin.write(left('press', 5, 3));
+
+    await until('the line highlighted', () =>
+      ui.frame().includes('seven\u001b[27m'),
+    );
+
+    assert.deepEqual(rows(), line);
+    ui.stdin.write(left('release', 5, 3) + CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [text]);
+    ui.stdin.write(click(9, 3));
+    await until('no highlight', () => !ui.frame().includes('\u001b[7m'));
+
+    for (let press = 0; press < 4; press++) ui.stdin.write(click(5, 3));
+
+    await until('the line highlighted again', () =>
+      ui.frame().includes('seven\u001b[27m'),
+    );
+
+    assert.deepEqual(rows(), line);
+    ui.stdin.write(CMD_C);
+    await until('the second copy', () => copied.length > 1);
+    assert.deepEqual(copied, [text, text]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a triple press on a line whose last wrapped row holds only an undrawn character selects through its text', async () => {
+  const text = 'a'.repeat(58);
+
+  const { app } = fake({
+    items: [
+      {
+        id: 'a',
+        kind: 'assistant',
+        text: `${text}${' '.repeat(20)}\u200b`,
+        cwd: '/work',
+      },
+    ],
+  });
+
+  const { ui, copied } = mounted(app);
+
+  try {
+    // the a's fill row 2, and the zero-width space wraps alone onto row 3
+    await until('the reply', () => ui.text().includes(text));
+    ui.stdin.write(click(5, 2));
+    ui.stdin.write(click(5, 2));
+    ui.stdin.write(click(5, 2));
+
+    await until('the highlight', () =>
+      ui.frame().includes(`\u001b[7m${text}\u001b[27m`),
+    );
+
+    // a selection running on into the undrawn row would highlight a cell of it
+    assert.equal(ui.frame().split('\u001b[7m').length, 2);
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [text]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a held double press dragged to another row selects whole words at both ends either way, and a held triple press dragged down selects whole lines', async () => {
+  const { app } = fake({
+    items: [
+      { id: 'u', kind: 'user', text: words, cwd: '/work' },
+      {
+        id: 'a',
+        kind: 'assistant',
+        text: 'first line\nsecond line\nthird line',
+        cwd: '/work',
+      },
+    ],
+  });
+
+  const { ui, copied } = mounted(app);
+
+  const dragged =
+    'beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron';
+
+  try {
+    // beta is at column 8 of row 2, omicron at column 18 of row 3, and the reply's lines are on rows 6 to 8
+    await until('the reply', () => ui.text().includes('third line'));
+    ui.stdin.write(click(8, 2));
+
+    ui.stdin.write(
+      left('press', 8, 2) +
+        left('drag', 18, 3) +
+        left('release', 18, 3) +
+        CMD_C,
+    );
+
+    await until('the copy', () => copied.length > 0);
+    ui.stdin.write(click(18, 3));
+
+    ui.stdin.write(
+      left('press', 18, 3) + left('drag', 8, 2) + left('release', 8, 2) + CMD_C,
+    );
+
+    await until('the second copy', () => copied.length > 1);
+    ui.stdin.write(click(3, 6));
+    ui.stdin.write(click(3, 6));
+
+    ui.stdin.write(
+      left('press', 3, 6) + left('drag', 3, 7) + left('release', 3, 7) + CMD_C,
+    );
+
+    await until('the third copy', () => copied.length > 2);
+    assert.deepEqual(copied, [dragged, dragged, 'first line\nsecond line']);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a held triple press whose line changes its last row selects the current line on the next drag and leaves no stale highlight', async () => {
+  const longer = `${words} rho sigma tau upsilon phi chi psi omega one two three`;
+
+  const message = (text: string) => ({
+    items: [{ id: 'u', kind: 'user' as const, text, cwd: '/work' }],
+  });
+
+  const { app, coordinator } = fake(message(words));
+  const { ui, copied } = mounted(app);
+
+  try {
+    // the message wraps from row 2 onto row 3, and the longer one on to row 4 with row 2 unchanged
+    await until('the wrapped message', () => ui.text().includes(' omicron pi'));
+    ui.stdin.write(click(3, 2));
+    ui.stdin.write(click(3, 2));
+    ui.stdin.write(left('press', 3, 2));
+
+    await until('the line highlighted', () =>
+      ui.frame().includes('pi\u001b[27m'),
+    );
+
+    coordinator.publish(message(longer));
+    await until('the longer message', () => ui.text().includes(' psi omega'));
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(left('drag', 5, 2));
+
+    await until('the longer line highlighted', () =>
+      ui.frame().includes('three\u001b[27m'),
+    );
+
+    ui.stdin.write(left('release', 5, 2) + CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [longer]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+/** the timer count before any drag, under faked intervals; the status line's own interval is part of it. */
+async function fakedInterval(ui: { text(): string }) {
+  await until('the transcript', () => first(ui) > 0);
+
+  return vi.getTimerCount();
+}
+
+const tick = () => vi.advanceTimersByTime(50);
+
+test('a drag held below the bottom while more rows arrive copies through the newest row', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+
+  const rows = (count: number) => ({
+    ...long,
+    text: Array.from({ length: count }, (_, n) => `row ${n + 1}`).join('\n'),
+  });
+
+  const { app, coordinator } = fake({ items: [rows(300)] });
+  const { ui, copied } = mounted(app);
+
+  try {
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
+    ui.stdin.write(wheelUp.repeat(2));
+    await until('two rows up', () => first(ui) === bottom - 2);
+    const pressed = first(ui) + 4;
+    ui.stdin.write(left('press', 1, 5));
+    ui.stdin.write(left('drag', 1, 20));
+    await until('a row down', () => first(ui) === bottom - 1);
+    tick();
+    await until('the bottom', () => first(ui) === bottom);
+    coordinator.publish({ items: [rows(305)] });
+    await until('the new rows', () => ui.text().includes('row 305'));
+    // the tick after the new layout selects with it
+    tick();
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+
+    assert.deepEqual(copied, [
+      Array.from(
+        { length: 306 - pressed },
+        (_, n) => `row ${pressed + n}`,
+      ).join('\n') + '\n',
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a drag back inside the transcript stops its scrolling and a further drag still extends the selection', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const { app } = fake({ items: [long] });
+  const { ui, copied } = mounted(app);
+
+  try {
+    const baseline = await fakedInterval(ui);
+    const bottom = first(ui);
+    ui.stdin.write(left('press', 1, 5));
+    ui.stdin.write(left('drag', 1, 0));
+    await until('a row up', () => first(ui) === bottom - 1);
+    tick();
+    await until('two rows up', () => first(ui) === bottom - 2);
+    assert.equal(vi.getTimerCount(), baseline + 1);
+    ui.stdin.write(left('drag', 1, 8));
+    assert.equal(vi.getTimerCount(), baseline);
+    ui.stdin.write(left('drag', 3, 1) + left('release', 3, 1) + CMD_C);
+    await until('the copy', () => copied.length > 0);
+
+    assert.deepEqual(copied, [
+      [
+        `w ${bottom - 2}`,
+        ...Array.from({ length: 5 }, (_, n) => `row ${bottom - 1 + n}`),
+        'r',
+      ].join('\n'),
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a press held while a page opens and closes ends there, so a later drag selects nothing and one held past the edge stops scrolling', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const { app } = fake({ items: [long] });
+  const { ui, copied } = mounted(app);
+
+  try {
+    const baseline = await fakedInterval(ui);
+    const bottom = first(ui);
+    ui.stdin.write(left('press', 1, 5));
+    await openCommand(ui, '/help', '/new  New');
+    ui.stdin.write('\u001b');
+    await until('the transcript again', () => first(ui) > 0);
+    ui.stdin.write(left('drag', 5, 5) + CMD_C);
+    // a copy of that drag would land before this one
+    ui.stdin.write(left('release', 5, 5));
+    ui.stdin.write(left('press', 1, 5) + left('drag', 3, 5) + CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [`row ${bottom + 4}`.slice(0, 3)]);
+    ui.stdin.write(left('drag', 1, 0));
+    await until('a row up', () => first(ui) === bottom - 1);
+    assert.equal(vi.getTimerCount(), baseline + 1);
+    await openCommand(ui, '/help', '/new  New');
+    await until('the interval cleared', () => vi.getTimerCount() === baseline);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a drag held past the edge keeps one 50 ms interval, which a release, a hover report, a resize that drops the press or unmounting clears', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const { app } = fake({ items: [long] });
+  const { ui, copied } = mounted(app);
+
+  const held = () => {
+    ui.stdin.write(left('press', 1, 5));
+    ui.stdin.write(left('drag', 1, 0));
+  };
+
+  try {
+    const baseline = await fakedInterval(ui);
+    const bottom = first(ui);
+    held();
+    assert.equal(vi.getTimerCount(), baseline + 1);
+    await until('a row up', () => first(ui) === bottom - 1);
+
+    // no further report arrives, and each tick scrolls a row on the one interval
+    for (let rows = 2; rows < 6; rows++) {
+      tick();
+      await until(`${rows} rows up`, () => first(ui) === bottom - rows);
+      assert.equal(vi.getTimerCount(), baseline + 1);
+    }
+
+    ui.stdin.write(left('release', 1, 0));
+    assert.equal(vi.getTimerCount(), baseline);
+    held();
+    assert.equal(vi.getTimerCount(), baseline + 1);
+    ui.stdin.write(CMD_C);
+    // motion with no button held ends the press, so the drag after it moves no end of the selection
+    ui.stdin.write('\u001b[<35;2;1M');
+    assert.equal(vi.getTimerCount(), baseline);
+    ui.stdin.write(left('drag', 3, 8) + CMD_C);
+    await until('both copies', () => copied.length > 1);
+    assert.equal(copied[1], copied[0]);
+    held();
+    ui.resize(80);
+
+    await until('the wide layout', () =>
+      ui
+        .text()
+        .split('\n')
+        .some((line) => line.length > 60),
+    );
+
+    // the press dropped with the width, and the next tick finds none
+    tick();
+    assert.equal(vi.getTimerCount(), baseline);
+    held();
+    assert.equal(vi.getTimerCount(), baseline + 1);
+  } finally {
+    ui.unmount();
+  }
+
+  assert.equal(vi.getTimerCount(), 0);
 });

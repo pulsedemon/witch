@@ -31,6 +31,7 @@ interface DesktopEvent {
   text?: string;
   failed?: boolean;
   configured?: string;
+  requested?: string;
 }
 
 test('the CLI opens the pressed link or image, copies selected text and runs queued prompts after desktop failures', async () => {
@@ -311,7 +312,23 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       expected,
     );
 
-    assert.equal(messages.filter((m) => m.file === '/usr/bin/open').length, 1);
+    const opens = () =>
+      messages.filter((m) => m.file === '/usr/bin/open').length;
+
+    assert.equal(opens(), 1);
+
+    const requests = (url: string) =>
+      messages.filter(
+        (m) => m.requested === '/usr/bin/open' && m.args?.[0] === url,
+      ).length;
+
+    const next = screen.linkAt(1, 5)!;
+    const click = mouse('press', 1, 4) + mouse('release', 1, 4);
+    // the next row's link is requested after anything the double click opened
+    write(click + click + mouse('press', 1, 5) + mouse('release', 1, 5));
+    await wait('the next link requested', () => requests(next) > 0);
+    assert.equal(requests(changed), 1);
+    await wait('both links opened', () => opens() === 3);
     let turn = 0;
 
     for (const [kind, failure, errorText] of [
@@ -349,7 +366,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       await wait('clickable target', () => linkCell(matches));
       const cell = linkCell(matches)!;
       const failedAt = output.length;
-      const opened = messages.filter((m) => m.file === '/usr/bin/open').length;
+      const opened = opens();
 
       if (kind === 'copy')
         write(
@@ -377,10 +394,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
         );
 
       if (kind === 'malformed' || kind === 'memory')
-        assert.equal(
-          messages.filter((m) => m.file === '/usr/bin/open').length,
-          opened,
-        );
+        assert.equal(opens(), opened);
 
       await configure('none');
       await finish(held);

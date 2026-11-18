@@ -47,6 +47,12 @@ childProcess.execFile = (file, ...args) => {
   const callback = args.at(-1);
   const fail = failure === file;
 
+  // sent in call order, where the results below arrive as each child exits
+  process.send({
+    requested: file,
+    args: file === '/usr/bin/open' ? args[0] : [],
+  });
+
   const child = execute(
     process.execPath,
     [
