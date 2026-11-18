@@ -324,9 +324,10 @@ export async function runWitch(
       onRestart={restart}
       initialPrompt={prompt || undefined}
       graphics={graphics}
-      copy={(text) => {
+      copy={(text, copied) => {
         const child = execFile('/usr/bin/pbcopy', (error) => {
           if (error) warn(error);
+          else copied();
         });
 
         // a pbcopy that fails early fails the write with EPIPE, and the callback reports its failing exit
