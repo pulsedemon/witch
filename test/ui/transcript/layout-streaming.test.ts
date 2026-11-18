@@ -186,6 +186,7 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
     [' \t\n'],
     [' ', '\t', '\n'],
     ['\u001b[0m\n'],
+    ['\u001b', '[0m\n'],
     ['\u00a0', '\n'],
     ['\u0007\n'],
   ]) {
@@ -273,7 +274,15 @@ test('provisional whitespace keeps an explicit target through split chunks and r
   }
 });
 
-test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
+test('an OSC sequence completed later rebuilds the uncertain tail', () => {
+  sameAsFull(
+    ['[\n"src/a.ts"\n', '\u001b]0;title\n[\n"x"\n', '\u0007'].map((text) => ({
+      updates: [tool(text)],
+      width: 80,
+      expanded: ['tool'],
+    })),
+  );
+
   for (const stable of ['', 'stable\n']) {
     const prefix =
       stable +

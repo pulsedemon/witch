@@ -775,8 +775,9 @@ function linked(
   };
 
   for (const token of tokenize(text)) {
+    line.text += token.type === 'char' ? token.value : token.code;
+
     if (token.type === 'ansi' && token.code.startsWith('\u001b]8;')) {
-      line.text += token.code;
       flush();
       const separator = token.code.indexOf(';', 4);
       const terminator = token.code.endsWith('\u001b\\') ? 2 : 1;
@@ -785,8 +786,7 @@ function linked(
       buffer += token.value;
       const newline = token.value.lastIndexOf('\n');
 
-      if (newline < 0) line.text += token.value;
-      else line = { text: token.value.slice(newline + 1), target };
+      if (newline >= 0) line = { text: token.value.slice(newline + 1), target };
     }
   }
 
@@ -845,16 +845,16 @@ function appendBoundary(text: string) {
       ? text.indexOf(';', index + 4)
       : index + 1;
 
-    if (start < 0) return { end: complete, quotedLine };
+    if (start < 0) return { end: complete, quotedLine, unresolvedOsc: true };
 
     const end = oscEnd(text, start + 1);
 
-    if (end < 0) return { end: complete, quotedLine };
+    if (end < 0) return { end: complete, quotedLine, unresolvedOsc: true };
 
     index = end - 1;
   }
 
-  return { end: complete, quotedLine };
+  return { end: complete, quotedLine, unresolvedOsc: false };
 }
 
 export interface LinkedAppend {
@@ -909,7 +909,7 @@ export function linkifyAppend(
     let prefix = linked(text.slice(0, end), cwd, target, context);
 
     if (prefix.context.containers && prefix.context.key) {
-      provisional = true;
+      provisional = !boundary.unresolvedOsc;
       end = boundary.quotedLine;
       prefix = linked(text.slice(0, end), cwd, target, context);
     }
