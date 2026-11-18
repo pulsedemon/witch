@@ -665,6 +665,48 @@ test("a ledger lock held past a tick's read leaves coordination available", asyn
   assert.equal(ledgerFailure(coordination), undefined);
 });
 
+test('a tick whose ledger read runs out of time still shows the peer its discovery found', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await idle(cleanup);
+  const { coordination } = f.a;
+  const release = await holdLedger(f.registry);
+
+  try {
+    const peer = await livePeer(cleanup, f);
+    await tick(coordination);
+    assert.match(ledgerFailure(coordination) ?? '', /expired/);
+    assert.deepEqual(peers(coordination), [peer.id]);
+  } finally {
+    await release();
+  }
+});
+
+test('a tick that showed peers without a ledger read reads the ledger on the next unchanged tick', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await idle(cleanup);
+  const { coordination } = f.a;
+  const release = await holdLedger(f.registry);
+
+  try {
+    await livePeer(cleanup, f);
+    await tick(coordination);
+  } finally {
+    await release();
+  }
+
+  // a read outside the tick clears the recorded failure without accepting a ledger for the view
+  await coordination['readLedger']();
+  assert.equal(ledgerFailure(coordination), undefined);
+  const state = vi.spyOn(coordination['registry'], 'state');
+
+  try {
+    await tick(coordination);
+    assert.equal(state.mock.calls.length, 1);
+  } finally {
+    state.mockRestore();
+  }
+});
+
 test('ledger reads that keep running out of time stay unshown, and another failure shows at once', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
   const { coordination } = f.a;
