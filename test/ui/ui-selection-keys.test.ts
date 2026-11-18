@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import {
   DOWN,
@@ -53,19 +52,15 @@ async function shown() {
   return mount;
 }
 
-/** writes each key as its own read and copies what is then selected. */
+/** writes each key as its own read, which Ink handles before the next, and copies what is then selected. */
 async function copyAfter(
   { ui, copied }: ReturnType<typeof mounted>,
   ...keys: string[]
 ) {
   const before = copied.length;
 
-  for (const key of keys) {
-    ui.stdin.write(key);
-    await delay(20);
-  }
+  for (const key of [...keys, CMD_C]) ui.stdin.write(key);
 
-  ui.stdin.write(CMD_C);
   await until('the copy', () => copied.length > before);
 
   return copied.at(-1);
@@ -104,10 +99,7 @@ test("Shift+arrows move a double-clicked word's end without moving the composer 
     ui.stdin.write('\u001b');
     await until('no highlight', () => !highlighted(ui));
 
-    for (const data of [SHIFT_LEFT, 'w', CMD_C]) {
-      ui.stdin.write(data);
-      await delay(20);
-    }
+    for (const data of [SHIFT_LEFT, 'w', CMD_C]) ui.stdin.write(data);
 
     await until('w before z', () => ui.text().includes('xywz'));
     assert.deepEqual(copied, ['be']);
@@ -168,13 +160,11 @@ test('a moved end that leaves the view scrolls the transcript to it', async () =
     await until('one row up', () => first(ui) === before - 1);
 
     // the end starts on the new top row, so a view's height of steps puts it one row past the bottom
-    for (let step = 0; step < height; step++) {
-      ui.stdin.write(SHIFT_DOWN);
-      await delay(10);
-    }
+    for (let step = 0; step < height; step++) ui.stdin.write(SHIFT_DOWN);
 
-    await until('one row back down', () => first(ui) === before);
-    await delay(60);
+    // a frame drawn after the last step, so a view that scrolled past this row would show it
+    ui.stdin.write('q');
+    await until('the typed letter', () => /^\W*q\W*$/m.test(ui.text()));
     assert.equal(first(ui), before);
   } finally {
     ui.unmount();
@@ -188,11 +178,13 @@ test('Ctrl+Shift+A selects nothing under a page or in an empty conversation', as
   try {
     await openCommand(ui, '/help', '/new  New');
     ui.stdin.write(CTRL_SHIFT_A);
-    await delay(40);
     ui.stdin.write('\u001b');
     await until('the transcript again', () => ui.text().includes('one two'));
-    ui.stdin.write(CMD_C);
-    await delay(60);
+
+    // the draft shows in a frame drawn after Cmd+C was handled
+    for (const data of [CMD_C, 'zq']) ui.stdin.write(data);
+
+    await until('the draft', () => ui.text().includes('zq'));
     assert.deepEqual(copied, []);
     assert.ok(!highlighted(ui));
   } finally {
@@ -206,10 +198,9 @@ test('Ctrl+Shift+A selects nothing under a page or in an empty conversation', as
       empty.ui.text().includes('Start a conversation'),
     );
 
-    empty.ui.stdin.write(CTRL_SHIFT_A);
-    await delay(40);
-    empty.ui.stdin.write(CMD_C);
-    await delay(60);
+    for (const data of [CTRL_SHIFT_A, CMD_C, 'zq']) empty.ui.stdin.write(data);
+
+    await until('the draft', () => empty.ui.text().includes('zq'));
     assert.deepEqual(empty.copied, []);
     assert.ok(!highlighted(empty.ui));
   } finally {
@@ -268,12 +259,7 @@ test('with a selection, Shift+↓ moves its end and leaves the focused tool chos
   };
 
   const untouched = await opened(() => {});
-
-  const afterDown = await opened(async ({ ui }) => {
-    ui.stdin.write(DOWN);
-    await delay(20);
-  });
-
+  const afterDown = await opened(({ ui }) => ui.stdin.write(DOWN));
   assert.notEqual(afterDown, untouched);
 
   assert.equal(
