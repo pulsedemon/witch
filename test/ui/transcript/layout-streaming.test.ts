@@ -254,7 +254,7 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
   }
 });
 
-test('visible partial lines release earlier provisional blanks from parsing and wrapping', () => {
+test('provisional blanks keep parsing and wrapping bounded through visible and control chunks', () => {
   const segment = Intl.Segmenter.prototype.segment;
   const normalize = String.prototype.normalize;
   let work = 0;
@@ -277,21 +277,22 @@ test('visible partial lines release earlier provisional blanks from parsing and 
     return normalize.call(this, form);
   });
 
-  for (const first of ['x', 'x\u001b]0;t']) {
+  for (const first of ['x', 'x\u001b]0;t', '\u001b]0;t', '\u001b]0;t\nmore']) {
     const counts: number[] = [];
 
     for (const count of [1000, 4000]) {
       const layout = new TranscriptLayout();
       const expanded = new Map([['tool', true]]);
-
-      let items = applyDisplayUpdate(
-        [],
-        tool('[\n"src/a.ts"\n' + '\n'.repeat(count)),
-      );
-
+      const prefix = '[\n"src/a.ts"\n' + '\n'.repeat(count);
+      const initial = first.startsWith('x') ? prefix : prefix + first;
+      let items = applyDisplayUpdate([], tool(initial));
       layout.render(items, 80, expanded);
-      items = applyDisplayUpdate(items, tool(first));
-      layout.render(items, 80, expanded);
+
+      if (first.startsWith('x')) {
+        items = applyDisplayUpdate(items, tool(first));
+        layout.render(items, 80, expanded);
+      }
+
       work = 0;
 
       for (let index = 0; index < 50; index++) {
@@ -309,7 +310,7 @@ test('visible partial lines release earlier provisional blanks from parsing and 
 
       assert.equal(
         stripAnsi(frame.lines.at(-2)!),
-        first === 'x' ? 'x'.repeat(51) : 'x',
+        first === 'x' ? 'x'.repeat(51) : first.startsWith('x') ? 'x' : '',
       );
     }
 

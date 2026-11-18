@@ -1019,7 +1019,7 @@ export function linkifyAppend(
         /^\s*$/u.test(plain(text.slice(end, boundary.oscStart))));
 
     if (prefix.context.needsDelimiter && unsettled) {
-      provisional = boundary.oscStart === undefined;
+      provisional = true;
       end = boundary.quotedLine;
       const raw = text.slice(0, end);
       const following = prefix.visible.slice(plain(raw).length);
@@ -1038,35 +1038,50 @@ export function linkifyAppend(
 
   const pending = text.slice(end);
   const suffix = linked(pending, cwd, target, context);
+
+  const stableEnd =
+    boundary.oscStart === undefined ? pending.length : boundary.end - end;
+
+  const stable =
+    provisional && stableEnd < pending.length
+      ? linked(pending.slice(0, stableEnd), cwd, target, context)
+      : suffix;
+
   let cache: LinkedAppend['provisional'];
 
   if (
     provisional &&
-    suffix.context.needsDelimiter &&
-    /^\s*$/u.test(suffix.visible.slice(suffix.visible.lastIndexOf('\n') + 1))
+    stable.context.needsDelimiter &&
+    /^\s*$/u.test(stable.visible.slice(stable.visible.lastIndexOf('\n') + 1))
   ) {
-    const first = suffix.text.indexOf('\n');
+    const first = stable.text.indexOf('\n');
 
     const alternative = linked(
-      suffix.firstLine! + '\u001b[',
+      stable.firstLine! + '\u001b[',
       cwd,
       target,
       context,
     ).text;
 
     cache = {
-      renderedPrefix: suffix.text.slice(
+      renderedPrefix: stable.text.slice(
         first + 1,
-        suffix.text.lastIndexOf('\n') + 1,
+        stable.text.lastIndexOf('\n') + 1,
       ),
-      line: suffix.line,
+      line:
+        stable === suffix
+          ? suffix.line
+          : { text: pending.slice(stableEnd), target: stable.target },
       quoted: {
-        json: suffix.text.slice(0, first),
+        json: stable.text.slice(0, first),
         terminal: alternative.slice(0, alternative.indexOf('\n')),
       },
       mode: 'json',
-      context: suffix.context,
-      tailLines: 1,
+      context: stable.context,
+      tailLines:
+        stable === suffix
+          ? 1
+          : suffix.text.slice(stable.text.length).split('\n').length,
     };
   }
 
