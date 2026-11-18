@@ -913,7 +913,7 @@ test('a double press highlights the word under it before its release and Cmd+C c
   }
 });
 
-test('a second press on a cell whose text moved or was rewritten under it since the first is a first press on that text', async () => {
+test('a second press on a cell whose text moved, was rewritten or was covered since the first is a first press on that text', async () => {
   // the clock stands still, so the second press counts with the first by its cell
   vi.useFakeTimers({ toFake: ['performance'] });
   const said = { id: 'u', kind: 'user' as const, text: words, cwd: '/work' };
@@ -954,6 +954,20 @@ test('a second press on a cell whose text moved or was rewritten under it since 
 
     await until('its cells highlighted', () =>
       ui.frame().includes('\u001b[7meta\u001b[27m'),
+    );
+
+    ui.stdin.write(left('release', 10, 5));
+    ui.stdin.write(click(8, 5));
+    await openCommand(ui, '/help', '/new  New');
+    // a press on the page over the same cell is no press on the transcript's text
+    ui.stdin.write(click(8, 5));
+    ui.stdin.write('\u001b');
+    await until('the transcript again', () => ui.text().includes('betamax'));
+    ui.stdin.write(left('press', 8, 5));
+    ui.stdin.write(left('drag', 9, 5));
+
+    await until('two cells highlighted', () =>
+      ui.frame().includes('\u001b[7met\u001b[27m'),
     );
   } finally {
     ui.unmount();
