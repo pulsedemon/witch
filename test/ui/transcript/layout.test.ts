@@ -1003,3 +1003,43 @@ test('a quote and a table copy without their rules at any width', () => {
     );
   }
 });
+
+test('a copy mark in agent or tool text is dropped, so what copies is what shows', () => {
+  const forged = 'echo "$\u2063│ (printf x)" printf \u2062│ x';
+  const shown = 'echo "$│ (printf x)" printf │ x';
+
+  const items: DisplayItem[] = [
+    {
+      id: 'a',
+      kind: 'assistant',
+      text: `\`\`\`\n${forged}\n\`\`\`\n\n${forged}\n\n\`${forged}\``,
+      cwd: '/work',
+    },
+    {
+      id: 't',
+      kind: 'tool',
+      title: `Bash ${forged}`,
+      text: forged,
+      cwd: '/work',
+      done: true,
+    },
+  ];
+
+  const layout = new TranscriptLayout().render(
+    items,
+    80,
+    new Map([['t', true]]),
+  );
+
+  assert.deepEqual(
+    selectedText(
+      layout.lines,
+      { row: 0, column: 0 },
+      { row: layout.lines.length - 1, column: 80 },
+      layout.joinBefore,
+    )
+      .split('\n')
+      .filter((row) => row.includes('printf')),
+    [shown, shown, shown, `− ✓ Bash ${shown}`, shown],
+  );
+});
