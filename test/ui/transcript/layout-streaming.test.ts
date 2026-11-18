@@ -277,35 +277,44 @@ test('visible partial lines release earlier provisional blanks from parsing and 
     return normalize.call(this, form);
   });
 
-  const counts: number[] = [];
+  for (const first of ['x', 'x\u001b]0;t']) {
+    const counts: number[] = [];
 
-  for (const count of [1000, 4000]) {
-    const layout = new TranscriptLayout();
-    const expanded = new Map([['tool', true]]);
+    for (const count of [1000, 4000]) {
+      const layout = new TranscriptLayout();
+      const expanded = new Map([['tool', true]]);
 
-    let items = applyDisplayUpdate(
-      [],
-      tool('[\n"src/a.ts"\n' + '\n'.repeat(count)),
-    );
+      let items = applyDisplayUpdate(
+        [],
+        tool('[\n"src/a.ts"\n' + '\n'.repeat(count)),
+      );
 
-    layout.render(items, 80, expanded);
-    items = applyDisplayUpdate(items, tool('x'));
-    layout.render(items, 80, expanded);
-    work = 0;
-
-    for (let index = 0; index < 50; index++) {
-      items = applyDisplayUpdate(items, tool('x'));
       layout.render(items, 80, expanded);
+      items = applyDisplayUpdate(items, tool(first));
+      layout.render(items, 80, expanded);
+      work = 0;
+
+      for (let index = 0; index < 50; index++) {
+        items = applyDisplayUpdate(items, tool('x'));
+        layout.render(items, 80, expanded);
+      }
+
+      counts.push(work);
+
+      if (first !== 'x') items = applyDisplayUpdate(items, tool('\u0007'));
+
+      const frame = layout.render(items, 80, expanded);
+      const fresh = new TranscriptLayout().render(items, 80, expanded);
+      assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+
+      assert.equal(
+        stripAnsi(frame.lines.at(-2)!),
+        first === 'x' ? 'x'.repeat(51) : 'x',
+      );
     }
 
-    counts.push(work);
-    const frame = layout.render(items, 80, expanded);
-    const fresh = new TranscriptLayout().render(items, 80, expanded);
-    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
-    assert.equal(stripAnsi(frame.lines.at(-2)!), 'x'.repeat(51));
+    assert.equal(counts[1], counts[0]);
   }
-
-  assert.equal(counts[1], counts[0]);
 });
 
 test('provisional whitespace keeps an explicit target through split chunks and resize', () => {

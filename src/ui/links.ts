@@ -1015,7 +1015,8 @@ export function linkifyAppend(
     const unsettled =
       /^\s*$/u.test(following) ||
       incompleteStyle(trailing, following) ||
-      boundary.oscStart !== undefined;
+      (boundary.oscStart !== undefined &&
+        /^\s*$/u.test(plain(text.slice(end, boundary.oscStart))));
 
     if (prefix.context.needsDelimiter && unsettled) {
       provisional = boundary.oscStart === undefined;
