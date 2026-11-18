@@ -961,7 +961,8 @@ export function App({
 
     if (!pressedAt.current || !end) return false;
 
-    const pastEdge = offset < 0 || offset === shown;
+    // rows of the box under a short transcript are not past its bottom
+    const pastEdge = offset < 0 || row - origin >= height;
 
     if (pastEdge) scrollBy(offset < 0 ? -1 : 1);
 
