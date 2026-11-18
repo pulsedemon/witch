@@ -22,11 +22,13 @@ export function Activity({
   quietSince,
   reasonedAt,
   doing,
+  compacting,
 }: {
   startedAt: number;
   quietSince?: number;
   reasonedAt?: number;
   doing?: string;
+  compacting?: boolean;
 }) {
   const [start] = useState(Date.now);
 
@@ -47,7 +49,7 @@ export function Activity({
   return (
     <Text wrap="truncate-end">
       {piped([
-        colors.hex(accent)(`${frame} ${verb}`),
+        colors.hex(accent)(`${frame} ${compacting ? 'COMPACTING' : verb}`),
         colors.dim(elapsed(now - startedAt)),
         colors.dim('ESC TO INTERRUPT'),
         ...(quietSince === undefined

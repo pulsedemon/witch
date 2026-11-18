@@ -422,6 +422,7 @@ export class SessionLink {
     this.host.publish({
       native: undefined,
       nativeRunning: false,
+      nativeCompacting: false,
       usage: {},
       skills: [],
       subagents: snapshot.subagents.filter(({ id }) => owned(id)),
@@ -486,6 +487,7 @@ export class SessionLink {
       host.publish({
         native: undefined,
         nativeRunning: false,
+        nativeCompacting: false,
         usage: {},
         requests: host
           .snapshot()
@@ -507,6 +509,9 @@ export class SessionLink {
       if (this.live(agent)) host.background(event, conversation.cwd);
     } else if (event.type === 'running') {
       if (this.live(agent)) host.publish({ nativeRunning: event.running });
+    } else if (event.type === 'compacting') {
+      if (this.live(agent))
+        host.publish({ nativeCompacting: event.compacting });
     } else if (event.type === 'reasoned') {
       if (this.live(agent)) host.publish({ reasonedAt: Date.now() });
     } else if (event.type === 'spell') {

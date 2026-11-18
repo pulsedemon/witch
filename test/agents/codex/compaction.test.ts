@@ -89,6 +89,11 @@ test('Codex compaction waits for its matching item and turn after acknowledgemen
 
     assert.equal(f.events.filter((e) => e.type === 'compacted').length, 1);
     assert.equal(f.events.filter((e) => e.type === 'tool').length, 0);
+
+    assert.deepEqual(
+      f.events.filter((e) => e.type === 'compacting').map((e) => e.compacting),
+      [true, false],
+    );
   } finally {
     await writeFile(join(f.cwd, 'exit'), '');
     await close(f.session, f.cwd);
@@ -205,4 +210,86 @@ test('Codex process closure settles a compact request that never started', async
   );
 
   await close(f.session, f.cwd);
+});
+
+test('Codex automatic compaction ignores other threads, items and turns when clearing its activity', async () => {
+  const f = await scripted();
+
+  try {
+    await f.emit(item('item/started', 'child', 'child-turn', 'child-thread'));
+    assert.ok(!f.events.some((e) => e.type === 'compacting'));
+    await f.emit(item('item/started', 'auto', 'ordinary-turn'));
+
+    for (const other of [
+      item('item/completed', 'auto', 'ordinary-turn', 'child-thread'),
+      item('item/completed', 'other', 'ordinary-turn'),
+      item('item/completed', 'auto', 'other-turn'),
+      turn('turn/completed', 'other-turn'),
+    ]) {
+      await f.emit(other);
+
+      assert.deepEqual(
+        f.events
+          .filter((e) => e.type === 'compacting')
+          .map((e) => e.compacting),
+        [true],
+      );
+    }
+
+    await f.emit(item('item/completed', 'auto', 'ordinary-turn'));
+
+    assert.deepEqual(
+      f.events.filter((e) => e.type === 'compacting').map((e) => e.compacting),
+      [true, false],
+    );
+
+    assert.equal(f.events.filter((e) => e.type === 'tool').length, 0);
+  } finally {
+    await writeFile(join(f.cwd, 'exit'), '');
+    await close(f.session, f.cwd);
+  }
+});
+
+for (const status of ['completed', 'interrupted', 'failed']) {
+  test(`Codex clears automatic compaction when its turn ${status} without a completion item`, async () => {
+    const f = await scripted();
+
+    try {
+      await f.emit(
+        item('item/started', 'auto', 'ordinary-turn'),
+        turn('turn/completed', 'ordinary-turn', status),
+      );
+
+      assert.deepEqual(
+        f.events
+          .filter((e) => e.type === 'compacting')
+          .map((e) => e.compacting),
+        [true, false],
+      );
+
+      assert.ok(!f.events.some((e) => e.type === 'compacted'));
+    } finally {
+      await writeFile(join(f.cwd, 'exit'), '');
+      await close(f.session, f.cwd);
+    }
+  });
+}
+
+test('Codex clears automatic compaction when its process closes without a turn end', async () => {
+  const f = await scripted();
+
+  try {
+    await f.emit(item('item/started', 'auto', 'ordinary-turn'));
+    await writeFile(join(f.cwd, 'exit'), '');
+    await until('native process closed', () => f.session.closed);
+
+    assert.deepEqual(
+      f.events.filter((e) => e.type === 'compacting').map((e) => e.compacting),
+      [true, false],
+    );
+
+    assert.ok(!f.events.some((e) => e.type === 'compacted'));
+  } finally {
+    await close(f.session, f.cwd);
+  }
 });

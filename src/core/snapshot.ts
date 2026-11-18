@@ -49,6 +49,8 @@ export interface Snapshot {
   completedTurn?: string;
   /** the native agent reports it runs, as Claude Code does on its own when a brew ends. */
   nativeRunning?: boolean;
+  /** the live native session is compacting within its current turn. */
+  nativeCompacting?: boolean;
   /** when an agent last reported reasoning from its live session, in epoch milliseconds; a switch of runtime keeps it. */
   reasonedAt?: number;
   /** a Witch-started turn answering peer requests holds the phase. */

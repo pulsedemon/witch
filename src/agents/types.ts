@@ -269,6 +269,7 @@ export type AgentEvent =
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }
   | { type: 'closed' }
+  | { type: 'compacting'; compacting: boolean }
   | { type: 'compacted' }
   | { type: 'info'; info: SessionInfo }
   | { type: 'usage'; usage: Usage }
