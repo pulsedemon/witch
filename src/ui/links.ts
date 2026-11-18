@@ -335,11 +335,17 @@ function pieces(text: string): Piece[] {
       else ({ end, plain } = unbroken(text, start, end));
     }
 
-    if (!plain)
+    if (plain) result.push(...quoted(text, start, end));
+    else {
       for (; start + pieceSize < end; start += pieceSize)
-        result.push({ text: text.slice(start, start + pieceSize), plain });
+        result.push({
+          text: text.slice(start, start + pieceSize),
+          plain: false,
+        });
 
-    result.push({ text: text.slice(start, end), plain });
+      result.push({ text: text.slice(start, end), plain: false });
+    }
+
     start = end;
   }
 
@@ -347,7 +353,7 @@ function pieces(text: string): Piece[] {
 }
 
 /**
- * keep an overlong run with a possible link plain, so no fragment becomes a target.
+ * mark an overlong run with a possible link plain, for `quoted` to cut, so no fragment becomes a target.
  * scan its boundary once, including when no link is possible and it can be split.
  */
 function unbroken(
@@ -368,6 +374,35 @@ function unbroken(
     end: stop,
     plain: stop > end && urls.pretest(text.slice(start, stop)),
   };
+}
+
+/**
+ * an overlong run with a possible link, cut after quotes into pieces that can be searched.
+ * a quote ends every web link, escaped or not; a stretch with no quote past one piece stays plain.
+ */
+function quoted(text: string, start: number, stop: number): Piece[] {
+  const result: Piece[] = [];
+
+  while (start < stop) {
+    let end = Math.min(start + pieceSize, stop);
+    let plain = false;
+
+    if (end < stop) {
+      const before = text.slice(start, end).lastIndexOf('"') + 1;
+
+      if (before) end = start + before;
+      else {
+        const after = text.slice(end, stop).indexOf('"') + 1;
+        end = after ? end + after : stop;
+        plain = true;
+      }
+    }
+
+    result.push({ text: text.slice(start, end), plain });
+    start = end;
+  }
+
+  return result;
 }
 
 function linked(text: string, cwd: string, target?: string) {
