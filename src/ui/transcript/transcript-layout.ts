@@ -641,7 +641,7 @@ export class TranscriptLayout {
 
         return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
       },
-      /** the first and last row of the line `row` is wrapped from. */
+      /** the first and last row of the line `row` is wrapped from, as a copy joins them; each diff or image row is its own line. */
       lineAt(row: number): { first: number; last: number } {
         let first = row;
         let last = row;

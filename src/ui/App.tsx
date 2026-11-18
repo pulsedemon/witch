@@ -813,12 +813,10 @@ export function App({
     stopEdgeScroll();
   };
 
-  const covered = Boolean(request) || recovering || view.kind !== 'chat';
-
   // a press still held when another view covers the transcript ends there, so no drag resumes once it closes
   useEffect(() => {
-    if (covered) endPress();
-  }, [covered]);
+    if (!chat) endPress();
+  }, [chat]);
 
   useEffect(() => stopEdgeScroll, []);
   // any report but the left button's or a vertical wheel step ends the press: motion with no button held means its release went missing
