@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
+import { createElement } from 'react';
 import { test, vi } from 'vitest';
-import { drag, fake, left, openCommand } from '../fixtures/ui.js';
+import { App } from '../../src/ui/App.js';
+import { Graphics, placeholder } from '../../src/ui/transcript/images.js';
+import { png } from '../fixtures/png.js';
+import { drag, fake, left, openCommand, show } from '../fixtures/ui.js';
 import {
   CMD_C,
   first,
@@ -20,6 +24,45 @@ const message = {
 
 const highlighted = (ui: { frame(): string }) =>
   ui.frame().includes('\u001b[7malpha');
+
+test('Escape interrupts after an image-only drag that draws no selection', async () => {
+  const graphics = new Graphics(() => {});
+
+  const { app, calls } = fake({
+    phase: 'running',
+    items: [
+      {
+        ...message,
+        images: [`data:image/png;base64,${png(160, 80).toString('base64')}`],
+      },
+    ],
+  });
+
+  const ui = show(
+    createElement(App, { coordinator: app, graphics, onExit: () => {} }),
+    60,
+    24,
+  );
+
+  try {
+    await until('the image', () => ui.text().includes(placeholder));
+
+    const row = ui
+      .text()
+      .split('\n')
+      .findIndex((line) => line.includes(placeholder));
+
+    drag(ui, [1, row], [4, row]);
+    await delay(60);
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+    ui.stdin.write('\u001b');
+    await until('the interrupt', () => calls.length > 0);
+    assert.deepEqual(calls, [['interrupt']]);
+  } finally {
+    ui.unmount();
+    graphics.release();
+  }
+});
 
 test('Escape clears a selection without copying or interrupting, then the next Escape interrupts', async () => {
   const { app, calls } = fake({ phase: 'running', items: [message] });

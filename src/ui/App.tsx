@@ -1079,16 +1079,30 @@ export function App({
       const selected = endsOf(rangeRef.current);
       const { top, height } = viewport(topRef.current, seenRef.current);
 
-      if (
-        selected &&
-        height > 0 &&
-        selected[0].row < top + height &&
-        selected[1].row >= top
-      ) {
-        endPress();
-        setRange(undefined);
+      if (selected) {
+        const [start, end] = selected;
 
-        return;
+        for (
+          let row = Math.max(top, start.row);
+          row <= Math.min(end.row, top + height - 1);
+          row++
+        ) {
+          const line = transcript.lines.at(row)!;
+
+          if (
+            highlight(
+              line,
+              row === start.row ? start.column : 0,
+              row === end.row ? end.column + 1 : bodyWidth,
+            ) === line
+          )
+            continue;
+
+          endPress();
+          setRange(undefined);
+
+          return;
+        }
       }
     }
 
