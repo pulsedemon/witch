@@ -189,6 +189,8 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
     ['\u001b', '[0m\n'],
     ['\u001b[', '0m\n'],
     ['\u001b[0', 'm\n'],
+    ['\u009b[', '0m\n'],
+    ['\u001b]0;t', 'itle\u0007\n'],
     ['\u00a0', '\n'],
     ['\u0007\n'],
   ]) {
@@ -319,6 +321,24 @@ test('an OSC sequence completed later rebuilds the uncertain tail', () => {
       expanded: ['tool'],
     })),
   );
+
+  for (const end of ['\u0007', '\u009c', '\u001b\\']) {
+    const frames = [
+      '[\n"src/a.ts\\nsrc/b.ts"\n',
+      ' \n'.repeat(30),
+      '\u001b[',
+      '0m \n\u001b]8;;https://x.test/\u0007 \n\u001b]0;title\n[\n"x"\n',
+      'more',
+      end + '\n',
+      ']\n',
+    ].map((text, index) => ({
+      updates: [tool(text)],
+      width: index === 4 ? 13 : 80,
+      expanded: ['tool'],
+    }));
+
+    sameAsFull(frames);
+  }
 
   for (const stable of ['', 'stable\n']) {
     const prefix =

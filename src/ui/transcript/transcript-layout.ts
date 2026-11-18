@@ -384,8 +384,9 @@ function extend(
   const source = previous.content;
   const first = source.title.length + source.complete.length;
 
-  if (linked?.provisionalLines && previous.viewport === viewport) {
-    const lastLine = first + source.tail.length - 1;
+  if (linked?.provisionalUpdate && previous.viewport === viewport) {
+    const update = linked.provisionalUpdate;
+    const lastLine = first + source.tail.length - update.replace;
     const { quoted, mode } = linked.provisional!;
     let heads = previous.provisional?.heads;
 
@@ -407,17 +408,13 @@ function extend(
         (row) => row.anchor.line > first && row.anchor.line < lastLine,
       );
 
-    const added = section(
-      linked.provisionalLines.slice(0, -1),
-      viewport.width,
-      false,
-      lastLine,
-    );
-
+    const added = section(update.complete, viewport.width, false, lastLine);
     source.tail[0] = quoted[mode];
-    source.tail.pop();
+    source.tail.length -= update.replace;
 
-    for (const line of linked.provisionalLines) source.tail.push(line);
+    for (const line of update.complete) source.tail.push(line);
+
+    for (const line of update.tail) source.tail.push(line);
 
     for (const row of added.rows) rows.push(row);
 
@@ -428,7 +425,7 @@ function extend(
     };
 
     const end = ending(
-      { ...prepared, tail: linked.provisionalLines.slice(-1) },
+      { ...prepared, tail: update.tail },
       viewport.width,
       added.next,
       graphics,

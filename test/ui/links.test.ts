@@ -216,7 +216,6 @@ test('a URL before a JSON escape links alone, a URL after the escape links too, 
       JSON.stringify({ t: 'see\nwww.example.com/x' }),
       [{ target: 'http://www.example.com/x', text: 'www.example.com/x' }],
     ],
-    // the quoted value reads as one file path, which must not be drawn again after the link inside it
     [
       JSON.stringify({ t: 'www.example.com/1\nexample.org/2' }),
       [
@@ -224,6 +223,7 @@ test('a URL before a JSON escape links alone, a URL after the escape links too, 
         { target: 'http://example.org/2', text: 'example.org/2' },
       ],
     ],
+    // the quoted value reads as one file path, which must not be drawn again after the link inside it
     [
       '"www.example.com/a example.org/b.md"',
       [

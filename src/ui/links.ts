@@ -853,16 +853,16 @@ function appendBoundary(text: string) {
       ? text.indexOf(';', index + 4)
       : index + 1;
 
-    if (start < 0) return { end: complete, quotedLine, unresolvedOsc: true };
+    if (start < 0) return { end: complete, quotedLine, oscStart: index };
 
     const end = oscEnd(text, start + 1);
 
-    if (end < 0) return { end: complete, quotedLine, unresolvedOsc: true };
+    if (end < 0) return { end: complete, quotedLine, oscStart: index };
 
     index = end - 1;
   }
 
-  return { end: complete, quotedLine, unresolvedOsc: false };
+  return { end: complete, quotedLine, oscStart: undefined };
 }
 
 export interface LinkedAppend {
@@ -877,9 +877,11 @@ export interface LinkedAppend {
     line: { text: string; target?: string };
     quoted: { json: string; terminal: string };
     mode: 'json' | 'terminal';
+    context: FileContext;
+    tailLines: number;
   };
-  /** rendered replacement for the provisional last line and any new lines. */
-  provisionalLines?: string[];
+  /** replace the unsettled suffix, promoting only lines that later bytes cannot remove. */
+  provisionalUpdate?: { replace: number; complete: string[]; tail: string[] };
 }
 
 /** append a new chunk, retaining raw text until later bytes cannot change its rendered lines. */
@@ -889,8 +891,11 @@ export function linkifyAppend(
   previous?: LinkedAppend,
 ): LinkedAppend {
   if (previous?.provisional) {
-    const { renderedPrefix, line, quoted } = previous.provisional;
-    const suffix = linked(line.text + text, cwd, line.target);
+    const { renderedPrefix, line, quoted, context, tailLines } =
+      previous.provisional;
+
+    const raw = line.text + text;
+    const suffix = linked(raw, cwd, line.target, context);
     const blank = /^\s*$/u.test(suffix.visible);
 
     const escape = Math.max(
@@ -905,6 +910,8 @@ export function linkifyAppend(
 
     if (blank || incomplete) {
       const mode = blank ? 'json' : 'terminal';
+      const lines = suffix.text.split('\n');
+      const tail = lines.pop()!;
 
       return {
         ...previous,
@@ -918,8 +925,52 @@ export function linkifyAppend(
             suffix.text.slice(0, suffix.text.lastIndexOf('\n') + 1),
           line: suffix.line,
           mode,
+          tailLines: 1,
         },
-        provisionalLines: suffix.text.split('\n'),
+        provisionalUpdate: {
+          replace: tailLines,
+          complete: lines,
+          tail: [tail],
+        },
+      };
+    }
+
+    const boundary = appendBoundary(raw);
+
+    if (
+      boundary.oscStart !== undefined &&
+      /^\s*$/u.test(
+        linked(raw.slice(0, boundary.oscStart), cwd, line.target, context)
+          .visible,
+      )
+    ) {
+      const prefix = linked(
+        raw.slice(0, boundary.end),
+        cwd,
+        line.target,
+        context,
+      );
+
+      const rendered = prefix.text.slice(0, prefix.text.lastIndexOf('\n') + 1);
+      const tail = suffix.text.slice(rendered.length).split('\n');
+
+      return {
+        ...previous,
+        complete: [],
+        pending: previous.pending + text,
+        tail: quoted.json + '\n' + renderedPrefix + suffix.text,
+        provisional: {
+          ...previous.provisional,
+          renderedPrefix: renderedPrefix + rendered,
+          line: { text: raw.slice(boundary.end), target: prefix.target },
+          mode: 'json',
+          tailLines: tail.length,
+        },
+        provisionalUpdate: {
+          replace: tailLines,
+          complete: prefix.text.split('\n').slice(0, -1),
+          tail,
+        },
       };
     }
   }
@@ -935,7 +986,7 @@ export function linkifyAppend(
     let prefix = linked(text.slice(0, end), cwd, target, context);
 
     if (prefix.context.containers && prefix.context.key) {
-      provisional = !boundary.unresolvedOsc;
+      provisional = boundary.oscStart === undefined;
       end = boundary.quotedLine;
       prefix = linked(text.slice(0, end), cwd, target, context);
     }
@@ -978,6 +1029,8 @@ export function linkifyAppend(
         terminal: alternative.slice(0, alternative.indexOf('\n')),
       },
       mode: 'json',
+      context: suffix.context,
+      tailLines: 1,
     };
   }
 
