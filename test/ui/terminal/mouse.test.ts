@@ -29,7 +29,7 @@ function input() {
   const source = new Source();
   const mouse = new MouseInput(source);
   const read: string[] = [];
-  const wheel: number[] = [];
+  const wheel: [number, Cell][] = [];
   const hovers: Cell[] = [];
   const clicked: number[] = [];
   const presses: number[] = [];
@@ -41,7 +41,7 @@ function input() {
     while ((text = mouse.read()) !== null) read.push(text);
   });
 
-  mouse.on('wheel', (rows: number) => wheel.push(rows));
+  mouse.on('wheel', (rows: number, cell: Cell) => wheel.push([rows, cell]));
   mouse.on('hover', (cell: Cell) => hovers.push(cell));
   mouse.on('click', (count: number) => clicked.push(count));
 
@@ -117,7 +117,12 @@ test('mouse reports leave the input as wheel steps and left clicks, and the keys
   );
 
   assert.deepEqual(read, ['a', 'b', 'c']);
-  assert.deepEqual(wheel, [-1, 1]);
+
+  assert.deepEqual(wheel, [
+    [-1, { column: 4, row: 5 }],
+    [1, { column: 0, row: 0 }],
+  ]);
+
   assert.equal(clicks(), 2);
 
   assert.deepEqual(pointer, [
@@ -532,7 +537,7 @@ test('a press released on another cell, or never released, clicks nothing, and t
 test('a wheel step while the button is down keeps its release from clicking', () => {
   const { source, wheel, clicks } = input();
   source.emit('data', '\u001b[<0;5;5M\u001b[<65;5;5M\u001b[<0;5;5m');
-  assert.deepEqual(wheel, [1]);
+  assert.deepEqual(wheel, [[1, { column: 4, row: 4 }]]);
   assert.equal(clicks(), 0);
 });
 

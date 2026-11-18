@@ -38,8 +38,9 @@ interface Source {
  * the stdin Ink reads, with mouse reports taken out: the left button emits `pointer` with what it did and the cell,
  * and for a press how many presses in a row its cell has now had, each within 500 ms of the last, which clicked,
  * with no drag or wheel step between. a release on its press's cell with no drag or wheel step between emits `click` with that
- * count, and a wheel step emits `wheel` with the rows to scroll, -1 up and 1 down. any other report, such as motion with no button or another button held,
- * emits `hover` with the cell. ambiguous escape prefixes wait 20 ms for mouse input before reaching Ink;
+ * count, and a wheel step emits `wheel` with the rows to scroll, -1 up and 1 down, and its cell.
+ * any other report, such as motion with no button or another button held, emits `hover` with the cell.
+ * ambiguous escape prefixes wait 20 ms for mouse input before reaching Ink;
  * slower early fragments can reach Ink as keys.
  */
 export class MouseInput extends EventEmitter {
@@ -120,7 +121,7 @@ export class MouseInput extends EventEmitter {
       if (button === 64 || button === 65) {
         this.pressed = undefined;
         this.lastPress = undefined;
-        this.emit('wheel', button === 64 ? -1 : 1);
+        this.emit('wheel', button === 64 ? -1 : 1, cell);
       } else if (button === 0 && kind === 'M') {
         const at = performance.now();
         const last = this.lastPress;
@@ -180,7 +181,7 @@ function useMouse<T extends unknown[]>(
 }
 
 /** runs `handler` for each wheel step. outside a MouseInput the wheel never turns. */
-export function useWheel(handler: (rows: number) => void): void {
+export function useWheel(handler: (rows: number, cell: Cell) => void): void {
   useMouse('wheel', handler);
 }
 
