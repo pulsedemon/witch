@@ -28,12 +28,12 @@ test.each([
   'Emacs arguments $args leave managed=$managed',
   async ({ args, managed }) => {
     const row: Row = {
-      pid: 100105,
+      pid: 5100105,
       ppid: process.pid,
-      pgid: 100105,
+      pgid: 5100105,
       name: 'emacs-31.1',
       leadsSession: true,
-      identity: '100105 a',
+      identity: '5100105 a',
     };
 
     const jobs = new JobWatch({
@@ -56,7 +56,7 @@ test.each([
 
       assert.deepEqual(
         (await jobs.list()).map(({ group }) => group),
-        managed ? [100105] : [],
+        managed ? [5100105] : [],
       );
     } finally {
       jobs.close();

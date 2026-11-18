@@ -272,35 +272,35 @@ test("a group that a process below its command's leader moves to is a job", asyn
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => [
-      ...commandRows(4242, '4242 a'),
+      ...commandRows(5004242, '5004242 a'),
       {
-        pid: 4243,
-        ppid: 4242,
-        pgid: 4242,
+        pid: 5004243,
+        ppid: 5004242,
+        pgid: 5004242,
         name: 'node',
         leadsSession: false,
-        identity: '4243 a',
+        identity: '5004243 a',
       },
       {
-        pid: 4244,
-        ppid: 4243,
-        pgid: 4244,
+        pid: 5004244,
+        ppid: 5004243,
+        pgid: 5004244,
         name: 'node',
         leadsSession: false,
-        identity: '4244 a',
+        identity: '5004244 a',
       },
     ],
     describe: async () => [
       {
-        pid: 4242,
-        pgid: 4242,
+        pid: 5004242,
+        pgid: 5004242,
         cpu: 0,
         startedAt: 0,
         command: 'sh -c pnpm dev',
       },
       {
-        pid: 4244,
-        pgid: 4244,
+        pid: 5004244,
+        pgid: 5004244,
         cpu: 0,
         startedAt: 0,
         command: 'esbuild --service',
@@ -311,7 +311,7 @@ test("a group that a process below its command's leader moves to is a job", asyn
   try {
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [4242, 4244],
+      [5004242, 5004244],
     );
   } finally {
     jobs.close();
@@ -319,7 +319,7 @@ test("a group that a process below its command's leader moves to is a job", asyn
 });
 
 test("a later group given a tracked group's id is not a job", async () => {
-  let rows = commandRows(4242, '4242 a');
+  let rows = commandRows(5004242, '5004242 a');
 
   const jobs = new JobWatch({
     interval: 60_000,
@@ -330,17 +330,17 @@ test("a later group given a tracked group's id is not a job", async () => {
   try {
     assert.deepEqual(
       (await jobs.list()).map((job) => job.group),
-      [4242],
+      [5004242],
     );
 
     rows = [
       {
-        pid: 4242,
+        pid: 5004242,
         ppid: 1,
-        pgid: 4242,
+        pgid: 5004242,
         name: 'sh',
         leadsSession: true,
-        identity: '4242 b',
+        identity: '5004242 b',
       },
     ];
 
@@ -400,10 +400,13 @@ test('a job listed during a slower read keeps its generation', async () => {
       if (!reads++) {
         await delay(100);
 
-        return commandRows(4242, '4242 a');
+        return commandRows(5004242, '5004242 a');
       }
 
-      return [...commandRows(4242, '4242 a'), commandRows(4343, '4343 a')[1]!];
+      return [
+        ...commandRows(5004242, '5004242 a'),
+        commandRows(5004343, '5004343 a')[1]!,
+      ];
     },
     describe: leaders,
   });
@@ -426,14 +429,14 @@ test('a process that left its tracked group before ps describes it is not a job'
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => [
-      ...commandRows(4242, '4242 a'),
+      ...commandRows(5004242, '5004242 a'),
       {
-        pid: 4243,
-        ppid: 4242,
-        pgid: 4242,
+        pid: 5004243,
+        ppid: 5004242,
+        pgid: 5004242,
         name: 'node',
         leadsSession: false,
-        identity: '4243 a',
+        identity: '5004243 a',
       },
     ],
     describe: leaders,
@@ -442,7 +445,7 @@ test('a process that left its tracked group before ps describes it is not a job'
   try {
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [4242],
+      [5004242],
     );
   } finally {
     jobs.close();
@@ -536,29 +539,29 @@ test("a job sums parsed CPU and keeps its earliest start and oldest non-leader's
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => [
-      ...commandRows(4242, '4242 a'),
+      ...commandRows(5004242, '5004242 a'),
       {
-        pid: 4243,
-        ppid: 4242,
-        pgid: 4242,
+        pid: 5004243,
+        ppid: 5004242,
+        pgid: 5004242,
         name: 'node',
         leadsSession: false,
-        identity: '4243 a',
+        identity: '5004243 a',
       },
       {
-        pid: 4244,
-        ppid: 4242,
-        pgid: 4242,
+        pid: 5004244,
+        ppid: 5004242,
+        pgid: 5004242,
         name: 'node',
         leadsSession: false,
-        identity: '4244 a',
+        identity: '5004244 a',
       },
     ],
     describe: async () =>
       parseDetails([
-        '  4244  4242   6.0 Thu Oct 15 18:50:29 2026     cc b.c',
-        '  4242  4242  30.5 Thu Oct 15 18:50:27 2026     make -j2',
-        '  4243  4242  40.5 Thu Oct 15 18:50:28 2026     cc a.c',
+        '  5004244  5004242   6.0 Thu Oct 15 18:50:29 2026     cc b.c',
+        '  5004242  5004242  30.5 Thu Oct 15 18:50:27 2026     make -j2',
+        '  5004243  5004242  40.5 Thu Oct 15 18:50:28 2026     cc a.c',
       ]),
   });
 
@@ -602,7 +605,7 @@ test('a command holding a line separator is described', () => {
 });
 
 test('a failed background read keeps the jobs it had', async () => {
-  let rows: Row[] | undefined = commandRows(4242, '4242 a');
+  let rows: Row[] | undefined = commandRows(5004242, '5004242 a');
   let failures = 0;
 
   const jobs = new JobWatch({
@@ -626,12 +629,12 @@ test('a failed background read keeps the jobs it had', async () => {
     // the agent exited, leaving its command to launchd
     rows = [
       {
-        pid: 4242,
+        pid: 5004242,
         ppid: 1,
-        pgid: 4242,
+        pgid: 5004242,
         name: 'sh',
         leadsSession: true,
-        identity: '4242 a',
+        identity: '5004242 a',
       },
     ];
 
@@ -805,14 +808,14 @@ test("a ! command's group handed to track is a job from the first read, though i
 
 test('a group handed to track while a read runs is a job at the next read and after, along with the groups its process starts', async () => {
   // a `!` command's shell is Witch's own child, which a read never walks from by identity as it does an orphan.
-  // pids above 99999 can't be this test's
+  // pids above 4194304, Linux's highest, can't be this test's
   const shell: Row = {
-    pid: 100000,
+    pid: 5100000,
     ppid: process.pid,
-    pgid: 100000,
+    pgid: 5100000,
     name: 'sh',
     leadsSession: true,
-    identity: '100000 a',
+    identity: '5100000 a',
   };
 
   const first = Promise.withResolvers<Row[]>();
@@ -822,24 +825,24 @@ test('a group handed to track while a read runs is a job at the next read and af
     Promise.resolve<Row[]>([
       shell,
       {
-        pid: 100001,
-        ppid: 100000,
-        pgid: 100001,
+        pid: 5100001,
+        ppid: 5100000,
+        pgid: 5100001,
         name: 'node',
         leadsSession: false,
-        identity: '100001 a',
+        identity: '5100001 a',
       },
     ]),
     // a new child, so only the walk from the handed group reaches its group
     Promise.resolve<Row[]>([
       shell,
       {
-        pid: 100002,
-        ppid: 100000,
-        pgid: 100002,
+        pid: 5100002,
+        ppid: 5100000,
+        pgid: 5100002,
         name: 'node',
         leadsSession: false,
-        identity: '100002 a',
+        identity: '5100002 a',
       },
     ]),
   ];
@@ -852,18 +855,18 @@ test('a group handed to track while a read runs is a job at the next read and af
 
   try {
     const listing = jobs.list();
-    jobs.track(100000);
+    jobs.track(5100000);
     first.resolve([]);
     await listing;
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100000, 100001],
+      [5100000, 5100001],
     );
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100000, 100002],
+      [5100000, 5100002],
     );
   } finally {
     jobs.close();
@@ -872,22 +875,22 @@ test('a group handed to track while a read runs is a job at the next read and af
 
 test('a handed group stays a job while any process holds its id, and once a read finds it empty, a later group given its id is not', async () => {
   // each orphan is new to its read, so only the handed group reaches it
-  const orphan = (pid: number) => orphanRow(pid, 100000);
-  const tables = [[orphan(100001)], [orphan(100002)], [], [orphan(100000)]];
+  const orphan = (pid: number) => orphanRow(pid, 5100000);
+  const tables = [[orphan(5100001)], [orphan(5100002)], [], [orphan(5100000)]];
 
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => tables.shift()!,
-    describe: groupLeaders(100000),
+    describe: groupLeaders(5100000),
   });
 
   try {
-    jobs.track(100000);
+    jobs.track(5100000);
     await jobs.list();
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100000],
+      [5100000],
     );
 
     await jobs.list();
@@ -1004,19 +1007,19 @@ test('a report from a pid that leads no group adds no job, though the group it s
     processes: async () => [
       agentRow,
       {
-        pid: 100005,
-        ppid: 100000,
-        pgid: 100000,
+        pid: 5100005,
+        ppid: 5100000,
+        pgid: 5100000,
         name: 'node',
         leadsSession: false,
-        identity: '100005 a',
+        identity: '5100005 a',
       },
     ],
     describe: leaders,
   });
 
   try {
-    await writeFile(join(directory, '100005'), '');
+    await writeFile(join(directory, '5100005'), '');
     assert.deepEqual(await jobs.list(), []);
   } finally {
     jobs.close();
@@ -1028,29 +1031,29 @@ test("a report written while a read's ps runs is a job at the next read, and sta
 
   const tables: (() => Promise<Row[]>)[] = [
     async () => {
-      await writeFile(join(directory, '100000'), '');
+      await writeFile(join(directory, '5100000'), '');
 
       return [];
     },
     async () => [
       {
-        pid: 100000,
+        pid: 5100000,
         ppid: 1,
-        pgid: 100000,
+        pgid: 5100000,
         name: 'sh',
         leadsSession: true,
-        identity: '100000 a',
+        identity: '5100000 a',
       },
     ],
     // the shell has exited, and only the process it left holds its group
     async () => [
       {
-        pid: 100002,
+        pid: 5100002,
         ppid: 1,
-        pgid: 100000,
+        pgid: 5100000,
         name: 'node',
         leadsSession: false,
-        identity: '100002 a',
+        identity: '5100002 a',
       },
     ],
   ];
@@ -1059,7 +1062,7 @@ test("a report written while a read's ps runs is a job at the next read, and sta
     directory,
     interval: 60_000,
     processes: () => tables.shift()!(),
-    describe: groupLeaders(100000),
+    describe: groupLeaders(5100000),
     marked: async () => new Map(),
   });
 
@@ -1068,12 +1071,12 @@ test("a report written while a read's ps runs is a job at the next read, and sta
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100000],
+      [5100000],
     );
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100000],
+      [5100000],
     );
   } finally {
     jobs.close();
@@ -1086,7 +1089,7 @@ test('a removed report directory leaves the jobs the walk reaches', async () => 
   const jobs = new JobWatch({
     directory,
     interval: 60_000,
-    processes: async () => commandRows(100001, '100001 a'),
+    processes: async () => commandRows(5100001, '5100001 a'),
     describe: leaders,
   });
 
@@ -1095,7 +1098,7 @@ test('a removed report directory leaves the jobs the walk reaches', async () => 
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100001],
+      [5100001],
     );
   } finally {
     jobs.close();
@@ -1108,16 +1111,16 @@ test("the first read only learns the processes, so the terminal Witch runs in is
     interval: 60_000,
     processes: async () => [
       {
-        pid: 100010,
+        pid: 5100010,
         ppid: 1,
-        pgid: 100010,
+        pgid: 5100010,
         name: 'sh',
         leadsSession: true,
-        identity: '100010 a',
+        identity: '5100010 a',
       },
       {
         pid: process.pid,
-        ppid: 100010,
+        ppid: 5100010,
         pgid: process.pid,
         name: 'node',
         leadsSession: false,
@@ -1144,8 +1147,8 @@ test("the first read only learns the processes, so the terminal Witch runs in is
 test("a marked process orphaned in Witch's own group doesn't make that group a job", async () => {
   const witch: Row = {
     pid: process.pid,
-    ppid: 100030,
-    pgid: 100020,
+    ppid: 5100030,
+    pgid: 5100020,
     name: 'node',
     leadsSession: false,
     identity: `${process.pid} a`,
@@ -1156,12 +1159,12 @@ test("a marked process orphaned in Witch's own group doesn't make that group a j
     [
       witch,
       {
-        pid: 100021,
+        pid: 5100021,
         ppid: 1,
-        pgid: 100020,
+        pgid: 5100020,
         name: 'node',
         leadsSession: false,
-        identity: '100021 a',
+        identity: '5100021 a',
       },
     ],
   ];
@@ -1170,10 +1173,10 @@ test("a marked process orphaned in Witch's own group doesn't make that group a j
     directory: await scratch('witch-jobs-'),
     interval: 60_000,
     processes: async () => tables.shift()!,
-    describe: groupLeaders(100020),
+    describe: groupLeaders(5100020),
     marked: async (pids) =>
       new Map(
-        pids.filter((pid) => pid === 100021).map((pid) => [pid, undefined]),
+        pids.filter((pid) => pid === 5100021).map((pid) => [pid, undefined]),
       ),
   });
 
@@ -1187,21 +1190,21 @@ test("a marked process orphaned in Witch's own group doesn't make that group a j
 
 test("a launchd child the last read didn't list is a job when it or a process below it carries the mark, and one the last read listed isn't checked", async () => {
   const now = new Set<number>();
-  const old = orphanRow(100001);
+  const old = orphanRow(5100001);
 
   const later = [
     old,
-    orphanRow(100002),
+    orphanRow(5100002),
     {
-      pid: 100003,
-      ppid: 100002,
-      pgid: 100003,
+      pid: 5100003,
+      ppid: 5100002,
+      pgid: 5100003,
       name: 'node',
       leadsSession: false,
-      identity: '100003 a',
+      identity: '5100003 a',
     },
-    orphanRow(100004),
-    orphanRow(100005),
+    orphanRow(5100004),
+    orphanRow(5100005),
   ];
 
   const tables = [[old], later, later];
@@ -1220,19 +1223,19 @@ test("a launchd child the last read didn't list is a job when it or a process be
   try {
     await jobs.list();
 
-    for (const pid of [100001, 100003, 100004]) now.add(pid);
+    for (const pid of [5100001, 5100003, 5100004]) now.add(pid);
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100003, 100004],
+      [5100003, 5100004],
     );
 
     // the last read listed it, so it isn't checked
-    now.add(100005);
+    now.add(5100005);
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100003, 100004],
+      [5100003, 5100004],
     );
   } finally {
     jobs.close();
@@ -1240,7 +1243,7 @@ test("a launchd child the last read didn't list is a job when it or a process be
 });
 
 test('a failed mark check fails the read, and the next read checks the same processes', async () => {
-  const later = [orphanRow(100001), orphanRow(100004)];
+  const later = [orphanRow(5100001), orphanRow(5100004)];
   const tables = [[], later, later];
   let checks = 0;
 
@@ -1253,7 +1256,7 @@ test('a failed mark check fails the read, and the next read checks the same proc
       if (!checks++) throw new Error('ps failed');
 
       return new Map(
-        pids.filter((pid) => pid === 100004).map((pid) => [pid, undefined]),
+        pids.filter((pid) => pid === 5100004).map((pid) => [pid, undefined]),
       );
     },
   });
@@ -1264,7 +1267,7 @@ test('a failed mark check fails the read, and the next read checks the same proc
 
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100004],
+      [5100004],
     );
   } finally {
     jobs.close();
@@ -1320,21 +1323,21 @@ test("a launchd child carrying another instance's mark, or one extending this ma
 
 test('process names do not alter start identities', () => {
   const rows = parseProcesses([
-    '100101 1 100101 Ss Fri Oct  9 22:34:18 2026 tmux',
-    '100102 1 100102 S Tue Oct 20 22:34:18 2026 node',
-    '100103 1 100103 Z Tue Oct 20 22:34:18 2026 node',
+    '5100101 1 5100101 Ss Fri Oct  9 22:34:18 2026 tmux',
+    '5100102 1 5100102 S Tue Oct 20 22:34:18 2026 node',
+    '5100103 1 5100103 Z Tue Oct 20 22:34:18 2026 node',
   ]);
 
   assert.deepEqual(
     rows.map(({ identity, name }) => ({ identity, name })),
     [
-      { identity: '100101 Fri Oct 9 22:34:18 2026', name: 'tmux' },
-      { identity: '100102 Tue Oct 20 22:34:18 2026', name: 'node' },
+      { identity: '5100101 Fri Oct 9 22:34:18 2026', name: 'tmux' },
+      { identity: '5100102 Tue Oct 20 22:34:18 2026', name: 'node' },
     ],
   );
 
   assert.equal(
-    parseProcesses(['100101 1 100101 Ss Fri Oct  9 22:34:18 2026 node'])[0]!
+    parseProcesses(['5100101 1 5100101 Ss Fri Oct  9 22:34:18 2026 node'])[0]!
       .identity,
     rows[0]!.identity,
   );
