@@ -934,8 +934,9 @@ export function linkifyAppend(
     const suffix = linked(raw, cwd, line.target, context);
     const blank = /^\s*$/u.test(suffix.visible);
     const incomplete = incompleteStyle(suffix.line.text, suffix.visible);
+    const boundary = appendBoundary(raw);
 
-    if (blank || incomplete) {
+    if ((blank || incomplete) && boundary.oscStart === undefined) {
       const mode = blank ? 'json' : 'terminal';
       const lines = suffix.text.split('\n');
       const tail = lines.pop()!;
@@ -961,8 +962,6 @@ export function linkifyAppend(
         },
       };
     }
-
-    const boundary = appendBoundary(raw);
 
     if (
       boundary.oscStart !== undefined &&

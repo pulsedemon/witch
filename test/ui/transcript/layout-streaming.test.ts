@@ -353,6 +353,38 @@ test('malformed terminated OSC revises cached quoted filenames as visible text c
   }
 });
 
+test('blank control chunks retain malformed OSC until later bytes settle its extent', () => {
+  for (const end of ['\u0007', '\u009c', '\u001b\\']) {
+    for (const sameChunk of [false, true]) {
+      const prefix = '[\n"one"\n';
+      const malformed = '\u001b]8;x' + end + '\n';
+
+      const chunks = [
+        ...(sameChunk ? [prefix + malformed] : [prefix, malformed]),
+        '\u001b]0;;https://x.test/' + end,
+      ];
+
+      sameAsFull(
+        chunks.map((text) => ({
+          updates: [tool(text)],
+          width: 80,
+          expanded: ['tool'],
+        })),
+      );
+
+      const items = foldDisplayUpdates(chunks.map((text) => tool(text)));
+
+      const frame = new TranscriptLayout().render(
+        items,
+        80,
+        new Map([['tool', true]]),
+      );
+
+      assert.equal(stripAnsi(frame.lines.slice(1, -1).join('\n')), prefix);
+    }
+  }
+});
+
 test('provisional whitespace keeps an explicit target through split chunks and resize', () => {
   const open = '\u001b]8;;https://x.test/\u0007';
   const close = '\u001b]8;;\u0007';
