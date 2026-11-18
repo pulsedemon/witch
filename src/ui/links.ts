@@ -465,6 +465,15 @@ function outsideWebLinks(
     for (let next = index; next < end; next++) {
       const link = links[next]!;
 
+      if (
+        !webLink.test(link.text) &&
+        !link.text.includes('/') &&
+        sourceFile.test(
+          link.text.slice(0, link.text.length - sentenceEnd(link.text)),
+        )
+      )
+        continue;
+
       matches.push(
         ...fileCandidates(
           text.slice(start, Math.max(start, link.index)),
@@ -847,23 +856,39 @@ export interface LinkedAppend {
   pending: string;
   target?: string;
   context?: FileContext;
+  /** pending ends at a newline and needs another token to settle its interpretation. */
+  provisional?: boolean;
+  /** newly appended whitespace lines that can reuse provisional rows. */
+  blankLines?: string[];
 }
 
-/** retain raw text until later bytes can no longer change its rendered lines. */
+/** append a new chunk, retaining raw text until later bytes cannot change its rendered lines. */
 export function linkifyAppend(
   text: string,
   cwd: string,
-  target?: string,
-  context?: FileContext,
+  previous?: LinkedAppend,
 ): LinkedAppend {
+  if (previous?.provisional && /^(?:[ \t\r]*\n)+$/u.test(text))
+    return {
+      ...previous,
+      complete: [],
+      pending: previous.pending + text,
+      tail: previous.tail + text,
+      blankLines: text.slice(0, -1).split('\n'),
+    };
+
+  text = (previous?.pending ?? '') + text;
+  let { target, context } = previous ?? {};
   const boundary = appendBoundary(text);
   let end = boundary.end;
   let complete: string[] = [];
+  let provisional = false;
 
   if (end) {
     let prefix = linked(text.slice(0, end), cwd, target, context);
 
     if (prefix.context.containers && prefix.context.key) {
+      provisional = boundary.end === text.length;
       end = boundary.quotedLine;
       prefix = linked(text.slice(0, end), cwd, target, context);
     }
@@ -884,6 +909,7 @@ export function linkifyAppend(
     pending,
     target,
     context,
+    provisional,
   };
 }
 

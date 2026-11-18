@@ -156,6 +156,83 @@ test('a streamed comparison reclassifies a quoted filename before or after its o
   }
 });
 
+test('provisional quoted lines keep bounded parsing and wrapping across blank appends', () => {
+  const segment = Intl.Segmenter.prototype.segment;
+  const normalize = String.prototype.normalize;
+  let parsed = 0;
+  let wrapped = 0;
+  let measure = false;
+
+  vi.spyOn(Intl.Segmenter.prototype, 'segment').mockImplementation(function (
+    this: Intl.Segmenter,
+    text: string,
+  ) {
+    if (measure) parsed += text.length;
+
+    return segment.call(this, text);
+  });
+
+  vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
+    this: string,
+    form?: string,
+  ) {
+    if (measure) wrapped += this.length;
+
+    return normalize.call(this, form);
+  });
+
+  for (const whitespace of ['\n', ' \t\n'])
+    for (const count of [1000, 4000]) {
+      const layout = new TranscriptLayout();
+      const expanded = new Map([['tool', true]]);
+      const prefix = '[\n"src/a.ts"\n';
+      let items = applyDisplayUpdate([], tool(prefix));
+      const before = layout.render(items, 80, expanded);
+      const saved = before.lines.slice();
+      const anchors = saved.map((_, row) => before.anchorAt(row));
+      parsed = 0;
+      wrapped = 0;
+      measure = true;
+
+      for (let index = 0; index < count; index++) {
+        items = applyDisplayUpdate(items, tool(whitespace));
+        layout.render(items, 80, expanded);
+      }
+
+      measure = false;
+      const provisional = layout.render(items, 80, expanded);
+      const current = new TranscriptLayout().render(items, 80, expanded);
+      assert.deepEqual(provisional.lines.slice(), current.lines.slice());
+
+      for (let row = 0; row < current.lines.length; row++)
+        assert.deepEqual(provisional.anchorAt(row), current.anchorAt(row));
+
+      measure = true;
+      items = applyDisplayUpdate(items, tool(']\n'));
+      const final = layout.render(items, 80, expanded);
+      measure = false;
+      const size = prefix.length + count * whitespace.length + 2;
+      assert.ok(parsed <= 4 * size, `parsed ${parsed} characters for ${size}`);
+
+      assert.ok(
+        wrapped <= 6 * size,
+        `wrapped ${wrapped} characters for ${size}`,
+      );
+
+      const fresh = new TranscriptLayout().render(items, 80, expanded);
+      assert.deepEqual(final.lines.slice(), fresh.lines.slice());
+      assert.deepEqual(before.lines.slice(), saved);
+
+      assert.deepEqual(
+        saved.map((_, row) => before.anchorAt(row)),
+        anchors,
+      );
+
+      assert.ok(final.lines.at(2)!.includes('vscode://file/work/src/a.ts'));
+      assert.equal(stripAnsi(final.lines.at(-3)!), ']');
+    }
+});
+
 test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
   for (const stable of ['', 'stable\n']) {
     const prefix =

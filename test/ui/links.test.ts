@@ -329,12 +329,7 @@ test('JSON file context survives bounded pieces, skipped oversized values and st
 
       for (const cut of [text.indexOf('\\') + 1, text.lastIndexOf('"') - 1]) {
         const first = linkifyAppend(text.slice(0, cut), '/work');
-
-        const next = linkifyAppend(
-          first.pending + text.slice(cut) + '\n',
-          '/work',
-          first.target,
-        );
+        const next = linkifyAppend(text.slice(cut) + '\n', '/work', first);
 
         assert.deepEqual(
           linkSpans(next.complete.join('\n')),
@@ -506,18 +501,16 @@ test('an explicit URL keeps neighboring file links in a quoted JSON value', () =
       [{ text: 'www.example.com/1', target: 'http://www.example.com/1' }, b],
     ],
     ['src/a.ts https://example.com src/b.ts', [a, url, b]],
+    [
+      'src/a.ts README.md https://example.com',
+      [a, { text: 'README.md', target: 'vscode://file/work/README.md' }, url],
+    ],
   ] as const) {
     const json = JSON.stringify({ t: value });
 
     for (const text of [json, JSON.stringify(json)]) {
       const first = linkifyAppend(text.slice(0, 20), '/work');
-
-      const next = linkifyAppend(
-        first.pending + text.slice(20) + '\n',
-        '/work',
-        first.target,
-        first.context,
-      );
+      const next = linkifyAppend(text.slice(20) + '\n', '/work', first);
 
       for (const output of [
         linkify(text, '/work'),
@@ -759,13 +752,7 @@ test('filename boundaries preserve prose and complete names', () => {
 
 test('a non-ASCII filename keeps its whole target through appends and wrapping', () => {
   const first = linkifyAppend('docs/', '/proj');
-
-  const next = linkifyAppend(
-    first.pending + 'über/x.md\n',
-    '/proj',
-    first.target,
-  );
-
+  const next = linkifyAppend('über/x.md\n', '/proj', first);
   const text = next.complete.join('\n');
   const target = 'vscode://file/proj/docs/%C3%BCber/x.md';
   assert.equal(stripAnsi(text), 'docs/über/x.md');
@@ -1225,12 +1212,7 @@ test('overlong bare URLs stay readable without partial hyperlink targets', () =>
     `https://example.com/a(${'b'.repeat(1500)}\uFEFF${'c'.repeat(1500)})`,
   ]) {
     const first = linkifyAppend(text.slice(0, 1998), '/work');
-
-    const next = linkifyAppend(
-      first.pending + text.slice(1998) + '\n',
-      '/work',
-      first.target,
-    );
+    const next = linkifyAppend(text.slice(1998) + '\n', '/work', first);
 
     for (const output of [
       linkify(text, '/work'),
@@ -1432,17 +1414,15 @@ test('streaming links retain their targets and unresolved controls across chunks
 
     for (const chunks of streams) {
       let text = '';
-      let pending = '';
-      let carried: string | undefined;
+      let carried: ReturnType<typeof linkifyAppend> | undefined;
       const complete: string[] = [];
       let actual = '';
 
       for (const chunk of chunks) {
         text += chunk;
-        const next = linkifyAppend(pending + chunk, '/work', carried);
+        const next = linkifyAppend(chunk, '/work', carried);
         complete.push(...next.complete);
-        pending = next.pending;
-        carried = next.target;
+        carried = next;
         actual = [...complete, next.tail].join('\n');
 
         assert.equal(

@@ -24,7 +24,7 @@ type Expansion = 'closed' | 'preview' | 'full';
 type TextRows = Pick<readonly string[], 'length' | 'at' | 'slice'>;
 
 type Append =
-  | ({ kind: 'tool' } & Pick<LinkedAppend, 'pending' | 'target' | 'context'>)
+  | { kind: 'tool'; linked: LinkedAppend }
   | { kind: 'assistant'; pending: string }
   | { kind: 'full-markdown' };
 
@@ -53,6 +53,8 @@ interface Block {
   content: Content;
   viewport: Viewport;
   complete: Row[];
+  provisional?: Row[];
+  suffix: Row[];
   lines: TextRows;
   row(index: number): Row | undefined;
   /** the id of each image it names, as drawn; none for one with no rows yet. */
@@ -90,24 +92,32 @@ function textRows(
   };
 }
 
-/** capture the completed prefix's length so later appends cannot change an earlier frame. */
+/** capture row counts so later appends cannot change an earlier frame. */
 function block(
   content: Content,
   viewport: Viewport,
   complete: Row[],
   suffix: Row[],
   drawn: readonly (number | undefined)[],
+  provisional?: Row[],
 ): Block {
   const count = complete.length;
-  const length = count + suffix.length;
+  const pending = provisional?.length ?? 0;
+  const length = count + pending + suffix.length;
 
   const row = (index: number) =>
-    index < count ? complete[index] : suffix[index - count];
+    index < count
+      ? complete[index]
+      : index < count + pending
+        ? provisional![index - count]
+        : suffix[index - count - pending];
 
   return {
     content,
     viewport,
     complete,
+    provisional,
+    suffix,
     row,
     lines: textRows(length, (index) => row(index)?.text),
     drawn,
@@ -230,9 +240,7 @@ function prepare(
       linked && !diff && (!graphics || !sources.length)
         ? {
             kind: 'tool',
-            pending: linked.pending,
-            target: linked.target,
-            context: linked.context,
+            linked,
           }
         : item.kind === 'assistant'
           ? assistant
@@ -352,21 +360,59 @@ function extend(
 
   const linked =
     tail.kind === 'tool'
-      ? linkifyAppend(
-          tail.pending + appended,
-          item.cwd,
-          tail.target,
-          tail.context,
-        )
+      ? linkifyAppend(appended, item.cwd, tail.linked)
       : undefined;
 
-  const content = linked ?? markdownAppend(tail.pending + appended, item.cwd);
+  const content =
+    linked ??
+    (tail.kind === 'assistant'
+      ? markdownAppend(tail.pending + appended, item.cwd)
+      : undefined);
 
   if (!content)
     return wrap(prepare(item, 'closed', undefined, true), viewport, graphics);
 
   const source = previous.content;
   const first = source.title.length + source.complete.length;
+
+  if (linked?.blankLines && previous.viewport === viewport) {
+    const lastLine = first + source.tail.length - 1;
+
+    const provisional =
+      previous.provisional ??
+      previous.suffix.filter((row) => row.anchor.line < lastLine);
+
+    const added = section(linked.blankLines, viewport.width, false, lastLine);
+    source.tail.pop();
+
+    for (const line of linked.blankLines) source.tail.push(line);
+
+    source.tail.push('');
+
+    for (const row of added.rows) provisional.push(row);
+
+    const prepared: Content = {
+      ...source,
+      item,
+      append: { kind: 'tool', linked },
+    };
+
+    const end = ending(
+      { ...prepared, tail: [''] },
+      viewport.width,
+      added.next,
+      graphics,
+    );
+
+    return block(
+      prepared,
+      viewport,
+      previous.complete,
+      end.rows,
+      end.drawn,
+      provisional,
+    );
+  }
 
   const hasBody =
     source.complete.length > 0 || content.complete.length > 0 || !!content.tail;
@@ -375,15 +421,12 @@ function extend(
     ...source,
     item,
     tail: hasBody ? content.tail.split('\n') : [],
-    append:
-      tail.kind === 'tool'
-        ? {
-            kind: 'tool',
-            pending: content.pending,
-            target: linked?.target,
-            context: linked?.context,
-          }
-        : { kind: 'assistant', pending: content.pending },
+    append: linked
+      ? {
+          kind: 'tool',
+          linked,
+        }
+      : { kind: 'assistant', pending: content.pending },
   };
 
   for (const line of content.complete) source.complete.push(line);
