@@ -192,7 +192,7 @@ interface FileContext {
   containers: number;
   key: boolean;
   member: boolean;
-  pending?: '[' | '{';
+  pending?: { opener: '[' | '{'; depth: number };
 }
 
 function jsonBreaks(text: string, nested: boolean) {
@@ -219,7 +219,7 @@ function jsonBreaks(text: string, nested: boolean) {
 function startsContainer(opener: '[' | '{', next: string) {
   return opener === '{'
     ? /^["}]/u.test(next)
-    : /^(?:["{[\]]|(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,\]]|$))/u.test(
+    : /^(?:["\]]|(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[\s,\]]|$))/u.test(
         next,
       );
 }
@@ -256,7 +256,14 @@ function fileSections(text: string, previous?: FileContext) {
     if (/\s/u.test(char)) continue;
 
     if (pending) {
-      if (startsContainer(pending, text.slice(index))) containers++;
+      if (pending.opener === '[' && (char === '[' || char === '{')) {
+        pending = { opener: char, depth: pending.depth + 1 };
+
+        continue;
+      }
+
+      if (startsContainer(pending.opener, text.slice(index)))
+        containers += pending.depth;
 
       pending = undefined;
     }
@@ -281,12 +288,8 @@ function fileSections(text: string, previous?: FileContext) {
     }
 
     if (char !== '"') {
-      if (char === '{' || char === '[') {
-        const next = text.slice(index + 1).trimStart();
-
-        if (!next) pending = char;
-        else if (startsContainer(char, next)) containers++;
-      } else if (char === '}' || char === ']')
+      if (char === '{' || char === '[') pending = { opener: char, depth: 1 };
+      else if (char === '}' || char === ']')
         containers = Math.max(0, containers - 1);
 
       member = key && char === ':';

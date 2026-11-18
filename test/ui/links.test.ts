@@ -394,9 +394,11 @@ test('nested JSON retains files after primitive values and encoded whitespace', 
   for (const inner of [
     JSON.stringify({ t: 'a\nnotes.md' }, null, 2),
     JSON.stringify([1, true, null, {}, 'a\nnotes.md']),
+    JSON.stringify([['a\nnotes.md']]),
   ]) {
     for (const prefix of ['', '\n', '\t', '\r', ' \n\t\r '])
       for (const text of [
+        prefix + inner,
         JSON.stringify(prefix + inner),
         JSON.stringify({ result: prefix + inner }),
       ]) {
@@ -416,6 +418,8 @@ test('shell brackets and brackets inside quoted paths do not change later quoted
     String.raw`'src/[draft.ts'`,
     '`src/[draft.ts`',
     '[ -f',
+    '[[ -f',
+    '[ { -f',
     '[1/3',
   ]) {
     const text = `${prefix} "src/a\\b.ts"`;

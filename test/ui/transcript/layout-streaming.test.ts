@@ -46,40 +46,53 @@ const early =
   'PASS src/a.ts:1 https://example.com/a\nPASS test/b.test.ts:2\nrun';
 
 test('JSON array context follows completed tool lines and ends at the closing bracket', () => {
-  let items = applyDisplayUpdate([], tool('[\n'));
-  const layout = new TranscriptLayout();
-  const expanded = new Map([['tool', true]]);
-  layout.render(items, 100, expanded);
-  const files = ['vscode://file/work/src/a.ts', 'vscode://file/work/src/b.ts'];
+  for (const [open, close] of [
+    ['[', ']'],
+    ['[[', ']]'],
+  ]) {
+    let items = applyDisplayUpdate([], tool(open + '\n'));
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    layout.render(items, 100, expanded);
 
-  for (const [suffix, expected, plain] of [
-    ['"x",\n', [], '[\n"x",\n'],
-    ['"src/a.ts\\nsrc/b.ts"\n', files, '[\n"x",\n"src/a.ts\\nsrc/b.ts"\n'],
-    [
-      ']\n"src/a\\b.ts"',
-      [...files, 'vscode://file/work/src/a%5Cb.ts'],
-      '[\n"x",\n"src/a.ts\\nsrc/b.ts"\n]\n"src/a\\b.ts"',
-    ],
-  ] as const) {
-    items = applyDisplayUpdate(items, tool(suffix));
-    const frame = layout.render(items, 100, expanded);
-    const body = frame.lines.slice(1, -1).join('\n');
+    const files = [
+      'vscode://file/work/src/a.ts',
+      'vscode://file/work/src/b.ts',
+    ];
 
-    assert.deepEqual(
-      body
-        .split('\u001b]8;;')
-        .slice(1)
-        .map((part) => part.slice(0, part.indexOf('\u0007')))
-        .filter(Boolean),
-      expected,
-    );
+    for (const [suffix, expected, plain] of [
+      ['"x",\n', [], open + '\n"x",\n'],
+      [
+        '"src/a.ts\\nsrc/b.ts"\n',
+        files,
+        open + '\n"x",\n"src/a.ts\\nsrc/b.ts"\n',
+      ],
+      [
+        close + '\n"src/a\\b.ts"',
+        [...files, 'vscode://file/work/src/a%5Cb.ts'],
+        open + '\n"x",\n"src/a.ts\\nsrc/b.ts"\n' + close + '\n"src/a\\b.ts"',
+      ],
+    ] as const) {
+      items = applyDisplayUpdate(items, tool(suffix));
+      const frame = layout.render(items, 100, expanded);
+      const body = frame.lines.slice(1, -1).join('\n');
 
-    assert.equal(stripAnsi(body), plain);
+      assert.deepEqual(
+        body
+          .split('\u001b]8;;')
+          .slice(1)
+          .map((part) => part.slice(0, part.indexOf('\u0007')))
+          .filter(Boolean),
+        expected,
+      );
+
+      assert.equal(stripAnsi(body), plain);
+    }
   }
 });
 
 test('a streamed opener waits for its next token before treating quoted paths as JSON', () => {
-  for (const opener of ['[', '{']) {
+  for (const opener of ['[', '{', '[[', '[\n[']) {
     const layout = new TranscriptLayout();
     const expanded = new Map([['tool', true]]);
     let items: DisplayItem[] = [];
