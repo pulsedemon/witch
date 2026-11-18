@@ -375,19 +375,23 @@ function extend(
   const source = previous.content;
   const first = source.title.length + source.complete.length;
 
-  if (linked?.blankLines && previous.viewport === viewport) {
+  if (linked?.provisionalLines && previous.viewport === viewport) {
     const lastLine = first + source.tail.length - 1;
 
     const provisional =
       previous.provisional ??
       previous.suffix.filter((row) => row.anchor.line < lastLine);
 
-    const added = section(linked.blankLines, viewport.width, false, lastLine);
+    const added = section(
+      linked.provisionalLines.slice(0, -1),
+      viewport.width,
+      false,
+      lastLine,
+    );
+
     source.tail.pop();
 
-    for (const line of linked.blankLines) source.tail.push(line);
-
-    source.tail.push('');
+    for (const line of linked.provisionalLines) source.tail.push(line);
 
     for (const row of added.rows) provisional.push(row);
 
@@ -398,7 +402,7 @@ function extend(
     };
 
     const end = ending(
-      { ...prepared, tail: [''] },
+      { ...prepared, tail: linked.provisionalLines.slice(-1) },
       viewport.width,
       added.next,
       graphics,

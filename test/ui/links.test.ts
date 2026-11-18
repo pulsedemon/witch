@@ -1376,7 +1376,18 @@ test('plain text keeps no link, including one that stripping a sequence would bu
 test('streaming links retain their targets and unresolved controls across chunks', () => {
   const target = 'https://x.test/';
 
-  const cases = [
+  const cases: {
+    text: string;
+    plain: string;
+    linked: boolean;
+    words?: string[];
+  }[] = [
+    ...['', '[\n'].map((before) => ({
+      text: `${before}\u001b]8;;${target}\u0007${before ? '' : '[\n'}"one"\n \t\n]\n\u001b]8;;\u0007`,
+      plain: '[\n"one"\n \t\n]\n',
+      linked: true,
+      words: ['"one"', ' \t'],
+    })),
     {
       text: '\u001b]8;x\u0007\nfoo;https://x.test/\u0007one\ntwo',
       plain: 'one\ntwo',
@@ -1436,7 +1447,7 @@ test('streaming links retain their targets and unresolved controls across chunks
       assert.equal(actual.includes(`\u001b]8;;${target}\u0007`), sample.linked);
 
       if (sample.linked) {
-        for (const word of ['one', 'two'])
+        for (const word of sample.words ?? ['one', 'two'])
           assert.ok(
             actual.includes(
               `\u001b]8;;${target}\u0007\u001b[4m${word}\u001b[24m\u001b]8;;\u0007`,

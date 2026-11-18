@@ -856,10 +856,10 @@ export interface LinkedAppend {
   pending: string;
   target?: string;
   context?: FileContext;
-  /** pending ends at a newline and needs another token to settle its interpretation. */
-  provisional?: boolean;
-  /** newly appended whitespace lines that can reuse provisional rows. */
-  blankLines?: string[];
+  /** keep whitespace appends from rescanning completed provisional lines. */
+  provisional?: { renderedPrefix: string; rawLine: string; target?: string };
+  /** rendered replacement for the provisional last line and any new lines. */
+  provisionalLines?: string[];
 }
 
 /** append a new chunk, retaining raw text until later bytes cannot change its rendered lines. */
@@ -868,14 +868,25 @@ export function linkifyAppend(
   cwd: string,
   previous?: LinkedAppend,
 ): LinkedAppend {
-  if (previous?.provisional && /^(?:[ \t\r]*\n)+$/u.test(text))
+  if (previous?.provisional && /^[ \t\r\n]+$/u.test(text)) {
+    const { renderedPrefix, rawLine, target } = previous.provisional;
+    const raw = rawLine + text;
+    const rendered = target ? hyperlink(raw, target, cwd) : raw;
+    const end = rendered.lastIndexOf('\n') + 1;
+
     return {
       ...previous,
       complete: [],
       pending: previous.pending + text,
-      tail: previous.tail + text,
-      blankLines: text.slice(0, -1).split('\n'),
+      tail: renderedPrefix + rendered,
+      provisional: {
+        renderedPrefix: renderedPrefix + rendered.slice(0, end),
+        rawLine: raw.slice(raw.lastIndexOf('\n') + 1),
+        target,
+      },
+      provisionalLines: rendered.split('\n'),
     };
+  }
 
   text = (previous?.pending ?? '') + text;
   let { target, context } = previous ?? {};
@@ -888,7 +899,7 @@ export function linkifyAppend(
     let prefix = linked(text.slice(0, end), cwd, target, context);
 
     if (prefix.context.containers && prefix.context.key) {
-      provisional = boundary.end === text.length;
+      provisional = /^[ \t\r\n]*$/u.test(text.slice(boundary.end));
       end = boundary.quotedLine;
       prefix = linked(text.slice(0, end), cwd, target, context);
     }
@@ -902,14 +913,24 @@ export function linkifyAppend(
   }
 
   const pending = text.slice(end);
+  const suffix = linked(pending, cwd, target, context);
 
   return {
     complete,
-    tail: linked(pending, cwd, target, context).text,
+    tail: suffix.text,
     pending,
     target,
     context,
-    provisional,
+    provisional: provisional
+      ? {
+          renderedPrefix: suffix.text.slice(
+            0,
+            suffix.text.lastIndexOf('\n') + 1,
+          ),
+          rawLine: text.slice(boundary.end),
+          target: suffix.target,
+        }
+      : undefined,
   };
 }
 

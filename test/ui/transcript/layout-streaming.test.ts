@@ -181,7 +181,7 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
     return normalize.call(this, form);
   });
 
-  for (const whitespace of ['\n', ' \t\n'])
+  for (const chunks of [['\n'], [' \t\n'], [' ', '\t', '\n']])
     for (const count of [1000, 4000]) {
       const layout = new TranscriptLayout();
       const expanded = new Map([['tool', true]]);
@@ -194,10 +194,11 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
       wrapped = 0;
       measure = true;
 
-      for (let index = 0; index < count; index++) {
-        items = applyDisplayUpdate(items, tool(whitespace));
-        layout.render(items, 80, expanded);
-      }
+      for (let index = 0; index < count; index++)
+        for (const chunk of chunks) {
+          items = applyDisplayUpdate(items, tool(chunk));
+          layout.render(items, 80, expanded);
+        }
 
       measure = false;
       const provisional = layout.render(items, 80, expanded);
@@ -211,7 +212,7 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
       items = applyDisplayUpdate(items, tool(']\n'));
       const final = layout.render(items, 80, expanded);
       measure = false;
-      const size = prefix.length + count * whitespace.length + 2;
+      const size = prefix.length + count * chunks.join('').length + 2;
       assert.ok(parsed <= 4 * size, `parsed ${parsed} characters for ${size}`);
 
       assert.ok(
@@ -231,6 +232,23 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
       assert.ok(final.lines.at(2)!.includes('vscode://file/work/src/a.ts'));
       assert.equal(stripAnsi(final.lines.at(-3)!), ']');
     }
+});
+
+test('provisional whitespace keeps an explicit target through split chunks and resize', () => {
+  const open = '\u001b]8;;https://x.test/\u0007';
+  const close = '\u001b]8;;\u0007';
+
+  for (const prefix of [open + '[\n"one"\n', '[\n' + open + '"one"\n']) {
+    const frames = [prefix, ' ', '\t', '\n', ' \t\n', ']\n' + close].map(
+      (text, index) => ({
+        updates: [tool(text)],
+        width: index === 2 ? 13 : 80,
+        expanded: ['tool'],
+      }),
+    );
+
+    sameAsFull(frames);
+  }
 });
 
 test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
