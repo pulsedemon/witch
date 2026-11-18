@@ -181,7 +181,16 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
     return normalize.call(this, form);
   });
 
-  for (const chunks of [['\n'], [' \t\n'], [' ', '\t', '\n']])
+  for (const chunks of [
+    ['\n'],
+    [' \t\n'],
+    [' ', '\t', '\n'],
+    ['\u001b[0m\n'],
+    ['\u00a0', '\n'],
+    ['\u0007\n'],
+  ]) {
+    const counts: { parsed: number; wrapped: number }[] = [];
+
     for (const count of [1000, 4000]) {
       const layout = new TranscriptLayout();
       const expanded = new Map([['tool', true]]);
@@ -212,14 +221,7 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
       items = applyDisplayUpdate(items, tool(']\n'));
       const final = layout.render(items, 80, expanded);
       measure = false;
-      const size = prefix.length + count * chunks.join('').length + 2;
-      assert.ok(parsed <= 4 * size, `parsed ${parsed} characters for ${size}`);
-
-      assert.ok(
-        wrapped <= 6 * size,
-        `wrapped ${wrapped} characters for ${size}`,
-      );
-
+      counts.push({ parsed, wrapped });
       const fresh = new TranscriptLayout().render(items, 80, expanded);
       assert.deepEqual(final.lines.slice(), fresh.lines.slice());
       assert.deepEqual(before.lines.slice(), saved);
@@ -232,6 +234,19 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
       assert.ok(final.lines.at(2)!.includes('vscode://file/work/src/a.ts'));
       assert.equal(stripAnsi(final.lines.at(-3)!), ']');
     }
+
+    const [small, large] = counts;
+
+    assert.ok(
+      large!.parsed <= small!.parsed * 5,
+      `${JSON.stringify(chunks)} parsed ${small!.parsed} then ${large!.parsed} characters`,
+    );
+
+    assert.ok(
+      large!.wrapped <= small!.wrapped * 5,
+      `${JSON.stringify(chunks)} wrapped ${small!.wrapped} then ${large!.wrapped} characters`,
+    );
+  }
 });
 
 test('provisional whitespace keeps an explicit target through split chunks and resize', () => {
@@ -239,13 +254,20 @@ test('provisional whitespace keeps an explicit target through split chunks and r
   const close = '\u001b]8;;\u0007';
 
   for (const prefix of [open + '[\n"one"\n', '[\n' + open + '"one"\n']) {
-    const frames = [prefix, ' ', '\t', '\n', ' \t\n', ']\n' + close].map(
-      (text, index) => ({
-        updates: [tool(text)],
-        width: index === 2 ? 13 : 80,
-        expanded: ['tool'],
-      }),
-    );
+    const frames = [
+      prefix,
+      ' ',
+      '\u001b]8;;https://y.test/\u0007',
+      '\t',
+      open,
+      '\n',
+      ' \t\n',
+      ']\n' + close,
+    ].map((text, index) => ({
+      updates: [tool(text)],
+      width: index === 2 ? 13 : 80,
+      expanded: ['tool'],
+    }));
 
     sameAsFull(frames);
   }

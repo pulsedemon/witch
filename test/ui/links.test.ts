@@ -1383,7 +1383,7 @@ test('streaming links retain their targets and unresolved controls across chunks
     words?: string[];
   }[] = [
     ...['', '[\n'].map((before) => ({
-      text: `${before}\u001b]8;;${target}\u0007${before ? '' : '[\n'}"one"\n \t\n]\n\u001b]8;;\u0007`,
+      text: `${before}\u001b]8;;${target}\u0007${before ? '' : '[\n'}"one"\n\u001b[0m \t\n]\n\u001b]8;;\u0007`,
       plain: '[\n"one"\n \t\n]\n',
       linked: true,
       words: ['"one"', ' \t'],

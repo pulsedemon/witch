@@ -762,6 +762,7 @@ function linked(
   const chunks: (Piece & { target?: string })[] = [];
   let visible = '';
   let buffer = '';
+  let line = { text: '', target };
 
   const flush = () => {
     visible += buffer;
@@ -775,12 +776,18 @@ function linked(
 
   for (const token of tokenize(text)) {
     if (token.type === 'ansi' && token.code.startsWith('\u001b]8;')) {
+      line.text += token.code;
       flush();
       const separator = token.code.indexOf(';', 4);
       const terminator = token.code.endsWith('\u001b\\') ? 2 : 1;
       target = token.code.slice(separator + 1, -terminator) || undefined;
-    } else if (token.type === 'char' && !controls.test(token.value))
+    } else if (token.type === 'char' && !controls.test(token.value)) {
       buffer += token.value;
+      const newline = token.value.lastIndexOf('\n');
+
+      if (newline < 0) line.text += token.value;
+      else line = { text: token.value.slice(newline + 1), target };
+    }
   }
 
   flush();
@@ -796,7 +803,7 @@ function linked(
     )
     .join('');
 
-  return { text: output, target, context };
+  return { text: output, target, context, visible, line };
 }
 
 export function linkify(text: string, cwd: string): string {
@@ -857,7 +864,10 @@ export interface LinkedAppend {
   target?: string;
   context?: FileContext;
   /** keep whitespace appends from rescanning completed provisional lines. */
-  provisional?: { renderedPrefix: string; rawLine: string; target?: string };
+  provisional?: {
+    renderedPrefix: string;
+    line: { text: string; target?: string };
+  };
   /** rendered replacement for the provisional last line and any new lines. */
   provisionalLines?: string[];
 }
@@ -868,24 +878,24 @@ export function linkifyAppend(
   cwd: string,
   previous?: LinkedAppend,
 ): LinkedAppend {
-  if (previous?.provisional && /^[ \t\r\n]+$/u.test(text)) {
-    const { renderedPrefix, rawLine, target } = previous.provisional;
-    const raw = rawLine + text;
-    const rendered = target ? hyperlink(raw, target, cwd) : raw;
-    const end = rendered.lastIndexOf('\n') + 1;
+  if (previous?.provisional) {
+    const { renderedPrefix, line } = previous.provisional;
+    const suffix = linked(line.text + text, cwd, line.target);
 
-    return {
-      ...previous,
-      complete: [],
-      pending: previous.pending + text,
-      tail: renderedPrefix + rendered,
-      provisional: {
-        renderedPrefix: renderedPrefix + rendered.slice(0, end),
-        rawLine: raw.slice(raw.lastIndexOf('\n') + 1),
-        target,
-      },
-      provisionalLines: rendered.split('\n'),
-    };
+    if (/^\s*$/u.test(suffix.visible))
+      return {
+        ...previous,
+        complete: [],
+        pending: previous.pending + text,
+        tail: renderedPrefix + suffix.text,
+        provisional: {
+          renderedPrefix:
+            renderedPrefix +
+            suffix.text.slice(0, suffix.text.lastIndexOf('\n') + 1),
+          line: suffix.line,
+        },
+        provisionalLines: suffix.text.split('\n'),
+      };
   }
 
   text = (previous?.pending ?? '') + text;
@@ -899,7 +909,7 @@ export function linkifyAppend(
     let prefix = linked(text.slice(0, end), cwd, target, context);
 
     if (prefix.context.containers && prefix.context.key) {
-      provisional = /^[ \t\r\n]*$/u.test(text.slice(boundary.end));
+      provisional = true;
       end = boundary.quotedLine;
       prefix = linked(text.slice(0, end), cwd, target, context);
     }
@@ -921,16 +931,19 @@ export function linkifyAppend(
     pending,
     target,
     context,
-    provisional: provisional
-      ? {
-          renderedPrefix: suffix.text.slice(
-            0,
-            suffix.text.lastIndexOf('\n') + 1,
-          ),
-          rawLine: text.slice(boundary.end),
-          target: suffix.target,
-        }
-      : undefined,
+    provisional:
+      provisional &&
+      suffix.context.containers &&
+      suffix.context.key &&
+      /^\s*$/u.test(suffix.visible.slice(suffix.visible.lastIndexOf('\n') + 1))
+        ? {
+            renderedPrefix: suffix.text.slice(
+              0,
+              suffix.text.lastIndexOf('\n') + 1,
+            ),
+            line: suffix.line,
+          }
+        : undefined,
   };
 }
 
