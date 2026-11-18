@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import stripAnsi from 'strip-ansi';
 import stringWidth from 'string-width';
+import { selectedText } from '../../../src/ui/transcript/selection.js';
 import { TranscriptLayout } from '../../../src/ui/transcript/transcript-layout.js';
 import type { FileDiff } from '../../../src/agents/types.js';
 import type { DisplayItem } from '../../../src/core/state.js';
@@ -976,4 +977,29 @@ test("a line's rows are every row wrapped from it, and stop at the next line, th
 
   for (const row of [4, 5, 6, 11, 12, 13])
     assert.deepEqual(layout.lineAt(row), { first: row, last: row });
+});
+
+test('a quote and a table copy without their rules at any width', () => {
+  const item: DisplayItem = {
+    id: 'a',
+    kind: 'assistant',
+    text: '> > alpha beta gamma\n\n| a | b |\n|---|---|\n| 1 | 2 |',
+    cwd: '/work',
+  };
+
+  for (const width of [80, 12, 3]) {
+    const layout = new TranscriptLayout().render([item], width, new Map());
+    const rows = layout.lines.slice();
+
+    assert.equal(
+      selectedText(
+        layout.lines,
+        { row: rows.findIndex((row) => row.includes('│')), column: 0 },
+        { row: rows.length - 1, column: width },
+        layout.joinBefore,
+      ).trimEnd(),
+      'alpha beta gamma\n\na\tb\n1\t2',
+      String(width),
+    );
+  }
 });

@@ -27,37 +27,62 @@ export interface RangeEnd {
 
 // Ink draws neither invisible characters nor controls, so they take no cell and are never copied
 const undrawn = /^(?:\p{Default_Ignorable_Code_Point}|\p{Cc})+$/u;
+/** written before a drawn `│` to leave it and the space after it out of a copy. */
+export const uncopied = '\u2063';
+/** written before a drawn `│` to copy it and the space on each side as one tab. */
+export const tabbed = '\u2062';
 
-/** each character of `line` that takes cells, with the columns it covers up to but not including `end`, as Ink lays them out. */
+/**
+ * each character of `line` that takes cells, with the columns it covers up to but not including `end`, as Ink lays
+ * them out, and what it copies as: itself, unless it is a `│` right after a mark.
+ */
 function* drawn(line: string) {
   let start = 0;
+  let mark: string | undefined;
 
   for (const char of styledCharsFromTokens(tokenize(line))) {
-    if (undrawn.test(char.value)) continue;
+    if (undrawn.test(char.value)) {
+      mark = char.value;
+
+      continue;
+    }
 
     const end = start + Math.max(1, stringWidth(char.value));
-    yield { char, start, end };
+    const rule = char.value === '│' ? mark : undefined;
+
+    yield {
+      char,
+      start,
+      end,
+      copied:
+        rule === tabbed ? '\t' : rule === uncopied ? uncopied : char.value,
+    };
+
+    mark = undefined;
     start = end;
   }
 }
 
-/** `line` cut at columns `start` and `end`. */
+/** `line` cut at columns `start` and `end`, with what the cells inside copy as. */
 function cut(line: string, start: number, end: number) {
   const before: StyledChar[] = [];
   const inside: StyledChar[] = [];
   const after: StyledChar[] = [];
   let width = 0;
+  let copied = '';
 
-  for (const { char, start: from, end: next } of drawn(line)) {
+  for (const { char, start: from, end: next, copied: text } of drawn(line)) {
     // a wide character is selected when either of its cells is
     if (next <= start) before.push(char);
-    else if (from < end) inside.push(char);
-    else after.push(char);
+    else if (from < end) {
+      inside.push(char);
+      copied += text;
+    } else after.push(char);
 
     width = next;
   }
 
-  return { before, inside, after, width };
+  return { before, inside, after, width, copied };
 }
 
 const linkOf = ({ styles }: StyledChar) =>
@@ -156,11 +181,16 @@ export function selectedText(
       line,
       row === start.row ? start.column : 0,
       row === end.row ? end.column + 1 : Infinity,
-    )
-      .inside.map(({ value }) => value)
-      .join('');
+    ).copied;
   }
 
-  // starting only at a run's first space keeps a long run of spaces before text linear
-  return (text ?? '').replace(/(?<! ) +$/gm, '');
+  return (
+    (text ?? '')
+      // a rule's padding goes here, not row by row: a wrap can trim it and the join puts it back
+      .replaceAll(`${uncopied} `, '')
+      .replaceAll(uncopied, '')
+      .replace(/ ?\t ?/g, '\t')
+      // starting only at a run's first space keeps a long run of spaces before text linear
+      .replace(/(?<! ) +$/gm, '')
+  );
 }

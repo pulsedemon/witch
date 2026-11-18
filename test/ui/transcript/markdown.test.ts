@@ -5,6 +5,7 @@ import {
   markdown,
   markdownAppend,
 } from '../../../src/ui/transcript/markdown.js';
+import { tabbed, uncopied } from '../../../src/ui/transcript/selection.js';
 
 test('nested lists and task lists render indented with each checkbox inline', () => {
   for (const [input, expected] of [
@@ -119,7 +120,13 @@ test('headings, emphasis, line breaks, quotes, rules and tables render as termin
         '/work',
       ),
     ),
-    'Plan\n\nbold em gone\nnext\n\n│ quoted\n\n────────\na │ b\n1 │ 2',
+    `Plan\n\nbold em gone\nnext\n\n${uncopied}│ quoted\n\n────────\na ${tabbed}│ b\n1 ${tabbed}│ 2`,
+  );
+
+  // a rule the text holds is not one the renderer drew
+  assert.equal(
+    stripAnsi(markdown('```\n│ x\n```\n\n`a │ b`', '/work')),
+    '│ x\n\na │ b',
   );
 });
 
@@ -167,7 +174,7 @@ for (const [name, source, expected] of [
   [
     'table delimiter',
     'Settled.\n\na | b\n---|---\n1|2\n',
-    'Settled.\n\na │ b\n1 │ 2',
+    `Settled.\n\na ${tabbed}│ b\n1 ${tabbed}│ 2`,
   ],
   [
     'list continuation',
@@ -182,7 +189,7 @@ for (const [name, source, expected] of [
   [
     'quote continuation',
     'Settled.\n\n> first\n>\n> second\n\nAfter',
-    'Settled.\n\n│ first\n│ \n│ second\n\nAfter',
+    `Settled.\n\n${uncopied}│ first\n${uncopied}│ \n${uncopied}│ second\n\nAfter`,
   ],
   ['empty block', 'first\n\n```\n```\n', 'first'],
   [
