@@ -53,11 +53,12 @@ test('JSON array context follows completed tool lines and ends at the closing br
   const files = ['vscode://file/work/src/a.ts', 'vscode://file/work/src/b.ts'];
 
   for (const [suffix, expected, plain] of [
-    ['"src/a.ts\\nsrc/b.ts"\n', files, '[\n"src/a.ts\\nsrc/b.ts"\n'],
+    ['"x",\n', [], '[\n"x",\n'],
+    ['"src/a.ts\\nsrc/b.ts"\n', files, '[\n"x",\n"src/a.ts\\nsrc/b.ts"\n'],
     [
       ']\n"src/a\\b.ts"',
       [...files, 'vscode://file/work/src/a%5Cb.ts'],
-      '[\n"src/a.ts\\nsrc/b.ts"\n]\n"src/a\\b.ts"',
+      '[\n"x",\n"src/a.ts\\nsrc/b.ts"\n]\n"src/a\\b.ts"',
     ],
   ] as const) {
     items = applyDisplayUpdate(items, tool(suffix));
