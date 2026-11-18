@@ -150,8 +150,6 @@ export class SessionCoordination {
   };
   /** project reads run one at a time, so their results land in start order. */
   private projecting?: { promise: Promise<void>; cancel(): void };
-  /** counts publications of a view with a ledger. */
-  private published = 0;
   private revision = 0;
   private mutationRevision = 0;
   private ledgerObservation = 0;
@@ -1086,8 +1084,6 @@ export class SessionCoordination {
     if (this.view.discovery.revision > this.discoveryFailure)
       this.failures.delete('discovery');
 
-    this.published++;
-
     this.publish(
       projectDiscovery(
         active.conversation.id,
@@ -1312,11 +1308,11 @@ export class SessionCoordination {
 
     active.observed = signature;
     active.rereadAt = now;
-    const published = this.published;
+    const ledger = this.ledger;
 
     void this.refresh().then(() => {
-      // a refresh that published nothing leaves what it read unshown, so the next tick tries again
-      if (this.published === published && active.observed === signature)
+      // a refresh that accepted no newer ledger leaves the ledger unread, so the next tick tries again
+      if (this.ledger === ledger && active.observed === signature)
         active.observed = undefined;
     });
 
@@ -1362,25 +1358,30 @@ export class SessionCoordination {
       if (current()) this.failDiscovery(error, revision);
     });
 
-    const promise = Promise.all([this.readLedger(), discovery])
-      .then(
-        ([ledger, discovery]) => {
-          if (!current() || !discovery) return;
+    const promise = Promise.all([
+      this.readLedger().catch(() => undefined),
+      discovery,
+    ])
+      .then(([read, discovery]) => {
+        if (!current() || !discovery) return;
 
-          const consistent =
+        // a failed read leaves the last accepted ledger standing, so the peers found still show
+        const ledger = read ?? this.ledger;
+
+        const consistent =
+          ledger !== undefined &&
+          (ledger === this.ledger ||
             ledger.revision > this.mutationRevision ||
             (this.ledger !== undefined &&
-              this.ledger.revision > ledger.revision);
+              this.ledger.revision > ledger.revision));
 
-          this.updateView(
-            active,
-            project,
-            discovery,
-            consistent ? ledger : undefined,
-          );
-        },
-        () => {},
-      )
+        this.updateView(
+          active,
+          project,
+          discovery,
+          consistent ? ledger : undefined,
+        );
+      })
       .finally(() => {
         this.refreshing = undefined;
       });
