@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { present } from '../persistence/directories.js';
 import { resolveFile, unescapePath } from '../paths.js';
 import { imageFile } from './transcript/images.js';
+import { tabbed, uncopied } from './transcript/selection.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
@@ -16,7 +17,11 @@ function backtracks(text: string): boolean {
 }
 
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
-const controls = /(?![\n\t\r])\p{Cc}/u;
+// the copy marks go with the controls: only the Markdown renderer may write one, or shown text could copy as other text
+const controls = new RegExp(
+  `(?![\\n\\t\\r])\\p{Cc}|[${uncopied}${tabbed}]`,
+  'u',
+);
 
 // filename boundaries prevent suffix links and keep long runs of name characters linear.
 // an unquoted path reads as a terminal drops it: a backslash escapes the next character, and a macOS screenshot name's U+202F doesn't end it.

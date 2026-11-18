@@ -161,7 +161,11 @@ export function highlight(line: string, start: number, end: number): string {
   return `${styledCharsToString(before)}${gap}${colors.inverse(styledCharsToString(selected) + blank)}${styledCharsToString(after)}`;
 }
 
-/** plain text from `start` through `end`, skipping images and joining each copied row after the first with `joint`. */
+/**
+ * plain text from `start` through `end`, skipping images and joining each copied row after the first with `joint`.
+ * a marked quote rule goes with the space after it, and a marked table rule with the space on each side becomes a tab,
+ * where that space is a `joint` too.
+ */
 export function selectedText(
   lines: Pick<readonly string[], 'at'>,
   start: Point,
