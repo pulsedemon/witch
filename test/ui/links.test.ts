@@ -1383,6 +1383,11 @@ test('streaming links retain their targets and unresolved controls across chunks
     words?: string[];
   }[] = [
     {
+      text: '[\n"src/a.ts\\nsrc/b.ts"\n\u001b[0m\n]\n',
+      plain: '[\n"src/a.ts\\nsrc/b.ts"\n\n]\n',
+      linked: false,
+    },
+    {
       text: '[\n"one"\n\u001b]0;title\n[\n"x"\n\u0007',
       plain: '[\n"one"\n',
       linked: false,

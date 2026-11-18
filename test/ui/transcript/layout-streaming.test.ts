@@ -187,6 +187,8 @@ test('provisional quoted lines keep bounded parsing and wrapping across blank ap
     [' ', '\t', '\n'],
     ['\u001b[0m\n'],
     ['\u001b', '[0m\n'],
+    ['\u001b[', '0m\n'],
+    ['\u001b[0', 'm\n'],
     ['\u00a0', '\n'],
     ['\u0007\n'],
   ]) {
@@ -271,6 +273,41 @@ test('provisional whitespace keeps an explicit target through split chunks and r
     }));
 
     sameAsFull(frames);
+  }
+});
+
+test('partial style escapes revise only the quoted line while earlier frames stay stable', () => {
+  const layout = new TranscriptLayout();
+  const expanded = new Map([['tool', true]]);
+  let items: DisplayItem[] = [];
+
+  const snapshots: {
+    frame: ReturnType<TranscriptLayout['render']>;
+    lines: string[];
+  }[] = [];
+
+  for (const [chunk, width] of [
+    ['[\n"src/a.ts\\nsrc/b.ts"\n', 80],
+    [' \n'.repeat(50), 80],
+    ['\u001b[', 80],
+    ['0', 13],
+    ['m\n', 13],
+    ['\u001b[31;', 13],
+    ['1m\n', 80],
+    [']\n', 80],
+  ] as const) {
+    items = applyDisplayUpdate(items, tool(chunk));
+    const frame = layout.render(items, width, expanded);
+    const fresh = new TranscriptLayout().render(items, width, expanded);
+    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+
+    for (let row = 0; row < fresh.lines.length; row++)
+      assert.deepEqual(frame.anchorAt(row), fresh.anchorAt(row));
+
+    for (const saved of snapshots)
+      assert.deepEqual(saved.frame.lines.slice(), saved.lines);
+
+    snapshots.push({ frame, lines: frame.lines.slice() });
   }
 });
 

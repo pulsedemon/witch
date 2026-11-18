@@ -763,6 +763,7 @@ function linked(
   let visible = '';
   let buffer = '';
   let line = { text: '', target };
+  let firstLine: string | undefined;
 
   const flush = () => {
     visible += buffer;
@@ -786,7 +787,14 @@ function linked(
       buffer += token.value;
       const newline = token.value.lastIndexOf('\n');
 
-      if (newline >= 0) line = { text: token.value.slice(newline + 1), target };
+      if (newline >= 0) {
+        firstLine ??= line.text.slice(
+          0,
+          line.text.length - token.value.length + newline + 1,
+        );
+
+        line = { text: token.value.slice(newline + 1), target };
+      }
     }
   }
 
@@ -803,7 +811,7 @@ function linked(
     )
     .join('');
 
-  return { text: output, target, context, visible, line };
+  return { text: output, target, context, visible, line, firstLine };
 }
 
 export function linkify(text: string, cwd: string): string {
@@ -863,10 +871,12 @@ export interface LinkedAppend {
   pending: string;
   target?: string;
   context?: FileContext;
-  /** keep whitespace appends from rescanning completed provisional lines. */
+  /** cache both interpretations so split escapes can revise the quote without revisiting blank lines. */
   provisional?: {
     renderedPrefix: string;
     line: { text: string; target?: string };
+    quoted: { json: string; terminal: string };
+    mode: 'json' | 'terminal';
   };
   /** rendered replacement for the provisional last line and any new lines. */
   provisionalLines?: string[];
@@ -879,23 +889,39 @@ export function linkifyAppend(
   previous?: LinkedAppend,
 ): LinkedAppend {
   if (previous?.provisional) {
-    const { renderedPrefix, line } = previous.provisional;
+    const { renderedPrefix, line, quoted } = previous.provisional;
     const suffix = linked(line.text + text, cwd, line.target);
+    const blank = /^\s*$/u.test(suffix.visible);
 
-    if (/^\s*$/u.test(suffix.visible))
+    const escape = Math.max(
+      suffix.line.text.lastIndexOf('\u001b['),
+      suffix.line.text.lastIndexOf('\u009b['),
+    );
+
+    const incomplete =
+      escape >= 0 &&
+      /^[\d;]*$/u.test(suffix.line.text.slice(escape + 2)) &&
+      /^\s*\[[\d;]*$/u.test(suffix.visible);
+
+    if (blank || incomplete) {
+      const mode = blank ? 'json' : 'terminal';
+
       return {
         ...previous,
         complete: [],
         pending: previous.pending + text,
-        tail: renderedPrefix + suffix.text,
+        tail: quoted[mode] + '\n' + renderedPrefix + suffix.text,
         provisional: {
+          ...previous.provisional,
           renderedPrefix:
             renderedPrefix +
             suffix.text.slice(0, suffix.text.lastIndexOf('\n') + 1),
           line: suffix.line,
+          mode,
         },
         provisionalLines: suffix.text.split('\n'),
       };
+    }
   }
 
   text = (previous?.pending ?? '') + text;
@@ -924,6 +950,36 @@ export function linkifyAppend(
 
   const pending = text.slice(end);
   const suffix = linked(pending, cwd, target, context);
+  let cache: LinkedAppend['provisional'];
+
+  if (
+    provisional &&
+    suffix.context.containers &&
+    suffix.context.key &&
+    /^\s*$/u.test(suffix.visible.slice(suffix.visible.lastIndexOf('\n') + 1))
+  ) {
+    const first = suffix.text.indexOf('\n');
+
+    const alternative = linked(
+      suffix.firstLine! + '\u001b[',
+      cwd,
+      target,
+      context,
+    ).text;
+
+    cache = {
+      renderedPrefix: suffix.text.slice(
+        first + 1,
+        suffix.text.lastIndexOf('\n') + 1,
+      ),
+      line: suffix.line,
+      quoted: {
+        json: suffix.text.slice(0, first),
+        terminal: alternative.slice(0, alternative.indexOf('\n')),
+      },
+      mode: 'json',
+    };
+  }
 
   return {
     complete,
@@ -931,19 +987,7 @@ export function linkifyAppend(
     pending,
     target,
     context,
-    provisional:
-      provisional &&
-      suffix.context.containers &&
-      suffix.context.key &&
-      /^\s*$/u.test(suffix.visible.slice(suffix.visible.lastIndexOf('\n') + 1))
-        ? {
-            renderedPrefix: suffix.text.slice(
-              0,
-              suffix.text.lastIndexOf('\n') + 1,
-            ),
-            line: suffix.line,
-          }
-        : undefined,
+    provisional: cache,
   };
 }
 

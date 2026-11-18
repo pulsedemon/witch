@@ -23,6 +23,8 @@ type Expansion = 'closed' | 'preview' | 'full';
 
 type TextRows = Pick<readonly string[], 'length' | 'at' | 'slice'>;
 
+type ProvisionalMode = NonNullable<LinkedAppend['provisional']>['mode'];
+
 type Append =
   | { kind: 'tool'; linked: LinkedAppend }
   | { kind: 'assistant'; pending: string }
@@ -53,7 +55,11 @@ interface Block {
   content: Content;
   viewport: Viewport;
   complete: Row[];
-  provisional?: Row[];
+  provisional?: {
+    heads: Record<ProvisionalMode, Row[]>;
+    mode: ProvisionalMode;
+    rows: Row[];
+  };
   suffix: Row[];
   lines: TextRows;
   row(index: number): Row | undefined;
@@ -99,18 +105,21 @@ function block(
   complete: Row[],
   suffix: Row[],
   drawn: readonly (number | undefined)[],
-  provisional?: Row[],
+  provisional?: Block['provisional'],
 ): Block {
   const count = complete.length;
-  const pending = provisional?.length ?? 0;
-  const length = count + pending + suffix.length;
+  const head = provisional?.heads[provisional.mode] ?? [];
+  const pending = provisional?.rows.length ?? 0;
+  const length = count + head.length + pending + suffix.length;
 
   const row = (index: number) =>
     index < count
       ? complete[index]
-      : index < count + pending
-        ? provisional![index - count]
-        : suffix[index - count - pending];
+      : index < count + head.length
+        ? head[index - count]
+        : index < count + head.length + pending
+          ? provisional!.rows[index - count - head.length]
+          : suffix[index - count - head.length - pending];
 
   return {
     content,
@@ -377,10 +386,26 @@ function extend(
 
   if (linked?.provisionalLines && previous.viewport === viewport) {
     const lastLine = first + source.tail.length - 1;
+    const { quoted, mode } = linked.provisional!;
+    let heads = previous.provisional?.heads;
 
-    const provisional =
-      previous.provisional ??
-      previous.suffix.filter((row) => row.anchor.line < lastLine);
+    if (!heads) {
+      const json = section([quoted.json], viewport.width, false, first).rows;
+
+      heads = {
+        json,
+        terminal:
+          quoted.terminal === quoted.json
+            ? json
+            : section([quoted.terminal], viewport.width, false, first).rows,
+      };
+    }
+
+    const rows =
+      previous.provisional?.rows ??
+      previous.suffix.filter(
+        (row) => row.anchor.line > first && row.anchor.line < lastLine,
+      );
 
     const added = section(
       linked.provisionalLines.slice(0, -1),
@@ -389,11 +414,12 @@ function extend(
       lastLine,
     );
 
+    source.tail[0] = quoted[mode];
     source.tail.pop();
 
     for (const line of linked.provisionalLines) source.tail.push(line);
 
-    for (const row of added.rows) provisional.push(row);
+    for (const row of added.rows) rows.push(row);
 
     const prepared: Content = {
       ...source,
@@ -408,14 +434,11 @@ function extend(
       graphics,
     );
 
-    return block(
-      prepared,
-      viewport,
-      previous.complete,
-      end.rows,
-      end.drawn,
-      provisional,
-    );
+    return block(prepared, viewport, previous.complete, end.rows, end.drawn, {
+      heads,
+      mode,
+      rows,
+    });
   }
 
   const hasBody =
