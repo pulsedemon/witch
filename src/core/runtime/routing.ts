@@ -58,7 +58,7 @@ export type Route =
     }
   | { refused: string };
 
-/** review retains independent coverage; other work balances observed budget and demand. */
+/** defaults request independent review coverage and balance other work by budget and demand. */
 export function ruleFor(policy: Policy, kind: Work): string {
   return policy.work[kind] ?? (kind === 'review' ? 'both' : 'auto');
 }
