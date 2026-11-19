@@ -425,6 +425,37 @@ function Casting({ items }: { items: DisplayItem[] }) {
   return createElement(Text, null, active.size ? 'casting' : 'settled');
 }
 
+test('a spell remains live for the approved 3.6 seconds', async () => {
+  freeze();
+  const items = [cast('duration', Date.now())];
+
+  function Duration() {
+    const active = useCasting(items);
+
+    return createElement(
+      Text,
+      null,
+      `${active.size ? 'casting' : 'settled'} at ${Date.now()}`,
+    );
+  }
+
+  const ui = show(createElement(Duration));
+
+  try {
+    await until('cast begins', () => ui.text() === 'casting at 100000');
+    vi.advanceTimersByTime(3550);
+    await until('cast remains live', () => ui.text() === 'casting at 103550');
+    vi.advanceTimersByTime(50);
+
+    await until(
+      'cast expires at 3600 ms',
+      () => ui.text() === 'settled at 103600',
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('the shared clock releases cast subscriptions after expiry and on unmount', async () => {
   freeze();
 
