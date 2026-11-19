@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs';
 import type { Memory } from '../../memory/memory.js';
-import { checkDeadline } from '../../persistence/coordination.js';
+import { checkDeadline, remaining } from '../../persistence/coordination.js';
 import type {
   CoordinationStore,
   Ledger,
@@ -54,7 +54,7 @@ export async function discover(
   held: string | undefined,
   deadline?: number,
 ): Promise<Discovery> {
-  const timeout = deadline === undefined ? undefined : checkDeadline(deadline);
+  const timeout = remaining(deadline);
 
   const reads = [
     registry.presences(),
@@ -84,7 +84,7 @@ export async function discover(
       activation === held ? [] : [activation],
     ),
     {
-      timeout: deadline === undefined ? undefined : checkDeadline(deadline),
+      timeout: remaining(deadline),
     },
   );
 
@@ -95,7 +95,7 @@ export async function discover(
       activations.has(presence.activation) ? [presence.process.pid] : [],
     ),
     {
-      timeout: deadline === undefined ? undefined : checkDeadline(deadline),
+      timeout: remaining(deadline),
     },
   );
 

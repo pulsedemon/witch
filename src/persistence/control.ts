@@ -26,7 +26,7 @@ import {
   peerRequestStatusSchema,
 } from '../core/coordination/peer-requests.js';
 import { pauseSchema, pauseStatusSchema } from '../core/coordination/pauses.js';
-import { ClaimConflict, checkDeadline } from './coordination.js';
+import { checkDeadline } from './coordination.js';
 import { writeJson } from './json.js';
 
 const execute = promisify(execFile);
@@ -488,10 +488,7 @@ export class ControlHost {
           outcome = await this.handle(request);
         }
       } catch (error) {
-        outcome =
-          error instanceof ClaimConflict
-            ? { kind: 'conflict', claim: error.claim, message: error.message }
-            : { kind: 'error', message: errorMessage(error) };
+        outcome = { kind: 'error', message: errorMessage(error) };
       }
 
       if (request && Date.now() >= request.deadline) {

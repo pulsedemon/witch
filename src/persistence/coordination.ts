@@ -233,6 +233,10 @@ export function checkDeadline(deadline: number): number {
   return remaining;
 }
 
+export function remaining(deadline: number | undefined): number | undefined {
+  return deadline === undefined ? undefined : checkDeadline(deadline);
+}
+
 /** how long a store transaction gets when it runs on its own clock instead of a caller's deadline. */
 export const transactionBudget = 1000;
 
@@ -251,10 +255,22 @@ export class CoordinationStore {
     return new CoordinationStore(directory, store);
   }
 
+  private get sessions(): string {
+    return join(this.directory, 'sessions');
+  }
+
+  private presenceFile(conversation: string): string {
+    return join(this.sessions, `${conversation}.json`);
+  }
+
+  private activationLock(activation: string): string {
+    return join(this.sessions, `${activation}.lock`);
+  }
+
   /** changes with every presence, claim, merge, peer request, pause and activation write, each a rename, creation or removal in these directories. */
   signature(): string | undefined {
     try {
-      return [this.directory, join(this.directory, 'sessions')]
+      return [this.directory, this.sessions]
         .map((directory) => statSync(directory, { bigint: true }).mtimeNs)
         .join(':');
     } catch {
@@ -264,7 +280,7 @@ export class CoordinationStore {
   }
 
   async presences(): Promise<SessionPresence[]> {
-    const directory = join(this.directory, 'sessions');
+    const directory = this.sessions;
     const result: SessionPresence[] = [];
 
     for (const name of await readdir(directory)) {
@@ -692,14 +708,14 @@ export class CoordinationStore {
 
   async publish(presence: SessionPresence): Promise<void> {
     await writeJson(
-      join(this.directory, 'sessions', `${presence.id}.json`),
+      this.presenceFile(presence.id),
       sessionPresenceSchema.parse(presence),
     );
   }
 
   /** a failed presence removal cannot register a later holder of the conversation lock. */
   async holdActivation(activation: string): Promise<() => Promise<void>> {
-    const file = join(this.directory, 'sessions', `${activation}.lock`);
+    const file = this.activationLock(activation);
 
     const lock = await openLocked(
       file,
@@ -722,7 +738,7 @@ export class CoordinationStore {
   ): Promise<Set<string>> {
     const paths = new Map(
       activations.map((activation) => [
-        join(this.directory, 'sessions', `${activation}.lock`),
+        this.activationLock(activation),
         activation,
       ]),
     );
@@ -737,7 +753,7 @@ export class CoordinationStore {
     conversation: string,
     activation: string,
   ): Promise<void> {
-    const file = join(this.directory, 'sessions', `${conversation}.json`);
+    const file = this.presenceFile(conversation);
     const presence = await readJson(file, sessionPresenceSchema);
 
     if (presence?.activation === activation) await rm(file, { force: true });
@@ -1176,7 +1192,7 @@ export class CoordinationStore {
 
   private async reconcile(ledger: Ledger, deadline?: number): Promise<Ledger> {
     const options = {
-      timeout: deadline === undefined ? undefined : checkDeadline(deadline),
+      timeout: remaining(deadline),
     };
 
     const probes = [

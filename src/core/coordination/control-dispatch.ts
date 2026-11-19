@@ -20,6 +20,7 @@ import {
   sessionList,
   unregisteredList,
   type ClaimOwner,
+  type CoordinationAction,
   type CoordinationSnapshot,
   type SelectionScope,
   type TransferTarget,
@@ -127,46 +128,15 @@ export async function dispatchControl(
         'Only the user can request an unconditional transfer. Use --claim to request a transfer when the owner is out of usage.',
       );
 
-    if (action.kind === 'release' || action.kind === 'release-references') {
-      const claim = (await host.readLedger(state)).ledger.claims.find(
-        (entry) => entry.id === action.claim,
-      );
-
-      const owner = {
-        conversation: active.conversation.id,
-        project: claim?.owner.project ?? active.project,
-      };
-
-      return await host.change(
+    if (action.kind === 'release' || action.kind === 'release-references')
+      return (outcome = await releaseOutcome(
+        host,
+        request,
+        active,
         state,
-        async (verify): Promise<ControlOutcome> => {
-          if (action.kind === 'release-references')
-            return {
-              kind: 'references-released',
-              ...(await host.registry.releaseReferences(
-                owner,
-                action.claim,
-                action.references,
-                request.deadline,
-                verify,
-              )),
-            };
-
-          await host.registry.release(
-            owner,
-            action.claim,
-            request.deadline,
-            verify,
-          );
-
-          return { kind: 'released' };
-        },
-        async () => {
-          host.admit(request);
-          checkTaskRelease(host.state(), human);
-        },
-      );
-    }
+        action,
+        human,
+      ));
 
     await host.refreshProject(active, request.deadline);
     await host.retireProject(active, state);
@@ -203,205 +173,28 @@ export async function dispatchControl(
             action.kind === 'select-next' ? action.turn : undefined,
           );
 
-    const verify = async (ledger: Ledger) => {
-      // a closing session refuses before its project read and discovery spend the request's deadline
-      host.admit(request);
-      await host.refreshProject(active, request.deadline);
+    const verify = admissionCheck(host, request, active, owner, state, scope);
 
-      const snapshot = projectDiscovery(
-        active.conversation.id,
-        active.project,
-        await host.observe(state),
-        ledger,
-      );
-
-      host.admit(request);
-
-      if (owner.project !== active.project)
-        throw new Error(
-          'The project changed. Query peers before claiming again.',
-        );
-
-      if (scope && selectionScope(host, active) !== scope)
-        throw new Error('This selection turn is no longer current.');
-
-      if (host.presenceFailure()) throw new Error(host.presenceFailure());
-
-      if (snapshot.unregistered.length)
-        throw new Error(
-          `Restart or close these unregistered Witch sessions before claiming: ${unregisteredList(snapshot.unregistered)}`,
-        );
-
-      if (
-        snapshot.ownClaim &&
-        snapshot.ownClaim.owner.project !== active.project
-      )
-        throw new Error(
-          'Release the existing task in its original project before claiming in this project.',
-        );
-
-      if (action.kind === 'select-next') {
-        const older = snapshot.peers.filter(
-          (peer) => !peer.presence.selectionQueue,
-        );
-
-        if (older.length)
-          throw new Error(
-            `Restart or close these Witch sessions before selecting: ${sessionList(older.map(({ presence }) => presence))}`,
-          );
-      }
-
-      if (
-        action.kind === 'select-next' ||
-        action.kind === 'recommend' ||
-        (action.kind === 'claim' && snapshot.ownSelection)
-      )
-        checkTaskRelease(host.state(), false);
-    };
-
-    if (action.kind === 'claim' || action.kind === 'take') {
-      const transfer = async (target: TransferTarget) => {
-        const { activation } = active.binding;
-
-        const { claim, view } = await awaitTransfer({
-          conversation: owner.conversation,
-          activation,
-          reference: action.input.reference,
-          field: target.field,
-          deadline: request.deadline,
-          request: (expires) =>
-            host.change(
-              state,
-              (check) =>
-                host.registry.requestTransfer(
-                  owner,
-                  target,
-                  { activation, process: host.process, expires },
-                  request.deadline,
-                  check,
-                ),
-              verify,
-            ),
-          title: async (id) => (await record(host, id))?.title,
-          admit: () => host.admit(),
-          read: (deadline) => host.readLedger({ deadline }),
-          withdraw: (id) => {
-            state.ledger = undefined;
-
-            return host.change(state, (check) =>
-              host.registry.withdrawTransfer(
-                activation,
-                id,
-                Date.now() + transactionBudget,
-                check,
-                target.field,
-              ),
-            );
-          },
-        });
-
-        state.ledger = view;
-
-        return { kind: 'claimed' as const, claim };
-      };
-
-      if (action.kind === 'take')
-        return await transfer({ field: 'transfer', ...action.input });
-
-      let claim;
-
-      try {
-        claim = await host.change(
-          state,
-          (check) =>
-            host.registry.claim(
-              owner,
-              action.input,
-              host.process,
-              request.deadline,
-              check,
-            ),
-          verify,
-        );
-      } catch (error) {
-        if (!(error instanceof ClaimConflict) || error.claim.suggestion)
-          throw error;
-
-        return await transfer({
-          field: 'automaticTransfer',
-          claim: error.claim,
-          input: action.input,
-        });
-      }
-
-      return {
-        kind: 'claimed',
-        ...(await recordTaskAssignment(
-          claim,
-          active.conversation.cwd,
-          request.deadline,
-          host.assign,
-          (id, references, deadline) =>
-            host.change(state, (check) =>
-              host.registry.recordAssignment(id, references, deadline, check),
-            ),
-        )),
-      };
-    }
-
-    if (action.kind === 'recommend')
-      return {
-        kind: 'claimed',
-        claim: await host.change(
-          state,
-          (check) =>
-            host.registry.recommend(
-              scope!,
-              action.selection,
-              action.input,
-              host.process,
-              request.deadline,
-              check,
-            ),
-          verify,
-        ),
-      };
-
-    if (action.kind === 'cancel-selection') {
-      await host.change(
+    if (action.kind === 'claim' || action.kind === 'take')
+      return (outcome = await claimOutcome(
+        host,
+        request,
+        active,
+        owner,
         state,
-        (check) =>
-          host.registry.cancelSelection(
-            scope!,
-            action.selection,
-            request.deadline,
-            check,
-          ),
+        action,
         verify,
-      );
+      ));
 
-      return { kind: 'selection-cancelled', selection: action.selection };
-    }
-
-    const selection = await host.change(
+    return (outcome = await selectionOutcome(
+      host,
+      request,
+      active,
       state,
-      (check) =>
-        action.kind === 'select-next'
-          ? host.registry.beginSelection(scope!, request.deadline, check)
-          : host.registry.selection(
-              scope!,
-              action.selection,
-              request.deadline,
-              check,
-            ),
+      action,
+      scope!,
       verify,
-    );
-
-    return (outcome = {
-      kind: 'selection',
-      selection,
-      snapshot: await host.requestSnapshot(active, state),
-    });
+    ));
   } catch (error) {
     const conflict =
       request.action.kind === 'claim' &&
@@ -436,6 +229,289 @@ export async function dispatchControl(
       () => {},
     );
   }
+}
+
+async function releaseOutcome(
+  host: DispatchHost,
+  request: ControlRequest,
+  active: Activation,
+  state: RequestState,
+  action: Extract<
+    CoordinationAction,
+    { kind: 'release' | 'release-references' }
+  >,
+  human: boolean,
+): Promise<ControlOutcome> {
+  const claim = (await host.readLedger(state)).ledger.claims.find(
+    (entry) => entry.id === action.claim,
+  );
+
+  const owner = {
+    conversation: active.conversation.id,
+    project: claim?.owner.project ?? active.project,
+  };
+
+  return await host.change(
+    state,
+    async (verify): Promise<ControlOutcome> => {
+      if (action.kind === 'release-references')
+        return {
+          kind: 'references-released',
+          ...(await host.registry.releaseReferences(
+            owner,
+            action.claim,
+            action.references,
+            request.deadline,
+            verify,
+          )),
+        };
+
+      await host.registry.release(
+        owner,
+        action.claim,
+        request.deadline,
+        verify,
+      );
+
+      return { kind: 'released' };
+    },
+    async () => {
+      host.admit(request);
+      checkTaskRelease(host.state(), human);
+    },
+  );
+}
+
+function admissionCheck(
+  host: DispatchHost,
+  request: ControlRequest,
+  active: Activation,
+  owner: ClaimOwner,
+  state: RequestState,
+  scope: SelectionScope | undefined,
+): Verify {
+  const { action } = request;
+
+  return async (ledger: Ledger) => {
+    // a closing session refuses before its project read and discovery spend the request's deadline
+    host.admit(request);
+    await host.refreshProject(active, request.deadline);
+
+    const snapshot = projectDiscovery(
+      active.conversation.id,
+      active.project,
+      await host.observe(state),
+      ledger,
+    );
+
+    host.admit(request);
+
+    if (owner.project !== active.project)
+      throw new Error(
+        'The project changed. Query peers before claiming again.',
+      );
+
+    if (scope && selectionScope(host, active) !== scope)
+      throw new Error('This selection turn is no longer current.');
+
+    if (host.presenceFailure()) throw new Error(host.presenceFailure());
+
+    if (snapshot.unregistered.length)
+      throw new Error(
+        `Restart or close these unregistered Witch sessions before claiming: ${unregisteredList(snapshot.unregistered)}`,
+      );
+
+    if (snapshot.ownClaim && snapshot.ownClaim.owner.project !== active.project)
+      throw new Error(
+        'Release the existing task in its original project before claiming in this project.',
+      );
+
+    if (action.kind === 'select-next') {
+      const older = snapshot.peers.filter(
+        (peer) => !peer.presence.selectionQueue,
+      );
+
+      if (older.length)
+        throw new Error(
+          `Restart or close these Witch sessions before selecting: ${sessionList(older.map(({ presence }) => presence))}`,
+        );
+    }
+
+    if (
+      action.kind === 'select-next' ||
+      action.kind === 'recommend' ||
+      (action.kind === 'claim' && snapshot.ownSelection)
+    )
+      checkTaskRelease(host.state(), false);
+  };
+}
+
+async function claimOutcome(
+  host: DispatchHost,
+  request: ControlRequest,
+  active: Activation,
+  owner: ClaimOwner,
+  state: RequestState,
+  action: Extract<CoordinationAction, { kind: 'claim' | 'take' }>,
+  verify: Verify,
+): Promise<ControlOutcome> {
+  const transfer = async (target: TransferTarget) => {
+    const { activation } = active.binding;
+
+    const { claim, view } = await awaitTransfer({
+      conversation: owner.conversation,
+      activation,
+      reference: action.input.reference,
+      field: target.field,
+      deadline: request.deadline,
+      request: (expires) =>
+        host.change(
+          state,
+          (check) =>
+            host.registry.requestTransfer(
+              owner,
+              target,
+              { activation, process: host.process, expires },
+              request.deadline,
+              check,
+            ),
+          verify,
+        ),
+      title: async (id) => (await record(host, id))?.title,
+      admit: () => host.admit(),
+      read: (deadline) => host.readLedger({ deadline }),
+      withdraw: (id) => {
+        state.ledger = undefined;
+
+        return host.change(state, (check) =>
+          host.registry.withdrawTransfer(
+            activation,
+            id,
+            Date.now() + transactionBudget,
+            check,
+            target.field,
+          ),
+        );
+      },
+    });
+
+    state.ledger = view;
+
+    return { kind: 'claimed' as const, claim };
+  };
+
+  if (action.kind === 'take')
+    return await transfer({ field: 'transfer', ...action.input });
+
+  let claim;
+
+  try {
+    claim = await host.change(
+      state,
+      (check) =>
+        host.registry.claim(
+          owner,
+          action.input,
+          host.process,
+          request.deadline,
+          check,
+        ),
+      verify,
+    );
+  } catch (error) {
+    if (!(error instanceof ClaimConflict) || error.claim.suggestion)
+      throw error;
+
+    return await transfer({
+      field: 'automaticTransfer',
+      claim: error.claim,
+      input: action.input,
+    });
+  }
+
+  return {
+    kind: 'claimed',
+    ...(await recordTaskAssignment(
+      claim,
+      active.conversation.cwd,
+      request.deadline,
+      host.assign,
+      (id, references, deadline) =>
+        host.change(state, (check) =>
+          host.registry.recordAssignment(id, references, deadline, check),
+        ),
+    )),
+  };
+}
+
+async function selectionOutcome(
+  host: DispatchHost,
+  request: ControlRequest,
+  active: Activation,
+  state: RequestState,
+  action: Extract<
+    CoordinationAction,
+    {
+      kind:
+        'recommend' | 'cancel-selection' | 'select-next' | 'selection-status';
+    }
+  >,
+  scope: SelectionScope,
+  verify: Verify,
+): Promise<ControlOutcome> {
+  if (action.kind === 'recommend')
+    return {
+      kind: 'claimed',
+      claim: await host.change(
+        state,
+        (check) =>
+          host.registry.recommend(
+            scope,
+            action.selection,
+            action.input,
+            host.process,
+            request.deadline,
+            check,
+          ),
+        verify,
+      ),
+    };
+
+  if (action.kind === 'cancel-selection') {
+    await host.change(
+      state,
+      (check) =>
+        host.registry.cancelSelection(
+          scope,
+          action.selection,
+          request.deadline,
+          check,
+        ),
+      verify,
+    );
+
+    return { kind: 'selection-cancelled', selection: action.selection };
+  }
+
+  const selection = await host.change(
+    state,
+    (check) =>
+      action.kind === 'select-next'
+        ? host.registry.beginSelection(scope, request.deadline, check)
+        : host.registry.selection(
+            scope,
+            action.selection,
+            request.deadline,
+            check,
+          ),
+    verify,
+  );
+
+  return {
+    kind: 'selection',
+    selection,
+    snapshot: await host.requestSnapshot(active, state),
+  };
 }
 
 async function pauseOutcome(
