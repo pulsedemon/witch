@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { Preview, previewDocumentSchema } from '../../src/core/preview.js';
 
 const document = { title: 'Current preview', frames: [['first'], ['second']] };
@@ -65,6 +65,8 @@ test('preview rows accept graphemes and only the documented SGR formatting', () 
     '38;2;0;128;255',
     '48;2;255;0;8',
     '1;38;2;7;8;9;22',
+    '1;38;2;000;010;255;48;2;1;2;3;22;39;49',
+    ';1;;22;',
   ]) {
     assert.ok(
       previewDocumentSchema.safeParse({
@@ -93,6 +95,9 @@ test('preview rows accept graphemes and only the documented SGR formatting', () 
     '\x1b[38;5;8m',
     '\x1b[38;2;256;0;0m',
     '\x1b[38;2;1;2m',
+    '\x1b[38;2;0;;255m',
+    '\x1b[38;2;0;1;2;31m',
+    '\x1b[1;31;2m',
     '\x1b[',
   ]) {
     assert.equal(
@@ -110,6 +115,20 @@ test('preview rows accept graphemes and only the documented SGR formatting', () 
   );
 });
 
+test('short Unicode and styled rows validate without grapheme scans', () => {
+  const segment = vi.spyOn(Intl.Segmenter.prototype, 'segment');
+
+  const frames = [
+    ['(・∀・)🙂é', '\x1b[1;38;2;000;010;255;22m(・∀・)🙂é'],
+    ['界'.repeat(256)],
+    ['\x1b[38;2;120;80;200m界'.repeat(256)],
+  ];
+
+  const document = previewDocumentSchema.parse({ title: 'Fast', frames });
+  assert.deepEqual(document.frames, frames);
+  assert.equal(segment.mock.calls.length, 0);
+});
+
 test('preview limits bound bytes, frames, rows and terminal columns', () => {
   for (const frames of [
     [],
@@ -117,6 +136,8 @@ test('preview limits bound bytes, frames, rows and terminal columns', () => {
     Array.from({ length: 241 }, () => ['x']),
     [Array.from({ length: 129 }, () => 'x')],
     [['🙂'.repeat(257)]],
+    [['界'.repeat(257)]],
+    [['x'.repeat(513)]],
   ])
     assert.equal(
       previewDocumentSchema.safeParse({ title: 'Too large', frames }).success,
@@ -127,6 +148,13 @@ test('preview limits bound bytes, frames, rows and terminal columns', () => {
     previewDocumentSchema.safeParse({
       title: 'Edge',
       frames: [['🙂'.repeat(256)]],
+    }).success,
+  );
+
+  assert.ok(
+    previewDocumentSchema.safeParse({
+      title: 'ASCII edge',
+      frames: [['x'.repeat(512)]],
     }).success,
   );
 

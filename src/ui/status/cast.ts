@@ -10,7 +10,6 @@ import type { CastKick } from './cast-motion.js';
 /** the frame the chain is fully wiped in by, and the first of its fade. */
 const [opened, closing] = [10, 54];
 export const castFrames = 72;
-export const castMs = castFrames * tickMs;
 const title = '✦ Spell';
 const lilac = '#c4a0ef';
 const glow = '#eee5ff';

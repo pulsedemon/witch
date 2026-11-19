@@ -10,7 +10,6 @@ import type { DisplayItem } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
 import {
   castFrames,
-  castMs,
   castRows,
   castTitle,
   useCasting,
@@ -18,6 +17,8 @@ import {
 import { tickMs } from '../../src/ui/useTick.js';
 import { drag, fake, show } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+
+const castMs = castFrames * tickMs;
 
 const cast = (id: string, at: number): DisplayItem => ({
   id,

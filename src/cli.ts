@@ -27,7 +27,7 @@ Options:
   -h, --help           show this help
 
 Agent control (use the prefix supplied in the current Witch context):
-  --preview <file>     show a terminal frame document in this session
+  --preview <file>    show a terminal frame document in this session
   --preview-status    report the current preview and its layout placement
   --preview-close <id> close that preview if it is still current
   --peers             list this project's sessions and reservations

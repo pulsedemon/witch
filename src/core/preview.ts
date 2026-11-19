@@ -1,41 +1,55 @@
 import { randomUUID } from 'node:crypto';
-import { tokenize } from '@alcalzone/ansi-tokenize';
 import stringWidth from 'string-width';
 import { z } from 'zod';
 
 export const previewBytes = 2 * 1024 * 1024;
 const controls = /\p{Cc}/u;
 const sgr = new Set(['', '0', '1', '2', '22', '39', '49']);
+// eslint-disable-next-line no-control-regex
+const formatting = /\u001b\[([0-9;]*)m/gu;
 
-function formattedRow(text: string): boolean {
-  // compound SGR tokenization rewrites C1 introducers, so inspect raw controls first.
-  for (const character of text)
-    if (character !== '\u001b' && controls.test(character)) return false;
+function plainRow(text: string): string | undefined {
+  let valid = true;
 
-  return tokenize(text).every((token) => {
-    if (token.type === 'char') return !controls.test(token.value);
+  const plain = text.replace(formatting, (_, code: string) => {
+    const parts = code.split(';');
 
-    if (token.type !== 'ansi') return false;
+    for (let index = 0; index < parts.length; index++) {
+      if (sgr.has(parts[index]!)) continue;
 
-    if (!token.code.startsWith('\u001b[') || !token.code.endsWith('m'))
-      return false;
+      if (
+        !['38', '48'].includes(parts[index]!) ||
+        parts[index + 1] !== '2' ||
+        index + 4 >= parts.length ||
+        !parts
+          .slice(index + 2, index + 5)
+          .every(
+            (channel) => /^\d{1,3}$/u.test(channel) && Number(channel) <= 255,
+          )
+      ) {
+        valid = false;
 
-    const code = token.code.slice(2, -1);
+        break;
+      }
 
-    if (sgr.has(code)) return true;
+      index += 4;
+    }
 
-    const color = /^(?:38|48);2;(\d{1,3});(\d{1,3});(\d{1,3})$/u.exec(code);
-
-    return !!color && color.slice(1).every((channel) => Number(channel) <= 255);
+    return '';
   });
+
+  return valid && !controls.test(plain) ? plain : undefined;
 }
 
-const row = z
-  .string()
-  .refine(
-    (text) => formattedRow(text) && stringWidth(text) <= 512,
-    'Preview rows allow text and restricted SGR formatting, up to 512 columns.',
+const row = z.string().refine((text) => {
+  const plain = plainRow(text);
+
+  // each UTF-16 code unit contributes at most two columns, so short rows need no grapheme scan.
+  return (
+    plain !== undefined &&
+    (plain.length * 2 <= 512 || stringWidth(plain) <= 512)
   );
+}, 'Preview rows allow text and restricted SGR formatting, up to 512 columns.');
 
 export const previewDocumentSchema = z
   .object({
