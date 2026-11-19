@@ -151,10 +151,9 @@ export async function refreshInstall(
       failed = true;
 
       if (error === signal?.reason && progress.checkout?.target)
-        await reconcilePull(
-          gitIn(root, AbortSignal.timeout(1000)),
-          progress.checkout,
-        ).catch(() => (progress.unconfirmed = true));
+        await gitIn(root, AbortSignal.timeout(1000))('rev-parse', 'HEAD')
+          .then((head) => reconcilePull(progress.checkout!, head))
+          .catch(() => (progress.unconfirmed = true));
 
       throw error;
     } finally {

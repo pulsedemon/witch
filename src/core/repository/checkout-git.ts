@@ -21,13 +21,16 @@ export const gitIn =
 
 export type Git = ReturnType<typeof gitIn>;
 
-/** a Git config value, or '' when it's unset, which Git reports with exit 1. any other failure throws. */
-export const configValue = (git: Git, key: string) =>
-  git('config', key).catch((error: unknown) => {
-    if ((error as { code?: unknown }).code === 1) return '';
+export const unlessExit1 = <T>(promise: Promise<T>, absent: T): Promise<T> =>
+  promise.catch((error: unknown) => {
+    if ((error as { code?: unknown }).code === 1) return absent;
 
     throw error;
   });
+
+/** a Git config value, or '' when it's unset, which Git reports with exit 1. any other failure throws. */
+export const configValue = (git: Git, key: string) =>
+  unlessExit1(git('config', key), '');
 
 class FetchRefConflict extends Error {}
 
@@ -166,12 +169,9 @@ export async function refHead(
   git: Git,
   branch: string,
 ): Promise<string | undefined> {
-  return git('rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).catch(
-    (error: unknown) => {
-      if ((error as { code?: unknown }).code === 1) return undefined;
-
-      throw error;
-    },
+  return unlessExit1<string | undefined>(
+    git('rev-parse', '--verify', '--quiet', `refs/heads/${branch}`),
+    undefined,
   );
 }
 
@@ -181,21 +181,14 @@ export async function hasBranchConfig(
 ): Promise<boolean> {
   const section = `^branch\\.${escapeRegExp(branch)}\\.`;
 
-  return git('config', '--get-regexp', section).then(
-    () => true,
-    (error: unknown) => {
-      if ((error as { code?: unknown }).code === 1) return false;
-
-      throw error;
-    },
+  return unlessExit1(
+    git('config', '--get-regexp', section).then(() => true),
+    false,
   );
 }
 
-export async function reconcilePull(
-  git: Git,
-  progress: CheckoutProgress,
-): Promise<void> {
-  if (progress.target && (await git('rev-parse', 'HEAD')) === progress.target) {
+export function reconcilePull(progress: CheckoutProgress, head: string): void {
+  if (progress.target && head === progress.target) {
     progress.head = progress.target;
     progress.done = true;
   }

@@ -568,10 +568,7 @@ async function clean(
 
       progress.moved = true;
 
-      if (progress.pull?.target === head) {
-        progress.pull.head = head;
-        progress.pull.done = true;
-      }
+      if (progress.pull) reconcilePull(progress.pull, head);
     } else if (progress.moved || status.branch !== branch || head !== commit)
       return 'changed';
 
@@ -1145,15 +1142,10 @@ async function reconcileCleanup(
   progress: MergeCleanup,
   signal: AbortSignal,
 ): Promise<void> {
-  if (
-    arrived(
-      progress,
-      request.base,
-      await read(git),
-      await git('rev-parse', 'HEAD'),
-    )
-  )
-    progress.moved = true;
+  const status = await read(git);
+  const head = await git('rev-parse', 'HEAD');
+
+  if (arrived(progress, request.base, status, head)) progress.moved = true;
 
   if (!progress.moved) return;
 
@@ -1167,7 +1159,7 @@ async function reconcileCleanup(
   )
     progress.unset = '';
 
-  if (progress.pull) await reconcilePull(git, progress.pull);
+  if (progress.pull) reconcilePull(progress.pull, head);
 
   await reconcilePruning(git, progress, signal);
 }
