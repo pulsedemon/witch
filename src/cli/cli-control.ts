@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { cliOptions, bindingOptions } from '../cli-options.js';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { previewBytes, previewDocumentSchema } from '../core/preview.js';
@@ -27,53 +28,6 @@ function choice(text: string | undefined) {
 
   return { runtime: text.slice(0, colon), model: text.slice(colon + 1) };
 }
-
-const options = {
-  'state-dir': { type: 'string' },
-  continue: { type: 'boolean', short: 'c' },
-  help: { type: 'boolean', short: 'h' },
-  'recover-directory': { type: 'string' },
-  apply: { type: 'boolean' },
-  'control-dir': { type: 'string' },
-  'control-conversation': { type: 'string' },
-  'control-activation': { type: 'string' },
-  preview: { type: 'string' },
-  'preview-status': { type: 'boolean' },
-  'preview-close': { type: 'string' },
-  peers: { type: 'boolean' },
-  claim: { type: 'string' },
-  summary: { type: 'string' },
-  alias: { type: 'string', multiple: true },
-  release: { type: 'string' },
-  reference: { type: 'string', multiple: true },
-  'select-next': { type: 'string' },
-  'cancel-selection': { type: 'string' },
-  recommend: { type: 'string' },
-  selection: { type: 'string' },
-  ask: { type: 'string' },
-  answer: { type: 'string' },
-  message: { type: 'string' },
-  'peer-request': { type: 'string' },
-  pause: { type: 'boolean' },
-  to: { type: 'string', multiple: true },
-  resume: { type: 'string' },
-  'pause-status': { type: 'string' },
-  route: { type: 'string' },
-  of: { type: 'string' },
-  named: { type: 'string' },
-  json: { type: 'boolean' },
-  'familiar-claude': { type: 'string' },
-  'familiar-codex': { type: 'string' },
-  'report-file': { type: 'string' },
-  'without-mcp': { type: 'boolean' },
-  spawn: { type: 'string' },
-} as const;
-
-const bindingOptions = [
-  'control-dir',
-  'control-conversation',
-  'control-activation',
-] as const;
 
 /** in the order the "choose exactly one" refusal lists them. */
 const actionOptions = [
@@ -105,12 +59,148 @@ function bindingOf(values: {
   });
 }
 
+type CommandValues = ReturnType<
+  typeof parseArgs<{ options: typeof cliOptions }>
+>['values'];
+
+function familiarMode(
+  values: CommandValues,
+  positionals: string[],
+  args: string[],
+  separator: number,
+) {
+  const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
+  const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
+  const label = runtime === 'codex' ? 'Codex' : 'Claude';
+
+  const allowed = new Set([
+    ...bindingOptions,
+    option,
+    'report-file',
+    ...(runtime === 'codex' ? ['without-mcp'] : []),
+  ]);
+
+  if (
+    Object.keys(values).some((key) => !allowed.has(key)) ||
+    separator < 0 ||
+    positionals.length !== args.length - separator - 1
+  )
+    throw new Error(
+      `${label} familiar mode requires -- before native arguments and cannot include other Witch options or prompts.`,
+    );
+
+  if (!values[option]?.trim() || !values['report-file'])
+    throw new Error(
+      `${label} familiar mode requires a task name and --report-file.`,
+    );
+
+  const binding = bindingOf(values);
+  (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
+
+  return {
+    runtime,
+    binding,
+    name: values[option].trim(),
+    reportFile: resolve(values['report-file']),
+    args: positionals,
+    withoutMcp: values['without-mcp'] === true,
+  };
+}
+
+function controlAction(
+  name: Exclude<(typeof actionOptions)[number], 'preview'>,
+  values: CommandValues,
+): unknown {
+  switch (name) {
+    case 'preview-status':
+      return { kind: 'preview-status' };
+
+    case 'preview-close':
+      return { kind: 'preview-close', preview: values['preview-close'] };
+
+    case 'peers':
+      return { kind: 'peers' };
+
+    case 'claim':
+      return {
+        kind: 'claim',
+        input: {
+          reference: values.claim,
+          summary: values.summary,
+          aliases: values.alias,
+        },
+      };
+
+    case 'recommend':
+      return {
+        kind: 'recommend',
+        selection: values.selection,
+        input: {
+          reference: values.recommend,
+          summary: values.summary,
+          aliases: values.alias,
+        },
+      };
+
+    case 'release':
+      return values.reference
+        ? {
+            kind: 'release-references',
+            claim: values.release,
+            references: values.reference,
+          }
+        : { kind: 'release', claim: values.release };
+
+    case 'select-next':
+      return { kind: 'select-next', turn: values['select-next'] };
+
+    case 'cancel-selection':
+      return {
+        kind: 'cancel-selection',
+        selection: values['cancel-selection'],
+      };
+
+    case 'ask':
+      return { kind: 'ask', claim: values.ask, message: values.message };
+
+    case 'answer':
+      return {
+        kind: 'answer',
+        request: values.answer,
+        message: values.message,
+      };
+
+    case 'peer-request':
+      return { kind: 'peer-request', request: values['peer-request'] };
+
+    case 'pause':
+      return { kind: 'pause', to: values.to };
+
+    case 'resume':
+      return { kind: 'resume', pause: values.resume };
+
+    case 'pause-status':
+      return { kind: 'pause-status', pause: values['pause-status'] };
+
+    case 'route':
+      return {
+        kind: 'route',
+        work: values.route,
+        of: choice(values.of),
+        named: choice(values.named),
+      };
+
+    default:
+      return name satisfies never;
+  }
+}
+
 export function parseCommand(args = process.argv.slice(2)) {
   const separator = args.indexOf('--');
 
   const parsed = parseArgs({
     args,
-    options,
+    options: cliOptions,
     allowPositionals: true,
     strict: true,
   });
@@ -124,45 +214,10 @@ export function parseCommand(args = process.argv.slice(2)) {
     values['without-mcp'] !== undefined;
 
   if (reporting) {
-    const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
-    const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
-    const label = runtime === 'codex' ? 'Codex' : 'Claude';
-
-    const allowed = new Set([
-      ...bindingOptions,
-      option,
-      'report-file',
-      ...(runtime === 'codex' ? ['without-mcp'] : []),
-    ]);
-
-    if (
-      Object.keys(values).some((key) => !allowed.has(key)) ||
-      separator < 0 ||
-      positionals.length !== args.length - separator - 1
-    )
-      throw new Error(
-        `${label} familiar mode requires -- before native arguments and cannot include other Witch options or prompts.`,
-      );
-
-    if (!values[option]?.trim() || !values['report-file'])
-      throw new Error(
-        `${label} familiar mode requires a task name and --report-file.`,
-      );
-
-    const binding = bindingOf(values);
-    (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
-
     return {
       ...parsed,
       control: undefined,
-      familiar: {
-        runtime,
-        binding,
-        name: values[option].trim(),
-        reportFile: resolve(values['report-file']),
-        args: positionals,
-        withoutMcp: values['without-mcp'] === true,
-      },
+      familiar: familiarMode(values, positionals, args, separator),
       spawn: undefined,
     };
   }
@@ -224,7 +279,9 @@ export function parseCommand(args = process.argv.slice(2)) {
   if (values.reference && values.release === undefined)
     throw new Error('--reference requires --release.');
 
-  if (actionOptions.filter((name) => values[name] !== undefined).length !== 1)
+  const actions = actionOptions.filter((name) => values[name] !== undefined);
+
+  if (actions.length !== 1)
     throw new Error(
       `Choose exactly one control action: ${flags.slice(0, -1).join(', ')} or ${flags.at(-1)}.`,
     );
@@ -275,69 +332,12 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error('--message requires --ask or --answer.');
 
   const binding = bindingOf(values);
-  let action;
+  const name = actions[0]!;
 
-  if (values.preview !== undefined)
-    action = { kind: 'preview-file' as const, file: resolve(values.preview) };
-  else if (values['preview-status'])
-    action = { kind: 'preview-status' as const };
-  else if (values['preview-close'] !== undefined)
-    action = coordinationActionSchema.parse({
-      kind: 'preview-close',
-      preview: values['preview-close'],
-    });
-  else
-    action = coordinationActionSchema.parse(
-      values.peers
-        ? { kind: 'peers' }
-        : values.claim !== undefined || values.recommend !== undefined
-          ? {
-              kind: values.recommend !== undefined ? 'recommend' : 'claim',
-              selection: values.selection,
-              input: {
-                reference: values.recommend ?? values.claim,
-                summary: values.summary,
-                aliases: values.alias,
-              },
-            }
-          : values.ask !== undefined
-            ? { kind: 'ask', claim: values.ask, message: values.message }
-            : values.answer !== undefined
-              ? {
-                  kind: 'answer',
-                  request: values.answer,
-                  message: values.message,
-                }
-              : values['peer-request'] !== undefined
-                ? { kind: 'peer-request', request: values['peer-request'] }
-                : values.pause
-                  ? { kind: 'pause', to: values.to }
-                  : values.resume !== undefined
-                    ? { kind: 'resume', pause: values.resume }
-                    : values['pause-status'] !== undefined
-                      ? { kind: 'pause-status', pause: values['pause-status'] }
-                      : values['select-next'] !== undefined
-                        ? { kind: 'select-next', turn: values['select-next'] }
-                        : values['cancel-selection'] !== undefined
-                          ? {
-                              kind: 'cancel-selection',
-                              selection: values['cancel-selection'],
-                            }
-                          : values.route !== undefined
-                            ? {
-                                kind: 'route',
-                                work: values.route,
-                                of: choice(values.of),
-                                named: choice(values.named),
-                              }
-                            : values.reference
-                              ? {
-                                  kind: 'release-references',
-                                  claim: values.release,
-                                  references: values.reference,
-                                }
-                              : { kind: 'release', claim: values.release },
-    );
+  const action =
+    name === 'preview'
+      ? { kind: 'preview-file' as const, file: resolve(values.preview!) }
+      : coordinationActionSchema.parse(controlAction(name, values));
 
   return {
     ...parsed,

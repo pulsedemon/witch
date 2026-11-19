@@ -198,6 +198,8 @@ class CodexSession implements AgentSession {
   closed = false;
   /** a turn ends at its own `turn/completed`, which no familiar holds back. */
   readonly replied = false;
+  /** thread settings apply to subsequent turns. */
+  readonly takesModel = false;
   private turn?: {
     started: ReturnType<typeof Promise.withResolvers<string>>;
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
@@ -421,6 +423,19 @@ class CodexSession implements AgentSession {
       throw new Error(`Codex has no model ${model}.`);
   }
 
+  canSelectModel(
+    model: string,
+    contextWindow: ContextWindowChoice | undefined = this.native.contextWindow,
+  ): boolean {
+    return (
+      !this.closed &&
+      !this.turn &&
+      !this.answers.busy &&
+      (!this.backgroundActive ||
+        !this.automaticCompaction?.requiresReload(model, contextWindow))
+    );
+  }
+
   /** Codex can't clear its thread's effort, so `null` only stops requesting one. */
   async selectModel(
     model: string,
@@ -575,7 +590,7 @@ class CodexSession implements AgentSession {
     return this.usage.context;
   }
 
-  private get backgroundActive(): boolean {
+  get backgroundActive(): boolean {
     return this.commands.active || this.familiars.active;
   }
 

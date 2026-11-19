@@ -533,6 +533,34 @@ const allow = (cwd: string, ...names: string[]) =>
 
 const gated = 'until [ -e go ]; do sleep 0.05; done; echo held';
 
+test('a model change waits while a foreground shell command runs outside a turn', async () => {
+  const seen = observe();
+  const { session, cwd } = await fixture(seen.onEvent);
+
+  try {
+    const command = session.shell(gated);
+
+    await until('the command row', () =>
+      seen.tools.some(({ title }) => title === gated),
+    );
+
+    assert.equal(session.canSelectModel('claude-b'), false);
+
+    await assert.rejects(
+      session.selectModel('claude-b'),
+      /Stop the current turn/,
+    );
+
+    await allow(cwd, 'go');
+    await within(command, 2000, 'the shell command');
+    await session.selectModel('claude-b');
+    assert.equal(session.info.model, 'claude-b');
+  } finally {
+    await allow(cwd, 'go');
+    await session.close();
+  }
+});
+
 test('a command steered after the result runs, refuses other prompts while it runs, then steers its record and reply', async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
@@ -548,6 +576,13 @@ test('a command steered after the result runs, refuses other prompts while it ru
 
     assert.equal(session.replied, false);
     assert.equal(await session.steer('more'), false);
+    assert.equal(session.takesModel, false);
+
+    await assert.rejects(
+      session.selectModel('claude-b'),
+      /Stop the current turn/,
+    );
+
     await allow(cwd, 'go');
     const steered = join(cwd, 'steered.jsonl');
     const expected = [replyBlocks(gated, 'held\n')];
@@ -709,32 +744,46 @@ test('an interrupt after the reply while a familiar holds the turn open ends the
   }
 });
 
-test('a model change waits for the turn, unless it has replied and a familiar holds it open', async () => {
+test('a model change reaches Claude during a turn before and after its reply', async () => {
   const busy = working();
   const seen = observe();
 
-  const { session, cwd } = await fixture((event) => {
+  const { session, cwd, child } = await fixture((event) => {
     busy.onEvent(event);
     seen.onEvent(event);
   });
+
+  const models: string[] = [];
+  const write = child.stdin.write;
+
+  child.stdin.write = (...args) => {
+    const frame = JSON.parse(String(args[0])) as
+      SDKControlRequest | SDKUserMessage;
+
+    if (
+      frame.type === 'control_request' &&
+      frame.request.subtype === 'set_model'
+    )
+      models.push(frame.request.model!);
+
+    return Reflect.apply(write, child.stdin, args) as boolean;
+  };
 
   try {
     const first = session.send('steerable');
     await within(busy.seen, 2000, 'first output');
     assert.equal(session.replied, false);
-
-    await assert.rejects(
-      session.selectModel('claude-b'),
-      /Stop the current turn/,
-    );
-
+    await session.selectModel('claude-b');
+    assert.deepEqual(models, ['claude-b']);
+    assert.equal(session.info.model, 'claude-b');
     assert.equal(await session.steer('wrap up'), true);
     await within(first, 2000, 'the first turn');
     const second = session.send('background familiar');
     await until('the result', () => seen.skills.includes('result-2'));
     assert.equal(session.replied, true);
-    await session.selectModel('claude-b');
-    assert.equal(session.info.model, 'claude-b');
+    await session.selectModel('claude-c');
+    assert.deepEqual(models, ['claude-b', 'claude-c']);
+    assert.equal(session.info.model, 'claude-c');
     assert.equal(await session.steer('meanwhile'), true);
     await allow(cwd, 'allow-idle');
     assert.equal((await within(second, 2000, 'turn')).status, 'completed');

@@ -9,7 +9,7 @@ import type {
   UserRequest,
 } from '../agents/types.js';
 import type { Conversation, DisplayItem, Phase } from './state.js';
-import type { ModelChoice } from './runtime/models.js';
+import type { ModelChoice, ModelSelection } from './runtime/models.js';
 
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {
@@ -29,6 +29,8 @@ export interface Snapshot {
   draft?: string;
   commandsPending: boolean;
   pendingCompaction: boolean;
+  /** a selection waiting for the operation or background work it would discard. */
+  pendingModel?: ModelSelection;
   requests: readonly UserRequest[];
   models: readonly ModelChoice[];
   skills: readonly Skill[];

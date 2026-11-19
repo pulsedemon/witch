@@ -3,6 +3,7 @@ import { test } from 'vitest';
 import { controlPrefix, parseCommand } from '../../src/cli/cli-control.js';
 import { boundCommandTitle, claudeTitle } from '../../src/agents/tool-title.js';
 import { quote } from '../../src/shell.js';
+import { cliOptions } from '../../src/cli-options.js';
 
 const binding = {
   directory: '/task/control',
@@ -17,6 +18,22 @@ const prefixes = {
     '/witch/dist/cli.js',
   ),
 };
+
+test('a boolean option ahead of a titled action does not take the action as its value', () => {
+  for (const [name, option] of Object.entries(cliOptions)) {
+    if (option.type !== 'boolean') continue;
+
+    const command = `${prefixes.control} --${name} --claim task:x --summary s`;
+
+    assert.deepEqual(
+      boundCommandTitle(command, prefixes),
+      name === 'peers' || name === 'preview-status'
+        ? undefined
+        : { title: 'claim task:x', expandedTitle: command, singleLine: true },
+      name,
+    );
+  }
+});
 
 for (const [args, title] of [
   ['--peers --json', 'peers'],

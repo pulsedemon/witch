@@ -375,6 +375,9 @@ test('Codex refuses a window change while a command is active without changing t
     );
 
     await emit(commandFrame('still-running'));
+    assert.equal(f.session.backgroundActive, true);
+    assert.equal(f.session.canSelectModel('model-b'), false);
+    assert.equal(f.session.canSelectModel('model-a'), true);
     f.calls.length = 0;
     await assert.rejects(f.session.selectModel('model-b'), /background work/);
 
@@ -1044,6 +1047,7 @@ test('Codex refuses a window-changing selection until a running familiar complet
       },
     });
 
+    assert.equal(f.session.canSelectModel('model-b'), false);
     f.calls.length = 0;
     await assert.rejects(f.session.selectModel('model-b'), /background work/);
     assert.equal(f.session.info.model, 'model-a');
@@ -1067,6 +1071,7 @@ test('Codex refuses a window-changing selection until a running familiar complet
       },
     });
 
+    assert.equal(f.session.canSelectModel('model-b'), true);
     await f.session.selectModel('model-b');
     assert.equal(f.session.info.model, 'model-b');
   } finally {

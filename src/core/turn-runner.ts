@@ -104,9 +104,6 @@ interface TurnHost {
   /** saves the images the prompt's markers name into the conversation. */
   prepareImages(prompt: string): Promise<string[]>;
 
-  /** the native turn ended, so only settlement holds the phase. */
-  ended(): void;
-
   /** sets whether a failed turn holds the queue for the composer. */
   failed(failed: boolean): void;
 
@@ -524,7 +521,6 @@ export class TurnRunner {
         result = { status: 'failed', text: '', error: errorMessage(error) };
       }
 
-      this.host.ended();
       // first, so the prompts the turn left unread go ahead of those a refused steer gives back
       await steering;
       await this.compaction.busy;

@@ -10,7 +10,10 @@ import { compiledCli } from '../fixtures/compiled-cli.js';
 import { scratch } from '../fixtures/scratch.js';
 import { Preview } from '../../src/core/preview.js';
 import { ControlHost } from '../../src/persistence/control.js';
-import { CoordinationStore } from '../../src/persistence/coordination.js';
+import {
+  ClaimConflict,
+  CoordinationStore,
+} from '../../src/persistence/coordination.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { identifyProcess } from '../../src/persistence/process.js';
 import { controlPrefix } from '../../src/cli/cli-control.js';
@@ -251,16 +254,22 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
 
       if (action.kind !== 'claim') throw new Error('Unexpected test action');
 
-      return {
-        kind: 'claimed',
-        claim: await store.claim(
-          { conversation, project: 'project-p' },
-          action.input,
-          identity,
-          deadline,
-          async () => {},
-        ),
-      };
+      try {
+        return {
+          kind: 'claimed',
+          claim: await store.claim(
+            { conversation, project: 'project-p' },
+            action.input,
+            identity,
+            deadline,
+            async () => {},
+          ),
+        };
+      } catch (error) {
+        if (!(error instanceof ClaimConflict)) throw error;
+
+        return { kind: 'conflict', claim: error.claim, message: error.message };
+      }
     },
     (error) => failures.push(error),
   );
