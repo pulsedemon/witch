@@ -3,8 +3,12 @@ import { test } from 'vitest';
 import type { Work, Policy } from '../../../src/core/runtime/routing.js';
 import { defaultPolicy } from '../../../src/core/runtime/routing.js';
 import { router } from '../../../src/core/runtime/router.js';
+import type { Coordinator } from '../../../src/core/coordinator.js';
 import { callControl } from '../../../src/persistence/control.js';
-import { unitCoordinationFixture } from '../../fixtures/coordination.js';
+import {
+  coordinationFixture,
+  unitCoordinationFixture,
+} from '../../fixtures/coordination.js';
 import {
   orderedCleanup,
   type RegisterCleanup,
@@ -12,8 +16,11 @@ import {
 import { TurnGate } from '../../fixtures/agent.js';
 import { until } from '../../fixtures/within.js';
 
-async function setup(register: RegisterCleanup) {
-  const f = await unitCoordinationFixture(orderedCleanup(register));
+async function setup(
+  register: RegisterCleanup,
+  fixture = unitCoordinationFixture,
+) {
+  const f = await fixture(orderedCleanup(register));
   const session = await f.start('A');
   const peer = await f.start('C');
   session.a.catalog.splice(0, 2, { id: 'a-2-model', label: 'A2', efforts: [] });
@@ -190,7 +197,52 @@ test('the current caller counts once and observed familiar runtime load changes 
   }
 });
 
-test('unregistered owners and legacy familiar records keep workload uncertain instead of making a runtime idle', async (t) => {
+test('native background work retains its reserve while a memory edit holds the operation phase', async (t) => {
+  const f = await setup(t.onTestFinished, coordinationFixture);
+  const opened = Promise.withResolvers<void>();
+  const closed = Promise.withResolvers<void>();
+
+  const editFile: ConstructorParameters<typeof Coordinator>[4] = async () => {
+    opened.resolve();
+    await closed.promise;
+  };
+
+  Object.defineProperty(f.peer.coordinator, 'editFile', { value: editFile });
+  const editing = f.peer.coordinator.editMemory();
+  void editing.catch(opened.reject);
+  await opened.promise;
+  const emit = f.peer.a.sessions.at(-1)!.options.onEvent;
+  const id = f.peer.coordinator.snapshot.conversation!.id;
+
+  try {
+    for (const running of [false, true, false]) {
+      emit({ type: 'running', running });
+
+      await until('native activity published beside the edit', async () =>
+        (await f.registry.presences()).some(
+          (p) =>
+            p.id === id && p.phase === 'editing' && p.nativeRunning === running,
+        ),
+      );
+
+      const result = await f.route();
+
+      assert.deepEqual(
+        result.routes.map(({ runtime }) => runtime),
+        running ? ['b'] : ['a', 'b'],
+      );
+
+      if (running)
+        assert.match(result.folded![0]!.reason, /a: 1 active coordinator/);
+    }
+  } finally {
+    emit({ type: 'running', running: false });
+    closed.resolve();
+    await editing;
+  }
+});
+
+test('unregistered owners and legacy activity records keep workload uncertain instead of making a runtime idle', async (t) => {
   const f = await setup(t.onTestFinished);
   const id = f.peer.coordinator.snapshot.conversation!.id;
   const presence = (await f.registry.presences()).find((p) => p.id === id)!;
@@ -209,6 +261,21 @@ test('unregistered owners and legacy familiar records keep workload uncertain in
   );
 
   assert.match(legacy.folded![0]!.reason, /familiar load unknown/);
+
+  await f.registry.publish({
+    ...presence,
+    phase: 'editing',
+    nativeRunning: undefined,
+  });
+
+  const unknownNative = await f.route();
+
+  assert.deepEqual(
+    unknownNative.routes.map(({ runtime }) => runtime),
+    ['b'],
+  );
+
+  assert.match(unknownNative.folded![0]!.reason, /a workload unknown/);
   await f.registry.removePresence(id, presence.activation);
   const unknown = await f.route();
 

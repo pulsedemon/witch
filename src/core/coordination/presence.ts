@@ -131,6 +131,7 @@ export class PresencePublisher {
     const { familiars, brews } = taskActivity(state);
     const { id, title, cwd, agent } = active.conversation;
     const branch = this.host.branch();
+    const nativeRunning = state?.nativeRunning ?? false;
 
     return {
       id,
@@ -147,9 +148,10 @@ export class PresencePublisher {
       phase:
         state?.phase === 'compacting' ||
         state?.phase === 'updating' ||
-        (state?.phase === 'idle' && state.nativeRunning)
+        (state?.phase === 'idle' && nativeRunning)
           ? 'running'
           : (state?.phase ?? 'starting'),
+      nativeRunning,
       requests: state?.requests.length ?? 0,
       familiars,
       familiarRuntimes: familiarRuntimes(state?.subagents ?? [], agent),

@@ -80,6 +80,7 @@ test('presence counts familiars by runtime and unchanged counts do not publish a
 
   await publisher.publish(active);
   assert.equal(written[0]!.familiars, 2);
+  assert.equal(written[0]!.nativeRunning, false);
   assert.deepEqual(written[0]!.familiarRuntimes, { a: 1, b: 1 });
   state.usage = { context: 42 };
   publisher.schedule(active);
@@ -102,5 +103,6 @@ test('presence counts familiars by runtime and unchanged counts do not publish a
   await vi.advanceTimersByTimeAsync(100);
   await publisher.idle();
   assert.equal(written[2]!.phase, 'running');
+  assert.equal(written[2]!.nativeRunning, true);
   publisher.cancel();
 });

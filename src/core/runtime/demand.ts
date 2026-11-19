@@ -45,11 +45,14 @@ export function collectDemand(
   for (const presence of live.values()) {
     if (
       agentWorking(presence.phase) ||
+      presence.nativeRunning ||
       presence.requests ||
       presence.familiars ||
       presence.brews
     )
       coordinators[presence.agent] = (coordinators[presence.agent] ?? 0) + 1;
+    else if (presence.nativeRunning === undefined && presence.phase !== 'idle')
+      unknown.add(presence.agent);
 
     if (presence.familiars && !presence.familiarRuntimes) familiars = undefined;
 
