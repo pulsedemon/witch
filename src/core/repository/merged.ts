@@ -884,16 +884,7 @@ async function clean(
       continue;
     }
 
-    deleted.push(name);
-
-    if (retaining) await removePrunedConfig(git, name, failures, signal);
-    else if (
-      await succeeds(git('config', '--get', `branch.${name}.merge`), signal)
-    )
-      configured.push(`branch.${name}`);
-
-    pruned.push(name);
-    delete progress.pruning;
+    await recordPruned(git, progress, name, retaining, signal);
   }
 
   const branches = `${deleted.length > 1 ? 'branches' : 'branch'} ${list(deleted)}`;
@@ -1158,17 +1149,27 @@ async function reconcilePruning(
 
   if (current === head) return;
 
-  if (!current) {
-    if (!progress.deleted!.includes(name)) progress.deleted!.push(name);
+  if (!current) return recordPruned(git, progress, name, retained, signal);
 
-    if (retained)
-      await removePrunedConfig(git, name, progress.failures!, signal);
-    else if (
-      await succeeds(git('config', '--get', `branch.${name}.merge`), signal)
-    )
-      progress.configured!.push(`branch.${name}`);
-  } else
-    progress.failures!.push(`branch ${name} stayed: its last commit changed`);
+  progress.failures!.push(`branch ${name} stayed: its last commit changed`);
+  progress.pruned!.push(name);
+  delete progress.pruning;
+}
+
+async function recordPruned(
+  git: Git,
+  progress: MergeCleanup,
+  name: string,
+  retained: boolean,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!progress.deleted!.includes(name)) progress.deleted!.push(name);
+
+  if (retained) await removePrunedConfig(git, name, progress.failures!, signal);
+  else if (
+    await succeeds(git('config', '--get', `branch.${name}.merge`), signal)
+  )
+    progress.configured!.push(`branch.${name}`);
 
   progress.pruned!.push(name);
   delete progress.pruning;
