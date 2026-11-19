@@ -3,6 +3,8 @@ import stringWidth from 'string-width';
 import { z } from 'zod';
 
 export const previewBytes = 2 * 1024 * 1024;
+/** bound per-frame Ink parsing; the document limit alone permits expensive repeated redraws. */
+export const previewFrameBytes = 64 * 1024;
 const controls = /\p{Cc}/u;
 const sgr = new Set(['', '0', '1', '2', '22', '39', '49']);
 // eslint-disable-next-line no-control-regex
@@ -51,6 +53,20 @@ const row = z.string().refine((text) => {
   );
 }, 'Preview rows allow text and restricted SGR formatting, up to 512 columns.');
 
+const frame = z
+  .array(row)
+  .min(1)
+  .max(128)
+  .refine(
+    (rows) =>
+      rows.reduce(
+        (bytes, row) => bytes + Buffer.byteLength(row),
+        rows.length - 1,
+      ) <= previewFrameBytes,
+    `Preview frames must fit within ${previewFrameBytes / 1024} KiB of row text, including formatting and newlines.`,
+  )
+  .readonly();
+
 export const previewDocumentSchema = z
   .object({
     title: z
@@ -61,15 +77,11 @@ export const previewDocumentSchema = z
         (text) => !controls.test(text) && stringWidth(text) <= 512,
         'Preview titles must be plain text, up to 512 columns.',
       ),
-    frames: z
-      .array(z.array(row).min(1).max(128).readonly())
-      .min(1)
-      .max(240)
-      .readonly(),
+    frames: z.array(frame).min(1).max(240).readonly(),
   })
   .refine(
     (document) => Buffer.byteLength(JSON.stringify(document)) <= previewBytes,
-    'Preview documents must fit within 2 MiB.',
+    `Preview documents must fit within ${previewBytes / 1024 ** 2} MiB.`,
   )
   .readonly();
 

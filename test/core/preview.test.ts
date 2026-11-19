@@ -129,6 +129,27 @@ test('short Unicode and styled rows validate without grapheme scans', () => {
   assert.equal(segment.mock.calls.length, 0);
 });
 
+test('each preview frame bounds encoded text, including formatting and row separators', () => {
+  const atLimit = '\x1b[0m'.repeat(16_383) + 'éé';
+  assert.equal(Buffer.byteLength(atLimit), 65_536);
+
+  assert.ok(
+    previewDocumentSchema.safeParse({ title: 'Edge', frames: [[atLimit]] })
+      .success,
+  );
+
+  for (const frame of [[`${atLimit} `], [atLimit, '']]) {
+    const result = previewDocumentSchema.safeParse({
+      title: 'Too much formatting',
+      frames: [frame],
+    });
+
+    assert.equal(result.success, false);
+
+    if (!result.success) assert.match(result.error.message, /64 KiB/);
+  }
+});
+
 test('preview limits bound bytes, frames, rows and terminal columns', () => {
   for (const frames of [
     [],
