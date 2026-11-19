@@ -286,7 +286,7 @@ test('a cleanup that finds a change the status line missed waits for its next up
   await settle(true);
 });
 
-for (const pending of ['retry', 'cleanup', 'interrupted'] as const)
+for (const pending of ['deferred', 'retry', 'cleanup', 'interrupted'] as const)
   test(`stopping the watch with a pending ${pending} prevents later cleanup`, async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
@@ -296,7 +296,9 @@ for (const pending of ['retry', 'cleanup', 'interrupted'] as const)
 
     await publishRepository(status(pr('MERGED', 'c1')));
 
-    if (pending === 'retry') await settle(false);
+    if (pending === 'deferred') await settle(false);
+
+    if (pending === 'retry') await settle('retry');
 
     stop();
 
@@ -311,49 +313,123 @@ for (const pending of ['retry', 'cleanup', 'interrupted'] as const)
     assert.equal(calls.length, 1);
   });
 
-test('an interrupted cleanup keeps its progress after the repository leaves the merged branch', async (t) => {
+for (const outcome of ['interrupted', 'retry'] as const)
+  test(`a ${outcome} cleanup keeps its progress after the repository leaves the merged branch`, async (t) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    const { calls, progress, publishRepository, publish, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+    progress[0]!.moved = true;
+    await publishRepository(status(undefined, { branch: 'main' }));
+    await settle(outcome);
+
+    if (outcome === 'retry') {
+      vi.advanceTimersByTime(5000);
+      await tick();
+    }
+
+    await publish();
+
+    assert.deepEqual(calls, [
+      [pr('MERGED', 'c1'), '/install'],
+      [pr('MERGED', 'c1'), '/install'],
+    ]);
+
+    assert.equal(progress[1], progress[0]);
+    assert.equal(progress[1]!.moved, true);
+    await settle(true);
+  });
+
+for (const outcome of ['interrupted', 'retry'] as const)
+  test(`changing conversations drops a ${outcome} cleanup before it resumes`, async (t) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    const { calls, publishRepository, publish, settle } = fixture(
+      t.onTestFinished,
+    );
+
+    await publishRepository(status(pr('MERGED', 'c1')));
+    await publishRepository(status(undefined, { branch: 'main' }));
+
+    await publish({
+      conversation: {
+        id: 'next',
+        title: 'Next',
+        cwd: '/next',
+        agent: 'a',
+        sessions: {},
+        createdAt: '',
+      },
+    });
+
+    await settle(outcome);
+    vi.advanceTimersByTime(5000);
+    await tick();
+    await publish();
+    assert.equal(calls.length, 1);
+  });
+
+test('ref conflicts retain progress across timed and repository retries and only unfollow after completion', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+  const { calls, notices, progress, unfollowed, publishRepository, settle } =
+    fixture(t.onTestFinished);
+
+  const reason = 'a shared remote ref changed during fetch';
+  await publishRepository(following(left('c1')));
+  const kept = progress[0]!;
+  kept.moved = true;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    kept.deferred = reason;
+    await settle('retry');
+    assert.equal(calls.length, attempt);
+    assert.deepEqual(unfollowed, []);
+    assert.deepEqual(notices, attempt < 3 ? [] : [waits(reason)]);
+    vi.advanceTimersByTime(4999);
+    await tick();
+    assert.equal(calls.length, attempt);
+    vi.advanceTimersByTime(1);
+    await tick();
+    assert.equal(calls.length, attempt + 1);
+    assert.equal(progress.at(-1), kept);
+  }
+
+  await settle('retry');
+  await publishRepository(following(left('c1')));
+  assert.equal(calls.length, 5);
+  assert.equal(progress.at(-1), kept);
+  await settle(true);
+  assert.deepEqual(unfollowed, ['https://x.test/7']);
+  vi.advanceTimersByTime(10_000);
+  await tick();
+  assert.equal(calls.length, 5);
+});
+
+test('a ref conflict retry waits for queued turns and a dirty checkout to clear', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
   const { calls, progress, publishRepository, publish, settle } = fixture(
     t.onTestFinished,
   );
 
   await publishRepository(status(pr('MERGED', 'c1')));
-  progress[0]!.moved = true;
-  await publishRepository(status(undefined, { branch: 'main' }));
-  await settle('interrupted');
-  await publish();
-
-  assert.deepEqual(calls, [
-    [pr('MERGED', 'c1'), '/install'],
-    [pr('MERGED', 'c1'), '/install'],
-  ]);
-
-  assert.equal(progress[1], progress[0]);
-  assert.equal(progress[1]!.moved, true);
-  await settle(true);
-});
-
-test('changing conversations drops an interrupted cleanup before it resumes', async (t) => {
-  const { calls, publishRepository, publish, settle } = fixture(
-    t.onTestFinished,
-  );
-
-  await publishRepository(status(pr('MERGED', 'c1')));
-  await publishRepository(status(undefined, { branch: 'main' }));
-
-  await publish({
-    conversation: {
-      id: 'next',
-      title: 'Next',
-      cwd: '/next',
-      agent: 'a',
-      sessions: {},
-      createdAt: '',
-    },
-  });
-
-  await settle('interrupted');
-  await publish();
+  const kept = progress[0];
+  await settle('retry');
+  await publish({ queue: ['queued'] });
+  vi.advanceTimersByTime(5000);
+  await tick();
   assert.equal(calls.length, 1);
+  await publishRepository(status(pr('MERGED', 'c1'), { modified: 1 }));
+  await publish({ queue: [] });
+  assert.equal(calls.length, 1);
+  await publishRepository(status(pr('MERGED', 'c1')));
+  assert.equal(calls.length, 2);
+  assert.equal(progress[1], kept);
+  await settle(true);
 });
 
 /** pull request `number`'s merge at `commit`, as `followed` holds it with the checkout on `main`. */
