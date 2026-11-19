@@ -16,19 +16,18 @@ interface EventScope {
   project: string;
 }
 
+type Source = 'merge-events' | 'peer-requests' | 'pauses' | 'merge-publish';
+
 interface EventHost {
   /** the active conversation and its project. */
   scope(): EventScope | undefined;
 
   claims(): readonly TaskClaim[];
 
-  fail(
-    source: 'merge-events' | 'peer-requests' | 'pauses' | 'merge-publish',
-    error: unknown,
-  ): void;
+  fail(source: Source, error: unknown): void;
 
   /** the named sources succeeded; `notify` when listeners should hear of it. */
-  read(sources: readonly string[], notify: boolean): void;
+  read(sources: readonly Source[], notify: boolean): void;
 }
 
 interface MergePublication {
@@ -199,7 +198,7 @@ export class ConversationEvents {
       .then(([events, requests, pauses]) => {
         if (!current()) return;
 
-        const read: string[] = [];
+        const read: Source[] = [];
         let changed = false;
 
         if (events.status === 'fulfilled') {
