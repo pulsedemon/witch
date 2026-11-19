@@ -368,9 +368,33 @@ class ClaudeSession implements AgentSession {
     return skillsOf(await this.query.supportedCommands());
   }
 
+  get backgroundActive(): boolean {
+    return this.projection.holding;
+  }
+
+  get takesModel(): boolean {
+    return !!this.turn && this.canSelectModel();
+  }
+
+  canSelectModel(): boolean {
+    const turn = this.turn;
+
+    return (
+      !this.closed &&
+      !this.answers.busy &&
+      !this.command &&
+      (!turn ||
+        (!!turn.initialInput &&
+          !turn.interrupted &&
+          !turn.held &&
+          !turn.compaction &&
+          !this.compacting))
+    );
+  }
+
   /** an omitted effort leaves `effortLevel` unsent, which keeps the effort in force; the new model's window is published before it returns. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
-    if (this.answers.busy || (this.turn && !this.replied))
+    if (!this.canSelectModel())
       throw new Error('Stop the current turn before changing models');
 
     const level = effort == null ? effort : effortLevel.parse(effort);

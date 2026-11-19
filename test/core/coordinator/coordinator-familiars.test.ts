@@ -338,7 +338,7 @@ test('the native agent running on its own keeps the session active until it idle
     emitA({ type: 'running', running: false });
     assert.deepEqual(shown(), [false, false, false]);
     emitA({ type: 'running', running: true });
-    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    await coordinator.newConversation('b');
     assert.deepEqual(shown(), [false, false, false]);
     const emitB = b.sessions[0]!.options.onEvent;
     emitB({ type: 'running', running: true });

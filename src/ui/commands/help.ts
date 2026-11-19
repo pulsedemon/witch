@@ -24,7 +24,7 @@ export function helpText(): string {
     `${heading('TOOLS')}\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it. Ctrl+O switches new or deleted files between their preview and all lines.\nEnd returns to live output while tools are focused.`,
     `${heading('REQUESTS')}\nOn a request, Escape declines it and the turn continues. Ctrl+O switches new or deleted files between their preview and all lines.`,
     `${heading('MOUSE AND SCROLLING')}\nPageUp/PageDown and the mouse wheel scroll.\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nDouble-click selects a word and triple-click a line.\nCtrl+Shift+A selects the whole transcript, and Shift+arrows move a selection's end.\nShift+drag selects as the terminal does.\nClick a tool's + or − to expand or collapse it.`,
-    `${heading('MODELS')}\n/model <id> [effort] selects a model on the active runtime, or hands off to the runtime that lists it when only another runtime does.\n/model <agent>:<id> [effort] selects a runtime and model; choosing another runtime performs a handoff.`,
+    `${heading('MODELS')}\n/model <id> [effort] selects a model on the active runtime, or hands off to the runtime that lists it when only another runtime does.\n/model <agent>:<id> [effort] selects a runtime and model; choosing another runtime performs a handoff.\nModel choices are accepted during work; Pending: /model shows a choice waiting for the current operation or background work to finish.`,
     `${heading('MEMORY')}\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
   ].join('\n\n');
 }

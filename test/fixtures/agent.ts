@@ -109,6 +109,7 @@ export class FixtureAgent implements AgentAdapter {
   refuseSkillSteer = false;
   /** the turn in flight has replied and a familiar holds it open, as Claude's does. */
   replied = false;
+  takesModel = false;
   /** what each session's `skills()` returns. */
   skills: Skill[] = [];
   failSkills = false;
@@ -238,6 +239,9 @@ export class FixtureAgent implements AgentAdapter {
         shell: true,
       });
 
+    const takesModel = () =>
+      !closed && !!turn && !shell && (this.takesModel || replied());
+
     const session: AgentSession = {
       get info() {
         return info;
@@ -251,6 +255,12 @@ export class FixtureAgent implements AgentAdapter {
       get replied() {
         return replied();
       },
+      get takesModel() {
+        return takesModel();
+      },
+      backgroundActive: false,
+      canSelectModel: () =>
+        !closed && !shell && (!turn || this.takesModel || replied()),
       contextUsage: async () => usage.context,
       compact: async () => {
         if (closed) throw new Error('Session closed');

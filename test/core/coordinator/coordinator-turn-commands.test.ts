@@ -195,7 +195,78 @@ test('after the reply, a listed spell steers trimmed with its call, and an unlis
   }
 });
 
-test("a model change runs during a replied turn without waiting, and is refused during one that hasn't replied", async () => {
+test('a turn that takes model changes applies a same-runtime choice before its reply', async () => {
+  const { coordinator, a } = await unitFixture();
+  const gate = new TurnGate();
+
+  try {
+    a.gate = gate;
+    a.takesModel = true;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    assert.equal(a.sessions.at(-1)!.session.replied, false);
+    await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
+    assert.equal(coordinator.snapshot.phase, 'running');
+    assert.deepEqual(a.selections.at(-1), ['a-big', 'high']);
+    assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
+    gate.open();
+    await within(sending, 2000, 'the turn');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+test('a model choice waits for a turn that cannot take it and applies before queued input', async () => {
+  const { coordinator, a } = await unitFixture();
+  const gate = new TurnGate();
+  const session = a.sessions.at(-1)!.session;
+  const send = session.send.bind(session);
+  const sent: [string, string][] = [];
+
+  session.send = (prompt, ...rest) => {
+    sent.push([prompt, session.info.model]);
+
+    return send(prompt, ...rest);
+  };
+
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const releaseSelection = coordinator.holdPromptDelivery();
+    const selection = { agent: 'a', id: 'a-big', effort: 'high' };
+    const before = a.selections.length;
+
+    const choosing = coordinator.selectModel(selection).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    assert.deepEqual(coordinator.snapshot.pendingModel, selection);
+    assert.equal(a.selections.length, before);
+    await coordinator.send('/after');
+    gate.open();
+    assert.equal(await within(choosing, 2000, 'the model choice'), undefined);
+    assert.equal(coordinator.snapshot.pendingModel, undefined);
+    assert.deepEqual(a.selections.slice(before), [['a-big', 'high']]);
+    assert.deepEqual(coordinator.snapshot.queue, ['/after']);
+    releaseSelection();
+    await until('queued input', () => sent.length === 2);
+
+    assert.deepEqual(sent, [
+      ['Start', 'a-model'],
+      ['/after', 'a-big'],
+    ]);
+
+    await within(sending, 2000, 'the turn');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+test('another runtime chosen during a turn waits without stopping it, then hands off', async () => {
   const { coordinator, a, b } = await unitFixture();
   const gate = new TurnGate();
 
@@ -203,32 +274,28 @@ test("a model change runs during a replied turn without waiting, and is refused 
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
-
-    await assert.rejects(
-      coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' }),
-      {
-        message: 'Stop the current operation first',
-      },
-    );
-
-    a.replied = true;
-    await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
-    assert.equal(coordinator.snapshot.phase, 'running');
-    assert.deepEqual(a.selections.at(-1), ['a-big', 'high']);
-    assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
+    const release = coordinator.holdPromptDelivery();
     const discoveries = b.discoveries.length;
     const sourceInputs = a.inputs.length;
+    const selection = { agent: 'b', id: 'b-big' };
 
-    await assert.rejects(
-      coordinator.selectModel({ agent: 'b', id: 'b-big' }),
-      /Wait for the running familiars or workflows/,
+    const choosing = coordinator.selectModel(selection).then(
+      () => undefined,
+      (error: unknown) => error,
     );
 
+    assert.deepEqual(coordinator.snapshot.pendingModel, selection);
     assert.equal(a.inputs.length, sourceInputs);
     assert.equal(a.sessions.at(-1)!.session.closed, false);
+    assert.deepEqual(a.stops, []);
     assert.equal(b.sessions.length, 0);
     assert.equal(b.discoveries.length, discoveries);
     gate.open();
+    assert.equal(await within(choosing, 3000, 'the handoff'), undefined);
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.equal(coordinator.snapshot.native!.model, 'b-big');
+    assert.equal(coordinator.snapshot.pendingModel, undefined);
+    release();
     await within(sending, 2000, 'the turn');
   } finally {
     gate.open();
@@ -420,7 +487,7 @@ for (const rejected of [false, true])
     },
   );
 
-test('a replied turn opens the model list from its connect without refreshing', async () => {
+test('a running turn opens the model list from its connect without refreshing', async () => {
   const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
 
@@ -428,7 +495,6 @@ test('a replied turn opens the model list from its connect without refreshing', 
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
-    a.replied = true;
     const { models } = coordinator.snapshot;
     a.failModels = true;
     assert.equal(await coordinator.refreshModels(), true);
