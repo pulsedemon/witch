@@ -9,7 +9,7 @@ import { test, vi } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../../../src/core/coordinator.js';
 import { watchMerges } from '../../../src/core/repository/merge-watch.js';
-import { refreshInstall } from '../../../src/core/repository/merged.js';
+import { refreshInstall } from '../../../src/core/repository/install-refresh.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import type { Repository } from '../../../src/core/repository/repository.js';
 import { openLocked } from '../../../src/persistence/lock.js';

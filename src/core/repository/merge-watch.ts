@@ -1,5 +1,5 @@
 import type { Coordinator } from '../coordinator.js';
-import { changed } from './merged.js';
+import { changed } from './checkout-git.js';
 import type { MergeCleanup } from './merged.js';
 import type { PullRequest, Repository, RepositoryWatch } from './repository.js';
 

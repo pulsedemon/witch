@@ -1,4 +1,4 @@
-import { refreshInstall } from '../../src/core/repository/merged.js';
+import { refreshInstall } from '../../src/core/repository/install-refresh.js';
 
 const [install, mode] = process.argv.slice(2) as [string, string];
 const abort = new AbortController();
