@@ -1,4 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { transactionBudget } from '../../persistence/coordination.js';
 import type {
   CoordinationStore,
   Ledger,
@@ -132,7 +133,7 @@ export class TransferResponder {
             this.host.registry.handOver(
               owner,
               claim.id,
-              Date.now() + 1000,
+              Date.now() + transactionBudget,
               verify,
               () =>
                 transferRefusal(

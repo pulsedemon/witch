@@ -1,3 +1,4 @@
+import { transactionBudget } from '../../persistence/coordination.js';
 import type {
   CoordinationStore,
   QueuedWrite,
@@ -40,7 +41,7 @@ export class QueuedWrites {
         while (this.queued.length) {
           const write = this.queued[0]!;
           const { conversation } = write;
-          const deadline = Date.now() + 1000;
+          const deadline = Date.now() + transactionBudget;
 
           if (write.kind === 'answer')
             await this.host.registry.answerPeers(

@@ -8,6 +8,7 @@ import {
   CoordinationStore,
   checkDeadline,
   DeadlineExpired,
+  transactionBudget,
 } from '../../persistence/coordination.js';
 import type { Ledger, Verify } from '../../persistence/coordination.js';
 import { ControlHost } from '../../persistence/control.js';
@@ -77,6 +78,22 @@ export interface Activation {
 
 /** lock holders and process exits change no file, so the tick rereads them this often. */
 const rereadInterval = 60_000;
+
+type FailureSource =
+  | 'presence'
+  | 'selection'
+  | 'control'
+  | 'familiar-control'
+  | 'project'
+  | 'peer-admission'
+  | 'queued-writes'
+  | 'ledger'
+  | 'handover'
+  | 'discovery'
+  | 'merge-events'
+  | 'peer-requests'
+  | 'pauses'
+  | 'merge-publish';
 
 interface Failure {
   message: string;
@@ -164,7 +181,7 @@ export class SessionCoordination {
     discovery: Discovery;
   };
   private ledger?: LedgerView;
-  private failures = new Map<string, Failure>();
+  private failures = new Map<FailureSource, Failure>();
   private turn?: SelectionScope;
   private cancellations = new Map<string, SelectionScope>();
   private claimReleases = new Set<string>();
@@ -602,7 +619,7 @@ export class SessionCoordination {
             this.registry.attemptPeerRequests(
               scope.project,
               scope.conversation,
-              Date.now() + 1000,
+              Date.now() + transactionBudget,
               verify,
             ),
           async () => {
@@ -634,7 +651,7 @@ export class SessionCoordination {
         await this.registry.answerPeers(
           conversation,
           answers,
-          Date.now() + 1000,
+          Date.now() + transactionBudget,
           true,
         );
       } catch (error) {
@@ -695,7 +712,7 @@ export class SessionCoordination {
           this.registry.cancelSelection(
             scope,
             undefined,
-            state?.deadline ?? Date.now() + 1000,
+            state?.deadline ?? Date.now() + transactionBudget,
             verify,
           ),
         );
@@ -713,7 +730,7 @@ export class SessionCoordination {
             this.registry.releaseConversation(
               claim.owner,
               this.process,
-              state?.deadline ?? Date.now() + 1000,
+              state?.deadline ?? Date.now() + transactionBudget,
               verify,
             ),
           );
@@ -953,7 +970,7 @@ export class SessionCoordination {
 
     try {
       const ledger = await this.registry.state(
-        state?.deadline ?? Date.now() + 1000,
+        state?.deadline ?? Date.now() + transactionBudget,
         () => {
           revision = ++this.revision;
         },
@@ -1220,14 +1237,16 @@ export class SessionCoordination {
       signature !== undefined &&
       signature === active.observed &&
       !minute &&
-      ![
-        'discovery',
-        'ledger',
-        'merge-events',
-        'peer-requests',
-        'pauses',
-        'queued-writes',
-      ].some((key) => this.failures.has(key))
+      !(
+        [
+          'discovery',
+          'ledger',
+          'merge-events',
+          'peer-requests',
+          'pauses',
+          'queued-writes',
+        ] as const satisfies readonly FailureSource[]
+      ).some((key) => this.failures.has(key))
     )
       return;
 
@@ -1358,11 +1377,11 @@ export class SessionCoordination {
     );
   }
 
-  private recover(source: string): void {
+  private recover(source: FailureSource): void {
     if (this.failures.delete(source)) this.publish(this.snapshot);
   }
 
-  private fail(source: string, error: unknown): void {
+  private fail(source: FailureSource, error: unknown): void {
     this.failures.set(source, {
       message: errorMessage(error),
       expired: error instanceof DeadlineExpired,
