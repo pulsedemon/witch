@@ -104,7 +104,7 @@ export function delegationPage(
   );
 
   return [
-    'With no rule, review keeps independent coverage on every runtime; other work balances remaining allowance, reset timing and active workload. Explicit rules set the intended placement, and named models run as named.',
+    'With no rule, review requests a familiar on every runtime; other work balances remaining allowance, reset timing and active workload. Explicit rules set the intended placement.',
     '',
     ...work.options.map((kind) => `${kind.padEnd(16)}${ruleFor(policy, kind)}`),
     '',

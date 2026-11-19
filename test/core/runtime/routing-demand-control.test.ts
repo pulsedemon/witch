@@ -290,10 +290,32 @@ test('native background work retains its reserve while a memory edit holds the o
   }
 });
 
-test('unregistered owners and legacy activity records keep workload uncertain instead of making a runtime idle', async (t) => {
+test('routing distinguishes active, idle and unknown coordinator demand', async (t) => {
   const f = await setup(t.onTestFinished);
   const id = f.peer.coordinator.snapshot.conversation!.id;
   const presence = (await f.registry.presences()).find((p) => p.id === id)!;
+
+  for (const activity of [{ requests: 1 }, { brews: 1 }]) {
+    await f.registry.publish({ ...presence, ...activity });
+    const active = await f.route();
+
+    assert.deepEqual(
+      active.routes.map(({ runtime }) => runtime),
+      ['b'],
+    );
+
+    assert.match(active.folded![0]!.reason, /a: 1 active coordinator/);
+  }
+
+  await f.registry.publish({ ...presence, nativeRunning: undefined });
+  const idle = await f.route();
+
+  assert.deepEqual(
+    idle.routes.map(({ runtime }) => runtime),
+    ['a', 'b'],
+  );
+
+  assert.match(idle.routes[0]!.reason, /a: 0 active coordinators/);
 
   await f.registry.publish({
     ...presence,
