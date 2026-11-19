@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement, useState } from 'react';
 import stringWidth from 'string-width';
+import * as wrapping from 'wrap-ansi';
 import { test, vi } from 'vitest';
 import { Preview as PreviewOwner } from '../../src/core/preview.js';
 import { Preview } from '../../src/ui/Preview.js';
 import { App } from '../../src/ui/App.js';
 import { show, fake, ENTER, openCommand } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+
+vi.mock('wrap-ansi', { spy: true });
 
 const question = {
   id: 'q',
@@ -147,9 +150,12 @@ test('a tall preview preserves question text, options and typed answers, and tra
 test('a long question keeps its existing scrollable viewport before a preview', async () => {
   const f = fixture();
 
-  try {
-    f.owner.show({ title: 'Tall preview', frames: [Array(24).fill('FRAME')] });
+  const visible = () =>
+    [...f.ui.text().matchAll(/Read question line (\d+)/gu)].map((match) =>
+      Number(match[1]),
+    );
 
+  try {
     f.coordinator.publish({
       requests: [
         {
@@ -157,12 +163,21 @@ test('a long question keeps its existing scrollable viewport before a preview', 
           questions: [
             {
               ...question.questions[0]!,
-              title: Array(40).fill('Read the question').join('\n'),
+              title: Array.from(
+                { length: 40 },
+                (_, index) => `Read question line ${index}`,
+              ).join('\n'),
             },
           ],
         },
       ],
     });
+
+    await until('selected option', () => f.ui.text().includes('Keep it'));
+    f.ui.stdin.write('\u001b[5~'.repeat(3));
+    await until('question start', () => visible()[0] === 0);
+    const before = visible();
+    f.owner.show({ title: 'Tall preview', frames: [Array(24).fill('FRAME')] });
 
     await until(
       'question layout',
@@ -170,10 +185,88 @@ test('a long question keeps its existing scrollable viewport before a preview', 
     );
 
     assert.equal(f.owner.snapshot!.status.placement!.rows, 0);
-    assert.ok(f.ui.text().includes('Read the question'));
+    assert.deepEqual(visible(), before);
     assert.ok(!f.ui.text().includes('FRAME'));
+    const seen = new Set(before);
+
+    for (let page = 0; page < 3 && !seen.has(39); page++) {
+      const first = visible()[0];
+      f.ui.stdin.write('\u001b[6~');
+      await until('next question page', () => visible()[0] !== first);
+
+      for (const line of visible()) seen.add(line);
+    }
+
+    assert.deepEqual(
+      [...seen].sort((a, b) => a - b),
+      Array.from({ length: 40 }, (_, index) => index),
+    );
   } finally {
     f.ui.unmount();
+  }
+});
+
+test('preview loops reuse clipped frames and update them on resize or replacement', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  vi.setSystemTime(100_000);
+  const wrap = vi.mocked(wrapping.default);
+  wrap.mockClear();
+
+  const clipped = () =>
+    wrap.mock.calls.filter(([, , options]) => options?.wordWrap === false)
+      .length;
+
+  const owner = new PreviewOwner();
+
+  owner.show({
+    title: 'Loop',
+    frames: [
+      ['\u001b[38;2;120;80;200mFIRST FRAME', 'TAIL ONE'],
+      ['\u001b[38;2;80;120;200mSECOND FRAME', 'TAIL TWO'],
+    ],
+  });
+
+  let resize!: (size: [number, number]) => void;
+
+  function View() {
+    const [[width, height], setSize] = useState<[number, number]>([8, 2]);
+    resize = setSize;
+
+    return createElement(Preview, { owner, width, height });
+  }
+
+  const ui = show(createElement(View));
+
+  try {
+    await until('first clipped frame', () => ui.text() === 'Loop\nFIRST FR');
+    vi.advanceTimersByTime(50);
+    await until('second clipped frame', () => ui.text() === 'Loop\nSECOND F');
+    const calls = clipped();
+    assert.ok(calls > 0);
+    vi.advanceTimersByTime(50);
+    await until('first frame again', () => ui.text() === 'Loop\nFIRST FR');
+    vi.advanceTimersByTime(50);
+    await until('second frame again', () => ui.text() === 'Loop\nSECOND F');
+    assert.equal(clipped(), calls);
+    resize([4, 2]);
+    await until('narrow frame', () => ui.text() === 'Loop\nSECO');
+    resize([8, 3]);
+    await until('taller frame', () => ui.text() === 'Loop\nSECOND F\nTAIL TWO');
+    owner.show({ title: 'New', frames: [['REPLACED'], ['LATEST']] });
+
+    await until(
+      'replacement starts',
+      () => ui.text().trimEnd() === 'New\nREPLACED',
+    );
+
+    vi.advanceTimersByTime(50);
+
+    await until(
+      'replacement advances',
+      () => ui.text().trimEnd() === 'New\nLATEST',
+    );
+  } finally {
+    ui.unmount();
   }
 });
 

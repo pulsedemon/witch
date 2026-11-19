@@ -79,11 +79,11 @@ export const previewStatusSchema = z
 
 type Placement = z.infer<typeof placementSchema>;
 
-export type PreviewDocument = z.infer<typeof previewDocumentSchema>;
+type PreviewDocument = z.infer<typeof previewDocumentSchema>;
 
 export type PreviewStatus = z.infer<typeof previewStatusSchema>;
 
-export type PreviewSnapshot = Readonly<{
+type PreviewSnapshot = Readonly<{
   document: PreviewDocument;
   status: PreviewStatus;
   startedAt: number;
