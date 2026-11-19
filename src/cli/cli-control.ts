@@ -97,6 +97,136 @@ function bindingOf(values: {
   });
 }
 
+type CommandValues = ReturnType<
+  typeof parseArgs<{ options: typeof options }>
+>['values'];
+
+function familiarMode(
+  values: CommandValues,
+  positionals: string[],
+  args: string[],
+  separator: number,
+) {
+  const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
+  const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
+  const label = runtime === 'codex' ? 'Codex' : 'Claude';
+
+  const allowed = new Set([
+    ...bindingOptions,
+    option,
+    'report-file',
+    ...(runtime === 'codex' ? ['without-mcp'] : []),
+  ]);
+
+  if (
+    Object.keys(values).some((key) => !allowed.has(key)) ||
+    separator < 0 ||
+    positionals.length !== args.length - separator - 1
+  )
+    throw new Error(
+      `${label} familiar mode requires -- before native arguments and cannot include other Witch options or prompts.`,
+    );
+
+  if (!values[option]?.trim() || !values['report-file'])
+    throw new Error(
+      `${label} familiar mode requires a task name and --report-file.`,
+    );
+
+  const binding = bindingOf(values);
+  (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
+
+  return {
+    runtime,
+    binding,
+    name: values[option].trim(),
+    reportFile: resolve(values['report-file']),
+    args: positionals,
+    withoutMcp: values['without-mcp'] === true,
+  };
+}
+
+function controlAction(
+  name: (typeof actionOptions)[number],
+  values: CommandValues,
+): unknown {
+  switch (name) {
+    case 'peers':
+      return { kind: 'peers' };
+
+    case 'claim':
+      return {
+        kind: 'claim',
+        input: {
+          reference: values.claim,
+          summary: values.summary,
+          aliases: values.alias,
+        },
+      };
+
+    case 'recommend':
+      return {
+        kind: 'recommend',
+        selection: values.selection,
+        input: {
+          reference: values.recommend,
+          summary: values.summary,
+          aliases: values.alias,
+        },
+      };
+
+    case 'release':
+      return values.reference
+        ? {
+            kind: 'release-references',
+            claim: values.release,
+            references: values.reference,
+          }
+        : { kind: 'release', claim: values.release };
+
+    case 'select-next':
+      return { kind: 'select-next', turn: values['select-next'] };
+
+    case 'cancel-selection':
+      return {
+        kind: 'cancel-selection',
+        selection: values['cancel-selection'],
+      };
+
+    case 'ask':
+      return { kind: 'ask', claim: values.ask, message: values.message };
+
+    case 'answer':
+      return {
+        kind: 'answer',
+        request: values.answer,
+        message: values.message,
+      };
+
+    case 'peer-request':
+      return { kind: 'peer-request', request: values['peer-request'] };
+
+    case 'pause':
+      return { kind: 'pause', to: values.to };
+
+    case 'resume':
+      return { kind: 'resume', pause: values.resume };
+
+    case 'pause-status':
+      return { kind: 'pause-status', pause: values['pause-status'] };
+
+    case 'route':
+      return {
+        kind: 'route',
+        work: values.route,
+        of: choice(values.of),
+        named: choice(values.named),
+      };
+
+    default:
+      return name satisfies never;
+  }
+}
+
 export function parseCommand(args = process.argv.slice(2)) {
   const separator = args.indexOf('--');
 
@@ -116,45 +246,10 @@ export function parseCommand(args = process.argv.slice(2)) {
     values['without-mcp'] !== undefined;
 
   if (reporting) {
-    const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
-    const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
-    const label = runtime === 'codex' ? 'Codex' : 'Claude';
-
-    const allowed = new Set([
-      ...bindingOptions,
-      option,
-      'report-file',
-      ...(runtime === 'codex' ? ['without-mcp'] : []),
-    ]);
-
-    if (
-      Object.keys(values).some((key) => !allowed.has(key)) ||
-      separator < 0 ||
-      positionals.length !== args.length - separator - 1
-    )
-      throw new Error(
-        `${label} familiar mode requires -- before native arguments and cannot include other Witch options or prompts.`,
-      );
-
-    if (!values[option]?.trim() || !values['report-file'])
-      throw new Error(
-        `${label} familiar mode requires a task name and --report-file.`,
-      );
-
-    const binding = bindingOf(values);
-    (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
-
     return {
       ...parsed,
       control: undefined,
-      familiar: {
-        runtime,
-        binding,
-        name: values[option].trim(),
-        reportFile: resolve(values['report-file']),
-        args: positionals,
-        withoutMcp: values['without-mcp'] === true,
-      },
+      familiar: familiarMode(values, positionals, args, separator),
       spawn: undefined,
     };
   }
@@ -216,7 +311,9 @@ export function parseCommand(args = process.argv.slice(2)) {
   if (values.reference && values.release === undefined)
     throw new Error('--reference requires --release.');
 
-  if (actionOptions.filter((name) => values[name] !== undefined).length !== 1)
+  const actions = actionOptions.filter((name) => values[name] !== undefined);
+
+  if (actions.length !== 1)
     throw new Error(
       `Choose exactly one control action: ${flags.slice(0, -1).join(', ')} or ${flags.at(-1)}.`,
     );
@@ -269,55 +366,7 @@ export function parseCommand(args = process.argv.slice(2)) {
   const binding = bindingOf(values);
 
   const action = coordinationActionSchema.parse(
-    values.peers
-      ? { kind: 'peers' }
-      : values.claim !== undefined || values.recommend !== undefined
-        ? {
-            kind: values.recommend !== undefined ? 'recommend' : 'claim',
-            selection: values.selection,
-            input: {
-              reference: values.recommend ?? values.claim,
-              summary: values.summary,
-              aliases: values.alias,
-            },
-          }
-        : values.ask !== undefined
-          ? { kind: 'ask', claim: values.ask, message: values.message }
-          : values.answer !== undefined
-            ? {
-                kind: 'answer',
-                request: values.answer,
-                message: values.message,
-              }
-            : values['peer-request'] !== undefined
-              ? { kind: 'peer-request', request: values['peer-request'] }
-              : values.pause
-                ? { kind: 'pause', to: values.to }
-                : values.resume !== undefined
-                  ? { kind: 'resume', pause: values.resume }
-                  : values['pause-status'] !== undefined
-                    ? { kind: 'pause-status', pause: values['pause-status'] }
-                    : values['select-next'] !== undefined
-                      ? { kind: 'select-next', turn: values['select-next'] }
-                      : values['cancel-selection'] !== undefined
-                        ? {
-                            kind: 'cancel-selection',
-                            selection: values['cancel-selection'],
-                          }
-                        : values.route !== undefined
-                          ? {
-                              kind: 'route',
-                              work: values.route,
-                              of: choice(values.of),
-                              named: choice(values.named),
-                            }
-                          : values.reference
-                            ? {
-                                kind: 'release-references',
-                                claim: values.release,
-                                references: values.reference,
-                              }
-                            : { kind: 'release', claim: values.release },
+    controlAction(actions[0]!, values),
   );
 
   return {
