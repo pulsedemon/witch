@@ -9,6 +9,13 @@ import { tryOpenLocked } from '../../persistence/lock.js';
 import { runs } from '../../persistence/process.js';
 import type { StateStore } from '../../persistence/store.js';
 import { branchInOperation, operationIn } from './branch-operations.js';
+import {
+  configValue,
+  fetchRemote,
+  gitIn,
+  isFetchRefConflict,
+} from './checkout-git.js';
+import type { Git } from './checkout-git.js';
 import { runCommand } from './command.js';
 import { headRetention } from './head-retention.js';
 import { escapeRegExp, removePlans } from './merged-plans.js';
@@ -18,21 +25,6 @@ import type { RebuildResult } from './shared-rebuild.js';
 import type { Conversation } from '../state.js';
 import { gitHubRepository, parseStatus, statusArgs } from './repository.js';
 import type { PullRequest, Repository, Run } from './repository.js';
-
-/** a password prompt would draw over the TUI, and nothing could answer it. */
-const gitIn =
-  (cwd: string, signal?: AbortSignal) =>
-  async (...args: string[]) =>
-    (
-      await runCommand('git', args, {
-        cwd,
-        timeout: 60_000,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-        ...(signal ? { signal } : {}),
-      })
-    ).stdout.trim();
-
-export type Git = ReturnType<typeof gitIn>;
 
 interface CheckoutProgress {
   head?: string;
@@ -71,7 +63,7 @@ export interface MergeCleanup {
   deferred?: string;
 }
 
-export type CleanupResult = boolean | 'changed' | 'interrupted';
+export type CleanupResult = boolean | 'changed' | 'interrupted' | 'retry';
 
 /** keep cancellation out of the error state so queued turns can run before cleanup resumes. */
 export async function runMergeCleanup(
@@ -143,6 +135,12 @@ export async function runMergeCleanup(
     return acted;
   } catch (error) {
     if (error !== signal.reason) {
+      if (isFetchRefConflict(error)) {
+        progress.deferred = 'a shared remote ref changed during fetch';
+
+        return 'retry';
+      }
+
       const message = errorMessage(error).trim();
 
       // the cleanup's and the rebuild's own sentences already say what failed
@@ -251,26 +249,6 @@ async function peerTurnIn(
 
   return undefined;
 }
-
-/** a Git config value, or '' when it's unset, which Git reports with exit 1. any other failure throws. */
-const configValue = (git: Git, key: string) =>
-  git('config', key).catch((error: unknown) => {
-    if ((error as { code?: unknown }).code === 1) return '';
-
-    throw error;
-  });
-
-/** uses ssh batch mode to avoid passphrase and host key prompts unless the user configured an ssh command. */
-const fetchRemote = async (git: Git, ...args: string[]) => {
-  const own =
-    process.env.GIT_SSH || (await configValue(git, 'core.sshCommand'));
-
-  await git(
-    ...(own ? [] : ['-c', 'core.sshCommand=ssh -o BatchMode=yes']),
-    'fetch',
-    ...args,
-  );
-};
 
 /**
  * the commit `ref` names. --end-of-options keeps a ref named like an option from being read as a flag, and --verify
@@ -940,7 +918,7 @@ async function clean(
         keptDefault = name;
       }
     } catch (error) {
-      if (error === signal?.reason) throw error;
+      if (error === signal?.reason || isFetchRefConflict(error)) throw error;
 
       failures.push(`${retainedFailure} ${errorMessage(error).trim()}`);
     }
