@@ -78,7 +78,36 @@ test('each /delegation change round-trips through the policy file', async () => 
 test('the policy page shows the rule each kind of work follows when it has none', () => {
   const page = delegationPage(defaultPolicy, catalog, {}, installed, 0);
   assert.match(page, /^review +both$/m);
-  assert.match(page, /^implementation +same$/m);
+  assert.match(page, /^implementation +auto$/m);
+  assert.match(page, /^planning +auto$/m);
+  assert.match(page, /^investigation +auto$/m);
+});
+
+test('automatic placement accepts single work and review keeps its coverage rule', () => {
+  for (const kind of ['planning', 'implementation', 'investigation']) {
+    const policy = changeDelegation(
+      `${kind} auto`,
+      defaultPolicy,
+      catalog,
+      installed,
+    );
+
+    assert.equal(typeof policy, 'object');
+
+    if (typeof policy === 'string') assert.fail(policy);
+
+    assert.equal(policy.work[kind as keyof typeof policy.work], 'auto');
+  }
+
+  assert.match(
+    changeDelegation(
+      'review auto',
+      defaultPolicy,
+      catalog,
+      installed,
+    ) as string,
+    /Use both for automatic review coverage/,
+  );
 });
 
 test('the policy page names a weekly window that blocks only some models', () => {

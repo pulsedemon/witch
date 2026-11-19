@@ -30,9 +30,11 @@ async function start(register: Parameters<typeof orderedCleanup>[0]) {
   session.b.catalog.splice(0, 2, { id: 'b-3-model', label: 'B3', efforts: [] });
   await session.coordinator.refreshModels();
 
-  session.coordination.router = router(session.coordinator, {
-    read: async () => policy,
-  });
+  session.coordination.router = router(
+    session.coordinator,
+    { read: async () => policy },
+    (deadline) => session.coordination.routingDemand(deadline),
+  );
 
   const route = async (action: Record<string, unknown> = {}) =>
     callControl(await session.binding(), {
@@ -62,7 +64,8 @@ test('a route answers during a running turn with no selection turn, and shows it
           {
             runtime: 'a',
             model: 'a-2-model',
-            reason: 'implementation stays on a; a has no usage reading',
+            reason:
+              'implementation stays on a; a has no usage reading; a: 1 active coordinator, 0 running familiars',
           },
         ],
         id: undefined,
@@ -74,7 +77,7 @@ test('a route answers during a running turn with no selection turn, and shows it
         (item) =>
           item.kind === 'notice' &&
           item.text ===
-            'Routed implementation to a · a-2-model: implementation stays on a; a has no usage reading',
+            'Routed implementation to a · a-2-model: implementation stays on a; a has no usage reading; a: 1 active coordinator, 0 running familiars',
       ),
     );
   } finally {
@@ -137,7 +140,7 @@ test('a runtime over the level shifts work to one with room, and a stale reading
   if (reply.kind !== 'route') return;
 
   const reason =
-    'a (7D 92%) is at or over the 90% shift threshold, and b (7D 40%) has room under it';
+    'automatic implementation; b (7D 40%); b: 0 active coordinators, 0 running familiars; a (7D 92%); a: 0 active coordinators, 0 running familiars; b has the most remaining allowance per worker among eligible runtimes, accounting for known reset times';
 
   assert.deepEqual(reply.routes, [
     { runtime: 'b', model: 'b-3-model', from: 'a', reason },
@@ -149,7 +152,7 @@ test('a runtime over the level shifts work to one with room, and a stale reading
         item.kind === 'notice' &&
         item.warning &&
         item.text ===
-          `Routed implementation to b · b-3-model, passing over a for usage: ${reason}`,
+          `Routed implementation to b · b-3-model, passing over a for capacity: ${reason}`,
     ),
   );
 });
@@ -158,45 +161,55 @@ test('a review that loses a runtime to usage routes once and says on its own lin
   const f = await start(t.onTestFinished);
   f.coordinator.accountUsage.report('a', { limits: [window(95)] });
   f.coordinator.accountUsage.report('b', { limits: [window(40)] });
+  const gate = new TurnGate();
+  f.a.gate = gate;
+  const sending = f.coordinator.send('Review');
+  await gate.entered;
 
-  const reply = await f.route({
-    work: 'review',
-    of: { runtime: 'a', model: 'a-2-model' },
-  });
+  try {
+    const reply = await f.route({
+      work: 'review',
+      of: { runtime: 'a', model: 'a-2-model' },
+    });
 
-  assert.equal(reply.kind, 'route');
+    assert.equal(reply.kind, 'route');
 
-  if (reply.kind !== 'route') return;
+    if (reply.kind !== 'route') return;
 
-  const reason =
-    'a (7D 95%) is at or over the 90% shift threshold, and b (7D 40%) has room under it';
+    const reason =
+      'review of a work prefers a; a (7D 95%); a: 1 active coordinator, 0 running familiars; b (7D 40%); b: 0 active coordinators, 0 running familiars; reserving a capacity for its active coordinator; b has the most remaining allowance per worker among eligible runtimes, accounting for known reset times';
 
-  assert.deepEqual(reply.routes, [
-    {
-      runtime: 'b',
-      model: 'b-3-model',
-      reason: 'review of a work goes to every runtime',
-    },
-  ]);
+    assert.deepEqual(reply.routes, [
+      {
+        runtime: 'b',
+        model: 'b-3-model',
+        reason:
+          'review of a work requests a familiar on each runtime; b (7D 40%); b: 0 active coordinators, 0 running familiars',
+      },
+    ]);
 
-  assert.deepEqual(reply.folded, [
-    { runtime: 'b', model: 'b-3-model', from: 'a', reason },
-  ]);
+    assert.deepEqual(reply.folded, [
+      { runtime: 'b', model: 'b-3-model', from: 'a', reason },
+    ]);
 
-  const notices = f.coordinator.snapshot.items
-    .filter(({ kind, text }) => kind === 'notice' && text.includes(' · '))
-    .map(({ text, warning }) => ({ text, warning }));
+    const notices = f.coordinator.snapshot.items
+      .filter(({ kind, text }) => kind === 'notice' && text.includes(' · '))
+      .map(({ text, warning }) => ({ text, warning }));
 
-  assert.deepEqual(notices, [
-    {
-      text: 'Routed review to b · b-3-model: review of a work goes to every runtime',
-      warning: undefined,
-    },
-    {
-      text: `Passed over a for review for usage; b · b-3-model already has it: ${reason}`,
-      warning: true,
-    },
-  ]);
+    assert.deepEqual(notices, [
+      {
+        text: 'Routed review to b · b-3-model: review of a work requests a familiar on each runtime; b (7D 40%); b: 0 active coordinators, 0 running familiars',
+        warning: undefined,
+      },
+      {
+        text: `Passed over a for review for capacity; b · b-3-model already has it: ${reason}`,
+        warning: true,
+      },
+    ]);
+  } finally {
+    gate.open();
+    await sending;
+  }
 });
 
 test('a route after an empty read starts no new one, and says the reading is missing', async (t) => {
@@ -210,7 +223,7 @@ test('a route after an empty read starts no new one, and says the reading is mis
   if (reply.kind === 'route')
     assert.equal(
       reply.routes[0]!.reason,
-      'implementation stays on a; a (7D 95%) is at or over the 90% shift threshold, but b has no usage reading',
+      'automatic implementation; a (7D 95%); a: 0 active coordinators, 0 running familiars; b has no usage reading; b: 0 active coordinators, 0 running familiars; no verified destination capacity; a has the most remaining allowance per worker among eligible runtimes, accounting for known reset times',
     );
 });
 
@@ -265,7 +278,7 @@ for (const missing of ['stale credits', 'missing credit access'] as const)
           model: 'b-3-model',
           from: 'a',
           reason:
-            'a (7D 100%) is at or over the 90% shift threshold, and b (7D 100%, 27.12 credits) has usable credits',
+            'implementation prefers a; a (7D 100%); a: 0 active coordinators, 0 running familiars; b (7D 100%, 27.12 credits); b: 0 active coordinators, 0 running familiars; a has a full applicable usage window; b has usable credits for its full window',
         },
       ]);
 
@@ -311,7 +324,7 @@ test('a read slower than the wait still gets a reply, routed on what is current'
 
   if (reply.kind === 'route') {
     assert.equal(reply.routes[0]!.runtime, 'a');
-    assert.match(reply.routes[0]!.reason, /b's 7D reading is not current$/);
+    assert.match(reply.routes[0]!.reason, /b's 7D reading is not current;/);
   }
 });
 
@@ -359,11 +372,15 @@ test('a policy that cannot be read refuses the route in the transcript as well a
   const f = await start(t.onTestFinished);
   const unreadable = 'The delegation policy at /p/policy.json is unreadable.';
 
-  f.coordination.router = router(f.coordinator, {
-    read: async () => {
-      throw new Error(unreadable);
+  f.coordination.router = router(
+    f.coordinator,
+    {
+      read: async () => {
+        throw new Error(unreadable);
+      },
     },
-  });
+    (deadline) => f.coordination.routingDemand(deadline),
+  );
 
   const reply = await f.route();
 

@@ -55,6 +55,7 @@ import { QueuedWrites } from './queued-writes.js';
 import type { PeerRequest } from './peer-requests.js';
 import type { PeerAnswer } from './peer-answers.js';
 import type { Conversation, ProcessIdentity } from '../state.js';
+import { collectDemand, type Demand } from '../runtime/demand.js';
 
 export interface Activation {
   conversation: Conversation;
@@ -1361,6 +1362,18 @@ export class SessionCoordination {
       active.publishing &&
       !this.closed
     );
+  }
+
+  async routingDemand(deadline: number): Promise<Demand> {
+    const active = this.admit();
+    const discovery = await this.discover(++this.revision, deadline);
+
+    if (this.admit() !== active)
+      throw new Error(
+        'The conversation changed while reading routing workload.',
+      );
+
+    return collectDemand(discovery, this.presence.record(active));
   }
 
   private discover(revision: number, deadline?: number): Promise<Discovery> {

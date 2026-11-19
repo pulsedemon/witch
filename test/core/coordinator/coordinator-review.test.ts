@@ -8,6 +8,7 @@ import { NativeStop, NativeStopTimeout } from '../../../src/agents/shutdown.js';
 import type { Usage } from '../../../src/agents/types.js';
 import type { ControlOutcome } from '../../../src/persistence/control.js';
 import { router } from '../../../src/core/runtime/router.js';
+import type { Demand } from '../../../src/core/runtime/demand.js';
 import type {
   Reviewer,
   ReviewerResult,
@@ -935,8 +936,10 @@ async function cancelHeldRoute(
   h: Awaited<ReturnType<typeof harness>>,
   read: () => Promise<typeof routable>,
   held: { waiting: () => boolean; release: () => void },
+  readDemand: (deadline: number) => Promise<Demand> = (deadline) =>
+    h.coordination.routingDemand(deadline),
 ) {
-  const route = router(h.coordinator, { read });
+  const route = router(h.coordinator, { read }, readDemand);
   let routed: ReturnType<typeof route> | undefined;
   h.coordination.router = (action, signal) => (routed = route(action, signal));
   const reviewing = h.coordinator.review('plan.md');
@@ -975,6 +978,33 @@ test('a route cancelled during its policy read posts nothing later', async (t) =
         return routable;
       },
       { waiting: () => reading, release: () => gate.resolve() },
+    );
+  }
+});
+
+test('a route cancelled during its workload read posts no late choice or failure', async (t) => {
+  const h = await harness(t);
+
+  for (const outcome of ['read', 'failed']) {
+    const gate = Promise.withResolvers<void>();
+    let reading = false;
+
+    await cancelHeldRoute(
+      h,
+      async () => routable,
+      { waiting: () => reading, release: () => gate.resolve() },
+      async () => {
+        reading = true;
+        await gate.promise;
+
+        if (outcome === 'failed') throw new Error('workload unreadable');
+
+        return { coordinators: {}, unknown: ['claude', 'codex'] };
+      },
+    );
+
+    assert.ok(
+      !h.notices().some((text) => text.includes('workload unreadable')),
     );
   }
 });

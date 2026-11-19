@@ -132,7 +132,7 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
     model: 'gpt-6.1-sol',
     from: 'claude',
     reason:
-      'claude (7D 100%) is at or over the 90% shift threshold, and codex (7D 100%, 12345.68 credits) has usable credits',
+      'implementation prefers claude; claude (7D 100%); claude workload unknown; codex (7D 100%, 12345.68 credits); codex workload unknown; claude has a full applicable usage window; codex has usable credits for its full window',
   });
 
   assert.deepEqual(
@@ -144,7 +144,7 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
       runtime: 'codex',
       model: 'gpt-6.1-sol',
       reason:
-        'implementation stays on codex; codex (7D 100%, 12345.68 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
+        'implementation stays on codex; codex (7D 100%, 12345.68 credits); codex workload unknown; its usable credits keep the work here',
     },
   );
 
@@ -222,13 +222,13 @@ test('credits draw work onto another runtime only at 100%, and a spent runtime w
         runtime: 'claude',
         model: 'claude-opus-5-5',
         reason:
-          'review of claude work goes to every runtime; claude (7D 90%) is at or over the 90% shift threshold, but codex (7D 94%, 25966.05 credits) is at or over it too',
+          'review of claude work requests a familiar on each runtime; claude (7D 90%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; codex (7D 94%, 25966.05 credits); codex workload unknown; coordinator capacity is reserved',
       },
       {
         runtime: 'codex',
         model: 'gpt-6.1-sol',
         reason:
-          'review of claude work goes to every runtime; codex (7D 94%, 25966.05 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
+          'review of claude work requests a familiar on each runtime; codex (7D 94%, 25966.05 credits); codex workload unknown; its usable credits keep the work here',
       },
     ],
   );
@@ -242,7 +242,7 @@ test('credits draw work onto another runtime only at 100%, and a spent runtime w
       model: 'gpt-6.1-sol',
       from: 'claude',
       reason:
-        'claude (7D 100%) is at or over the 90% shift threshold, and codex (7D 96%) has included usage left',
+        'implementation prefers claude; claude (7D 100%); claude workload unknown; codex (7D 96%); codex workload unknown; claude has a full applicable usage window; codex has included usage left',
     },
   );
 });
@@ -282,20 +282,22 @@ test('usable credits keep a runtime past the shift threshold on its own placemen
     assert.deepEqual(review(codex), {
       runtime: 'claude',
       model: 'claude-opus-5-5',
-      reason: 'review of claude work goes to every runtime',
+      reason:
+        'review of claude work requests a familiar on each runtime; claude (7D 19%); claude workload unknown',
     });
 
   assert.deepEqual(review(credited(99)), [
     {
       runtime: 'claude',
       model: 'claude-opus-5-5',
-      reason: 'review of claude work goes to every runtime',
+      reason:
+        'review of claude work requests a familiar on each runtime; claude (7D 19%); claude workload unknown',
     },
     {
       runtime: 'codex',
       model: 'gpt-6.1-sol',
       reason:
-        'review of claude work goes to every runtime; codex (7D 99%, 25966.05 credits) is at or over the 90% shift threshold, but its usable credits keep the work here',
+        'review of claude work requests a familiar on each runtime; codex (7D 99%, 25966.05 credits); codex workload unknown; its usable credits keep the work here',
     },
   ]);
 });
@@ -394,7 +396,8 @@ test('an unversioned model a runtime without aliases lists runs as named, by nam
     {
       runtime: 'codex',
       model: 'gpt-reserve',
-      reason: 'the policy sends implementation to codex:gpt-reserve',
+      reason:
+        'the policy sends implementation to codex:gpt-reserve; codex (7D 49%); codex workload unknown',
     },
   );
 
@@ -430,11 +433,12 @@ test('default and names that are not Claude families are refused, and a policy f
   );
 });
 
-test('with no rule, work stays on the caller with its family at the newest version', () => {
+test('unknown workload keeps unspecified work on the caller with its newest family model', () => {
   assert.deepEqual(ask(), {
     runtime: 'claude',
     model: 'claude-opus-5-5',
-    reason: 'implementation stays on claude',
+    reason:
+      'implementation stays on claude; claude (5H 20%, 7D 61%); claude workload unknown; comparative workload is unknown; retaining the caller',
   });
 });
 
@@ -450,7 +454,8 @@ test('review routes relative to the runtime that produced the work', () => {
     {
       runtime: 'claude',
       model: 'claude-opus-5-5',
-      reason: 'the policy sends review of codex work to other',
+      reason:
+        'the policy sends review of codex work to other; claude (5H 20%, 7D 61%); claude workload unknown',
     },
   );
 
@@ -463,7 +468,8 @@ test('review routes relative to the runtime that produced the work', () => {
     {
       runtime: 'codex',
       model: 'gpt-6.1-sol',
-      reason: 'review stays on codex, which produced it',
+      reason:
+        'review stays on codex, which produced it; codex (7D 49%); codex workload unknown',
     },
   );
 
@@ -477,7 +483,7 @@ test('review routes relative to the runtime that produced the work', () => {
   );
 });
 
-test('work shifts to the runtime with room once the chosen one is over the level, in either direction', () => {
+test('unknown activity preserves threshold protection in either direction', () => {
   const hours = (count: number) => now / 1000 + count * 3600;
 
   assert.deepEqual(
@@ -495,7 +501,7 @@ test('work shifts to the runtime with room once the chosen one is over the level
       model: 'gpt-6.1-sol',
       from: 'claude',
       reason:
-        'claude (7D 92%, resets in 1d2h) is at or over the 90% shift threshold, and codex (7D 49%, resets in 4d4h) has room under it',
+        'implementation prefers claude; claude (5H 20%, 7D 92%, resets in 1d2h); claude workload unknown; codex (7D 49%, resets in 4d4h); codex workload unknown; reserving claude capacity while coordinator activity is unknown; codex has included usage left',
     },
   );
 
@@ -515,7 +521,7 @@ test('work shifts to the runtime with room once the chosen one is over the level
       model: 'gpt-6.1-sol',
       from: 'claude',
       reason:
-        'claude (5H 95%) is at or over the 90% shift threshold, and codex (5H 10%) has room under it',
+        "implementation prefers claude; claude (5H 95%); claude's 7D reading is not current; claude workload unknown; codex (5H 10%); codex workload unknown; reserving claude capacity while coordinator activity is unknown; codex has included usage left",
     },
   );
 
@@ -529,7 +535,7 @@ test('work shifts to the runtime with room once the chosen one is over the level
       model: 'claude-opus-5-5',
       from: 'codex',
       reason:
-        'codex (7D 92%) is at or over the 90% shift threshold, and claude (7D 40%) has room under it',
+        'implementation prefers codex; codex (7D 92%); codex workload unknown; claude (7D 40%); claude workload unknown; reserving codex capacity while coordinator activity is unknown; claude has included usage left',
     },
   );
 });
@@ -544,7 +550,7 @@ test('a review the policy sent away from its producer stays off the producer whe
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'the policy sends review of codex work to other; claude (7D 92%) is at or over the 90% shift threshold, but codex produced the work',
+        'the policy sends review of codex work to other; claude (7D 92%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; codex produced the work',
     },
   );
 
@@ -587,7 +593,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       {
         runtime: 'claude',
         model: 'claude-opus-5-5',
-        reason: `implementation stays on claude; claude (7D 92%) is at or over the 90% shift threshold, but ${missing}`,
+        reason: `implementation stays on claude; claude (7D 92%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; ${codex?.some(({ window }) => window === '5H') ? 'codex (5H 10%); ' : ''}${missing}; codex workload unknown; no verified destination capacity`,
       },
     );
 
@@ -603,7 +609,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'implementation stays on claude; claude (7D 92%) is at or over the 90% shift threshold, but codex lists no sol model to run',
+        'implementation stays on claude; claude (7D 92%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; codex lists no sol model to run',
     },
   );
 
@@ -622,7 +628,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        "implementation stays on claude; claude (5H 95%) is at or over the 90% shift threshold, but codex's 7D reading is not current",
+        "implementation stays on claude; claude (5H 95%); claude's 7D reading is not current; claude workload unknown; reserving claude capacity while coordinator activity is unknown; codex's 7D reading is not current; codex workload unknown; no verified destination capacity",
     },
   );
 });
@@ -639,7 +645,7 @@ test('no shift happens when the chosen runtime has no current window over the le
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        "implementation stays on claude; claude's 7D reading is not current",
+        "implementation stays on claude; claude's 7D reading is not current; claude workload unknown; comparative workload is unknown; retaining the caller",
     },
   );
 
@@ -649,7 +655,7 @@ test('no shift happens when the chosen runtime has no current window over the le
         limits: { claude: [window('7D', 92)], codex: [window('7D', 95)] },
       }) as { reason: string }
     ).reason,
-    /but codex \(7D 95%\) is at or over it too$/,
+    /codex \(7D 95%\); codex workload unknown; coordinator capacity is reserved$/,
   );
 
   assert.equal(
@@ -702,18 +708,26 @@ test('a runtime over the level stays when no other runtime is installed, and the
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'implementation stays on claude; claude (7D 95%) is at or over the 90% shift threshold, but no other runtime is installed',
+        'implementation stays on claude; claude (7D 95%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; no other runtime is installed',
     },
   );
 });
 
 test('with no rule, review goes to every runtime, and a reviewer over the level folds into the route of the runtime it shifts onto', () => {
   const of = { runtime: 'claude', model: 'claude-opus-5-5' };
-  const reason = 'review of claude work goes to every runtime';
+  const reason = 'review of claude work requests a familiar on each runtime';
 
   assert.deepEqual(ask({ work: 'review', of }), [
-    { runtime: 'claude', model: 'claude-opus-5-5', reason },
-    { runtime: 'codex', model: 'gpt-6.1-sol', reason },
+    {
+      runtime: 'claude',
+      model: 'claude-opus-5-5',
+      reason: `${reason}; claude (5H 20%, 7D 61%); claude workload unknown`,
+    },
+    {
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      reason: `${reason}; codex (7D 49%); codex workload unknown`,
+    },
   ]);
 
   assert.deepEqual(
@@ -742,14 +756,20 @@ test('with no rule, review goes to every runtime, and a reviewer over the level 
       now,
     }),
     {
-      routes: [{ runtime: 'claude', model: 'claude-opus-5-5', reason }],
+      routes: [
+        {
+          runtime: 'claude',
+          model: 'claude-opus-5-5',
+          reason: `${reason}; claude (7D 40%, resets in 2h0m); claude workload unknown`,
+        },
+      ],
       folded: [
         {
           runtime: 'claude',
           model: 'claude-opus-5-5',
           from: 'codex',
           reason:
-            'codex (7D 92%, resets in 1d1h, 25966.05 credits) is at or over the 90% shift threshold, and claude (7D 40%, resets in 2h0m) has room under it',
+            'review of claude work prefers codex; codex (7D 92%, resets in 1d1h, 25966.05 credits); codex workload unknown; claude (7D 40%, resets in 2h0m); claude workload unknown; reserving codex capacity while coordinator activity is unknown; claude has included usage left',
         },
       ],
     },
@@ -758,7 +778,7 @@ test('with no rule, review goes to every runtime, and a reviewer over the level 
   assert.deepEqual(ask({ work: 'review', of, installed: ['claude'] }), {
     runtime: 'claude',
     model: 'claude-opus-5-5',
-    reason,
+    reason: `${reason}; claude (5H 20%, 7D 61%); claude workload unknown`,
   });
 });
 
@@ -782,7 +802,8 @@ test("a review whose first runtime is over the level folds its shift into the ne
         {
           runtime: 'codex',
           model: 'gpt-6.1-sol',
-          reason: 'review of claude work goes to every runtime',
+          reason:
+            'review of claude work requests a familiar on each runtime; codex (7D 40%); codex workload unknown',
         },
       ],
       folded: [
@@ -791,7 +812,7 @@ test("a review whose first runtime is over the level folds its shift into the ne
           model: 'gpt-6.1-sol',
           from: 'claude',
           reason:
-            'claude (7D 95%) is at or over the 90% shift threshold, and codex (7D 40%) has room under it',
+            'review of claude work prefers claude; claude (7D 95%); claude workload unknown; codex (7D 40%); codex workload unknown; reserving claude capacity while coordinator activity is unknown; codex has included usage left',
         },
       ],
     },
@@ -802,24 +823,28 @@ test('a rule that names a model or family shifts to the comparable model on a ru
   const claudeHot = { claude: [window('7D', 99)], codex: [window('7D', 1)] };
   const codexHot = { claude: [window('7D', 1)], codex: [window('7D', 99)] };
 
-  for (const [rule, limits, model, from] of [
+  for (const [rule, limits, model, sourceModel] of [
     ['claude:claude-opus-5', claudeHot, 'gpt-6-astra', 'claude-opus-5'],
     ['claude:fable', claudeHot, 'gpt-6-astra', 'fable'],
     ['codex:astra', codexHot, 'claude-opus-5-5', 'astra'],
     ['claude:sonnet', claudeHot, 'gpt-6.1-sol', 'sonnet'],
     ['codex:gpt-6.1-terra', codexHot, 'claude-sonnet-5-5', 'gpt-6.1-terra'],
     ['codex:luna', codexHot, 'claude-haiku-5-5', 'luna'],
-  ] as const)
+  ] as const) {
+    const source = limits === claudeHot ? 'claude' : 'codex';
+    const destination = source === 'claude' ? 'codex' : 'claude';
+
     assert.deepEqual(
       ask({ policy: { work: { implementation: rule } }, limits }),
       {
-        runtime: limits === claudeHot ? 'codex' : 'claude',
+        runtime: destination,
         model,
-        from: limits === claudeHot ? 'claude' : 'codex',
-        reason: `${limits === claudeHot ? 'claude (7D 99%) is at or over the 90% shift threshold, and codex (7D 1%)' : 'codex (7D 99%) is at or over the 90% shift threshold, and claude (7D 1%)'} has room under it; ${model} is comparable to ${from}`,
+        from: source,
+        reason: `implementation prefers ${source}; ${source} (7D 99%); ${source} workload unknown; ${destination} (7D 1%); ${destination} workload unknown; reserving ${source} capacity while coordinator activity is unknown; ${destination} has included usage left; ${model} is comparable to ${sourceModel}`,
       },
       rule,
     );
+  }
 
   assert.deepEqual(
     ask({
@@ -830,7 +855,7 @@ test('a rule that names a model or family shifts to the comparable model on a ru
       runtime: 'codex',
       model: 'gpt-6-nova',
       reason:
-        'the policy sends implementation to codex:gpt-6-nova; codex (7D 99%) is at or over the 90% shift threshold, but claude has no model comparable to gpt-6-nova',
+        'the policy sends implementation to codex:gpt-6-nova; codex (7D 99%); codex workload unknown; reserving codex capacity while coordinator activity is unknown; claude has no model comparable to gpt-6-nova',
     },
   );
 
@@ -839,7 +864,8 @@ test('a rule that names a model or family shifts to the comparable model on a ru
     {
       runtime: 'claude',
       model: 'claude-opus-5',
-      reason: 'the policy sends implementation to claude:claude-opus-5',
+      reason:
+        'the policy sends implementation to claude:claude-opus-5; claude (5H 20%, 7D 61%); claude workload unknown',
     },
   );
 });
@@ -860,13 +886,14 @@ test('a model whose own weekly window is over the level shifts like a runtime ov
     model: 'gpt-6-astra',
     from: 'claude',
     reason:
-      'claude (7D Fable 100%) is at or over the 90% shift threshold, and codex (7D 49%) has room under it; gpt-6-astra is comparable to fable',
+      'implementation prefers claude; claude (5H 20%, 7D 61%, 7D Fable 100%); claude workload unknown; codex (7D 49%); codex workload unknown; claude has a full applicable usage window; codex has included usage left; gpt-6-astra is comparable to fable',
   });
 
   assert.deepEqual(ask({ accounts: scoped('Fable', 100) }), {
     runtime: 'claude',
     model: 'claude-opus-5-5',
-    reason: 'implementation stays on claude',
+    reason:
+      'implementation stays on claude; claude (5H 20%, 7D 61%); claude workload unknown; comparative workload is unknown; retaining the caller',
   });
 
   // a spent model with no runtime under the level falls back to one with included usage left, as a spent runtime does
@@ -883,7 +910,7 @@ test('a model whose own weekly window is over the level shifts like a runtime ov
       model: 'gpt-6-astra',
       from: 'claude',
       reason:
-        'claude (7D Fable 100%) is at or over the 90% shift threshold, and codex (7D 95%) has included usage left; gpt-6-astra is comparable to fable',
+        'implementation prefers claude; claude (5H 20%, 7D 61%, 7D Fable 100%); claude workload unknown; codex (7D 95%); codex workload unknown; claude has a full applicable usage window; codex has included usage left; gpt-6-astra is comparable to fable',
     },
   );
 
@@ -899,7 +926,7 @@ test('a model whose own weekly window is over the level shifts like a runtime ov
       runtime: 'codex',
       model: 'gpt-6.1-sol',
       reason:
-        'implementation stays on codex; codex (7D 92%) is at or over the 90% shift threshold, but claude (7D 40%, 7D Opus 95%) is at or over it too',
+        'implementation stays on codex; codex (7D 92%); codex workload unknown; reserving codex capacity while coordinator activity is unknown; claude (7D 40%, 7D Opus 95%); claude workload unknown; coordinator capacity is reserved',
     },
   );
 });
