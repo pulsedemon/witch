@@ -287,14 +287,12 @@ export async function cleanUpMerge(
 
   const git = gitIn(cwd, signal);
 
-  const lock = await lockCheckout(git).catch((error: unknown) => {
-    if (error === signal?.reason) throw error;
-
-    throw new Error(
-      `#${pullRequest.number} merged, but its cleanup failed while locking ${pullRequest.branch}: ${errorMessage(error).trim()}`,
-      { cause: error },
-    );
-  });
+  const lock = await lockCheckout(git).catch(
+    failing(
+      `#${pullRequest.number} merged, but its cleanup failed while locking ${pullRequest.branch}`,
+      signal,
+    ),
+  );
 
   if (!lock) {
     progress.deferred = 'another Witch is updating this checkout';
@@ -334,18 +332,29 @@ export async function cleanUpMerge(
   }
 }
 
-/** wraps a failure in the cleanup's sentence, which says by default that the branch wasn't deleted yet. an abort passes through. */
-const stopping =
-  (
-    { number, branch }: PullRequest,
-    signal?: AbortSignal,
-    did = `#${number} merged, but its cleanup failed before deleting ${branch}`,
-  ) =>
+/** cancellation identity keeps interrupted cleanup resumable. */
+const failing =
+  (did: string, signal?: AbortSignal) =>
   (error: unknown): never => {
     if (error === signal?.reason) throw error;
 
     throw new Error(`${did}: ${errorMessage(error).trim()}`, { cause: error });
   };
+
+const stopping = ({ number, branch }: PullRequest, signal?: AbortSignal) =>
+  failing(
+    `#${number} merged, but its cleanup failed before deleting ${branch}`,
+    signal,
+  );
+
+async function pullBase(
+  git: Git,
+  base: string,
+  progress?: CheckoutProgress,
+): Promise<void> {
+  if (!(await fastForward(git, base, progress)))
+    throw new Error(`the checkout left ${base} or changed during the fetch`);
+}
 
 interface HeadRemote {
   upstream?: string;
@@ -473,14 +482,9 @@ async function removeLeftovers(
   // branch -D would drop it too, and a later branch of the same name would inherit its upstream
   const hasConfig =
     progress.unset === undefined &&
-    (await hasBranchConfig(git, branch).catch((error: unknown) => {
-      if (error === signal?.reason) throw error;
-
-      throw new Error(
-        `${did}, but could not read its config: ${errorMessage(error)}`,
-        { cause: error },
-      );
-    }));
+    (await hasBranchConfig(git, branch).catch(
+      failing(`${did}, but could not read its config`, signal),
+    ));
 
   const unset = (progress.unset ??= hasConfig
     ? await git('config', '--remove-section', `branch.${branch}`).then(
@@ -503,14 +507,12 @@ async function removeLeftovers(
       ledgers: [],
     }),
     signal,
-  ).catch((error: unknown) => {
-    if (error === signal?.reason) throw error;
-
-    throw new Error(
-      `${did}${unset && ` (${unset})`}, but could not locate its plans: ${errorMessage(error)}`,
-      { cause: error },
-    );
-  });
+  ).catch(
+    failing(
+      `${did}${unset && ` (${unset})`}, but could not locate its plans`,
+      signal,
+    ),
+  );
 
   const named = (paths: string[]) =>
     `${paths.length > 1 ? 'plans' : 'plan'} ${list(paths.map((path) => basename(path)))}`;
@@ -718,12 +720,10 @@ async function clean(
 
       progress.deleted = [branch];
     } catch (error) {
-      if (error === signal?.reason) throw error;
-
-      throw new Error(
-        `#${number} merged: ${moved}, but ${branch} wasn't deleted: ${errorMessage(error)}`,
-        { cause: error },
-      );
+      failing(
+        `#${number} merged: ${moved}, but ${branch} wasn't deleted`,
+        signal,
+      )(error);
     }
 
   const { plans, kept } = await removeLeftovers(
@@ -741,15 +741,12 @@ async function clean(
     // fetch again on the base, which can track a different remote
     progress.pull ??= { head: progress.switchHead };
 
-    if (!progress.pull.done && !(await fastForward(git, base, progress.pull)))
-      throw new Error(`the checkout left ${base} or changed during the fetch`);
+    if (!progress.pull.done) await pullBase(git, base, progress.pull);
   } catch (error) {
-    if (error === signal?.reason) throw error;
-
-    throw new Error(
-      `#${number} merged: ${moved} and deleted branch ${branch}${removed}${kept && ` (${kept})`}, but ${base} didn't fast-forward: ${errorMessage(error)}`,
-      { cause: error },
-    );
+    failing(
+      `#${number} merged: ${moved} and deleted branch ${branch}${removed}${kept && ` (${kept})`}, but ${base} didn't fast-forward`,
+      signal,
+    )(error);
   }
 
   const deleted = progress.deleted;
@@ -781,14 +778,12 @@ async function clean(
           name && head && name !== base && !worktree && !pruned.includes(name),
       );
 
-  let refs = await readBranches().catch((error: unknown) => {
-    if (error === signal?.reason) throw error;
-
-    throw new Error(
-      `#${number} merged: ${pulled}, deleted branch ${branch}${removed}${kept && ` (${kept})`}, but could not list other merged branches: ${errorMessage(error)}`,
-      { cause: error },
-    );
-  });
+  let refs = await readBranches().catch(
+    failing(
+      `#${number} merged: ${pulled}, deleted branch ${branch}${removed}${kept && ` (${kept})`}, but could not list other merged branches`,
+      signal,
+    ),
+  );
 
   const retained = (ref: (typeof refs)[number]) =>
     progress.remote &&
@@ -822,14 +817,9 @@ async function clean(
 
         await checkRemote();
 
-        await fetchRemote(git, remote.name).catch((error: unknown) => {
-          if (error === signal?.reason) throw error;
-
-          throw new Error(
-            `couldn't refresh ${remote.name}: ${errorMessage(error).trim()}`,
-            { cause: error },
-          );
-        });
+        await fetchRemote(git, remote.name).catch(
+          failing(`couldn't refresh ${remote.name}`, signal),
+        );
 
         await checkRemote();
         refs = await readBranches();
@@ -940,10 +930,9 @@ async function cleanLeft(
 
   // a run that resumes after its deletion can't say the branch is still there
   const stopped = progress.deleted?.includes(branch)
-    ? stopping(
-        pullRequest,
-        signal,
+    ? failing(
         `#${number} merged and branch ${branch} was deleted, but the rest of its cleanup failed`,
+        signal,
       )
     : stopping(pullRequest, signal);
 
@@ -1101,29 +1090,22 @@ async function cleanLeft(
   if (onBase)
     try {
       progress.baseHead ??= await git('rev-parse', `refs/heads/${base}`);
-
       // new progress on each run: the base may have moved since an interrupted one, and --ff-only refuses anything else
-      if (!(await fastForward(git, base)))
-        throw new Error(
-          `the checkout left ${base} or changed during the fetch`,
-        );
+      await pullBase(git, base);
     } catch (error) {
-      if (error === signal?.reason) throw error;
-
-      throw new Error(
-        `#${number} merged: ${did()}${removed}${kept && ` (${kept})`}, but ${base} didn't fast-forward: ${errorMessage(error)}`,
-        { cause: error },
-      );
+      failing(
+        `#${number} merged: ${did()}${removed}${kept && ` (${kept})`}, but ${base} didn't fast-forward`,
+        signal,
+      )(error);
     }
 
   // the base's own ref, so a run interrupted inside the fast-forward still counts it after the checkout went elsewhere
   const advanced =
     progress.baseHead !== undefined &&
     (await refHead(git, base).catch(
-      stopping(
-        pullRequest,
-        signal,
+      failing(
         `#${number} merged: ${did(onBase)}${removed}${kept && ` (${kept})`}, but ${base} couldn't be read`,
+        signal,
       ),
     )) !== progress.baseHead;
 
