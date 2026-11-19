@@ -301,6 +301,7 @@ for (const pending of ['deferred', 'retry', 'cleanup', 'interrupted'] as const)
     if (pending === 'retry') await settle('retry');
 
     stop();
+    assert.equal(vi.getTimerCount(), 0);
 
     if (pending === 'cleanup') await settle(false);
 

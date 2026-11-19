@@ -50,6 +50,9 @@ async function operation(root: string, cwd: string) {
 const mismatch = (ref = 'refs/remotes/origin/main') =>
   `error: cannot lock ref '${ref}': is at ${'a'.repeat(40)} but expected ${'b'.repeat(40)}\n`;
 
+const batchedMismatch = (ref = 'refs/remotes/origin/main') =>
+  `error: fetching ref ${ref} failed: incorrect old value provided\n`;
+
 test('a cleanup losing a real fetch race retries after the sibling cleanup and removes both branches and plans', async () => {
   const { root, origin, launcher, checkout, other, tip } = await merged(
     {},
@@ -143,7 +146,12 @@ if (process.cwd() === ${JSON.stringify(checkout)} && args.includes('fetch') && !
         };
 
         assert.equal(failure.code, 1);
-        assert.match(failure.stderr, /cannot lock ref.*is at .*but expected/);
+
+        assert.match(
+          failure.stderr,
+          /cannot lock ref.*is at .*but expected|fetching ref refs\/remotes\/origin\/main failed: incorrect old value provided/,
+        );
+
         assert.equal(await first.run(pullRequest(tip), progress), true);
       } finally {
         await write(release, '');
@@ -165,8 +173,12 @@ if (process.cwd() === ${JSON.stringify(checkout)} && args.includes('fetch') && !
   assert.equal(second.notices.length, 1);
 });
 
-for (const phase of ['base fetch', 'retained refresh'])
-  test(`a conflict during ${phase} retains completed deletion and finishes on retry`, async () => {
+for (const [phase, format, diagnostic] of [
+  ['base fetch', 'detailed', mismatch()],
+  ['base fetch', 'batched', batchedMismatch()],
+  ['retained refresh', 'detailed', mismatch()],
+] as const)
+  test(`a ${format} conflict during ${phase} retains completed deletion and finishes on retry`, async () => {
     const { root, origin, checkout, other, tip } = await merged();
     const plan = join(checkout, 'docs/superpowers/plans/x.md');
     await write(plan, 'git switch -c feat/x\n');
@@ -195,7 +207,7 @@ if (args[0] === 'update-ref' && args[1] === '-d') {
 }
 if (args.includes('fetch') && args.at(-1) === ${JSON.stringify(phase === 'base fetch' ? 'fetch' : 'origin')} && !existsSync(${JSON.stringify(once)})) {
   writeFileSync(${JSON.stringify(once)}, '');
-  process.stderr.write(${JSON.stringify(mismatch())});
+  process.stderr.write(${JSON.stringify(diagnostic)});
   process.exit(1);
 }
 `,
@@ -234,6 +246,7 @@ for (const [name, code, stderr] of [
     "error: cannot lock ref 'refs/remotes/origin/main': File exists\n",
   ],
   ['a local head mismatch', 1, mismatch('refs/heads/main')],
+  ['a batched local head mismatch', 1, batchedMismatch('refs/heads/main')],
   ['a mixed fatal failure', 1, `${mismatch()}fatal: transport failed\n`],
   ['a mixed remote failure', 1, `${mismatch()}remote: error: rejected\n`],
 ] as const)
