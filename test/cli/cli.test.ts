@@ -593,7 +593,9 @@ test('preview CLI reads a quoted file locally and sends validated frame data thr
   const prefix = controlPrefix(binding, await compiledCli());
 
   try {
-    await writeFile(file, JSON.stringify(document));
+    const atLimit = Buffer.alloc(2 * 1024 * 1024, ' ');
+    atLimit.write(JSON.stringify(document));
+    await writeFile(file, atLimit);
     const shown = await run(`${prefix} --preview ${quote(file)} --json`);
     assert.equal(shown.code, 0, shown.stderr);
     const id = JSON.parse(shown.stdout).preview.id;
@@ -615,6 +617,12 @@ test('preview CLI reads a quoted file locally and sends validated frame data thr
     const invalid = await run(`${prefix} --preview ${quote(file)} --json`);
     assert.equal(invalid.code, 1);
     assert.match(invalid.stdout, /restricted SGR/);
+    assert.equal(seen.length, 2);
+    assert.equal(owner.snapshot?.status.id, id);
+    await writeFile(file, Buffer.concat([atLimit, Buffer.from(' ')]));
+    const oversized = await run(`${prefix} --preview ${quote(file)} --json`);
+    assert.equal(oversized.code, 1);
+    assert.match(oversized.stdout, /2 MiB/);
     assert.equal(seen.length, 2);
     assert.equal(owner.snapshot?.status.id, id);
 
