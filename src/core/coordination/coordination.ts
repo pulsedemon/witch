@@ -9,11 +9,7 @@ import {
   checkDeadline,
   DeadlineExpired,
 } from '../../persistence/coordination.js';
-import type {
-  Ledger,
-  QueuedWrite,
-  Verify,
-} from '../../persistence/coordination.js';
+import type { Ledger, Verify } from '../../persistence/coordination.js';
 import { ControlHost } from '../../persistence/control.js';
 import type {
   ControlBinding,
@@ -25,6 +21,7 @@ import type { StateStore } from '../../persistence/store.js';
 import {
   checkTaskRelease,
   emptySnapshot,
+  type CoordinationAction,
   type CoordinationSnapshot,
   type SelectionScope,
 } from './coordination-state.js';
@@ -41,7 +38,7 @@ import {
   discover,
   projectDiscovery,
 } from './discovery.js';
-import { movedNotices, transferRefusal } from './task-transfer.js';
+import { movedNotices, TransferResponder } from './task-transfer.js';
 import type { Discovery } from './discovery.js';
 import { assignGitHubTask } from './github-assignment.js';
 import { ReviewOwnership } from '../repository/review-ownership.js';
@@ -53,6 +50,7 @@ import {
   type DispatchHost,
 } from './control-dispatch.js';
 import { PresencePublisher } from './presence.js';
+import { QueuedWrites } from './queued-writes.js';
 import type { PeerRequest } from './peer-requests.js';
 import type { PeerAnswer } from './peer-answers.js';
 import type { Conversation, ProcessIdentity } from '../state.js';
@@ -110,6 +108,8 @@ export class SessionCoordination {
   readonly events: ConversationEvents;
   private readonly control: DispatchHost;
   private readonly presence: PresencePublisher;
+  private readonly writes: QueuedWrites;
+  private readonly transfers: TransferResponder;
   readonly reviews = new ReviewOwnership({
     observed: () => !!this.active?.accepting && !!this.ledger,
     context: (project) => this.context(project),
@@ -169,10 +169,6 @@ export class SessionCoordination {
   private cancellations = new Map<string, SelectionScope>();
   private claimReleases = new Set<string>();
   private maintaining?: Promise<void>;
-  private handing?: Promise<void>;
-  /** writes that must outlast a busy ledger; ticks retry them, deactivation tries once more, and a close saves the rest for the next Witch to start. */
-  private queuedWrites: QueuedWrite[] = [];
-  private flushingWrites?: Promise<void>;
   private ending = false;
   private closed = false;
 
@@ -199,6 +195,33 @@ export class SessionCoordination {
         this.publish(this.snapshot);
       },
       failure: () => this.failures.has('presence'),
+    });
+
+    this.writes = new QueuedWrites({
+      registry,
+      serialize: (work) => this.serialize(work),
+      failed: (error) => this.fail('queued-writes', error),
+      flushed: () => {
+        this.failures.delete('queued-writes');
+        this.publish(this.snapshot);
+      },
+    });
+
+    this.transfers = new TransferResponder({
+      registry,
+      serialize: (work) => this.serialize(work),
+      change: (state, work, verify) => this.change(state, work, verify),
+      admit: () => this.admit(),
+      state: () => this.state,
+      refresh: () => this.refresh(),
+      admitted: (active) =>
+        this.active === active &&
+        active.accepting &&
+        active.publishing &&
+        !this.ending &&
+        !this.closed,
+      failed: (error) => this.fail('handover', error),
+      recovered: () => this.recover('handover'),
     });
 
     this.control = {
@@ -328,8 +351,8 @@ export class SessionCoordination {
       throw error;
     }
 
-    coordination.queuedWrites.push(...saved);
-    void coordination.flushQueuedWrites();
+    coordination.writes.push(...saved);
+    void coordination.writes.flush();
     coordination.timer = setInterval(() => coordination.tick(), 2000);
     coordination.timer.unref();
 
@@ -473,7 +496,7 @@ export class SessionCoordination {
 
     try {
       await quiescing;
-      await this.flushQueuedWrites();
+      await this.writes.flush();
       await this.presence.idle();
       const queued = this.failures.get('queued-writes');
 
@@ -618,7 +641,7 @@ export class SessionCoordination {
         if (!(error instanceof DeadlineExpired)) throw error;
 
         // the turn spent the request's one attempt, so its answers wait for the next tick instead of being dropped
-        this.queuedWrites.push({ conversation, kind: 'answer', answers });
+        this.writes.push({ conversation, kind: 'answer', answers });
 
         return;
       }
@@ -629,65 +652,11 @@ export class SessionCoordination {
 
   /** takes the conversation from the caller, since `/clear` and runtime switches leave coordination briefly inactive. */
   confirmPause(conversation: string, pause: string): void {
-    this.queueWrite({ conversation, kind: 'confirm', pauses: [pause] });
+    this.writes.queue({ conversation, kind: 'confirm', pauses: [pause] });
   }
 
   resumePauses(conversation: string, pauses: string[]): void {
-    this.queueWrite({ conversation, kind: 'resume', pauses });
-  }
-
-  private queueWrite(write: SessionCoordination['queuedWrites'][number]) {
-    this.queuedWrites.push(write);
-    void this.flushQueuedWrites();
-  }
-
-  /** runs while closing too, without admission, so a resume or answer made just before /restart gets one last attempt. */
-  private flushQueuedWrites(): Promise<void> {
-    if (!this.queuedWrites.length) return Promise.resolve();
-
-    this.flushingWrites ??= this.serialize(async () => {
-      while (this.queuedWrites.length) {
-        const write = this.queuedWrites[0]!;
-        const { conversation } = write;
-        const deadline = Date.now() + 1000;
-
-        if (write.kind === 'answer')
-          await this.registry.answerPeers(
-            conversation,
-            write.answers,
-            deadline,
-            true,
-          );
-        else if (write.kind === 'resume')
-          await this.registry.resumeByUser(
-            conversation,
-            write.pauses,
-            deadline,
-          );
-        else
-          for (const pause of write.pauses)
-            await this.registry.confirmPause(conversation, pause, deadline);
-
-        this.queuedWrites.shift();
-      }
-
-      this.failures.delete('queued-writes');
-      this.publish(this.snapshot);
-    })
-      .catch((error: unknown) => this.fail('queued-writes', error))
-      .finally(() => {
-        this.flushingWrites = undefined;
-      });
-
-    return this.flushingWrites;
-  }
-
-  /** the last flush ran when the conversation deactivated, so whatever a busy ledger still holds back goes to disk. */
-  private async keepQueuedWrites(): Promise<void> {
-    await this.flushingWrites;
-
-    if (this.queuedWrites.length)
-      await this.registry.keepQueuedWrites(this.queuedWrites.splice(0));
+    this.writes.queue({ conversation, kind: 'resume', pauses });
   }
 
   beginTurn(turn: string): void {
@@ -857,17 +826,10 @@ export class SessionCoordination {
 
       if (!claim) return;
 
-      await dispatchControl(
-        this.control,
-        {
-          id: randomUUID(),
-          version: 1,
-          conversation: active.conversation.id,
-          activation: active.binding.activation,
-          deadline: Date.now() + 10_000,
-          action: { kind: 'release', claim: claim.id },
-        },
-        true,
+      await this.dispatchUser(
+        active,
+        { kind: 'release', claim: claim.id },
+        10_000,
         state,
       );
     });
@@ -882,18 +844,32 @@ export class SessionCoordination {
       );
 
     await this.serialize(() =>
-      dispatchControl(
-        this.control,
-        {
-          id: randomUUID(),
-          version: 1,
-          conversation: active.conversation.id,
-          activation: active.binding.activation,
-          deadline: Date.now() + timeout,
-          action: { kind: 'take', input: { reference } },
-        },
-        true,
+      this.dispatchUser(
+        active,
+        { kind: 'take', input: { reference } },
+        timeout,
       ),
+    );
+  }
+
+  private dispatchUser(
+    active: Activation,
+    action: CoordinationAction,
+    timeout: number,
+    state?: RequestState,
+  ): Promise<ControlOutcome> {
+    return dispatchControl(
+      this.control,
+      {
+        id: randomUUID(),
+        version: 1,
+        conversation: active.conversation.id,
+        activation: active.binding.activation,
+        deadline: Date.now() + timeout,
+        action,
+      },
+      true,
+      state,
     );
   }
 
@@ -907,7 +883,7 @@ export class SessionCoordination {
         await this.deactivate();
       } finally {
         try {
-          await this.keepQueuedWrites();
+          await this.writes.keep();
         } finally {
           if (!options.restart && this.state?.conversation)
             await this.releaseConversation(this.state.conversation.id);
@@ -986,7 +962,7 @@ export class SessionCoordination {
       if (accept()) {
         this.failures.delete('ledger');
 
-        if (active) this.answer(active, ledger);
+        if (active) this.transfers.answer(active, ledger);
       }
 
       const value = { revision, ledger };
@@ -1132,75 +1108,6 @@ export class SessionCoordination {
     return this.serialize(() => dispatchControl(this.control, request, false));
   }
 
-  /** the owner's Witch answers a transfer request without a model turn. */
-  private answer(active: Activation, ledger: Ledger): void {
-    const claim = ledger.claims.find(
-      (claim) =>
-        claim.owner.conversation === active.conversation.id &&
-        (claim.transfer || claim.automaticTransfer),
-    );
-
-    if (!claim) {
-      // a request that went away takes its failure with it
-      this.handover(active);
-
-      return;
-    }
-
-    if (this.handing) return;
-
-    const field = claim.transfer ? 'transfer' : 'automaticTransfer';
-
-    if (claim[field]?.refusal) return;
-
-    const owner = { ...claim.owner, conversation: active.conversation.id };
-
-    this.handing = this.serialize(async () => {
-      const moved = await this.change(
-        undefined,
-        (verify) =>
-          this.registry.handOver(
-            owner,
-            claim.id,
-            Date.now() + 1000,
-            verify,
-            () => transferRefusal(this.state, field === 'automaticTransfer'),
-            field,
-          ),
-        async () => {
-          if (this.admit() !== active) throw new Error('Coordination moved.');
-        },
-      );
-
-      this.handover(active);
-
-      if (moved && !moved.transfer) void this.refresh();
-    })
-      .catch((error: unknown) => {
-        // the request stays pending, so the next tick rereads and answers again
-        active.observed = undefined;
-        this.handover(active, error);
-      })
-      .finally(() => {
-        this.handing = undefined;
-      });
-  }
-
-  /** records the owner's handover failure, or clears it, while this activation is still admitted: a handover that a switch or close cut short didn't fail. */
-  private handover(active: Activation, error?: unknown): void {
-    if (
-      this.active !== active ||
-      !active.accepting ||
-      !active.publishing ||
-      this.ending ||
-      this.closed
-    )
-      return;
-
-    if (error !== undefined) this.fail('handover', error);
-    else if (this.failures.delete('handover')) this.publish(this.snapshot);
-  }
-
   private refreshProject(active: Activation, deadline?: number): Promise<void> {
     const previous = this.projecting;
     const controller = new AbortController();
@@ -1270,7 +1177,7 @@ export class SessionCoordination {
   /** starts its refreshes synchronously, so a caller can read `refreshing` as soon as it returns. */
   private tick(): void {
     void this.maintain();
-    void this.flushQueuedWrites();
+    void this.writes.flush();
     void this.presence.retry();
     void this.events.publishMerges();
     const active = this.active;

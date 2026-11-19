@@ -1,5 +1,10 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Ledger } from '../../persistence/coordination.js';
+import type {
+  CoordinationStore,
+  Ledger,
+  Verify,
+} from '../../persistence/coordination.js';
+import type { Activation, RequestState } from './coordination.js';
 import { taskActivity, taskReference } from './coordination-state.js';
 import type {
   ClaimInput,
@@ -66,6 +71,103 @@ export function transferRefusal(
     return 'It has no reported exhausted limit awaiting reset.';
 
   return undefined;
+}
+
+interface ResponderHost {
+  readonly registry: Pick<CoordinationStore, 'handOver'>;
+  serialize<T>(work: () => Promise<T>): Promise<T>;
+
+  change<T>(
+    state: RequestState | undefined,
+    work: (verify: Verify) => Promise<T>,
+    verify?: Verify,
+  ): Promise<T>;
+
+  admit(): Activation;
+
+  state(): Snapshot | undefined;
+
+  refresh(): Promise<void>;
+
+  admitted(active: Activation): boolean;
+
+  failed(error: unknown): void;
+
+  recovered(): void;
+}
+
+/** the owner's Witch answers a transfer request without a model turn. */
+export class TransferResponder {
+  private handing?: Promise<void>;
+
+  constructor(private readonly host: ResponderHost) {}
+
+  answer(active: Activation, ledger: Ledger): void {
+    const claim = ledger.claims.find(
+      (claim) =>
+        claim.owner.conversation === active.conversation.id &&
+        (claim.transfer || claim.automaticTransfer),
+    );
+
+    if (!claim) {
+      // a request that went away takes its failure with it
+      this.settle(active);
+
+      return;
+    }
+
+    if (this.handing) return;
+
+    const field = claim.transfer ? 'transfer' : 'automaticTransfer';
+
+    if (claim[field]?.refusal) return;
+
+    const owner = { ...claim.owner, conversation: active.conversation.id };
+
+    this.handing = this.host
+      .serialize(async () => {
+        const moved = await this.host.change(
+          undefined,
+          (verify) =>
+            this.host.registry.handOver(
+              owner,
+              claim.id,
+              Date.now() + 1000,
+              verify,
+              () =>
+                transferRefusal(
+                  this.host.state(),
+                  field === 'automaticTransfer',
+                ),
+              field,
+            ),
+          async () => {
+            if (this.host.admit() !== active)
+              throw new Error('Coordination moved.');
+          },
+        );
+
+        this.settle(active);
+
+        if (moved && !moved.transfer) void this.host.refresh();
+      })
+      .catch((error: unknown) => {
+        // the request stays pending, so the next tick rereads and answers again
+        active.observed = undefined;
+        this.settle(active, error);
+      })
+      .finally(() => {
+        this.handing = undefined;
+      });
+  }
+
+  /** records the owner's handover failure, or clears it, while this activation is still admitted: a handover that a switch or close cut short didn't fail. */
+  private settle(active: Activation, error?: unknown): void {
+    if (!this.host.admitted(active)) return;
+
+    if (error !== undefined) this.host.failed(error);
+    else this.host.recovered();
+  }
 }
 
 export class TransferUnavailable extends Error {

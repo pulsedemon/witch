@@ -425,7 +425,7 @@ test('an answer whose write runs out of time waiting for the ledger is recorded 
     // a retry that also runs out of time keeps the answer queued
     for (const tick of refreshes) tick();
 
-    await b.coordination['flushingWrites'];
+    await b.coordination['writes']['flushing'];
     await held();
   } finally {
     await release?.();
@@ -433,7 +433,7 @@ test('an answer whose write runs out of time waiting for the ledger is recorded 
 
   for (const tick of refreshes) tick();
 
-  await b.coordination['flushingWrites'];
+  await b.coordination['writes']['flushing'];
   assert.equal((await stored(f, request)).answer?.message, 'Port 4000');
   await refreshed(a);
   assert.ok(notice(a, `peer-answer/${request.id}`));
@@ -456,7 +456,7 @@ test('a queued answer leaves a reply recorded by hand in place', async (t) => {
 
   await b.coordination['operations'];
   assert.equal((await stored(f, request)).answer?.message, 'Manual');
-  assert.equal(b.coordination['queuedWrites'].length, 0);
+  assert.equal(b.coordination['writes']['queued'].length, 0);
   assert.equal(b.coordination.snapshot.error, undefined);
 });
 
