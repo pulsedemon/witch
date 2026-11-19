@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { isUtf8 } from 'node:buffer';
 import { dirname, resolve } from 'node:path';
 import { cliOptions, bindingOptions } from '../cli-options.js';
 import { parseArgs } from 'node:util';
@@ -516,14 +517,18 @@ export async function runControl(
     let action;
 
     if (call.action.kind === 'preview-file') {
-      const text = await readFile(call.action.file, 'utf8');
+      const bytes = await readFile(call.action.file);
 
-      if (Buffer.byteLength(text) > previewBytes)
-        throw new Error('Preview documents must fit within 2 MiB.');
+      if (bytes.length > previewBytes)
+        throw new Error(
+          `Preview documents must fit within ${previewBytes / 1024 ** 2} MiB.`,
+        );
+
+      if (!isUtf8(bytes)) throw new Error('Preview documents must use UTF-8.');
 
       action = {
         kind: 'preview' as const,
-        document: JSON.parse(text),
+        document: JSON.parse(bytes.toString('utf8')),
       };
     } else action = call.action;
 

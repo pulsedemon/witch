@@ -625,6 +625,14 @@ test('preview CLI reads a quoted file locally and sends validated frame data thr
     assert.match(oversized.stdout, /2 MiB/);
     assert.equal(seen.length, 2);
     assert.equal(owner.snapshot?.status.id, id);
+    const malformed = Buffer.from(JSON.stringify(document));
+    malformed[malformed.indexOf('Preview')] = 255;
+    await writeFile(file, malformed);
+    const encoding = await run(`${prefix} --preview ${quote(file)} --json`);
+    assert.equal(encoding.code, 1);
+    assert.match(encoding.stdout, /UTF-8/);
+    assert.equal(seen.length, 2);
+    assert.equal(owner.snapshot?.status.id, id);
 
     const duplicate = await run(
       `${prefix} --preview ${quote(file)} --preview-status --json`,
