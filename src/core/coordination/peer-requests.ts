@@ -75,6 +75,8 @@ export function peerRequestStatus(
 
 const refusedWhileAnswering = new Set<CoordinationAction['kind']>([
   'ask',
+  'preview',
+  'preview-close',
   'claim',
   'release',
   'release-references',
@@ -89,7 +91,7 @@ export function checkAnswering(
 ): void {
   if (answering && refusedWhileAnswering.has(action.kind))
     throw new Error(
-      'Answer the current peer requests without asking or pausing other sessions or changing claims.',
+      'Answer the current peer requests without asking or pausing other sessions, changing claims or changing previews.',
     );
 }
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { previewDocumentSchema } from '../preview.js';
 import { work } from '../runtime/routing.js';
 import type { Snapshot } from '../snapshot.js';
 import {
@@ -68,6 +69,9 @@ const choiceSchema = z.object({
 });
 
 export const coordinationActionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('preview'), document: previewDocumentSchema }),
+  z.object({ kind: z.literal('preview-status') }),
+  z.object({ kind: z.literal('preview-close'), preview: z.string().uuid() }),
   z.object({ kind: z.literal('peers') }),
   z.object({ kind: z.literal('claim'), input: claimInputSchema }),
   z.object({ kind: z.literal('release'), claim: z.string().uuid() }),

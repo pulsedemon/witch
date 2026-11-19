@@ -1,6 +1,8 @@
+import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
+import { previewBytes, previewDocumentSchema } from '../core/preview.js';
 import { aborted, errorMessage } from '../errors.js';
 import { claudeArguments } from './cli-familiar.js';
 import { codexArguments } from './cli-codex-familiar.js';
@@ -35,6 +37,9 @@ const options = {
   'control-dir': { type: 'string' },
   'control-conversation': { type: 'string' },
   'control-activation': { type: 'string' },
+  preview: { type: 'string' },
+  'preview-status': { type: 'boolean' },
+  'preview-close': { type: 'string' },
   peers: { type: 'boolean' },
   claim: { type: 'string' },
   summary: { type: 'string' },
@@ -72,6 +77,9 @@ const bindingOptions = [
 
 /** in the order the "choose exactly one" refusal lists them. */
 const actionOptions = [
+  'preview',
+  'preview-status',
+  'preview-close',
   'peers',
   'claim',
   'release',
@@ -267,58 +275,69 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error('--message requires --ask or --answer.');
 
   const binding = bindingOf(values);
+  let action;
 
-  const action = coordinationActionSchema.parse(
-    values.peers
-      ? { kind: 'peers' }
-      : values.claim !== undefined || values.recommend !== undefined
-        ? {
-            kind: values.recommend !== undefined ? 'recommend' : 'claim',
-            selection: values.selection,
-            input: {
-              reference: values.recommend ?? values.claim,
-              summary: values.summary,
-              aliases: values.alias,
-            },
-          }
-        : values.ask !== undefined
-          ? { kind: 'ask', claim: values.ask, message: values.message }
-          : values.answer !== undefined
-            ? {
-                kind: 'answer',
-                request: values.answer,
-                message: values.message,
-              }
-            : values['peer-request'] !== undefined
-              ? { kind: 'peer-request', request: values['peer-request'] }
-              : values.pause
-                ? { kind: 'pause', to: values.to }
-                : values.resume !== undefined
-                  ? { kind: 'resume', pause: values.resume }
-                  : values['pause-status'] !== undefined
-                    ? { kind: 'pause-status', pause: values['pause-status'] }
-                    : values['select-next'] !== undefined
-                      ? { kind: 'select-next', turn: values['select-next'] }
-                      : values['cancel-selection'] !== undefined
-                        ? {
-                            kind: 'cancel-selection',
-                            selection: values['cancel-selection'],
-                          }
-                        : values.route !== undefined
+  if (values.preview !== undefined)
+    action = { kind: 'preview-file' as const, file: resolve(values.preview) };
+  else if (values['preview-status'])
+    action = { kind: 'preview-status' as const };
+  else if (values['preview-close'] !== undefined)
+    action = coordinationActionSchema.parse({
+      kind: 'preview-close',
+      preview: values['preview-close'],
+    });
+  else
+    action = coordinationActionSchema.parse(
+      values.peers
+        ? { kind: 'peers' }
+        : values.claim !== undefined || values.recommend !== undefined
+          ? {
+              kind: values.recommend !== undefined ? 'recommend' : 'claim',
+              selection: values.selection,
+              input: {
+                reference: values.recommend ?? values.claim,
+                summary: values.summary,
+                aliases: values.alias,
+              },
+            }
+          : values.ask !== undefined
+            ? { kind: 'ask', claim: values.ask, message: values.message }
+            : values.answer !== undefined
+              ? {
+                  kind: 'answer',
+                  request: values.answer,
+                  message: values.message,
+                }
+              : values['peer-request'] !== undefined
+                ? { kind: 'peer-request', request: values['peer-request'] }
+                : values.pause
+                  ? { kind: 'pause', to: values.to }
+                  : values.resume !== undefined
+                    ? { kind: 'resume', pause: values.resume }
+                    : values['pause-status'] !== undefined
+                      ? { kind: 'pause-status', pause: values['pause-status'] }
+                      : values['select-next'] !== undefined
+                        ? { kind: 'select-next', turn: values['select-next'] }
+                        : values['cancel-selection'] !== undefined
                           ? {
-                              kind: 'route',
-                              work: values.route,
-                              of: choice(values.of),
-                              named: choice(values.named),
+                              kind: 'cancel-selection',
+                              selection: values['cancel-selection'],
                             }
-                          : values.reference
+                          : values.route !== undefined
                             ? {
-                                kind: 'release-references',
-                                claim: values.release,
-                                references: values.reference,
+                                kind: 'route',
+                                work: values.route,
+                                of: choice(values.of),
+                                named: choice(values.named),
                               }
-                            : { kind: 'release', claim: values.release },
-  );
+                            : values.reference
+                              ? {
+                                  kind: 'release-references',
+                                  claim: values.release,
+                                  references: values.reference,
+                                }
+                              : { kind: 'release', claim: values.release },
+    );
 
   return {
     ...parsed,
@@ -425,6 +444,11 @@ function describe(outcome: ControlOutcome): string {
         ),
       ].join('\n');
 
+    case 'preview':
+      return outcome.preview
+        ? `Preview ${outcome.preview.id}: ${oneLine(outcome.preview.title)} | ${outcome.preview.placement?.rows ?? 0} rows placed`
+        : 'No preview is open.';
+
     case 'peers': {
       const snapshot = outcome.snapshot;
 
@@ -484,7 +508,21 @@ export async function runControl(
   }
 
   try {
-    let outcome: ControlOutcome = await callControl(call.binding, call.action);
+    let action;
+
+    if (call.action.kind === 'preview-file') {
+      const text = await readFile(call.action.file, 'utf8');
+
+      if (Buffer.byteLength(text) > previewBytes)
+        throw new Error('Preview documents must fit within 2 MiB.');
+
+      action = {
+        kind: 'preview' as const,
+        document: previewDocumentSchema.parse(JSON.parse(text)),
+      };
+    } else action = call.action;
+
+    let outcome: ControlOutcome = await callControl(call.binding, action);
     let position: number | undefined;
     let selection: string | undefined;
 
