@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import type { Work, Policy } from '../../../src/core/runtime/routing.js';
 import { defaultPolicy } from '../../../src/core/runtime/routing.js';
 import { router } from '../../../src/core/runtime/router.js';
 import type { Coordinator } from '../../../src/core/coordinator.js';
 import { callControl } from '../../../src/persistence/control.js';
+import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import {
   coordinationFixture,
   unitCoordinationFixture,
@@ -14,7 +15,7 @@ import {
   type RegisterCleanup,
 } from '../../fixtures/cleanup.js';
 import { TurnGate } from '../../fixtures/agent.js';
-import { until } from '../../fixtures/within.js';
+import { until, within } from '../../fixtures/within.js';
 
 async function setup(
   register: RegisterCleanup,
@@ -138,18 +139,60 @@ test('a coordinator in another project protects its runtime only while active an
 
 test('the current caller counts once and observed familiar runtime load changes later automatic placements', async (t) => {
   const f = await setup(t.onTestFinished);
+  const callerId = f.session.coordinator.snapshot.conversation!.id;
+  const writing = Promise.withResolvers<void>();
+  const written = Promise.withResolvers<void>();
+  const publish = CoordinationStore.prototype.publish;
+
+  const held = vi
+    .spyOn(CoordinationStore.prototype, 'publish')
+    .mockImplementation(async function (
+      this: CoordinationStore,
+      presence: Parameters<typeof publish>[0],
+    ) {
+      if (presence.id === callerId && presence.phase === 'running') {
+        writing.resolve();
+        await written.promise;
+      }
+
+      await publish.call(this, presence);
+    });
+
   const gate = new TurnGate();
   f.session.b.gate = gate;
   const sending = f.session.coordinator.send('Work');
   await gate.entered;
 
   try {
+    await within(writing.promise, 3000, 'held caller presence write');
+
+    assert.equal(
+      (await f.registry.presences()).find(({ id }) => id === callerId)!.phase,
+      'idle',
+    );
+
+    assert.equal(
+      (await f.session.coordination.routingDemand(Date.now() + 3000))
+        .coordinators.b,
+      1,
+    );
+
+    written.resolve();
+
+    await until('caller presence is running on disk', async () =>
+      (await f.registry.presences()).some(
+        ({ id, phase }) => id === callerId && phase === 'running',
+      ),
+    );
+
     assert.equal(
       (await f.session.coordination.routingDemand(Date.now() + 3000))
         .coordinators.b,
       1,
     );
   } finally {
+    written.resolve();
+    held.mockRestore();
     gate.open();
     await sending;
   }

@@ -505,7 +505,6 @@ test('unknown activity preserves threshold protection in either direction', () =
     },
   );
 
-  // the reason names the current window that is over, not a stale one beside it
   assert.deepEqual(
     ask({
       limits: {
@@ -613,7 +612,6 @@ test('no shift happens without current evidence of room, and the reason says whi
     },
   );
 
-  // the reason names the current window that is over, not a stale one beside it
   assert.deepEqual(
     ask({
       limits: {
