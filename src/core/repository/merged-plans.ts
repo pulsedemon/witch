@@ -1,6 +1,7 @@
 import { readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { errorMessage } from '../../errors.js';
+import { escapeRegExp } from '../../regexp.js';
 import { unlessGone } from '../../persistence/json.js';
 import type { Git } from './checkout-git.js';
 
@@ -17,10 +18,6 @@ export interface PlanRemoval {
   /** the first reason a plan directory couldn't be listed */
   unlisted?: string;
   done?: boolean;
-}
-
-export function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. any other failure throws. */

@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from '../../errors.js';
 import type { Memory } from '../../memory/memory.js';
 import { within } from '../../paths.js';
+import { escapeRegExp } from '../../regexp.js';
 import { tryOpenLocked } from '../../persistence/lock.js';
 import { runs } from '../../persistence/process.js';
 import type { StateStore } from '../../persistence/store.js';
@@ -18,7 +19,7 @@ import {
 import type { Git } from './checkout-git.js';
 import { runCommand } from './command.js';
 import { headRetention } from './head-retention.js';
-import { escapeRegExp, removePlans } from './merged-plans.js';
+import { removePlans } from './merged-plans.js';
 import type { PlanRemoval } from './merged-plans.js';
 import { sharedRebuild } from './shared-rebuild.js';
 import type { RebuildResult } from './shared-rebuild.js';

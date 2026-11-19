@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from '../errors.js';
+import { escapeRegExp } from '../regexp.js';
 import { branchOf, indexNote, main, notePath, printable } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 import { within } from '../paths.js';
@@ -73,7 +74,7 @@ export function repointText(
   const pattern = new RegExp(
     [...forms]
       .sort((a, b) => b.length - a.length)
-      .map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .map(escapeRegExp)
       .join('|'),
     'g',
   );

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { structuredPatch } from 'diff';
 import { z } from 'zod';
 import { resolveFile } from '../../paths.js';
+import { escapeRegExp } from '../../regexp.js';
 import type { FileDiff } from '../types.js';
 import { wholeFile } from '../file-diff.js';
 
@@ -92,7 +93,7 @@ function escapedMatch(old: string, content: string): string | undefined {
           .replace(/[a-f]/g, (letter) => `[${letter}${letter.toUpperCase()}]`);
     } else {
       length++;
-      pattern += old[index]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      pattern += escapeRegExp(old[index]!);
     }
   }
 
