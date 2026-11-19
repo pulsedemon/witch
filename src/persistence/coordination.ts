@@ -233,6 +233,9 @@ export function checkDeadline(deadline: number): number {
   return remaining;
 }
 
+/** how long a store transaction gets when it runs on its own clock instead of a caller's deadline. */
+export const transactionBudget = 1000;
+
 export class CoordinationStore {
   private constructor(
     private readonly directory: string,
@@ -296,22 +299,26 @@ export class CoordinationStore {
   ): Promise<MergeEvent> {
     const id = mergeEventId(project, pullRequest);
 
-    return this.transact(merges, Date.now() + 1000, async (events) => {
-      const existing = events.find((event) => event.id === id);
+    return this.transact(
+      merges,
+      Date.now() + transactionBudget,
+      async (events) => {
+        const existing = events.find((event) => event.id === id);
 
-      if (existing) return { result: existing };
+        if (existing) return { result: existing };
 
-      const event = mergeEventSchema.parse({
-        id,
-        project,
-        source,
-        observedAt: new Date().toISOString(),
-        pullRequest,
-        recipients: [...new Set(recipients)],
-      });
+        const event = mergeEventSchema.parse({
+          id,
+          project,
+          source,
+          observedAt: new Date().toISOString(),
+          pullRequest,
+          recipients: [...new Set(recipients)],
+        });
 
-      return { result: event, next: [...events, event] };
-    });
+        return { result: event, next: [...events, event] };
+      },
+    );
   }
 
   async peerRequests(
