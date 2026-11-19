@@ -25,7 +25,7 @@ interface Merge {
   deferrals?: number;
   /** reasons already posted */
   told?: Set<string>;
-  /** an interrupted cleanup, which resumes from its own progress */
+  /** cleanup progress retained across retry or interruption */
   continuation?: {
     request: PullRequest;
     progress: MergeCleanup;
@@ -37,7 +37,7 @@ interface Merge {
  * cleans up a merged branch while its checkout is clean and the conversation is idle without errors or queued prompts:
  * the checked-out branch's own pull request, and those the repository watch follows for branches the checkout left,
  * each with its own wait, retry and progress. a cleanup that found the checkout changed waits for a repository change,
- * other deferred cleanups retry after five seconds or a repository change. interrupted work survives checkout changes;
+ * other deferred cleanups retry after five seconds or a repository change. interrupted and retryable work retains progress;
  * completed work, ordinary failures and interrupted work whose progress couldn't be confirmed aren't retried, and are
  * no longer followed. a merge held back for 15 s, or deferred three times running, says why in the transcript, once
  * per reason.
@@ -235,13 +235,16 @@ export function watchMerges(
           ended();
           merge.continuation = work;
           merge.waiting = false;
+        } else if (acted === 'retry') {
+          merge.continuation = work;
+          deferred(work.progress.deferred);
         } else if (acted === true) settle();
         else if (acted === 'changed') {
           deferred(changedState);
           hold(merge, changedState);
         } else deferred(work.progress.deferred);
 
-        if (acted === false && !stopped) {
+        if ((acted === false || acted === 'retry') && !stopped) {
           // only for a deferred cleanup. a changed checkout waits for the status line's next change, since a timer would
           // fetch every 5 s while the two reads disagree
           merge.timer = setTimeout(() => {

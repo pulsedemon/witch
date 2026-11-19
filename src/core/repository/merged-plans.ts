@@ -2,7 +2,7 @@ import { readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { errorMessage } from '../../errors.js';
 import { unlessGone } from '../../persistence/json.js';
-import type { Git } from './merged.js';
+import type { Git } from './checkout-git.js';
 
 export interface PlanRemoval {
   root?: string;
