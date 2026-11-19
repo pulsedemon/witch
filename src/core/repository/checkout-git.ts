@@ -23,7 +23,8 @@ export type Git = ReturnType<typeof gitIn>;
 
 export const unlessExit1 = <T>(promise: Promise<T>, absent: T): Promise<T> =>
   promise.catch((error: unknown) => {
-    if ((error as { code?: unknown }).code === 1) return absent;
+    if ((error as { code?: unknown } | null | undefined)?.code === 1)
+      return absent;
 
     throw error;
   });
