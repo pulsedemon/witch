@@ -3,6 +3,7 @@ import type { assignGitHubTask } from './github-assignment.js';
 import { recordTaskAssignment } from './github-assignment.js';
 import {
   ClaimConflict,
+  transactionBudget,
   type CoordinationStore,
   type Ledger,
   type Verify,
@@ -291,7 +292,7 @@ export async function dispatchControl(
               host.registry.withdrawTransfer(
                 activation,
                 id,
-                Date.now() + 1000,
+                Date.now() + transactionBudget,
                 check,
                 target.field,
               ),
