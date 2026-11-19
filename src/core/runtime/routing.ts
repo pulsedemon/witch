@@ -442,7 +442,7 @@ export function route({
       selected.capacity.priority === 1
         ? `${selected.runtime} has usable credits for its full window`
         : automatic || state.comparableLoad
-          ? `${selected.runtime} has the most remaining allowance per worker among eligible runtimes, accounting for known reset times`
+          ? `${selected.runtime} has the most remaining allowance per worker among runtimes with the same coordinator protection, accounting for known reset times`
           : `${selected.runtime} has included usage left`,
       ...(pinned && selected.runtime !== runtime
         ? [`${selected.model} is comparable to ${pinned}`]

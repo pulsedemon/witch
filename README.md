@@ -34,7 +34,7 @@ Flags and the state default are in `witch --help`. Use `/help` for keyboard cont
 
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
 
-Agents delegate work through the [familiar reporting path](docs/rules.md#native-adapters-and-execution) on either runtime, with native identity, activity and a saved report. `/delegation` sets where each kind of work goes, each runtime's model family and the usage level that shifts new work to a runtime with room.
+Agents delegate work through the [familiar reporting path](docs/rules.md#native-adapters-and-execution) on either runtime, with native identity, activity and a saved report. `/delegation` configures work placement, model families and the coordinator reserve threshold.
 
 `/updates` shows native CLI versions and available releases; `/updates check` refreshes them. `/updates claude` or `/updates codex` opens confirmation for an update, a recovery or qualifying the installed version. [Native runtime updates](docs/rules.md#native-runtime-updates) defines supported installations, live-check consent and recovery.
 

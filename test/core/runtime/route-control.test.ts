@@ -114,7 +114,7 @@ test('a review with no rule answers a route for each runtime and shows each in t
     );
 });
 
-test('a runtime over the level shifts work to one with room, and a stale reading is read again first', async (t) => {
+test('automatic placement favors remaining allowance and refreshes stale readings first', async (t) => {
   const f = await start(t.onTestFinished);
   await until('the connect read of b', () => f.b.accountReads.length === 1);
   // past the connect read's back-off
@@ -140,7 +140,7 @@ test('a runtime over the level shifts work to one with room, and a stale reading
   if (reply.kind !== 'route') return;
 
   const reason =
-    'automatic implementation; b (7D 40%); b: 0 active coordinators, 0 running familiars; a (7D 92%); a: 0 active coordinators, 0 running familiars; b has the most remaining allowance per worker among eligible runtimes, accounting for known reset times';
+    'automatic implementation; b (7D 40%); b: 0 active coordinators, 0 running familiars; a (7D 92%); a: 0 active coordinators, 0 running familiars; b has the most remaining allowance per worker among runtimes with the same coordinator protection, accounting for known reset times';
 
   assert.deepEqual(reply.routes, [
     { runtime: 'b', model: 'b-3-model', from: 'a', reason },
@@ -177,7 +177,7 @@ test('a review that loses a runtime to usage routes once and says on its own lin
     if (reply.kind !== 'route') return;
 
     const reason =
-      'review of a work prefers a; a (7D 95%); a: 1 active coordinator, 0 running familiars; b (7D 40%); b: 0 active coordinators, 0 running familiars; reserving a capacity for its active coordinator; b has the most remaining allowance per worker among eligible runtimes, accounting for known reset times';
+      'review of a work prefers a; a (7D 95%); a: 1 active coordinator, 0 running familiars; b (7D 40%); b: 0 active coordinators, 0 running familiars; reserving a capacity for its active coordinator; b has the most remaining allowance per worker among runtimes with the same coordinator protection, accounting for known reset times';
 
     assert.deepEqual(reply.routes, [
       {
@@ -223,7 +223,7 @@ test('a route after an empty read starts no new one, and says the reading is mis
   if (reply.kind === 'route')
     assert.equal(
       reply.routes[0]!.reason,
-      'automatic implementation; a (7D 95%); a: 0 active coordinators, 0 running familiars; b has no usage reading; b: 0 active coordinators, 0 running familiars; no verified destination capacity; a has the most remaining allowance per worker among eligible runtimes, accounting for known reset times',
+      'automatic implementation; a (7D 95%); a: 0 active coordinators, 0 running familiars; b has no usage reading; b: 0 active coordinators, 0 running familiars; no verified destination capacity; a has the most remaining allowance per worker among runtimes with the same coordinator protection, accounting for known reset times',
     );
 });
 
