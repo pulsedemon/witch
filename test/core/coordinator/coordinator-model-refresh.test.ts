@@ -58,12 +58,7 @@ test('interrupting inactive model discovery keeps the connected session', async 
     refreshing = coordinator.refreshModels();
     const isSettled = settled(refreshing);
     const signal = await within(entered.promise, 2000, 'inactive discovery');
-
-    await assert.rejects(
-      coordinator.refreshModels(),
-      /Stop the current operation first/,
-    );
-
+    assert.equal(await coordinator.refreshModels(), true);
     await coordinator.interrupt();
     await coordinator.interrupt();
     assert.equal(signal.aborted, true);

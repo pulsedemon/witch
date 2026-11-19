@@ -337,8 +337,12 @@ export interface AgentSession {
   readAccountUsage?(): Promise<void>;
 
   readonly closed: boolean;
-  /** the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then takes a command or a model change. */
+  /** the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then takes a command. */
   readonly replied: boolean;
+  /** the turn in flight takes a model change before it ends. */
+  readonly takesModel: boolean;
+  /** native work that a disconnect would discard, including commands not yet shown as brews. */
+  readonly backgroundActive: boolean;
   /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
 
@@ -393,9 +397,12 @@ export interface AgentSession {
     },
   ): Promise<boolean>;
 
+  /** whether the selection can apply without interrupting native execution or discarding background work. */
+  canSelectModel(model: string, contextWindow?: ContextWindowChoice): boolean;
+
   /**
    * an omitted effort or window choice keeps the one in force; `null` resets effort where the native agent can.
-   * refused during a turn unless it has `replied`.
+   * a running turn or background work can delay a change; check `canSelectModel` before applying it.
    */
   selectModel(
     model: string,
