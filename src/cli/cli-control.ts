@@ -1,7 +1,10 @@
+import { readFile } from 'node:fs/promises';
+import { isUtf8 } from 'node:buffer';
 import { dirname, resolve } from 'node:path';
 import { cliOptions, bindingOptions } from '../cli-options.js';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
+import { previewBytes } from '../core/preview.js';
 import { aborted, errorMessage } from '../errors.js';
 import { claudeArguments } from './cli-familiar.js';
 import { codexArguments } from './cli-codex-familiar.js';
@@ -29,6 +32,9 @@ function choice(text: string | undefined) {
 
 /** in the order the "choose exactly one" refusal lists them. */
 const actionOptions = [
+  'preview',
+  'preview-status',
+  'preview-close',
   'peers',
   'claim',
   'release',
@@ -103,10 +109,16 @@ function familiarMode(
 }
 
 function controlAction(
-  name: (typeof actionOptions)[number],
+  name: Exclude<(typeof actionOptions)[number], 'preview'>,
   values: CommandValues,
 ): unknown {
   switch (name) {
+    case 'preview-status':
+      return { kind: 'preview-status' };
+
+    case 'preview-close':
+      return { kind: 'preview-close', preview: values['preview-close'] };
+
     case 'peers':
       return { kind: 'peers' };
 
@@ -321,10 +333,12 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error('--message requires --ask or --answer.');
 
   const binding = bindingOf(values);
+  const name = actions[0]!;
 
-  const action = coordinationActionSchema.parse(
-    controlAction(actions[0]!, values),
-  );
+  const action =
+    name === 'preview'
+      ? { kind: 'preview-file' as const, file: resolve(values.preview!) }
+      : coordinationActionSchema.parse(controlAction(name, values));
 
   return {
     ...parsed,
@@ -431,6 +445,16 @@ function describe(outcome: ControlOutcome): string {
         ),
       ].join('\n');
 
+    case 'preview':
+      return [
+        ...(outcome.closed === false
+          ? ['Preview close refused: the ID is not current.']
+          : []),
+        outcome.preview
+          ? `Preview ${outcome.preview.id}: ${oneLine(outcome.preview.title)} | ${outcome.preview.placement ? `${outcome.preview.placement.rows} rows placed` : 'not placed'}`
+          : 'No preview is open.',
+      ].join('\n');
+
     case 'peers': {
       const snapshot = outcome.snapshot;
 
@@ -490,7 +514,25 @@ export async function runControl(
   }
 
   try {
-    let outcome: ControlOutcome = await callControl(call.binding, call.action);
+    let action;
+
+    if (call.action.kind === 'preview-file') {
+      const bytes = await readFile(call.action.file);
+
+      if (bytes.length > previewBytes)
+        throw new Error(
+          `Preview documents must fit within ${previewBytes / 1024 ** 2} MiB.`,
+        );
+
+      if (!isUtf8(bytes)) throw new Error('Preview documents must use UTF-8.');
+
+      action = {
+        kind: 'preview' as const,
+        document: JSON.parse(bytes.toString('utf8')),
+      };
+    } else action = call.action;
+
+    let outcome: ControlOutcome = await callControl(call.binding, action);
     let position: number | undefined;
     let selection: string | undefined;
 

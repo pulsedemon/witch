@@ -8,6 +8,7 @@ import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { compiledCli } from '../fixtures/compiled-cli.js';
 import { scratch } from '../fixtures/scratch.js';
+import { Preview } from '../../src/core/preview.js';
 import { ControlHost } from '../../src/persistence/control.js';
 import {
   ClaimConflict,
@@ -546,4 +547,112 @@ test('--reference alone refuses before normal startup', async () => {
   assert.equal(result.code, 1);
   assert.match(result.stderr, /--reference requires --release/);
   assert.deepEqual(result.files, []);
+});
+
+test('preview CLI reads a quoted file locally and sends validated frame data through its bound mailbox', async () => {
+  const directory = await scratch('witch-preview-cli-');
+
+  const binding = {
+    directory: join(directory, 'control'),
+    conversation: 'preview',
+    activation: randomUUID(),
+  };
+
+  const owner = new Preview();
+  const seen: unknown[] = [];
+
+  const host = await ControlHost.open(
+    binding.directory,
+    async (request) => {
+      assert.equal(request.conversation, binding.conversation);
+      assert.equal(request.activation, binding.activation);
+      seen.push(request.action);
+
+      if (request.action.kind === 'preview')
+        return {
+          kind: 'preview',
+          preview: owner.show(request.action.document),
+        };
+
+      if (request.action.kind === 'preview-close')
+        return {
+          kind: 'preview',
+          closed: owner.close(request.action.preview),
+          preview: owner.snapshot?.status,
+        };
+
+      return { kind: 'preview', preview: owner.snapshot?.status };
+    },
+    (error) => {
+      throw error;
+    },
+  );
+
+  const file = join(directory, "frame ' with spaces.json");
+  const document = { title: 'Preview', frames: [['(・∀・)'], ['new frame']] };
+  const prefix = controlPrefix(binding, await compiledCli());
+
+  try {
+    const atLimit = Buffer.alloc(2 * 1024 * 1024, ' ');
+    atLimit.write(JSON.stringify(document));
+    await writeFile(file, atLimit);
+    const shown = await run(`${prefix} --preview ${quote(file)} --json`);
+    assert.equal(shown.code, 0, shown.stderr);
+    const id = JSON.parse(shown.stdout).preview.id;
+    assert.deepEqual(seen, [{ kind: 'preview', document }]);
+    owner.placed(id, { columns: 70, rows: 2, request: 'native' });
+    const status = await run(`${prefix} --preview-status --json`);
+
+    assert.deepEqual(JSON.parse(status.stdout).preview.placement, {
+      columns: 70,
+      rows: 2,
+      request: 'native',
+    });
+
+    await writeFile(
+      file,
+      JSON.stringify({ title: 'Bad', frames: [['\u001b[2J']] }),
+    );
+
+    const invalid = await run(`${prefix} --preview ${quote(file)} --json`);
+    assert.equal(invalid.code, 1);
+    assert.match(invalid.stdout, /restricted SGR/);
+    assert.equal(seen.length, 2);
+    assert.equal(owner.snapshot?.status.id, id);
+    await writeFile(file, Buffer.concat([atLimit, Buffer.from(' ')]));
+    const oversized = await run(`${prefix} --preview ${quote(file)} --json`);
+    assert.equal(oversized.code, 1);
+    assert.match(oversized.stdout, /2 MiB/);
+    assert.equal(seen.length, 2);
+    assert.equal(owner.snapshot?.status.id, id);
+    const malformed = Buffer.from(JSON.stringify(document));
+    malformed[malformed.indexOf('Preview')] = 255;
+    await writeFile(file, malformed);
+    const encoding = await run(`${prefix} --preview ${quote(file)} --json`);
+    assert.equal(encoding.code, 1);
+    assert.match(encoding.stdout, /UTF-8/);
+    assert.equal(seen.length, 2);
+    assert.equal(owner.snapshot?.status.id, id);
+
+    const duplicate = await run(
+      `${prefix} --preview ${quote(file)} --preview-status --json`,
+    );
+
+    assert.equal(duplicate.code, 1);
+    assert.match(duplicate.stdout, /exactly one/);
+    owner.placed(id);
+    const unplaced = await run(`${prefix} --preview-status`);
+    assert.match(unplaced.stdout, /not placed/);
+    owner.placed(id, { columns: 70, rows: 0 });
+    const hidden = await run(`${prefix} --preview-status`);
+    assert.match(hidden.stdout, /0 rows placed/);
+    const stale = await run(`${prefix} --preview-close ${randomUUID()}`);
+    assert.match(stale.stdout, /close refused: the ID is not current/);
+    assert.equal(owner.snapshot?.status.id, id);
+    const closed = await run(`${prefix} --preview-close ${id} --json`);
+    assert.equal(JSON.parse(closed.stdout).closed, true);
+    assert.equal(owner.snapshot, undefined);
+  } finally {
+    await host.close();
+  }
 });

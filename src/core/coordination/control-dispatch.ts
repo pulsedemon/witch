@@ -110,7 +110,13 @@ export async function dispatchControl(
   try {
     const action = request.action;
 
-    if (isFamiliarAction(action) || action.kind === 'route')
+    if (
+      isFamiliarAction(action) ||
+      action.kind === 'route' ||
+      action.kind === 'preview' ||
+      action.kind === 'preview-status' ||
+      action.kind === 'preview-close'
+    )
       throw new Error('This action is answered before dispatch.');
 
     checkAnswering(host.state()?.answering, action);

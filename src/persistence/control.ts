@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import { previewStatusSchema } from '../core/preview.js';
 import { errorMessage } from '../errors.js';
 import {
   familiarActionSchema,
@@ -78,6 +79,11 @@ const routedSchema = z.object({
 
 const controlOutcomeSchema = z.discriminatedUnion('kind', [
   familiarOutcomeSchema,
+  z.object({
+    kind: z.literal('preview'),
+    preview: previewStatusSchema.optional(),
+    closed: z.boolean().optional(),
+  }),
   z.object({ kind: z.literal('peers'), snapshot: coordinationSnapshotSchema }),
   z.object({
     kind: z.literal('claimed'),

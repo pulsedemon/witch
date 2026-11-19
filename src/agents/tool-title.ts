@@ -106,6 +106,9 @@ function inputOnly(rest: string): boolean {
 }
 
 const controlActions = new Set([
+  'preview',
+  'preview-status',
+  'preview-close',
   'peers',
   'claim',
   'recommend',
@@ -180,13 +183,11 @@ export function boundCommandTitle(
 
       if (bindingOptions.some((option) => option === name)) return;
 
-      const value =
-        option[2] ??
-        (Object.entries(cliOptions).some(
-          ([option, config]) => option === name && config.type === 'boolean',
-        )
-          ? undefined
-          : words[++at]);
+      const flag = Object.entries(cliOptions).some(
+        ([option, config]) => option === name && config.type === 'boolean',
+      );
+
+      const value = option[2] ?? (flag ? undefined : words[++at]);
 
       const action =
         kind === 'control'
@@ -202,9 +203,9 @@ export function boundCommandTitle(
 
       if (!action) continue;
 
-      if (title || (name !== 'peers' && !value)) return;
+      if (title || (!flag && !value)) return;
 
-      title = name === 'peers' ? name : `${action} ${value!}`;
+      title = flag ? name : `${action} ${value!}`;
     }
 
     if (title)

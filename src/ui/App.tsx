@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
+import stringWidth from 'string-width';
 import { textCommands } from '../agents/claude/spells.js';
 import type { CompletionList } from './input/completion.js';
 import type { Coordinator } from '../core/coordinator.js';
@@ -36,6 +37,9 @@ import {
   tokenKey,
 } from './input/completion.js';
 import { Request } from './Request.js';
+import { Preview } from './Preview.js';
+import { usePreview } from './usePreview.js';
+import { previewLayout } from './preview-layout.js';
 import { Recovery } from './Recovery.js';
 import { pageStart } from './scroll-page-layout.js';
 import { canExpandDiff, diffExpansionHint } from './transcript/diff.js';
@@ -53,7 +57,7 @@ import { highlight } from './transcript/selection.js';
 import { useSelection } from './transcript/useSelection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
-import { castTitle, useCasting } from './status/cast.js';
+import { castRows, castTitle, useCasting } from './status/cast.js';
 import { elapsed } from './status/elapsed.js';
 import { Sidebar } from './status/Sidebar.js';
 import { sidebarWidth, usagePlacement } from './status/sidebar-layout.js';
@@ -152,6 +156,7 @@ export function App({
     () => graphics?.version,
   );
 
+  const preview = usePreview(coordinator.coordination?.preview);
   const size = useWindowSize();
   const columns = Math.max(1, size.columns);
   const sidebar = columns - sidebarWidth >= 80;
@@ -408,7 +413,14 @@ export function App({
   );
 
   const composerRows = Math.min(fitted.composer, wrappedInputRows);
-  const freeRows = fitted.content - composerRows;
+
+  const previewSpace = previewLayout(
+    fitted.content - composerRows,
+    minimumTranscriptRows + state.queue.length,
+    chat ? preview?.status : undefined,
+  );
+
+  const freeRows = previewSpace.body;
   const listFirst = Math.max(0, listSelected - listRows + 1);
 
   // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
@@ -917,6 +929,7 @@ export function App({
       <Request
         key={request.id}
         request={request}
+        preview={coordinator.coordination?.preview}
         width={bodyWidth}
         height={bodyHeight}
         cwd={cwd}
@@ -952,20 +965,36 @@ export function App({
       scrollTop + transcriptHeight,
     );
 
+    /** in view and outside the selection, which shows the canonical rows it copies. */
+    const overlays = (row: number) =>
+      row >= scrollTop &&
+      row - scrollTop < visible.length &&
+      !(
+        selection.ends &&
+        row >= selection.ends[0].row &&
+        row <= selection.ends[1].row
+      );
+
     for (const [id, frame] of casting) {
       const row = transcript.starts.get(id);
 
       if (
-        row !== undefined &&
-        row >= scrollTop &&
-        row - scrollTop < visible.length &&
-        !(
-          selection.ends &&
-          row >= selection.ends[0].row &&
-          row <= selection.ends[1].row
-        )
+        row === undefined ||
+        !overlays(row) ||
+        bodyWidth < stringWidth(castTitle())
       )
-        visible[row - scrollTop] = castTitle(frame, bodyWidth);
+        continue;
+
+      const { heading, above } = castRows(
+        frame,
+        bodyWidth,
+        id,
+        overlays(row - 1) && visible[row - 1 - scrollTop] === '',
+      );
+
+      visible[row - scrollTop] = heading;
+
+      if (above !== undefined) visible[row - 1 - scrollTop] = above;
     }
 
     const selectedToolRow = transcript.starts.get(selectedTool?.id ?? '');
@@ -1011,6 +1040,11 @@ export function App({
                 )}
           </Text>
         </Box>
+        <Preview
+          owner={coordinator.coordination?.preview}
+          width={bodyWidth}
+          height={previewSpace.preview}
+        />
         <Box height={fitted.message} overflow="hidden" flexShrink={0}>
           {agent?.message && (
             <Text dimColor wrap="truncate-end">

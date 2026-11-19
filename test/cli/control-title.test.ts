@@ -21,13 +21,15 @@ const prefixes = {
 
 test('a boolean option ahead of a titled action does not take the action as its value', () => {
   for (const [name, option] of Object.entries(cliOptions)) {
-    if (option.type !== 'boolean' || name === 'peers') continue;
+    if (option.type !== 'boolean') continue;
 
     const command = `${prefixes.control} --${name} --claim task:x --summary s`;
 
     assert.deepEqual(
       boundCommandTitle(command, prefixes),
-      { title: 'claim task:x', expandedTitle: command, singleLine: true },
+      name === 'peers' || name === 'preview-status'
+        ? undefined
+        : { title: 'claim task:x', expandedTitle: command, singleLine: true },
       name,
     );
   }
@@ -35,6 +37,12 @@ test('a boolean option ahead of a titled action does not take the action as its 
 
 for (const [args, title] of [
   ['--peers --json', 'peers'],
+  ['--preview-status --json', 'preview-status'],
+  [
+    "--preview 'frame with spaces.json' --json",
+    'preview frame with spaces.json',
+  ],
+  ['--preview-close preview-id --json', 'preview-close preview-id'],
   [
     '--summary "mentions --release" --claim task:inspect-math-mjs-exports --alias task:exports --json',
     'claim task:inspect-math-mjs-exports',

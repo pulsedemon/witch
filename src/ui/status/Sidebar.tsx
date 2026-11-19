@@ -12,6 +12,7 @@ import { peerStatus, peerTitle } from '../commands/peers.js';
 import { pentacle } from './pentacle.js';
 import { columns, rows, sidebarWidth } from './sidebar-layout.js';
 import { accent, accentDim, piped } from '../theme.js';
+import { useTick } from '../useTick.js';
 import { wrapLines } from '../wrap.js';
 
 /** turned a little, so the pentacle shows its depth at rest. */
@@ -82,7 +83,17 @@ export function Sidebar({
     () => activity.active,
   );
 
-  const [angle, setAngle] = useState(restAngle);
+  const tick = useTick(1, spinning);
+  const [turn, setTurn] = useState({ spinning, from: tick });
+
+  if (turn.spinning !== spinning) setTurn({ spinning, from: tick });
+
+  // wherever work stopped it, the pentacle returns to its rest angle, since edge on it reads as a line
+  const angle =
+    spinning && turn.spinning
+      ? restAngle + (tick - turn.from) * 0.075
+      : restAngle;
+
   const [now, setNow] = useState(Date.now);
 
   const familiars = lineage(
@@ -112,19 +123,6 @@ export function Sidebar({
 
     return () => clearInterval(timer);
   }, [running]);
-
-  useEffect(() => {
-    // wherever work stopped it, the pentacle returns to its rest angle, since edge on it reads as a line
-    if (!spinning) {
-      setAngle(restAngle);
-
-      return;
-    }
-
-    const timer = setInterval(() => setAngle((value) => value + 0.12), 80);
-
-    return () => clearInterval(timer);
-  }, [spinning]);
 
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
   const below = rows + (usage ? 1 + usageText.length : 0);
