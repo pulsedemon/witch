@@ -1,14 +1,13 @@
 import { z } from 'zod';
 import type { AccountReading, Limit } from '../../agents/types.js';
 import type { ModelChoice } from './models.js';
+import { capacity } from './capacity.js';
+import { demandText, type Demand } from './demand.js';
 import {
-  creditCapacity,
   current,
   currentLimits,
   fundingText,
-  headroom,
   limitsFor,
-  over,
   untilReset,
 } from './usage.js';
 
@@ -21,11 +20,11 @@ export const work = z.enum([
 
 export type Work = z.infer<typeof work>;
 
-/** `same`, `other`, `both`, `<runtime>` or `<runtime>:<model-or-family>`; `same` and `other` are relative to the work's producer for review, and `both` sends work to every installed runtime. */
+/** `auto` balances single-runtime work; `same` and `other` use a review's producer when supplied, or the caller otherwise. `both` targets each installed runtime; `<runtime>[:<model-or-family>]` selects a placement. */
 const target = z.string().regex(/^[a-z][\w-]*(:.+)?$/);
 
 export const policySchema = z.object({
-  /** the usage percent at which new work shifts to another runtime unless usable credits keep it; `null` turns shifting off. */
+  /** reserve included allowance for active coordinators at this usage percent; `null` disables automatic movement. */
   shiftAt: z.number().int().min(1).max(100).nullable(),
   /** each runtime's family for work that names no model. */
   families: z.record(z.string(), z.string()),
@@ -34,7 +33,6 @@ export const policySchema = z.object({
 
 export type Policy = z.infer<typeof policySchema>;
 
-/** chosen defaults; `ruleFor` places work that has no rule, and usage at `shiftAt` still shifts new work that usable credits don't keep. */
 export const defaultPolicy: Policy = {
   shiftAt: 90,
   families: { claude: 'opus', codex: 'sol' },
@@ -48,7 +46,7 @@ interface Choice {
 
 export type Routed = Choice & {
   reason: string;
-  /** the runtime its rule named, when usage moved the work off it. */
+  /** the runtime passed over when capacity moves the work. */
   from?: string;
 };
 
@@ -60,9 +58,9 @@ export type Route =
     }
   | { refused: string };
 
-/** with no rule, review goes to every installed runtime and other work stays on the runtime asking. */
+/** defaults request independent review coverage and balance other work by budget and demand. */
 export function ruleFor(policy: Policy, kind: Work): string {
-  return policy.work[kind] ?? (kind === 'review' ? 'both' : 'same');
+  return policy.work[kind] ?? (kind === 'review' ? 'both' : 'auto');
 }
 
 /** families of comparable capability, per each catalog's own descriptions; a shift lands on a runtime's first listed family. */
@@ -172,7 +170,6 @@ export function family(
     : resolve(runtime, name, catalog);
 }
 
-/** each window with when it resets, and the funding, since a usage choice weighs all of them. */
 function standing(
   runtime: string,
   account: AccountReading,
@@ -224,6 +221,7 @@ export function route({
   installed,
   catalog,
   accounts,
+  demand,
   now,
 }: {
   work: Work;
@@ -237,6 +235,7 @@ export function route({
   installed: readonly string[];
   catalog: Catalog;
   accounts: Readonly<Record<string, AccountReading>>;
+  demand?: Demand;
   now: number;
 }): Route {
   const evidence = (runtime: string, model: string) => {
@@ -277,8 +276,14 @@ export function route({
   ): Routed | { refused: string } => {
     const [kind, pinned] = rule.split(/:(.*)/s) as [string, string?];
 
+    if (kind === 'auto' && work === 'review')
+      return {
+        refused:
+          'auto is for planning, implementation and investigation; use both for review',
+      };
+
     const runtime =
-      kind === 'same'
+      kind === 'same' || kind === 'auto'
         ? base
         : kind === 'other'
           ? installed.find((id) => id !== base)
@@ -312,31 +317,58 @@ export function route({
     if ('refused' in chosen) return chosen;
 
     const { shiftAt } = policy;
-    const own = limitsFor(accounts[runtime], chosen.model);
 
-    if (shiftAt === null || !over(own, shiftAt, now))
-      return {
-        runtime,
-        model: chosen.model,
-        reason: `${why}${evidence(runtime, chosen.model)}`,
-      };
+    const describe = (id: string, model: string) => {
+      const limits = limitsFor(accounts[id], model);
+      const fresh = limits.filter((limit) => current(limit, now));
 
-    const hot = `${standing(
+      const partial =
+        fresh.length && fresh.length < limits.length
+          ? `${standing(id, accounts[id]!, now, fresh)}; `
+          : '';
+
+      return `${partial}${reading(id, accounts[id], now, limits)}; ${demandText(id, demand)}`;
+    };
+
+    const keep = (reason: string): Routed => ({
       runtime,
-      accounts[runtime]!,
-      now,
-      own.filter((limit) => current(limit, now) && limit.percent >= shiftAt),
-    )} is at or over the ${shiftAt}% shift threshold`;
+      model: chosen.model,
+      reason: `${why}; ${describe(runtime, chosen.model)}${reason ? `; ${reason}` : ''}`,
+    });
 
-    if (creditCapacity(accounts[runtime], now) === 'available')
-      return {
-        runtime,
-        model: chosen.model,
-        reason: `${why}; ${hot}, but its usable credits keep the work here`,
-      };
+    if (shiftAt === null) return keep('automatic movement is off');
 
-    // below 100% a runtime still has included usage, so only a spent runtime falls back past headroom and only a spent destination's credits count
-    const spent = (limits: readonly Limit[]) => over(limits, 100, now);
+    const candidate = (id: string, model: string) => ({
+      runtime: id,
+      model,
+      capacity: capacity(
+        id,
+        limitsFor(accounts[id], model),
+        accounts[id],
+        demand,
+        shiftAt,
+        now,
+      ),
+    });
+
+    const own = candidate(runtime, chosen.model);
+    const state = own.capacity;
+
+    if (state.high && state.credits)
+      return keep('its usable credits keep the work here');
+
+    const automatic = kind === 'auto' && state.comparableLoad && state.included;
+
+    if (!automatic && !state.reserved && !state.spent)
+      return keep(
+        state.high
+          ? 'no active coordinator needs a reserve'
+          : kind === 'auto' && !state.comparableLoad
+            ? 'comparative workload is unknown; retaining the caller'
+            : '',
+      );
+
+    const candidates = automatic ? [own] : [];
     const blocked: string[] = [];
 
     // a review the policy sent away from its producer never shifts back onto it, unless the producer reviews too
@@ -345,60 +377,83 @@ export function route({
         ? of?.runtime
         : undefined;
 
-    for (const fallback of spent(own) ? [false, true] : [false]) {
-      for (const id of installed) {
-        if (id === runtime) continue;
+    for (const id of installed) {
+      if (id === runtime) continue;
 
-        if (id === producer) {
-          if (!fallback) blocked.push(`${id} produced the work`);
+      if (id === producer) {
+        blocked.push(`${id} produced the work`);
 
-          continue;
-        }
+        continue;
+      }
 
-        const shifted = choose(id);
+      const shifted = choose(id);
 
-        const limits = limitsFor(
-          accounts[id],
-          'refused' in shifted ? undefined : shifted.model,
+      if ('refused' in shifted) {
+        blocked.push(shifted.refused);
+
+        continue;
+      }
+
+      const next = candidate(id, shifted.model);
+      const { priority } = next.capacity;
+
+      if (
+        priority === undefined ||
+        (priority === 2 && !automatic && !state.spent)
+      ) {
+        blocked.push(
+          `${describe(id, shifted.model)}${priority === 2 ? '; coordinator capacity is reserved' : '; no verified destination capacity'}`,
         );
 
-        if (
-          fallback
-            ? spent(limits)
-              ? creditCapacity(accounts[id], now) !== 'available'
-              : !currentLimits(limits, now)
-            : !headroom(limits, shiftAt, now)
-        ) {
-          if (fallback) continue;
-
-          blocked.push(
-            currentLimits(limits, now)
-              ? `${standing(id, accounts[id]!, now, limits)} is at or over it too`
-              : reading(id, accounts[id], now, limits),
-          );
-
-          continue;
-        }
-
-        if ('refused' in shifted) {
-          if (!fallback) blocked.push(shifted.refused);
-
-          continue;
-        }
-
-        return {
-          runtime: id,
-          model: shifted.model,
-          from: runtime,
-          reason: `${hot}, and ${reading(id, accounts[id], now, limits)} has ${!fallback ? 'room under it' : spent(limits) ? 'usable credits' : 'included usage left'}${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
-        };
+        continue;
       }
+
+      candidates.push(next);
     }
 
+    candidates.sort(
+      (left, right) =>
+        left.capacity.priority! - right.capacity.priority! ||
+        right.capacity.score - left.capacity.score,
+    );
+
+    const selected = candidates[0];
+
+    const protection = state.spent
+      ? `${runtime} has a full applicable usage window`
+      : state.reserved
+        ? !demand || demand.unknown.includes(runtime)
+          ? `${runtime} needs a capacity reserve while coordinator activity is unknown`
+          : `${runtime} needs a capacity reserve for its active coordinator${(demand.coordinators[runtime] ?? 0) === 1 ? '' : 's'}`
+        : '';
+
+    if (!selected)
+      return keep(
+        `${protection}; ${blocked.join(', ') || 'no other runtime is installed'}`,
+      );
+
+    const compared = automatic ? candidates : [own, selected];
+
+    const explanation = [
+      automatic ? `automatic ${work}` : `${subject} prefers ${runtime}`,
+      ...compared.map(({ runtime: id, model }) => describe(id, model)),
+      ...(protection ? [protection] : []),
+      ...blocked,
+      selected.capacity.priority === 1
+        ? `${selected.runtime} has usable credits for its full window`
+        : automatic || state.comparableLoad
+          ? `${selected.runtime} has the most remaining allowance per worker among runtimes with the same coordinator protection, accounting for known reset times`
+          : `${selected.runtime} has included usage left`,
+      ...(pinned && selected.runtime !== runtime
+        ? [`${selected.model} is comparable to ${pinned}`]
+        : []),
+    ];
+
     return {
-      runtime,
-      model: chosen.model,
-      reason: `${why}; ${hot}, but ${blocked.join(', ') || 'no other runtime is installed'}`,
+      runtime: selected.runtime,
+      model: selected.model,
+      ...(selected.runtime === runtime ? {} : { from: runtime }),
+      reason: explanation.join('; '),
     };
   };
 
@@ -408,7 +463,11 @@ export function route({
     const placements: Routed[] = [];
 
     for (const runtime of installed) {
-      const placed = place(runtime, `${subject} goes to every runtime`, true);
+      const placed = place(
+        runtime,
+        `${subject} requests a familiar on each runtime`,
+        true,
+      );
 
       if ('refused' in placed) return placed;
 
@@ -432,7 +491,7 @@ export function route({
   }
 
   const why =
-    rule === 'same'
+    rule === 'same' || rule === 'auto'
       ? work === 'review' && of
         ? `${work} stays on ${of.runtime}, which produced it`
         : `${work} stays on ${caller}`

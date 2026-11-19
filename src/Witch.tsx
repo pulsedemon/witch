@@ -212,7 +212,11 @@ export async function runWitch(
 
   const stopWake = keepAwake(coordinator, jobs, warn);
   const policy = await DelegationStore.open(join(store.root, 'delegation'));
-  coordination.router = router(coordinator, policy);
+
+  coordination.router = router(coordinator, policy, (deadline) =>
+    coordination.routingDemand(deadline),
+  );
+
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
   // straight to the terminal, since the link screen would read image data as printed text
   const graphics = new Graphics((data) => process.stdout.write(data));

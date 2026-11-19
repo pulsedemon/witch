@@ -1,8 +1,10 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { CoordinationStore } from '../../persistence/coordination.js';
 import type { Activation } from './coordination.js';
 import { taskActivity, type SessionPresence } from './coordination-state.js';
 import type { Snapshot } from '../snapshot.js';
 import type { ProcessIdentity } from '../state.js';
+import { familiarRuntimes } from '../runtime/demand.js';
 
 interface PresenceHost {
   readonly registry: Pick<CoordinationStore, 'publish'>;
@@ -54,7 +56,8 @@ export class PresencePublisher {
       keys.every(
         (key) =>
           key === 'updatedAt' ||
-          (Object.hasOwn(projected, key) && presence[key] === projected[key]),
+          (Object.hasOwn(projected, key) &&
+            isDeepStrictEqual(presence[key], projected[key])),
       )
     )
       return;
@@ -122,11 +125,13 @@ export class PresencePublisher {
     this.projected = undefined;
   }
 
-  private record(active: Activation): SessionPresence {
+  /** routing reads current state before the coalesced presence write reaches disk. */
+  record(active: Activation): SessionPresence {
     const state = this.host.state();
     const { familiars, brews } = taskActivity(state);
     const { id, title, cwd, agent } = active.conversation;
     const branch = this.host.branch();
+    const nativeRunning = state?.nativeRunning ?? false;
 
     return {
       id,
@@ -143,11 +148,13 @@ export class PresencePublisher {
       phase:
         state?.phase === 'compacting' ||
         state?.phase === 'updating' ||
-        (state?.phase === 'idle' && state.nativeRunning)
+        (state?.phase === 'idle' && nativeRunning)
           ? 'running'
           : (state?.phase ?? 'starting'),
+      nativeRunning,
       requests: state?.requests.length ?? 0,
       familiars,
+      familiarRuntimes: familiarRuntimes(state?.subagents ?? [], agent),
       brews,
       ...(branch ? { branch } : {}),
       openedAt: active.openedAt,

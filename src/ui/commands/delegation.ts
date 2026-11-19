@@ -12,7 +12,7 @@ import { describeReading } from '../../core/runtime/usage.js';
 import type { DelegationStore } from '../../persistence/delegation.js';
 
 const delegationUsage =
-  '/delegation <kind> <same|other|both|runtime[:model or family]|clear>, /delegation family <runtime> <family> or /delegation shift <1-100|off>';
+  '/delegation <kind> <auto|same|other|both|runtime[:model or family]|clear>, /delegation family <runtime> <family> or /delegation shift <1-100|off>';
 
 /** the policy with one change from `/delegation`'s argument, or what is wrong with it. */
 export function changeDelegation(
@@ -49,6 +49,9 @@ export function changeDelegation(
 
   if (!kind.success || !second || third) return `Use ${delegationUsage}.`;
 
+  if (kind.data === 'review' && second === 'auto')
+    return 'Use both for automatic review coverage; auto is for planning, implementation and investigation.';
+
   const rules = { ...policy.work };
 
   if (second === 'clear') {
@@ -57,7 +60,7 @@ export function changeDelegation(
     return { ...policy, work: rules };
   }
 
-  if (second !== 'same' && second !== 'other' && second !== 'both') {
+  if (!['auto', 'same', 'other', 'both'].includes(second)) {
     const [runtime = '', model] = second.split(/:(.*)/s);
 
     if (!runtime || model === '') return `Use ${delegationUsage}.`;
@@ -101,7 +104,7 @@ export function delegationPage(
   );
 
   return [
-    'Work goes where its rule sends it; with no rule, review goes to every runtime and other work stays on the runtime asking.',
+    'With no rule, review requests a familiar on every runtime; other work balances remaining allowance, reset timing and active workload. Explicit rules set the intended placement.',
     '',
     ...work.options.map((kind) => `${kind.padEnd(16)}${ruleFor(policy, kind)}`),
     '',
@@ -109,8 +112,8 @@ export function delegationPage(
     ...families,
     '',
     policy.shiftAt === null
-      ? 'New work never shifts for usage.'
-      : `New work shifts to a runtime with room once its own reaches ${policy.shiftAt}% unless usable credits keep it there, onto a comparable model when its rule names one.`,
+      ? 'Automatic movement is off; auto keeps work on the runtime asking.'
+      : `At ${policy.shiftAt}% usage, protect the remaining allowance for active coordinators. Unknown activity keeps that protection. Usable credits keep a runtime's own work; shifted model rules use a comparable model.`,
     '',
     'Usage',
     ...usage,

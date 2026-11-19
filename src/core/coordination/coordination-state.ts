@@ -139,8 +139,12 @@ export const sessionPresenceSchema = conversationSummarySchema.extend({
   activation: z.string().uuid(),
   process: processIdentity,
   phase: phaseSchema,
+  nativeRunning: z.boolean().optional(),
   requests: z.number().int().nonnegative(),
   familiars: z.number().int().nonnegative(),
+  familiarRuntimes: z
+    .record(z.string(), z.number().int().nonnegative())
+    .optional(),
   brews: z.number().int().nonnegative(),
   branch: z.string().optional(),
   openedAt: z.number(),
