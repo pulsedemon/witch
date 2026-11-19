@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
+import stringWidth from 'string-width';
 import { textCommands } from '../agents/claude/spells.js';
 import type { CompletionList } from './input/completion.js';
 import type { Coordinator } from '../core/coordinator.js';
@@ -52,7 +53,7 @@ import { highlight } from './transcript/selection.js';
 import { useSelection } from './transcript/useSelection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
-import { castTitle, useCasting } from './status/cast.js';
+import { castRows, castTitle, useCasting } from './status/cast.js';
 import { elapsed } from './status/elapsed.js';
 import { Sidebar } from './status/Sidebar.js';
 import { sidebarWidth, usagePlacement } from './status/sidebar-layout.js';
@@ -951,20 +952,36 @@ export function App({
       scrollTop + transcriptHeight,
     );
 
+    /** in view and outside the selection, which shows the canonical rows it copies. */
+    const overlays = (row: number) =>
+      row >= scrollTop &&
+      row - scrollTop < visible.length &&
+      !(
+        selection.ends &&
+        row >= selection.ends[0].row &&
+        row <= selection.ends[1].row
+      );
+
     for (const [id, frame] of casting) {
       const row = transcript.starts.get(id);
 
       if (
-        row !== undefined &&
-        row >= scrollTop &&
-        row - scrollTop < visible.length &&
-        !(
-          selection.ends &&
-          row >= selection.ends[0].row &&
-          row <= selection.ends[1].row
-        )
+        row === undefined ||
+        !overlays(row) ||
+        bodyWidth < stringWidth(castTitle())
       )
-        visible[row - scrollTop] = castTitle(frame, bodyWidth);
+        continue;
+
+      const { heading, above } = castRows(
+        frame,
+        bodyWidth,
+        id,
+        overlays(row - 1) && visible[row - 1 - scrollTop] === '',
+      );
+
+      visible[row - scrollTop] = heading;
+
+      if (above !== undefined) visible[row - 1 - scrollTop] = above;
     }
 
     const selectedToolRow = transcript.starts.get(selectedTool?.id ?? '');

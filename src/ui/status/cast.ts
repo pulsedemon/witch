@@ -1,76 +1,254 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import stringWidth from 'string-width';
 import type { DisplayItem } from '../../core/state.js';
-import { accent, accentDim, colors } from '../theme.js';
+import { accent, colors } from '../theme.js';
+import { tickMs, useTick } from '../useTick.js';
+import { kaomoji } from './kaomoji.js';
+import { castHop, eased } from './cast-motion.js';
+import type { CastKick } from './cast-motion.js';
 
-const stepMs = 100;
-export const castFrames = 20;
-export const castMs = castFrames * stepMs;
+/** the frame the chain is fully wiped in by, and the first of its fade. */
+const [opened, closing] = [10, 54];
+export const castFrames = 72;
+export const castMs = castFrames * tickMs;
 const title = '✦ Spell';
-const hot = '#fff1c2';
-const fire = '#fb923c';
-const ember = '#7c3a2b';
+const lilac = '#c4a0ef';
+const glow = '#eee5ff';
+/** near a dark terminal's background, which the chain fades from and back into. */
+const night = '#1e1630';
+/** one cell each. no halfwidth `ﾞ` or `ﾟ`: after a two-cell glyph Ghostty gives it no cell of its own. */
+const sparks = ['☆', '✧', '♪', '♡', '･', '*', '+', '｡'];
+/** how bright a hopping face's print on the heading row stays. */
+const impression = 0.14;
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-/** decoration stays on the heading's row; the cached title remains the copy and scroll anchor. */
-export function castTitle(frame?: number, width = title.length): string {
-  if (frame === undefined) return colors.hex(accent).bold(title);
+interface Cluster {
+  text: string;
+  width: number;
+}
 
-  const ignition = frame >= 4 && frame < 6;
+/** the clusters a terminal draws, each with its cells, so the row's edge never cuts through one. */
+const clusters = (text: string): Cluster[] =>
+  [...graphemes.segment(text)].map(({ segment }) => ({
+    text: segment,
+    width: stringWidth(segment),
+  }));
 
-  const heading = ignition
-    ? colors.hex(hot).bgHex('#9a3412').bold(title)
-    : colors
-        .hex(frame < 4 ? '#d8b4fe' : frame < 13 ? fire : accent)
-        .bold(title);
+const faces = kaomoji.map((text) => ({
+  // drawn from the leading edge back, so last cluster first
+  clusters: clusters(text).reverse(),
+  width: stringWidth(text),
+}));
 
-  const reach = width - title.length - 1;
+/** a color `share` of the way from one hex color to another. */
+function blend(from: string, to: string, share: number): string {
+  const channel = (start: number) => {
+    const low = parseInt(from.slice(start, start + 2), 16);
+    const high = parseInt(to.slice(start, start + 2), 16);
 
-  if (reach <= 0) return heading;
+    return Math.round(low + (high - low) * share)
+      .toString(16)
+      .padStart(2, '0');
+  };
 
-  const progress = (frame - 6) / 6;
+  return `#${channel(1)}${channel(3)}${channel(5)}`;
+}
 
-  const front = Math.round(
-    (frame < 4 ? 1 - (frame / 3) ** 2 : 1 - (1 - progress) ** 2) * (reach - 1),
-  );
+/** numbers in [0, 1) that repeat for a seed, so every frame of one cast draws the same chain. */
+function picks(seed: string): () => number {
+  let state = 2166136261;
 
-  const sparks = Array.from({ length: reach }, (_, column) => {
-    if (frame < 4) {
-      const behind = column - front;
+  for (const char of seed)
+    state = Math.imul(state ^ char.codePointAt(0)!, 16777619);
 
-      if (behind === 0) return colors.hex('#e9d5ff').bold('*');
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
 
-      if (behind === 3 || behind === 7) return colors.hex(accent)('+');
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 2 ** 32;
+  };
+}
 
-      return colors.hex(accentDim)(column % 5 === frame ? '.' : ' ');
-    }
+/**
+ * the cells right of the heading and of the row above. kaomoji chained with sparkles pour out of the title like a
+ * ticker, one cell a frame. kicks travel through nearby faces and sparkles; blending between the two rows
+ * softens each hop without changing the transcript's layout.
+ */
+function stage(frame: number, reach: number, seed: string, lift: boolean) {
+  const next = picks(seed);
+  const shift = next();
+  const out = reach + frame;
 
-    if (ignition)
-      return colors.hex(column < 5 ? hot : fire).bgHex('#261333')(
-        column < 5 ? '*:+:*'[column]! : column % 4 === 0 ? '.' : ' ',
+  /** every face and sparkle the chain has by now, by how far its last cell is behind the leading edge. */
+  const bodies: {
+    drawn: readonly Cluster[];
+    before: number;
+    width: number;
+    face: boolean;
+  }[] = [];
+
+  for (let before = 0; before < out;) {
+    const face = faces[Math.floor(next() * faces.length)]!;
+    const spark = sparks[Math.floor(next() * sparks.length)]!;
+
+    bodies.push({
+      drawn: face.clusters,
+      before,
+      width: face.width,
+      face: true,
+    });
+
+    before += face.width + 1;
+
+    bodies.push({
+      drawn: [{ text: spark, width: 1 }],
+      before,
+      width: 1,
+      face: false,
+    });
+
+    before += 2;
+  }
+
+  const chance = picks(`${seed}/kicks`);
+  /** kicks rotate across the row so fresh faces launch the next ripple. */
+  const kicks: CastKick[] = [];
+
+  for (let at = opened + Math.floor(chance() * 3); at < closing - 3;) {
+    const side = (kicks.length + Math.floor(shift * 3)) % 3;
+    const spot = at + reach * (0.08 + side * 0.28 + chance() * 0.16);
+
+    const nearest = bodies
+      .filter(({ face }) => face)
+      .reduce((best, body) =>
+        Math.abs(body.before + body.width / 2 - spot) <
+        Math.abs(best.before + best.width / 2 - spot)
+          ? body
+          : best,
       );
 
-    if (frame < 13) {
-      const behind = front - column;
+    kicks.push({
+      at,
+      center: nearest.before + nearest.width / 2,
+      strength: 1.1 + chance() * 0.4,
+    });
 
-      if (behind === 0) return colors.hex(hot).bold('*');
+    at += 8 + Math.floor(chance() * 5);
+  }
 
-      const glyph =
-        behind > 0 && (column + frame) % 3 !== 0
-          ? behind < 5
-            ? '+'
-            : ':'
-          : ' ';
+  const distortion = picks(`${seed}/glitch`);
+  let glitch: { from: number; to: number } | undefined;
 
-      return colors.hex(behind < 5 ? fire : ember).bgHex('#1c1028')(glyph);
+  for (let at = opened + 8 + Math.floor(distortion() * 4); at < closing - 3;) {
+    const from = at + Math.floor(reach * (0.15 + distortion() * 0.65));
+    const to = from + 8 + Math.floor(distortion() * 7);
+
+    if (frame >= at && frame < at + 3) glitch = { from, to };
+
+    kicks.push({ at: at - 2, center: (from + to) / 2, strength: 1.65 });
+    at += 23 + Math.floor(distortion() * 6);
+  }
+
+  const front =
+    (reach + 12) * (1 - (1 - Math.min(1, (frame + 1) / opened)) ** 3);
+
+  const lit = eased((castFrames - frame) / (castFrames - closing));
+  const ground: string[] = Array.from({ length: reach }, () => ' ');
+  const sky: string[] = Array.from({ length: reach }, () => ' ');
+
+  for (const [
+    index,
+    { drawn, before: start, width: span, face },
+  ] of bodies.entries()) {
+    const { rise, shine } = castHop(frame, start + span / 2, kicks, lift);
+
+    const twinkle = face
+      ? 1
+      : 0.72 + 0.28 * Math.sin(frame * 0.45 + index * 1.9);
+
+    let before = start;
+
+    for (const { text, width } of drawn) {
+      const column = out - before - width;
+      before += width;
+
+      if (column < 0 || column + width > reach) continue;
+
+      // soft at the title, at the row's end and at the wipe's front
+      const shown =
+        lit *
+        twinkle *
+        Math.min(1, (column + 1) / 4, (reach - column) / 10) *
+        Math.min(1, Math.max(0, (front - column) / 12));
+
+      const color = blend(
+        accent,
+        lilac,
+        0.65 + 0.15 * Math.sin(shift * Math.PI * 2 + start / 24 - frame / 14),
+      );
+
+      const broken =
+        glitch &&
+        before >= glitch.from &&
+        before < glitch.to &&
+        (before + frame) % 3 !== 0;
+
+      const glyph = broken
+        ? ['░', '▒', '_', '/', '\\', '|'][(before + frame) % 6]!.repeat(width)
+        : text;
+
+      const tone = blend(
+        color,
+        glow,
+        broken ? 0.9 : (face ? 0.55 : 0.65) * shine + (face ? 0 : 0.3),
+      );
+
+      for (const [cells, share] of [
+        [ground, face && rise > 0 ? Math.max(impression, 1 - rise) : 1 - rise],
+        [sky, rise],
+      ] as const) {
+        if (share * shown < 0.06) continue;
+
+        cells[column] = colors.hex(blend(night, tone, share * shown))(glyph);
+        cells.fill('', column + 1, column + width);
+      }
     }
+  }
 
-    const age = frame - 13;
-    const glowing = (column * 7) % 11 >= (age * 10) / 6;
-
-    return colors.hex(age < 3 ? ember : accentDim)(glowing ? '.' : ' ');
-  });
-
-  return `${heading} ${sparks.join('')}`;
+  return { ground: ground.join(''), sky: sky.join('') };
 }
+
+/** the settled heading, which the transcript caches as the copy and scroll anchor. */
+export function castTitle(): string {
+  return colors.hex(accent).bold(title);
+}
+
+/** a live cast's heading row, and with `lift` the row above it, where its faces hop. neither changes the cached rows. */
+export function castRows(
+  frame: number,
+  width: number,
+  seed: string,
+  lift: boolean,
+): { heading: string; above?: string } {
+  const reach = width - title.length - 1;
+  const lit = eased((castFrames - frame) / (castFrames - closing));
+
+  const heading = colors
+    .hex(blend(blend(accent, lilac, lit), glow, 1 - eased((frame + 1) / 8)))
+    .bold(title);
+
+  if (reach <= 0) return { heading };
+
+  const { ground, sky } = stage(frame, reach, seed, lift);
+
+  return {
+    heading: `${heading} ${ground}`,
+    above: lift ? `${' '.repeat(title.length + 1)}${sky}` : undefined,
+  };
+}
+
+const none: ReadonlyMap<string, number> = new Map();
 
 function live(items: readonly DisplayItem[], now: number) {
   const casting = new Map<string, number>();
@@ -78,40 +256,26 @@ function live(items: readonly DisplayItem[], now: number) {
   for (const item of items) {
     if (!item.cast || !item.at) continue;
 
-    const age = now - Date.parse(item.at);
+    const frame = Math.floor((now - Date.parse(item.at)) / tickMs);
 
-    if (age >= 0 && age < castMs)
-      casting.set(item.id, Math.floor(age / stepMs));
+    if (frame >= 0 && frame < castFrames) casting.set(item.id, frame);
   }
 
-  return casting;
+  return casting.size ? casting : none;
 }
 
-/** each cast row's frame while new; history loads past its window, so only casts made now animate. */
+/** casts animate only within their timestamp window, including recently restored rows. */
 export function useCasting(
   items: readonly DisplayItem[],
 ): ReadonlyMap<string, number> {
-  const [casting, setCasting] = useState<ReadonlyMap<string, number>>(
-    () => new Map(),
-  );
+  const [watching, setWatching] = useState(false);
+  const tick = useTick(1, watching);
+  const casting = useMemo(() => live(items, tick * tickMs), [items, tick]);
 
+  // a cast can arrive while the clock sleeps, so this reads the time itself
   useEffect(() => {
-    const update = () => {
-      const next = live(items, Date.now());
-      // an unchanged empty map keeps its identity, so a transcript with no new cast doesn't render again
-      setCasting((previous) => (previous.size || next.size ? next : previous));
-
-      return next.size > 0;
-    };
-
-    if (!update()) return;
-
-    const timer = setInterval(() => {
-      if (!update()) clearInterval(timer);
-    }, stepMs);
-
-    return () => clearInterval(timer);
-  }, [items]);
+    setWatching(casting.size > 0 || live(items, Date.now()).size > 0);
+  }, [items, casting]);
 
   return casting;
 }

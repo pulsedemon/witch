@@ -4,6 +4,7 @@ import { test, vi } from 'vitest';
 import type { UserRequest } from '../../src/agents/types.js';
 import type { DisplayItem } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
+import { Activity } from '../../src/ui/status/Activity.js';
 import { TurnGate } from '../fixtures/agent.js';
 import { unitFixture } from '../fixtures/coordinator.js';
 import { approval, fake, openCommand, show } from '../fixtures/ui.js';
@@ -493,6 +494,31 @@ test('a working phase that is not the agent’s run leaves the message row to th
 
     coordinator.publish({ phase: 'running' });
     await until('the message row in the agent’s run', () => between() === 2);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('activity age stays nonnegative between shared clock boundaries', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  vi.setSystemTime(100_023);
+
+  const ui = show(
+    createElement(Activity, {
+      startedAt: 100_023,
+      quietSince: 100_023,
+      reasonedAt: 100_023,
+    }),
+  );
+
+  try {
+    await until('the activity clocks', () =>
+      ui.text().includes('THOUGHT 0S AGO'),
+    );
+
+    assert.ok(ui.text().includes('| 0S |'));
+    assert.ok(ui.text().includes('QUIET 0S'));
+    assert.ok(!ui.text().includes('-1S'));
   } finally {
     ui.unmount();
   }
