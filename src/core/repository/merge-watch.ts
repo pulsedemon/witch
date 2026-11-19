@@ -37,10 +37,10 @@ interface Merge {
  * cleans up a merged branch while its checkout is clean and the conversation is idle without errors or queued prompts:
  * the checked-out branch's own pull request, and those the repository watch follows for branches the checkout left,
  * each with its own wait, retry and progress. a cleanup that found the checkout changed waits for a repository change,
- * other deferred cleanups retry after five seconds or a repository change. interrupted and retryable work retains progress;
- * completed work, ordinary failures and interrupted work whose progress couldn't be confirmed aren't retried, and are
- * no longer followed. a merge held back for 15 s, or deferred three times running, says why in the transcript, once
- * per reason.
+ * other deferred cleanups retry after five seconds or a repository change. interrupted and retryable work keeps its
+ * progress across checkout changes; completed work, ordinary failures and interrupted work whose progress couldn't be
+ * confirmed aren't retried or followed. a merge held back for 15 s, or deferred three times running, says why in the
+ * transcript, once per reason.
  */
 export function watchMerges(
   repository: Pick<RepositoryWatch, 'snapshot' | 'subscribe' | 'unfollow'>,

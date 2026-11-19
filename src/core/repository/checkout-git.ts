@@ -56,10 +56,14 @@ export const fetchRemote = async (git: Git, ...args: string[]) => {
       code === 1 &&
       !killed &&
       diagnostics.length &&
-      diagnostics.every((line) =>
-        /^error: cannot lock ref 'refs\/remotes\/[^']+': is at [0-9a-f]+ but expected [0-9a-f]+$/.test(
-          line,
-        ),
+      diagnostics.every(
+        (line) =>
+          /^error: cannot lock ref 'refs\/remotes\/[^']+': is at [0-9a-f]+ but expected [0-9a-f]+$/.test(
+            line,
+          ) ||
+          /^error: fetching ref refs\/remotes\/\S+ failed: incorrect old value provided$/.test(
+            line,
+          ),
       )
     )
       throw new FetchRefConflict(error.message, { cause: error });
