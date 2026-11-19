@@ -1,37 +1,36 @@
-import { constants } from 'node:fs';
-import type { FileHandle } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from '../../errors.js';
 import type { Memory } from '../../memory/memory.js';
 import { within } from '../../paths.js';
-import { escapeRegExp } from '../../regexp.js';
-import { tryOpenLocked } from '../../persistence/lock.js';
 import { runs } from '../../persistence/process.js';
 import type { StateStore } from '../../persistence/store.js';
 import { branchInOperation, operationIn } from './branch-operations.js';
 import {
+  changed,
+  commitAt,
   configValue,
+  fastForward,
   fetchRemote,
   gitIn,
+  hasBranchConfig,
   isFetchRefConflict,
+  lockCheckout,
+  read,
+  reconcilePull,
+  refHead,
+  succeeds,
+  topLevel,
 } from './checkout-git.js';
-import type { Git } from './checkout-git.js';
-import { runCommand } from './command.js';
+import type { CheckoutProgress, Git } from './checkout-git.js';
+import { refreshInstall } from './install-refresh.js';
+import type { InstallProgress } from './install-refresh.js';
 import { headRetention } from './head-retention.js';
 import { removePlans } from './merged-plans.js';
 import type { PlanRemoval } from './merged-plans.js';
-import { sharedRebuild } from './shared-rebuild.js';
-import type { RebuildResult } from './shared-rebuild.js';
 import type { Conversation } from '../state.js';
-import { gitHubRepository, parseStatus, statusArgs } from './repository.js';
-import type { PullRequest, Repository, Run } from './repository.js';
-
-interface CheckoutProgress {
-  head?: string;
-  target?: string;
-  done?: boolean;
-}
+import { gitHubRepository } from './repository.js';
+import type { PullRequest, Repository } from './repository.js';
 
 export interface MergeCleanup {
   cwd?: string;
@@ -210,18 +209,6 @@ function unconfirmedSteps(
   return steps;
 }
 
-interface InstallProgress {
-  result?: string;
-  root?: string;
-  checkout?: CheckoutProgress;
-  installed?: boolean;
-  built?: boolean;
-  /** the post-abort reconcile of `checkout` failed. */
-  unconfirmed?: boolean;
-}
-
-const topLevel = (git: Git) => git('rev-parse', '--show-toplevel');
-
 /** why another conversation holds `cwd`'s checkout, or nothing: its turn runs there, or a record that could be one is unreadable. */
 async function peerTurnIn(
   store: StateStore,
@@ -251,81 +238,14 @@ async function peerTurnIn(
   return undefined;
 }
 
-/**
- * the commit `ref` names. --end-of-options keeps a ref named like an option from being read as a flag, and --verify
- * keeps rev-parse from echoing that separator ahead of the commit.
- */
-const commitAt = (git: Git, ref: string) =>
-  git('rev-parse', '--verify', '--end-of-options', ref);
-
-const succeeds = (promise: Promise<unknown>, signal?: AbortSignal) =>
-  promise.then(
-    () => true,
-    (error: unknown) => {
-      if (error === signal?.reason) throw error;
-
-      return false;
-    },
-  );
-
-const read = async (git: Git) => parseStatus(await git(...statusArgs));
-
 /** GitHub deletes a merged branch seconds after the merge, which the watch can see first. */
 const deleting = ({ mergedAt }: PullRequest) =>
   !!mergedAt && Date.now() - Date.parse(mergedAt) < 15_000;
-
-/**
- * what a switch would carry along or stop at. untracked files don't count, since `git switch` refuses to overwrite one.
- */
-export const changed = ({ staged, modified, conflicts }: Repository) =>
-  !!(staged || modified || conflicts);
-
-/**
- * checks after fetching because another terminal can switch or edit the checkout meanwhile. the second status read is the
- * last read before the merge, which lands on whatever is checked out by then.
- */
-async function fastForward(
-  git: Git,
-  base: string,
-  progress: CheckoutProgress = {},
-): Promise<boolean> {
-  await fetchRemote(git);
-
-  const left = (status: Repository) =>
-    status.branch !== base || changed(status);
-
-  if (left(await read(git))) return false;
-
-  const target = await commitAt(git, `${base}@{upstream}`);
-  const status = await read(git);
-  const head = status.commit;
-
-  if (left(status) || !head) return false;
-
-  if (progress.head && head !== progress.head && head !== progress.target)
-    return false;
-
-  progress.head = head;
-  progress.target = target;
-  await git('merge', '--ff-only', '--no-overwrite-ignore', target);
-  progress.head = target;
-  progress.done = true;
-
-  return true;
-}
 
 const list = (items: string[]) =>
   items.length > 1
     ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
     : items[0]!;
-
-/** skips a checkout another Witch is updating; locking the git directory leaves no file behind. */
-async function lockCheckout(git: Git): Promise<FileHandle | undefined> {
-  return tryOpenLocked(
-    await git('rev-parse', '--absolute-git-dir'),
-    constants.O_RDONLY,
-  );
-}
 
 /** whether the checkout sits where the cleanup moves it: on the base, or detached at the target when it detaches. */
 const arrived = (
@@ -1218,30 +1138,6 @@ async function cleanLeft(
   });
 }
 
-/** an absent ref is expected after an interrupted deletion, but a Git failure is not absence. */
-async function refHead(git: Git, branch: string): Promise<string | undefined> {
-  return git('rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).catch(
-    (error: unknown) => {
-      if ((error as { code?: unknown }).code === 1) return undefined;
-
-      throw error;
-    },
-  );
-}
-
-async function hasBranchConfig(git: Git, branch: string): Promise<boolean> {
-  const section = `^branch\\.${escapeRegExp(branch)}\\.`;
-
-  return git('config', '--get-regexp', section).then(
-    () => true,
-    (error: unknown) => {
-      if ((error as { code?: unknown }).code === 1) return false;
-
-      throw error;
-    },
-  );
-}
-
 /** checkpoint mutations while the lock and cleaning phase still exclude queued work that could recreate a name. */
 async function reconcileCleanup(
   git: Git,
@@ -1274,16 +1170,6 @@ async function reconcileCleanup(
   if (progress.pull) await reconcilePull(git, progress.pull);
 
   await reconcilePruning(git, progress, signal);
-}
-
-async function reconcilePull(
-  git: Git,
-  progress: CheckoutProgress,
-): Promise<void> {
-  if (progress.target && (await git('rev-parse', 'HEAD')) === progress.target) {
-    progress.head = progress.target;
-    progress.done = true;
-  }
 }
 
 async function reconcilePruning(
@@ -1329,146 +1215,5 @@ async function removePrunedConfig(
     failures.push(
       `config section branch.${name} stayed: ${errorMessage(error).trim()}`,
     );
-  }
-}
-
-/**
- * pulls and rebuilds the checkout Witch runs from when it sits clean on `base`, the branch a pull request merged
- * into. joins another rebuild already running there; unrelated checkout work skips the refresh. running instances
- * keep their code until they restart.
- */
-export async function refreshInstall(
-  root: string,
-  base: string,
-  run: Run = runCommand,
-  {
-    signal,
-    progress = {},
-    notice,
-  }: {
-    signal?: AbortSignal;
-    progress?: InstallProgress;
-    notice?(text: string): void;
-  } = {},
-): Promise<string> {
-  signal?.throwIfAborted();
-
-  if (progress.result) return progress.result;
-
-  const git = gitIn(root, signal);
-
-  const failure = (error: unknown): Error => {
-    if (error === signal?.reason) throw error;
-
-    // tsc reports its errors on stdout, which the message leaves out
-    const { stdout } = error as { stdout?: unknown };
-
-    const tail =
-      typeof stdout === 'string'
-        ? stdout.trim().split('\n').slice(-20).join('\n')
-        : '';
-
-    return new Error(
-      `Witch's checkout at ${root} wasn't rebuilt: ${errorMessage(error).trim()}${tail && `\n${tail}`}`,
-      { cause: error },
-    );
-  };
-
-  const directory = await git('rev-parse', '--absolute-git-dir').catch(
-    (error: unknown) => {
-      throw failure(error);
-    },
-  );
-
-  const outcome = await sharedRebuild(directory, rebuild, {
-    signal,
-    failure,
-    waiting: () =>
-      notice?.(
-        `Another Witch is rebuilding Witch at ${root}; waiting for its result.`,
-      ),
-  });
-
-  if (outcome.built) {
-    progress.installed = true;
-    progress.built = true;
-    progress.result = outcome.text;
-  }
-
-  return outcome.text;
-
-  async function rebuild(): Promise<RebuildResult> {
-    const lock = await lockCheckout(git);
-
-    if (!lock)
-      return {
-        text: `Witch's checkout at ${root} is busy, so it wasn't rebuilt.`,
-        built: false,
-      };
-
-    let failed = false;
-
-    try {
-      progress.root ??= await topLevel(git);
-      progress.checkout ??= {};
-      const status = await read(git);
-      const head = await git('rev-parse', 'HEAD');
-      const checkout = progress.checkout;
-
-      if (
-        status.branch !== base ||
-        changed(status) ||
-        (checkout.head && head !== checkout.head && head !== checkout.target)
-      )
-        return {
-          text: `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`,
-          built: false,
-        };
-
-      if (!checkout.done && !(await fastForward(git, base, checkout)))
-        return {
-          text: `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`,
-          built: false,
-        };
-
-      if (!progress.installed) {
-        await run('pnpm', ['install', '--frozen-lockfile'], {
-          cwd: root,
-          timeout: 300_000,
-          ...(signal ? { signal } : {}),
-        });
-
-        progress.installed = true;
-      }
-
-      if (!progress.built) {
-        await run('pnpm', ['build'], {
-          cwd: root,
-          timeout: 300_000,
-          ...(signal ? { signal } : {}),
-        });
-
-        progress.built = true;
-      }
-
-      return {
-        text: `Rebuilt Witch at ${await git('rev-parse', '--short', 'HEAD')}, for its next start.`,
-        built: true,
-      };
-    } catch (error) {
-      failed = true;
-
-      if (error === signal?.reason && progress.checkout?.target)
-        await reconcilePull(
-          gitIn(root, AbortSignal.timeout(1000)),
-          progress.checkout,
-        ).catch(() => (progress.unconfirmed = true));
-
-      throw error;
-    } finally {
-      await lock.close().catch((error: unknown) => {
-        if (!failed) throw error;
-      });
-    }
   }
 }

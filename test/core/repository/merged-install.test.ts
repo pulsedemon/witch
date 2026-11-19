@@ -6,10 +6,8 @@ import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { quote } from '../../../src/shell.js';
 import { runCommand } from '../../../src/core/repository/command.js';
-import {
-  cleanUpMerge,
-  refreshInstall,
-} from '../../../src/core/repository/merged.js';
+import { cleanUpMerge } from '../../../src/core/repository/merged.js';
+import { refreshInstall } from '../../../src/core/repository/install-refresh.js';
 import type { Run } from '../../../src/core/repository/repository.js';
 import { openLocked } from '../../../src/persistence/lock.js';
 import { scratch } from '../../fixtures/scratch.js';

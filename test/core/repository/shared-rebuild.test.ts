@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 import { onTestFinished, test, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
-import { refreshInstall } from '../../../src/core/repository/merged.js';
+import { refreshInstall } from '../../../src/core/repository/install-refresh.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import { sharedRebuild } from '../../../src/core/repository/shared-rebuild.js';
 import { openLocked } from '../../../src/persistence/lock.js';
