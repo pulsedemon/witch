@@ -177,7 +177,7 @@ test('a review that loses a runtime to usage routes once and says on its own lin
     if (reply.kind !== 'route') return;
 
     const reason =
-      'review of a work prefers a; a (7D 95%); a: 1 active coordinator, 0 running familiars; b (7D 40%); b: 0 active coordinators, 0 running familiars; reserving a capacity for its active coordinator; b has the most remaining allowance per worker among runtimes with the same coordinator protection, accounting for known reset times';
+      'review of a work prefers a; a (7D 95%); a: 1 active coordinator, 0 running familiars; b (7D 40%); b: 0 active coordinators, 0 running familiars; a needs a capacity reserve for its active coordinator; b has the most remaining allowance per worker among runtimes with the same coordinator protection, accounting for known reset times';
 
     assert.deepEqual(reply.routes, [
       {

@@ -70,7 +70,7 @@ test('review retains an idle runtime above the reserve threshold and protects an
 
   assert.match(
     protectedReview.folded![0]!.reason,
-    /reserving claude capacity for its active coordinator/,
+    /claude needs a capacity reserve for its active coordinator/,
   );
 
   const ample = ask({
@@ -122,7 +122,7 @@ test('coordinator protection takes priority over a larger reset-adjusted allowan
   });
 
   assert.equal(result.routes[0]!.runtime, 'codex');
-  assert.match(result.routes[0]!.reason, /reserving claude capacity/);
+  assert.match(result.routes[0]!.reason, /claude needs a capacity reserve/);
 });
 
 test('verified destination credits take priority over a protected coordinator below full usage', () => {

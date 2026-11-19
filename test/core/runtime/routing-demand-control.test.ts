@@ -111,7 +111,12 @@ test('a coordinator in another project protects its runtime only while active an
 
     assert.equal(protectedRoute.folded?.[0]?.from, 'a');
     assert.match(protectedRoute.folded![0]!.reason, /a: 1 active coordinator/);
-    assert.match(protectedRoute.folded![0]!.reason, /reserving a capacity/);
+
+    assert.match(
+      protectedRoute.folded![0]!.reason,
+      /a needs a capacity reserve/,
+    );
+
     f.report(40, 70);
 
     assert.deepEqual(

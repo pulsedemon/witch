@@ -395,14 +395,14 @@ export function route({
       }
 
       const next = candidate(id, shifted.model);
-      const { priority, reserved } = next.capacity;
+      const { priority } = next.capacity;
 
       if (
         priority === undefined ||
         (priority === 2 && !automatic && !state.spent)
       ) {
         blocked.push(
-          `${describe(id, shifted.model)}${reserved ? '; coordinator capacity is reserved' : '; no verified destination capacity'}`,
+          `${describe(id, shifted.model)}${priority === 2 ? '; coordinator capacity is reserved' : '; no verified destination capacity'}`,
         );
 
         continue;
@@ -423,8 +423,8 @@ export function route({
       ? `${runtime} has a full applicable usage window`
       : state.reserved
         ? !demand || demand.unknown.includes(runtime)
-          ? `reserving ${runtime} capacity while coordinator activity is unknown`
-          : `reserving ${runtime} capacity for its active coordinator${(demand.coordinators[runtime] ?? 0) === 1 ? '' : 's'}`
+          ? `${runtime} needs a capacity reserve while coordinator activity is unknown`
+          : `${runtime} needs a capacity reserve for its active coordinator${(demand.coordinators[runtime] ?? 0) === 1 ? '' : 's'}`
         : '';
 
     if (!selected)

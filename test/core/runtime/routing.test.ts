@@ -168,13 +168,16 @@ test('credit capacity keeps a runtime at full weekly usage ahead of another runt
     { state: 'unknown' as const, observedAt: now },
     { state: 'available' as const, observedAt: now - USAGE_CURRENT_MS - 1 },
   ]) {
-    assert.equal(
-      (
-        ask({
-          accounts: { ...accounts, codex: { ...funded, creditAccess } },
-        }) as { runtime: string }
-      ).runtime,
-      'claude',
+    const result = ask({
+      accounts: { ...accounts, codex: { ...funded, creditAccess } },
+    });
+
+    assert.ok('runtime' in result);
+    assert.equal(result.runtime, 'claude');
+
+    assert.match(
+      result.reason,
+      /codex workload unknown; no verified destination capacity$/,
     );
 
     assert.equal(
@@ -222,7 +225,7 @@ test('credits draw work onto another runtime only at 100%, and a spent runtime w
         runtime: 'claude',
         model: 'claude-opus-5-5',
         reason:
-          'review of claude work requests a familiar on each runtime; claude (7D 90%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; codex (7D 94%, 25966.05 credits); codex workload unknown; coordinator capacity is reserved',
+          'review of claude work requests a familiar on each runtime; claude (7D 90%); claude workload unknown; claude needs a capacity reserve while coordinator activity is unknown; codex (7D 94%, 25966.05 credits); codex workload unknown; coordinator capacity is reserved',
       },
       {
         runtime: 'codex',
@@ -501,7 +504,7 @@ test('unknown activity preserves threshold protection in either direction', () =
       model: 'gpt-6.1-sol',
       from: 'claude',
       reason:
-        'implementation prefers claude; claude (5H 20%, 7D 92%, resets in 1d2h); claude workload unknown; codex (7D 49%, resets in 4d4h); codex workload unknown; reserving claude capacity while coordinator activity is unknown; codex has included usage left',
+        'implementation prefers claude; claude (5H 20%, 7D 92%, resets in 1d2h); claude workload unknown; codex (7D 49%, resets in 4d4h); codex workload unknown; claude needs a capacity reserve while coordinator activity is unknown; codex has included usage left',
     },
   );
 
@@ -520,7 +523,7 @@ test('unknown activity preserves threshold protection in either direction', () =
       model: 'gpt-6.1-sol',
       from: 'claude',
       reason:
-        "implementation prefers claude; claude (5H 95%); claude's 7D reading is not current; claude workload unknown; codex (5H 10%); codex workload unknown; reserving claude capacity while coordinator activity is unknown; codex has included usage left",
+        "implementation prefers claude; claude (5H 95%); claude's 7D reading is not current; claude workload unknown; codex (5H 10%); codex workload unknown; claude needs a capacity reserve while coordinator activity is unknown; codex has included usage left",
     },
   );
 
@@ -534,7 +537,7 @@ test('unknown activity preserves threshold protection in either direction', () =
       model: 'claude-opus-5-5',
       from: 'codex',
       reason:
-        'implementation prefers codex; codex (7D 92%); codex workload unknown; claude (7D 40%); claude workload unknown; reserving codex capacity while coordinator activity is unknown; claude has included usage left',
+        'implementation prefers codex; codex (7D 92%); codex workload unknown; claude (7D 40%); claude workload unknown; codex needs a capacity reserve while coordinator activity is unknown; claude has included usage left',
     },
   );
 });
@@ -549,7 +552,7 @@ test('a review the policy sent away from its producer stays off the producer whe
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'the policy sends review of codex work to other; claude (7D 92%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; codex produced the work',
+        'the policy sends review of codex work to other; claude (7D 92%); claude workload unknown; claude needs a capacity reserve while coordinator activity is unknown; codex produced the work',
     },
   );
 
@@ -592,7 +595,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       {
         runtime: 'claude',
         model: 'claude-opus-5-5',
-        reason: `implementation stays on claude; claude (7D 92%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; ${codex?.some(({ window }) => window === '5H') ? 'codex (5H 10%); ' : ''}${missing}; codex workload unknown; no verified destination capacity`,
+        reason: `implementation stays on claude; claude (7D 92%); claude workload unknown; claude needs a capacity reserve while coordinator activity is unknown; ${codex?.some(({ window }) => window === '5H') ? 'codex (5H 10%); ' : ''}${missing}; codex workload unknown; no verified destination capacity`,
       },
     );
 
@@ -608,7 +611,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'implementation stays on claude; claude (7D 92%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; codex lists no sol model to run',
+        'implementation stays on claude; claude (7D 92%); claude workload unknown; claude needs a capacity reserve while coordinator activity is unknown; codex lists no sol model to run',
     },
   );
 
@@ -626,7 +629,7 @@ test('no shift happens without current evidence of room, and the reason says whi
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        "implementation stays on claude; claude (5H 95%); claude's 7D reading is not current; claude workload unknown; reserving claude capacity while coordinator activity is unknown; codex's 7D reading is not current; codex workload unknown; no verified destination capacity",
+        "implementation stays on claude; claude (5H 95%); claude's 7D reading is not current; claude workload unknown; claude needs a capacity reserve while coordinator activity is unknown; codex's 7D reading is not current; codex workload unknown; no verified destination capacity",
     },
   );
 });
@@ -706,7 +709,7 @@ test('a runtime over the level stays when no other runtime is installed, and the
       runtime: 'claude',
       model: 'claude-opus-5-5',
       reason:
-        'implementation stays on claude; claude (7D 95%); claude workload unknown; reserving claude capacity while coordinator activity is unknown; no other runtime is installed',
+        'implementation stays on claude; claude (7D 95%); claude workload unknown; claude needs a capacity reserve while coordinator activity is unknown; no other runtime is installed',
     },
   );
 });
@@ -767,7 +770,7 @@ test('with no rule, review goes to every runtime, and a reviewer over the level 
           model: 'claude-opus-5-5',
           from: 'codex',
           reason:
-            'review of claude work prefers codex; codex (7D 92%, resets in 1d1h, 25966.05 credits); codex workload unknown; claude (7D 40%, resets in 2h0m); claude workload unknown; reserving codex capacity while coordinator activity is unknown; claude has included usage left',
+            'review of claude work prefers codex; codex (7D 92%, resets in 1d1h, 25966.05 credits); codex workload unknown; claude (7D 40%, resets in 2h0m); claude workload unknown; codex needs a capacity reserve while coordinator activity is unknown; claude has included usage left',
         },
       ],
     },
@@ -810,7 +813,7 @@ test("a review whose first runtime is over the level folds its shift into the ne
           model: 'gpt-6.1-sol',
           from: 'claude',
           reason:
-            'review of claude work prefers claude; claude (7D 95%); claude workload unknown; codex (7D 40%); codex workload unknown; reserving claude capacity while coordinator activity is unknown; codex has included usage left',
+            'review of claude work prefers claude; claude (7D 95%); claude workload unknown; codex (7D 40%); codex workload unknown; claude needs a capacity reserve while coordinator activity is unknown; codex has included usage left',
         },
       ],
     },
@@ -838,7 +841,7 @@ test('a rule that names a model or family shifts to the comparable model on a ru
         runtime: destination,
         model,
         from: source,
-        reason: `implementation prefers ${source}; ${source} (7D 99%); ${source} workload unknown; ${destination} (7D 1%); ${destination} workload unknown; reserving ${source} capacity while coordinator activity is unknown; ${destination} has included usage left; ${model} is comparable to ${sourceModel}`,
+        reason: `implementation prefers ${source}; ${source} (7D 99%); ${source} workload unknown; ${destination} (7D 1%); ${destination} workload unknown; ${source} needs a capacity reserve while coordinator activity is unknown; ${destination} has included usage left; ${model} is comparable to ${sourceModel}`,
       },
       rule,
     );
@@ -853,7 +856,7 @@ test('a rule that names a model or family shifts to the comparable model on a ru
       runtime: 'codex',
       model: 'gpt-6-nova',
       reason:
-        'the policy sends implementation to codex:gpt-6-nova; codex (7D 99%); codex workload unknown; reserving codex capacity while coordinator activity is unknown; claude has no model comparable to gpt-6-nova',
+        'the policy sends implementation to codex:gpt-6-nova; codex (7D 99%); codex workload unknown; codex needs a capacity reserve while coordinator activity is unknown; claude has no model comparable to gpt-6-nova',
     },
   );
 
@@ -924,7 +927,7 @@ test('a model whose own weekly window is over the level shifts like a runtime ov
       runtime: 'codex',
       model: 'gpt-6.1-sol',
       reason:
-        'implementation stays on codex; codex (7D 92%); codex workload unknown; reserving codex capacity while coordinator activity is unknown; claude (7D 40%, 7D Opus 95%); claude workload unknown; coordinator capacity is reserved',
+        'implementation stays on codex; codex (7D 92%); codex workload unknown; codex needs a capacity reserve while coordinator activity is unknown; claude (7D 40%, 7D Opus 95%); claude workload unknown; coordinator capacity is reserved',
     },
   );
 });
