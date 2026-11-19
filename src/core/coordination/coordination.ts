@@ -227,7 +227,7 @@ export class SessionCoordination {
     this.transfers = new TransferResponder({
       registry,
       serialize: (work) => this.serialize(work),
-      change: (state, work, verify) => this.change(state, work, verify),
+      change: (work, verify) => this.change(undefined, work, verify),
       admit: () => this.admit(),
       state: () => this.state,
       refresh: () => this.refresh(),

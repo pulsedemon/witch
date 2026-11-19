@@ -5,7 +5,7 @@ import type {
   Ledger,
   Verify,
 } from '../../persistence/coordination.js';
-import type { Activation, RequestState } from './coordination.js';
+import type { Activation } from './coordination.js';
 import { taskActivity, taskReference } from './coordination-state.js';
 import type {
   ClaimInput,
@@ -78,11 +78,7 @@ interface ResponderHost {
   readonly registry: Pick<CoordinationStore, 'handOver'>;
   serialize<T>(work: () => Promise<T>): Promise<T>;
 
-  change<T>(
-    state: RequestState | undefined,
-    work: (verify: Verify) => Promise<T>,
-    verify?: Verify,
-  ): Promise<T>;
+  change<T>(work: (verify: Verify) => Promise<T>, verify?: Verify): Promise<T>;
 
   admit(): Activation;
 
@@ -128,7 +124,6 @@ export class TransferResponder {
     this.handing = this.host
       .serialize(async () => {
         const moved = await this.host.change(
-          undefined,
           (verify) =>
             this.host.registry.handOver(
               owner,
