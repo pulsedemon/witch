@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { cliOptions, bindingOptions } from '../cli-options.js';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { previewBytes, previewDocumentSchema } from '../core/preview.js';
+import { previewBytes } from '../core/preview.js';
 import { aborted, errorMessage } from '../errors.js';
 import { claudeArguments } from './cli-familiar.js';
 import { codexArguments } from './cli-codex-familiar.js';
@@ -445,9 +445,14 @@ function describe(outcome: ControlOutcome): string {
       ].join('\n');
 
     case 'preview':
-      return outcome.preview
-        ? `Preview ${outcome.preview.id}: ${oneLine(outcome.preview.title)} | ${outcome.preview.placement?.rows ?? 0} rows placed`
-        : 'No preview is open.';
+      return [
+        ...(outcome.closed === false
+          ? ['Preview close refused: the ID is not current.']
+          : []),
+        outcome.preview
+          ? `Preview ${outcome.preview.id}: ${oneLine(outcome.preview.title)} | ${outcome.preview.placement ? `${outcome.preview.placement.rows} rows placed` : 'not placed'}`
+          : 'No preview is open.',
+      ].join('\n');
 
     case 'peers': {
       const snapshot = outcome.snapshot;
@@ -518,7 +523,7 @@ export async function runControl(
 
       action = {
         kind: 'preview' as const,
-        document: previewDocumentSchema.parse(JSON.parse(text)),
+        document: JSON.parse(text),
       };
     } else action = call.action;
 

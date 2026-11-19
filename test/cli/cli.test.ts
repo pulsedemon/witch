@@ -624,6 +624,15 @@ test('preview CLI reads a quoted file locally and sends validated frame data thr
 
     assert.equal(duplicate.code, 1);
     assert.match(duplicate.stdout, /exactly one/);
+    owner.placed(id);
+    const unplaced = await run(`${prefix} --preview-status`);
+    assert.match(unplaced.stdout, /not placed/);
+    owner.placed(id, { columns: 70, rows: 0 });
+    const hidden = await run(`${prefix} --preview-status`);
+    assert.match(hidden.stdout, /0 rows placed/);
+    const stale = await run(`${prefix} --preview-close ${randomUUID()}`);
+    assert.match(stale.stdout, /close refused: the ID is not current/);
+    assert.equal(owner.snapshot?.status.id, id);
     const closed = await run(`${prefix} --preview-close ${id} --json`);
     assert.equal(JSON.parse(closed.stdout).closed, true);
     assert.equal(owner.snapshot, undefined);
