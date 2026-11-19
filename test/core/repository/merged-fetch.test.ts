@@ -25,7 +25,7 @@ import { exists, until } from '../../fixtures/within.js';
 
 configureGitEnvironment();
 
-async function operation(root: string, cwd: string) {
+async function operation(root: string, cwd: string, install?: string) {
   const store = await StateStore.open(join(root, 'state'));
   const memory = new Memory(join(root, 'memory.git'));
   const notices: string[] = [];
@@ -41,6 +41,7 @@ async function operation(root: string, cwd: string) {
         store,
         memory,
         conversation: record('c', cwd),
+        install,
         signal,
         notice: (text) => notices.push(text),
       }),
@@ -177,11 +178,15 @@ for (const [phase, format, diagnostic] of [
   ['base fetch', 'detailed', mismatch()],
   ['base fetch', 'batched', batchedMismatch()],
   ['retained refresh', 'detailed', mismatch()],
+  ['off-branch base fetch', 'detailed', mismatch()],
 ] as const)
   test(`a ${format} conflict during ${phase} retains completed deletion and finishes on retry`, async () => {
     const { root, origin, checkout, other, tip } = await merged();
     const plan = join(checkout, 'docs/superpowers/plans/x.md');
     await write(plan, 'git switch -c feat/x\n');
+
+    if (phase === 'off-branch base fetch')
+      await git(checkout, 'switch', 'main');
 
     if (phase === 'retained refresh') {
       await git(checkout, 'switch', '-c', 'feat/old', 'main');
@@ -205,7 +210,7 @@ for (const [phase, format, diagnostic] of [
 if (args[0] === 'update-ref' && args[1] === '-d') {
   writeFileSync(${JSON.stringify(deleted)}, args[2] + '\\n', { flag: 'a' });
 }
-if (args.includes('fetch') && args.at(-1) === ${JSON.stringify(phase === 'base fetch' ? 'fetch' : 'origin')} && !existsSync(${JSON.stringify(once)})) {
+if (args.includes('fetch') && args.at(-1) === ${JSON.stringify(phase === 'retained refresh' ? 'origin' : 'fetch')} && !existsSync(${JSON.stringify(once)})) {
   writeFileSync(${JSON.stringify(once)}, '');
   process.stderr.write(${JSON.stringify(diagnostic)});
   process.exit(1);
@@ -232,11 +237,71 @@ if (args.includes('fetch') && args.at(-1) === ${JSON.stringify(phase === 'base f
 
     assert.deepEqual(
       (await readFile(deleted, 'utf8')).trim().split('\n'),
-      phase === 'base fetch'
-        ? ['refs/heads/feat/x']
-        : ['refs/heads/feat/x', 'refs/heads/feat/old'],
+      phase === 'retained refresh'
+        ? ['refs/heads/feat/x', 'refs/heads/feat/old']
+        : ['refs/heads/feat/x'],
     );
   });
+
+test('an install ref conflict retains cleanup and rebuilds once on retry', async () => {
+  const { root, origin, launcher, checkout, other, tip } = await merged(
+    {},
+    [],
+    true,
+  );
+
+  await merge(other, 'feat/x');
+  const expected = await git(origin, 'rev-parse', 'main');
+  const once = join(root, 'once');
+  const commands = join(root, 'pnpm-calls');
+
+  await write(
+    join(root, 'bin/pnpm'),
+    `#!${process.execPath}
+require('node:fs').appendFileSync(${JSON.stringify(commands)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+`,
+  );
+
+  await chmod(join(root, 'bin/pnpm'), 0o755);
+  const operationIn = await operation(root, checkout, launcher);
+  const progress: MergeCleanup = {};
+  const request = pullRequest(tip);
+
+  await withGit(
+    root,
+    `
+if (process.cwd() === ${JSON.stringify(launcher)} && args.includes('fetch') && !existsSync(${JSON.stringify(once)})) {
+  writeFileSync(${JSON.stringify(once)}, '');
+  process.stderr.write(${JSON.stringify(mismatch())});
+  process.exit(1);
+}
+`,
+    async () => {
+      assert.equal(await operationIn.run(request, progress), 'retry');
+      assert.equal(operationIn.notices.length, 1);
+      assert.deepEqual(progress.deleted, ['feat/x']);
+      assert.ok(progress.result);
+      assert.ok(progress.install);
+      assert.equal(progress.install.result, undefined);
+      assert.equal(await exists(commands), false);
+      const completed = progress.result;
+      assert.equal(await operationIn.run(request, progress), true);
+      assert.equal(progress.result, completed);
+    },
+  );
+
+  assert.equal(await git(launcher, 'rev-parse', 'HEAD'), expected);
+  assert.equal(operationIn.notices.length, 2);
+  assert.match(operationIn.notices[1]!, /^Rebuilt Witch at /);
+
+  assert.deepEqual(
+    (await readFile(commands, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]),
+    [['install', '--frozen-lockfile'], ['build']],
+  );
+});
 
 for (const [name, code, stderr] of [
   ['wrong exit status', 128, mismatch()],
