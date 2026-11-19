@@ -276,6 +276,12 @@ export function route({
   ): Routed | { refused: string } => {
     const [kind, pinned] = rule.split(/:(.*)/s) as [string, string?];
 
+    if (kind === 'auto' && work === 'review')
+      return {
+        refused:
+          'auto is for planning, implementation and investigation; use both for review',
+      };
+
     const runtime =
       kind === 'same' || kind === 'auto'
         ? base
@@ -454,12 +460,6 @@ export function route({
   };
 
   const rule = ruleFor(policy, work);
-
-  if (rule === 'auto' && work === 'review')
-    return {
-      refused:
-        'auto is for planning, implementation and investigation; use both for review',
-    };
 
   if (rule === 'both') {
     const placements: Routed[] = [];

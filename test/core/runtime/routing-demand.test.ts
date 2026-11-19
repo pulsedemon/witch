@@ -288,11 +288,12 @@ test('explicit rules retain placement until protection is needed and shift off a
     'claude-opus-5',
   );
 
-  assert.deepEqual(
-    route({ ...base, policy: { ...defaultPolicy, work: { review: 'auto' } } }),
-    {
-      refused:
-        'auto is for planning, implementation and investigation; use both for review',
-    },
-  );
+  for (const review of ['auto', 'auto:sol'])
+    assert.deepEqual(
+      route({ ...base, policy: { ...defaultPolicy, work: { review } } }),
+      {
+        refused:
+          'auto is for planning, implementation and investigation; use both for review',
+      },
+    );
 });
