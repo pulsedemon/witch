@@ -20,7 +20,7 @@ export const work = z.enum([
 
 export type Work = z.infer<typeof work>;
 
-/** `auto` balances single-runtime work; `same` and `other` are relative to the review's producer. `both` targets each installed runtime; `<runtime>[:<model-or-family>]` selects a placement. */
+/** `auto` balances single-runtime work; `same` and `other` use a review's producer when supplied, or the caller otherwise. `both` targets each installed runtime; `<runtime>[:<model-or-family>]` selects a placement. */
 const target = z.string().regex(/^[a-z][\w-]*(:.+)?$/);
 
 export const policySchema = z.object({
@@ -432,9 +432,7 @@ export function route({
         `${protection}; ${blocked.join(', ') || 'no other runtime is installed'}`,
       );
 
-    const compared = automatic
-      ? candidates
-      : [own, ...(selected.runtime === runtime ? [] : [selected])];
+    const compared = automatic ? candidates : [own, selected];
 
     const explanation = [
       automatic ? `automatic ${work}` : `${subject} prefers ${runtime}`,

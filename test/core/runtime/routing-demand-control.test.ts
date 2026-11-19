@@ -293,7 +293,7 @@ test('unregistered owners and legacy activity records keep workload uncertain in
   );
 });
 
-test('failed and slow workload reads preserve protection and return through the control mailbox', async (t) => {
+test('failed and slow workload reads retain diagnostics and protection through the control mailbox', async (t) => {
   const f = await setup(t.onTestFinished);
 
   f.session.coordination.router = router(
@@ -315,10 +315,12 @@ test('failed and slow workload reads preserve protection and return through the 
     ),
   );
 
+  const demand = Promise.withResolvers<never>();
+
   f.session.coordination.router = router(
     f.session.coordinator,
     { read: async () => f.policy },
-    () => new Promise<never>(() => {}),
+    () => demand.promise,
   );
 
   const started = performance.now();
@@ -331,4 +333,47 @@ test('failed and slow workload reads preserve protection and return through the 
 
   assert.ok(performance.now() - started >= 2900);
   assert.match(slow.folded![0]!.reason, /coordinator activity is unknown/);
+
+  assert.ok(
+    f.session.coordinator.snapshot.items.some(
+      ({ text, warning }) =>
+        warning && /Routing workload unavailable: .*timed out/.test(text),
+    ),
+  );
+
+  demand.reject(new Error('workload failed after timeout'));
+  await demand.promise.catch(() => {});
+
+  assert.equal(
+    f.session.coordinator.snapshot.items.filter(
+      ({ text, warning }) =>
+        warning &&
+        text === 'Routing workload unavailable: workload failed after timeout',
+    ).length,
+    1,
+  );
+});
+
+test('a workload failure after timeout stays out of another conversation', async (t) => {
+  const f = await setup(t.onTestFinished);
+  const demand = Promise.withResolvers<never>();
+
+  f.session.coordination.router = router(
+    f.session.coordinator,
+    { read: async () => f.policy },
+    () => demand.promise,
+  );
+
+  await f.route();
+  const before = f.session.coordinator.snapshot.conversation!.id;
+  await f.session.coordinator.newConversation();
+  assert.notEqual(f.session.coordinator.snapshot.conversation!.id, before);
+  demand.reject(new Error('failure from previous conversation'));
+  await demand.promise.catch(() => {});
+
+  assert.ok(
+    !f.session.coordinator.snapshot.items.some(({ text }) =>
+      /Routing workload unavailable|^Routed |^Route refused/.test(text),
+    ),
+  );
 });

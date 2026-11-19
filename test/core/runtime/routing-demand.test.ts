@@ -125,6 +125,47 @@ test('coordinator protection takes priority over a larger reset-adjusted allowan
   assert.match(result.routes[0]!.reason, /reserving claude capacity/);
 });
 
+test('verified destination credits take priority over a protected coordinator below full usage', () => {
+  const codex: AccountReading = {
+    ...account(100, 144),
+    funding: {
+      kind: 'credits',
+      balance: '42',
+      unlimited: false,
+      available: true,
+      observedAt: now,
+    },
+    creditAccess: { state: 'available', observedAt: now },
+  };
+
+  for (const implementation of ['auto', 'same']) {
+    const result = ask({
+      work: 'implementation',
+      caller: 'claude',
+      policy: { ...defaultPolicy, work: { implementation } },
+      accounts: { claude: account(93, 67), codex },
+      demand: { ...empty, coordinators: { claude: 1 } },
+    });
+
+    assert.equal(result.routes[0]!.runtime, 'codex');
+    assert.equal(result.routes[0]!.model, 'gpt-6.1-sol');
+    assert.equal(result.routes[0]!.from, 'claude');
+  }
+});
+
+test('unknown coordinator activity prevents automatic placement onto apparent spare capacity', () => {
+  const result = ask({
+    work: 'implementation',
+    caller: 'claude',
+    accounts: { claude: account(50, 24), codex: account(10, 24) },
+    demand: { ...empty, unknown: ['codex'] },
+  });
+
+  assert.equal(result.routes[0]!.runtime, 'claude');
+  assert.equal(result.routes[0]!.from, undefined);
+  assert.match(result.routes[0]!.reason, /comparative workload is unknown/);
+});
+
 test('equal budgets and demand retain the intended runtime in either installed order', () => {
   for (const installed of [
     ['claude', 'codex'],

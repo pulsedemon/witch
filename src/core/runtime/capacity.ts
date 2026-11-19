@@ -35,7 +35,6 @@ export function capacity(
   const spent = over(limits, 100, now);
   const high = over(limits, shiftAt, now);
 
-  // destination credits cannot attract new work until its included window is full
   const reserved =
     high &&
     (!demand ||
@@ -56,6 +55,7 @@ export function capacity(
     high,
     reserved,
     comparableLoad,
+    // destination credits cannot attract new work until its included window is full
     priority: included ? (reserved ? 2 : 0) : spent && credits ? 1 : undefined,
     score: included && comparableLoad ? allowance(limits, now) / workers : 0,
   };

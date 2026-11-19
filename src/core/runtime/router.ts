@@ -35,8 +35,12 @@ export function router(
       message: 'Route cancelled.',
     };
 
+    const active = () =>
+      !signal?.aborted &&
+      coordinator.snapshot.conversation?.id === snapshot.conversation?.id;
+
     const refuse = (reason: string): ControlOutcome => {
-      if (signal?.aborted) return cancelled;
+      if (!active()) return cancelled;
 
       coordinator.notice(`Route refused: ${reason}`);
 
@@ -47,34 +51,43 @@ export function router(
 
     if (typeof current === 'string') return refuse(current);
 
-    if (signal?.aborted) return cancelled;
+    if (!active()) return cancelled;
 
     const installed = snapshot.agents
       .filter((agent) => agent.installed)
       .map(({ id }) => id);
 
     let demand: Demand | undefined;
-    let demandFailure: string | undefined;
+    let readingDemand = true;
 
     await Promise.race([
       Promise.all([
         ...installed.map((id) => coordinator.accountUsage.refresh(id, cwd)),
-        readDemand(Date.now() + refreshWait).then(
-          (value) => {
-            demand = value;
-          },
-          (error: unknown) => {
-            demandFailure = errorMessage(error);
-          },
-        ),
+        readDemand(Date.now() + refreshWait)
+          .then(
+            (value) => {
+              demand = value;
+            },
+            (error: unknown) => {
+              if (active())
+                coordinator.warning(
+                  `Routing workload unavailable: ${errorMessage(error)}`,
+                );
+            },
+          )
+          .finally(() => {
+            readingDemand = false;
+          }),
       ]),
       delay(refreshWait, undefined, { ref: false }),
     ]);
 
-    if (signal?.aborted) return cancelled;
+    if (!active()) return cancelled;
 
-    if (demandFailure)
-      coordinator.warning(`Routing workload unavailable: ${demandFailure}`);
+    if (readingDemand)
+      coordinator.warning(
+        `Routing workload unavailable: the read timed out after ${refreshWait} ms.`,
+      );
 
     const decision = route({
       ...action,

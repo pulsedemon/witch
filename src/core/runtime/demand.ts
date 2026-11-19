@@ -5,7 +5,7 @@ import { agentWorking } from '../state.js';
 
 export interface Demand {
   coordinators: Readonly<Record<string, number>>;
-  /** open sessions whose coordinator activity could not be verified. */
+  /** runtimes with an open session whose coordinator activity could not be verified. */
   unknown: readonly string[];
   /** omitted when an older session has running familiars without runtime attribution. */
   familiars?: Readonly<Record<string, number>>;
