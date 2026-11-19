@@ -1,4 +1,5 @@
 import { dirname, resolve } from 'node:path';
+import { cliOptions, bindingOptions } from '../cli-options.js';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { aborted, errorMessage } from '../errors.js';
@@ -25,50 +26,6 @@ function choice(text: string | undefined) {
 
   return { runtime: text.slice(0, colon), model: text.slice(colon + 1) };
 }
-
-const options = {
-  'state-dir': { type: 'string' },
-  continue: { type: 'boolean', short: 'c' },
-  help: { type: 'boolean', short: 'h' },
-  'recover-directory': { type: 'string' },
-  apply: { type: 'boolean' },
-  'control-dir': { type: 'string' },
-  'control-conversation': { type: 'string' },
-  'control-activation': { type: 'string' },
-  peers: { type: 'boolean' },
-  claim: { type: 'string' },
-  summary: { type: 'string' },
-  alias: { type: 'string', multiple: true },
-  release: { type: 'string' },
-  reference: { type: 'string', multiple: true },
-  'select-next': { type: 'string' },
-  'cancel-selection': { type: 'string' },
-  recommend: { type: 'string' },
-  selection: { type: 'string' },
-  ask: { type: 'string' },
-  answer: { type: 'string' },
-  message: { type: 'string' },
-  'peer-request': { type: 'string' },
-  pause: { type: 'boolean' },
-  to: { type: 'string', multiple: true },
-  resume: { type: 'string' },
-  'pause-status': { type: 'string' },
-  route: { type: 'string' },
-  of: { type: 'string' },
-  named: { type: 'string' },
-  json: { type: 'boolean' },
-  'familiar-claude': { type: 'string' },
-  'familiar-codex': { type: 'string' },
-  'report-file': { type: 'string' },
-  'without-mcp': { type: 'boolean' },
-  spawn: { type: 'string' },
-} as const;
-
-const bindingOptions = [
-  'control-dir',
-  'control-conversation',
-  'control-activation',
-] as const;
 
 /** in the order the "choose exactly one" refusal lists them. */
 const actionOptions = [
@@ -98,7 +55,7 @@ function bindingOf(values: {
 }
 
 type CommandValues = ReturnType<
-  typeof parseArgs<{ options: typeof options }>
+  typeof parseArgs<{ options: typeof cliOptions }>
 >['values'];
 
 function familiarMode(
@@ -232,7 +189,7 @@ export function parseCommand(args = process.argv.slice(2)) {
 
   const parsed = parseArgs({
     args,
-    options,
+    options: cliOptions,
     allowPositionals: true,
     strict: true,
   });
