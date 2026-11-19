@@ -224,13 +224,13 @@ export class CodexCompactionPolicy {
     busy: boolean,
     choice = this.options.contextWindow,
   ): void {
-    if (this.changed(model, choice) && busy)
+    if (this.requiresReload(model, choice) && busy)
       throw new Error(
         'Wait for Codex background work to finish before changing its compaction window.',
       );
   }
 
-  private changed(model: string, choice?: ContextWindowChoice): boolean {
+  requiresReload(model: string, choice?: ContextWindowChoice): boolean {
     return (
       this.window(model, choice) !== this.appliedWindow ||
       this.target(model, choice) !== this.appliedTarget
@@ -244,7 +244,7 @@ export class CodexCompactionPolicy {
   ): Promise<unknown> {
     const { model, effort, contextWindow } = selection;
 
-    if (!this.changed(model, contextWindow)) return;
+    if (!this.requiresReload(model, contextWindow)) return;
 
     this.assertIdle(model, busy, contextWindow);
     await this.rpc.request('thread/unsubscribe', { threadId: info.id });

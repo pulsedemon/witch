@@ -355,6 +355,12 @@ export class SessionLink {
             return;
           }
 
+          if (
+            (event.type === 'subagent' || event.type === 'command') &&
+            this.connection !== connection
+          )
+            return;
+
           if (!files.closed)
             this.receive(conversation, agent, event, tools, commands, files);
         },

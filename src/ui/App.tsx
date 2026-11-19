@@ -14,6 +14,7 @@ import type { Snapshot } from '../core/snapshot.js';
 import type { JobWatch } from '../core/jobs/jobs.js';
 import type { RepositoryWatch } from '../core/repository/repository.js';
 import { agentWorking, contextStart } from '../core/state.js';
+import { modelKey } from '../core/runtime/models.js';
 import type { StateStore } from '../persistence/store.js';
 import {
   commands,
@@ -365,7 +366,7 @@ export function App({
 
   const controls = {
     working,
-    pending: state.pendingCompaction,
+    pending: state.pendingCompaction || !!state.pendingModel,
     message: agent !== undefined,
     list: list?.items.length ?? 0,
     hints: toolHint.length,
@@ -1019,7 +1020,15 @@ export function App({
         </Box>
         {fitted.pending > 0 && (
           <Text dimColor wrap="truncate-end">
-            Pending: /compact
+            Pending:{' '}
+            {[
+              ...(state.pendingCompaction ? ['/compact'] : []),
+              ...(state.pendingModel
+                ? [
+                    `/model ${modelKey(state.pendingModel)}${state.pendingModel.effort ? ` ${state.pendingModel.effort}` : ''}`,
+                  ]
+                : []),
+            ].join('; ')}
           </Text>
         )}
         {queueRows > 0 && (

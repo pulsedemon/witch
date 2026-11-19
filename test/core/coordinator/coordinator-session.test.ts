@@ -183,6 +183,7 @@ test("the live session's subagents update in place, a turn drops the finished on
     assert.deepEqual(listed(), [subagent('inner', 'running', 'outer')]);
     emit(a.sessions[0]!, 'outer', 'completed');
     assert.deepEqual(listed(), [subagent('inner', 'running', 'outer')]);
+    emit(a.sessions[0]!, 'inner', 'completed', 'outer');
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
     assert.deepEqual(listed(), []);
     emit(a.sessions[0]!, 'late', 'running');
@@ -287,13 +288,26 @@ test('a familiar still running when its session closes ends stopped, with its to
     });
 
     assert.equal(coordinator.pentacle.active, true);
-    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    await coordinator.clear();
     assert.equal(coordinator.pentacle.active, false);
 
     assert.deepEqual(rows(), [
       ['Familiar started  Map code  Explore', ''],
       ['Familiar stopped  Map code  2 tools', 'Halfway.'],
     ]);
+
+    a.sessions[0]!.options.onEvent({
+      type: 'subagent',
+      subagent: {
+        id: 'late',
+        name: 'closed session',
+        kind: 'Explore',
+        status: 'running',
+      },
+    });
+
+    assert.deepEqual(coordinator.snapshot.subagents, []);
+    assert.equal(coordinator.pentacle.active, false);
   } finally {
     await coordinator.close();
   }
@@ -634,7 +648,7 @@ test("a brew still running when its session closes ends stopped, and the closed 
   try {
     emit('serve');
     assert.equal(coordinator.pentacle.active, true);
-    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    await coordinator.clear();
     assert.equal(coordinator.pentacle.active, false);
 
     assert.deepEqual(

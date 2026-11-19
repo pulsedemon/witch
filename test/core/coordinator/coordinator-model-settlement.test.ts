@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
+import { Coordinator } from '../../../src/core/coordinator.js';
 import { ConversationStore } from '../../../src/persistence/store.js';
-import { TurnGate } from '../../fixtures/agent.js';
+import { TurnGate, holdConnect } from '../../fixtures/agent.js';
 import {
   unitFixture,
   holdSettlement,
@@ -157,43 +158,71 @@ for (const outcome of [
     }
   });
 
-test('a model picker opened while a finished turn settles waits and refreshes once', async () => {
+for (const interrupted of [false, true])
+  test(`a picker with no listed models ${interrupted ? 'lapses after a startup interrupt' : 'waits for startup and refreshes'}`, async () => {
+    const f = await unitFixture();
+    await f.coordinator.close();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    f.a.beforeConnect = holdConnect(entered, release);
+
+    const coordinator = new Coordinator(f.store, f.memory, [
+      { adapter: f.a, executable: 'a' },
+      { adapter: f.b, executable: 'b' },
+    ]);
+
+    const starting = coordinator.initialize(f.project);
+
+    try {
+      await within(entered.promise, 2000, 'the held startup');
+      assert.deepEqual(coordinator.snapshot.models, []);
+      const refreshing = coordinator.refreshModels();
+
+      if (interrupted) await coordinator.interrupt();
+
+      release.resolve();
+      await within(starting, 3000, 'startup settlement');
+
+      assert.equal(
+        await within(refreshing, 2000, 'the picker refresh'),
+        !interrupted,
+      );
+
+      if (!interrupted)
+        assert.ok(coordinator.snapshot.models.some(({ id }) => id === 'a-big'));
+    } finally {
+      release.resolve();
+      await starting.catch(() => {});
+      await coordinator.close();
+    }
+  });
+
+test('a model choice made after a stop waits for its settlement and applies once', async () => {
   const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
-  const { session } = a.sessions.at(-1)!;
+  const session = a.sessions.at(-1)!.session;
   const settlement = holdSettlement(session);
 
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
-    const release = coordinator.holdPromptDelivery();
-    gate.open();
-    await within(settlement.entered, 2000, 'the post-turn save');
-    assert.equal(coordinator.snapshot.phase, 'running');
-    assert.equal(session.replied, false);
-    a.catalog.push({ id: 'a-new', label: 'a-new', efforts: [] });
-    const refreshing = coordinator.refreshModels();
-    await coordinator.send('/after');
-    await delay(100);
+    await coordinator.interrupt();
+    await within(settlement.entered, 2000, 'the stopped turn settlement');
+    const before = a.selections.length;
+    const choice = coordinator.selectModel({ agent: 'a', id: 'a-big' });
 
-    assert.equal(
-      coordinator.snapshot.models.some(({ id }) => id === 'a-new'),
-      false,
-    );
+    assert.deepEqual(coordinator.snapshot.pendingModel, {
+      agent: 'a',
+      id: 'a-big',
+    });
 
+    assert.equal(a.selections.length, before);
     settlement.release();
-    assert.equal(await within(refreshing, 2000, 'the refresh'), true);
-
-    assert.equal(
-      coordinator.snapshot.models.some(({ id }) => id === 'a-new'),
-      true,
-    );
-
-    assert.equal(coordinator.snapshot.phase, 'idle');
-    assert.deepEqual(coordinator.snapshot.queue, ['/after']);
-    release();
-    await within(sending, 2000, 'the turn');
+    await within(choice, 2000, 'the model choice');
+    assert.deepEqual(a.selections.slice(before), [['a-big', undefined]]);
+    assert.equal(session.info.model, 'a-big');
+    await within(sending, 2000, 'the stopped turn');
   } finally {
     settlement.restore();
     gate.open();
@@ -201,45 +230,69 @@ test('a model picker opened while a finished turn settles waits and refreshes on
   }
 });
 
-for (const outcome of ['interrupt', 'close', 'failure'] as const)
-  test(`a model picker waiting on a finished turn lapses after ${outcome}`, async () => {
-    const { coordinator, a } = await unitFixture();
-    const gate = new TurnGate();
-    const { session } = a.sessions.at(-1)!;
-    const settlement = holdSettlement(session);
+test('a model choice after Escape waits for the interrupt response even after the turn settled', async () => {
+  const { coordinator, a } = await unitFixture();
+  const session = a.sessions[0]!.session;
+  const gate = new TurnGate();
+  const stopGate = Promise.withResolvers<void>();
+  const modelGate = Promise.withResolvers<void>();
+  const modelEntered = Promise.withResolvers<void>();
+  const interrupt = session.interrupt.bind(session);
+  const select = session.selectModel.bind(session);
+  let entered = false;
+  let sending: Promise<void> | undefined;
+  let stopping: Promise<void> | undefined;
+  let selecting: Promise<void> | undefined;
 
-    try {
-      a.gate = gate;
-      const sending = coordinator.send('Start');
-      await within(gate.entered, 2000, 'the gated turn');
-      gate.open();
-      await within(settlement.entered, 2000, 'the post-turn save');
-      assert.equal(coordinator.snapshot.phase, 'running');
-      a.catalog.push({ id: 'a-new', label: 'a-new', efforts: [] });
-      const refreshing = coordinator.refreshModels();
+  session.interrupt = async (...args) => {
+    await interrupt(...args);
+    await stopGate.promise;
+  };
 
-      if (outcome === 'interrupt') {
-        await coordinator.interrupt();
-        settlement.release();
-      } else if (outcome === 'close') {
-        const closing = coordinator.close();
-        settlement.release();
-        await closing;
-      } else settlement.fail(new Error('disk full'));
+  session.selectModel = async (...args) => {
+    entered = true;
+    modelEntered.resolve();
+    await modelGate.promise;
+    await select(...args);
+  };
 
-      assert.equal(await within(refreshing, 2000, 'the lapsed refresh'), false);
-      await within(sending, 2000, 'the turn');
+  try {
+    a.gate = gate;
+    sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    stopping = coordinator.interrupt();
 
-      assert.equal(
-        coordinator.snapshot.models.some(({ id }) => id === 'a-new'),
-        false,
-      );
-    } finally {
-      settlement.restore();
-      gate.open();
-      await coordinator.close();
-    }
-  });
+    await within(
+      sending,
+      2000,
+      'turn settlement before the interrupt response',
+    );
+
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    selecting = coordinator.selectModel({ agent: 'a', id: 'a-big' });
+
+    assert.deepEqual(coordinator.snapshot.pendingModel, {
+      agent: 'a',
+      id: 'a-big',
+    });
+
+    assert.equal(entered, false);
+    stopGate.resolve();
+    await within(stopping, 2000, 'the interrupt response');
+    await within(modelEntered.promise, 2000, 'model application');
+    assert.equal(session.closed, false);
+    modelGate.resolve();
+    await within(selecting, 2000, 'the model selection');
+    assert.equal(session.closed, false);
+    assert.equal(coordinator.snapshot.native!.model, 'a-big');
+  } finally {
+    stopGate.resolve();
+    modelGate.resolve();
+    gate.open();
+    await Promise.allSettled([sending, stopping, selecting]);
+    await coordinator.close();
+  }
+});
 
 test('a close that starts while a finished turn settles keeps the closing phase', async () => {
   const { coordinator, a } = await unitFixture();

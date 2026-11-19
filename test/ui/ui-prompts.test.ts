@@ -156,7 +156,6 @@ for (const [command, message] of [
   ['/task unexpected', 'Use /task, /task release or /task take <reference>.'],
   ['/new', 'Stop the current operation first'],
   ['/clear', 'Stop the current operation first'],
-  ['/model b:b-big', 'Stop the current operation first'],
 ] as const)
   test(`${command} leaves queued prompts runnable`, async () => {
     const { coordinator, a } = await fixture();
@@ -207,6 +206,69 @@ for (const [command, message] of [
       await coordinator.close();
     }
   });
+
+test('/model during a turn shows its pending choice and delivers queued input after the handoff', async () => {
+  const { coordinator, a, b } = await fixture();
+  const gate = new TurnGate();
+  a.gate = gate;
+  a.refuseSteer = true;
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  const sending = coordinator.send('held turn');
+
+  try {
+    await within(gate.entered, 3000, 'the gated turn');
+    ui.stdin.write('/model b:b-big');
+
+    await until('the model command', () =>
+      ui.text().includes('┃ /model b:b-big'),
+    );
+
+    ui.stdin.write(ENTER);
+
+    await until('the pending model', () =>
+      ui.text().includes('Pending: /model b:b-big'),
+    );
+
+    assert.equal(coordinator.snapshot.phase, 'running');
+    assert.equal(b.sessions.length, 0);
+    ui.stdin.write('queued followup');
+
+    await until('the followup draft', () =>
+      ui.text().includes('┃ queued followup'),
+    );
+
+    ui.stdin.write(ENTER);
+
+    await until('the queued followup', () =>
+      coordinator.snapshot.queue.includes('queued followup'),
+    );
+
+    gate.open();
+
+    await until('the destination turn', () =>
+      b.inputs.some(({ prompt }) => prompt === 'queued followup'),
+    );
+
+    await until(
+      'the completed batch',
+      () =>
+        coordinator.snapshot.phase === 'idle' &&
+        !coordinator.snapshot.commandsPending,
+    );
+
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.equal(b.sessions.at(-1)!.session.info.model, 'b-big');
+    assert.deepEqual(turns(b), [['queued followup', undefined]]);
+    assert.equal(coordinator.snapshot.pendingModel, undefined);
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    assert.equal(coordinator.snapshot.error, undefined);
+  } finally {
+    gate.open();
+    await sending;
+    ui.unmount();
+    await coordinator.close();
+  }
+});
 
 test('a /sessions choice refused during a turn leaves queued prompts runnable', async () => {
   const { coordinator, a } = await fixture();

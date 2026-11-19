@@ -87,12 +87,12 @@ export class Coordinator {
   private cancelled = false;
   /** memory recovery must keep a failed turn's queue held for the composer. */
   private turnFailed = false;
-  /** the operation's native turn has ended, so only its settlement holds the phase. */
-  private turnEnded = false;
   /** counts admitted operations, so a waiting choice can tell another one ran. */
   private operations = 0;
+  private stops = 0;
+  private readonly pendingStops = new Set<Promise<void>>();
   private closed = false;
-  /** a model change accepted after the reply can outlive the native turn. */
+  /** a model change accepted during a turn can outlive it. */
   private changingModel?: Promise<void>;
   private modelRefresh?: { cancelled: boolean };
   private readonly catalog: ModelCatalog;
@@ -273,7 +273,6 @@ export class Coordinator {
             this.files!,
           ),
         operate: (operation) => this.operate('running', operation),
-        ended: () => (this.turnEnded = true),
         failed: (failed) => (this.turnFailed = failed),
         acceptMemory: (agent) =>
           !this.cancelled && this.runtimes.acceptMemory(agent),
@@ -574,11 +573,11 @@ export class Coordinator {
     return this.store.conversations(this.current().cwd);
   }
 
-  /** returns false when canceled; a replied turn keeps its catalog because reinitialization needs idle. */
+  /** returns false when canceled; a running operation keeps its catalog because reinitialization needs idle. */
   async refreshModels(): Promise<boolean> {
-    if (this.replied) return true;
+    if (this.task && this.snapshot.models.length) return true;
 
-    if (!(await this.settled())) return false;
+    if (!(await this.released())) return false;
 
     const refresh = { cancelled: false };
 
@@ -609,21 +608,26 @@ export class Coordinator {
 
   /** an omitted effort keeps the one in force, except on a model that lists none. */
   async selectModel(selection: ModelSelection): Promise<void> {
-    if (this.changingModel)
+    if (this.changingModel || this.snapshot.pendingModel)
       throw new Refusal('Stop the current operation first');
 
-    if (selection.agent !== this.current().agent)
-      return this.operate('switching', async () => {
-        this.catalog.installed(selection.agent);
-        await this.runtimes.handoff(selection);
-      });
+    if (
+      selection.agent !== this.current().agent ||
+      this.snapshot.phase !== 'running' ||
+      this.pendingStops.size > 0 ||
+      !this.link.session?.takesModel
+    ) {
+      if (!(await this.released(selection)))
+        throw new Refusal('Model change canceled');
 
-    if (!this.replied && !(await this.settled()))
-      throw new Refusal('Model change canceled');
+      if (selection.agent !== this.current().agent)
+        return this.operate('switching', async () => {
+          this.catalog.installed(selection.agent);
+          await this.runtimes.handoff(selection);
+        });
 
-    // a familiar or workflow holding a replied turn open doesn't stop Claude Code taking the change
-    if (!this.replied)
       return this.operate('starting', () => this.changeModel(selection));
+    }
 
     this.changingModel = this.changeModel(selection);
 
@@ -638,16 +642,67 @@ export class Coordinator {
     }
   }
 
-  /** waits for an ended turn to settle; false if Witch was interrupted, the turn or its settlement failed, or another operation ran first. */
-  private async settled(): Promise<boolean> {
-    if (!this.turnEnded || this.snapshot.phase !== 'running') return true;
+  /** a later stop cancels the choice; a choice made after a stop waits for its settlement. */
+  private async released(pending?: ModelSelection): Promise<boolean> {
+    const ready = () => !pending || this.modelReady(pending);
 
-    const { task, operations } = this;
-    const draining = this.delivery.drained;
-    await task?.catch(() => {});
-    await draining;
+    if (
+      !this.task &&
+      !this.pendingStops.size &&
+      (this.snapshot.phase !== 'idle' || ready())
+    )
+      return true;
 
-    return this.operations === operations && !this.cancelled && !this.halted();
+    const { task, operations, stops } = this;
+    const settling = [task, this.delivery.drained, ...this.pendingStops];
+    let failed = false;
+
+    const current = () =>
+      this.operations === operations &&
+      this.stops === stops &&
+      !this.closed &&
+      !this.halted() &&
+      !failed;
+
+    if (pending) this.publish({ pendingModel: pending });
+
+    try {
+      const results = await Promise.allSettled(settling);
+      failed = results.some(({ status }) => status === 'rejected');
+
+      if (current() && !ready())
+        await new Promise<void>((resolve) => {
+          const check = () => {
+            if (current() && !ready()) return;
+
+            unsubscribe();
+            resolve();
+          };
+
+          const unsubscribe = this.subscribe(check);
+          check();
+        });
+
+      return current();
+    } finally {
+      if (pending) this.publish({ pendingModel: undefined });
+    }
+  }
+
+  private modelReady(selection: ModelSelection): boolean {
+    const session = this.link.session;
+
+    if (selection.agent !== this.current().agent)
+      return (
+        (!session || session.closed || !session.backgroundActive) &&
+        !sessionWorking(this.snapshot)
+      );
+
+    return (
+      !session ||
+      session.closed ||
+      session.canSelectModel(selection.id, selection.contextWindow)
+    );
   }
 
   /** a session started here starts on the choice, so a stored model that fails to connect can be replaced; if it fails to connect or refuses the choice, it closes and the stored model stays. */
@@ -693,7 +748,19 @@ export class Coordinator {
     return this.stopCurrent(options);
   }
 
-  private async stopCurrent(options: AgentStopOptions = {}): Promise<void> {
+  /** register the wait before stopping publishes state, so a new choice waits for the native reply too. */
+  private stopCurrent(options: AgentStopOptions = {}): Promise<void> {
+    this.stops++;
+    const stopped = Promise.withResolvers<void>();
+    this.pendingStops.add(stopped.promise);
+    void this.stop(options).then(stopped.resolve, stopped.reject);
+
+    return stopped.promise.finally(() =>
+      this.pendingStops.delete(stopped.promise),
+    );
+  }
+
+  private async stop(options: AgentStopOptions): Promise<void> {
     const stop = { ...options, deadline: stopDeadline(options.deadline) };
 
     const refresh =
@@ -1151,7 +1218,6 @@ export class Coordinator {
     }
 
     this.cancelled = false;
-    this.turnEnded = false;
     this.operations++;
     this.compaction.beginActivity();
 
