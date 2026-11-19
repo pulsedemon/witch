@@ -158,7 +158,7 @@ test('automatic placement compares allowance per worker when every runtime is pr
   }
 });
 
-test('verified destination credits take priority over a protected coordinator below full usage', () => {
+test('included allowance outranks destination credits, which outrank protected allowance', () => {
   const codex: AccountReading = {
     ...account(100, 144),
     funding: {
@@ -170,6 +170,16 @@ test('verified destination credits take priority over a protected coordinator be
     },
     creditAccess: { state: 'available', observedAt: now },
   };
+
+  const included = ask({
+    work: 'implementation',
+    caller: 'claude',
+    accounts: { claude: account(50, 24), codex },
+    demand: empty,
+  });
+
+  assert.equal(included.routes[0]!.runtime, 'claude');
+  assert.equal(included.routes[0]!.from, undefined);
 
   for (const implementation of ['auto', 'same']) {
     const result = ask({
