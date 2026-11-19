@@ -11,6 +11,7 @@ import {
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
 import { cleanUpMerge } from '../../../src/core/repository/merged.js';
+import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import { openLocked } from '../../../src/persistence/lock.js';
 import {
   branches,
@@ -990,6 +991,36 @@ test('a base and a merged branch named like options are switched to and deleted'
 
   assert.equal(await git(checkout, 'branch', '--show-current'), '-base');
   assert.deepEqual(await branches(checkout), ['-base', 'main']);
+});
+
+test('a merged branch recreated during the base pull is pruned and reported once', async () => {
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  const hooks = join(checkout, '.git/hooks');
+  await git(checkout, 'config', 'core.hooksPath', hooks);
+
+  await write(
+    join(hooks, 'post-merge'),
+    '#!/bin/sh\nset -eu\ngit branch feat/x HEAD\ngit config branch.feat/x.remote origin\ngit config branch.feat/x.merge refs/heads/feat/x\n',
+  );
+
+  await chmod(join(hooks, 'post-merge'), 0o755);
+  const progress: MergeCleanup = {};
+
+  assert.deepEqual(
+    await cleanUpMerge(checkout, pullRequest(tip), idle, { progress }),
+    {
+      text: '#7 merged: switched to main and pulled, deleted branch feat/x.',
+      cleaned: true,
+    },
+  );
+
+  assert.deepEqual(progress.deleted, ['feat/x']);
+  assert.deepEqual(await branches(checkout), ['main']);
+
+  await assert.rejects(git(checkout, 'config', 'branch.feat/x.merge'), {
+    code: 1,
+  });
 });
 
 test("another merged branch's config section that branch -d leaves is named", async () => {
