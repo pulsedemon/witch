@@ -125,6 +125,39 @@ test('coordinator protection takes priority over a larger reset-adjusted allowan
   assert.match(result.routes[0]!.reason, /claude needs a capacity reserve/);
 });
 
+test('automatic placement compares allowance per worker when every runtime is protected', () => {
+  for (const [accounts, coordinators, runtime, from] of [
+    [
+      { claude: account(95, 140), codex: account(92, 24) },
+      { claude: 1, codex: 1 },
+      'codex',
+      'claude',
+    ],
+    [
+      { claude: account(92, 24), codex: account(95, 140) },
+      { claude: 1, codex: 1 },
+      'claude',
+      undefined,
+    ],
+    [
+      { claude: account(95, 24), codex: account(94, 24) },
+      { claude: 1, codex: 3 },
+      'claude',
+      undefined,
+    ],
+  ] as const) {
+    const result = ask({
+      work: 'implementation',
+      caller: 'claude',
+      accounts,
+      demand: { ...empty, coordinators },
+    });
+
+    assert.equal(result.routes[0]!.runtime, runtime);
+    assert.equal(result.routes[0]!.from, from);
+  }
+});
+
 test('verified destination credits take priority over a protected coordinator below full usage', () => {
   const codex: AccountReading = {
     ...account(100, 144),
