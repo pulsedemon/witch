@@ -5,6 +5,10 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { fullFormats } from 'ajv-formats/dist/formats.js';
 import type { UserRequest, UserResponse } from '../agents/types.js';
 import { errorMessage } from '../errors.js';
+import type { Preview as PreviewOwner } from '../core/preview.js';
+import { Preview } from './Preview.js';
+import { usePreview } from './usePreview.js';
+import { previewLayout } from './preview-layout.js';
 import { Input } from './input/Input.js';
 import { useKeysReady } from './input/useKeysReady.js';
 import { linkify, plain } from './links.js';
@@ -22,6 +26,7 @@ import type { PagePosition } from './scroll-page-layout.js';
 
 interface Props {
   request: UserRequest;
+  preview?: PreviewOwner;
   active?: boolean;
   width: number;
   height: number;
@@ -37,6 +42,7 @@ const approvals = [
 
 export function Request({
   request,
+  preview,
   width,
   height,
   cwd,
@@ -52,6 +58,7 @@ export function Request({
   const [error, setError] = useState('');
   const [full, setFull] = useState(false);
   const ready = useKeysReady(active);
+  const previewSnapshot = usePreview(preview);
   const question = request.questions?.[questionIndex];
   const options = question?.options ?? approvals.map(({ label }) => label);
   const expandable = !!request.diff && canExpandDiff(request.diff);
@@ -96,7 +103,7 @@ export function Request({
     Math.max(0, height - controlRows - headingRows - errorRows - 2),
   );
 
-  const bodyHeight = Math.min(
+  const detailBudget = Math.min(
     height - controlRows - headingRows - errorRows - hintRows,
     Math.max(2, height - 7 - Number(expandable)),
   );
@@ -138,6 +145,14 @@ export function Request({
       ...wrap(fields),
     ];
   }, [request, detail, fields, question, width, cwd, renderDiff]);
+
+  const allocation = previewLayout(
+    detailBudget,
+    lines.reduce((count, line) => count + line.length, 0),
+    previewSnapshot?.status,
+  );
+
+  const bodyHeight = allocation.body;
 
   const selectedRow =
     question && options[selection] !== undefined
@@ -310,6 +325,12 @@ export function Request({
               : 'Input requested'}
         </Text>
       </Box>
+      <Preview
+        owner={preview}
+        width={width}
+        height={allocation.preview}
+        request={request.id}
+      />
       <ScrollPage
         lines={lines}
         active={active}

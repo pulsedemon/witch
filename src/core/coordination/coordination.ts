@@ -52,7 +52,8 @@ import {
 } from './control-dispatch.js';
 import { PresencePublisher } from './presence.js';
 import { QueuedWrites } from './queued-writes.js';
-import type { PeerRequest } from './peer-requests.js';
+import { checkAnswering, type PeerRequest } from './peer-requests.js';
+import { Preview } from '../preview.js';
 import type { PeerAnswer } from './peer-answers.js';
 import type { Conversation, ProcessIdentity } from '../state.js';
 
@@ -117,6 +118,7 @@ const activationBudget = 10_000;
 
 /** one conversation owns mutations until quiesced; presence disappears only while its conversation lock is held. */
 export class SessionCoordination {
+  readonly preview = new Preview();
   snapshot: CoordinationSnapshot = emptySnapshot;
   private listeners = new Set<() => void>();
   private active?: Activation;
@@ -507,6 +509,7 @@ export class SessionCoordination {
     if (!active) return;
 
     const quiescing = Promise.all([this.endTurn(), this.quiesce()]);
+    this.preview.clear();
     active.publishing = false;
     this.presence.cancel();
     let failure: unknown;
@@ -1113,6 +1116,34 @@ export class SessionCoordination {
         kind: 'error',
         message: 'Use the familiar reporting mailbox for this action.',
       });
+
+    const action = request.action;
+
+    if (
+      action.kind === 'preview' ||
+      action.kind === 'preview-status' ||
+      action.kind === 'preview-close'
+    ) {
+      this.admit(request);
+      checkAnswering(this.state?.answering, action);
+
+      if (action.kind === 'preview')
+        return Promise.resolve({
+          kind: 'preview',
+          preview: this.preview.show(action.document),
+        });
+
+      const closed =
+        action.kind === 'preview-close'
+          ? this.preview.close(action.preview)
+          : undefined;
+
+      return Promise.resolve({
+        kind: 'preview',
+        preview: this.preview.snapshot?.status,
+        closed,
+      });
+    }
 
     if (request.action.kind === 'route') {
       this.admit(request);

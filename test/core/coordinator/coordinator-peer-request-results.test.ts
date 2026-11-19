@@ -190,7 +190,7 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
     if (result.kind === 'error')
       assert.equal(
         result.message,
-        'Answer the current peer requests without asking or pausing other sessions or changing claims.',
+        'Answer the current peer requests without asking or pausing other sessions, changing claims or changing previews.',
       );
 
     assert.deepEqual(await f.registry.claims(), before);

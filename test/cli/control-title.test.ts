@@ -20,6 +20,12 @@ const prefixes = {
 
 for (const [args, title] of [
   ['--peers --json', 'peers'],
+  ['--preview-status --json', 'preview-status'],
+  [
+    "--preview 'frame with spaces.json' --json",
+    'preview frame with spaces.json',
+  ],
+  ['--preview-close preview-id --json', 'preview-close preview-id'],
   [
     '--summary "mentions --release" --claim task:inspect-math-mjs-exports --alias task:exports --json',
     'claim task:inspect-math-mjs-exports',

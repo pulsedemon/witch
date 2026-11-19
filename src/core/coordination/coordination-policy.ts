@@ -66,6 +66,9 @@ export function coordinationInstructions(
 
   return [
     `Control command: ${command}`,
+    'Use --preview <frame-document.json> --json to show a preview in this session. Generate the file with native tools; the caller reads it and sends its contents, and Witch never runs a supplied command. The document is {"title":"Preview","frames":[["(・∀・)"],[" (^_^) "]]}. Each frame is an array of terminal rows; one frame is a still and multiple frames loop at 50 ms. Limits are 2 MiB of UTF-8 JSON, 240 frames, 128 rows per frame and 512 displayed columns per row. Rows allow text and SGR reset, bold, dim, their resets, default foreground/background and truecolor channels 0–255; other terminal escapes and controls are refused.',
+    'Use --preview-status --json to read the current ID and layout placement. A show replaces the old preview and resets placement until the UI lays out the new ID. Placement reports columns, frame rows and the active request ID, not OS visibility. Use --preview-close <preview-id> --json after the user decides; a stale ID cannot close a replacement. Previews survive turn completion but clear on conversation deactivation, /clear and exit.',
+
     'Use --claim <full GitHub issue/pr URL or task:name> --summary <work> --alias <related reference> to claim. --alias is optional and repeatable.',
     ...(required
       ? [

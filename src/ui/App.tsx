@@ -36,6 +36,9 @@ import {
   tokenKey,
 } from './input/completion.js';
 import { Request } from './Request.js';
+import { Preview } from './Preview.js';
+import { usePreview } from './usePreview.js';
+import { previewLayout } from './preview-layout.js';
 import { Recovery } from './Recovery.js';
 import { pageStart } from './scroll-page-layout.js';
 import { canExpandDiff, diffExpansionHint } from './transcript/diff.js';
@@ -152,6 +155,7 @@ export function App({
     () => graphics?.version,
   );
 
+  const preview = usePreview(coordinator.coordination?.preview);
   const size = useWindowSize();
   const columns = Math.max(1, size.columns);
   const sidebar = columns - sidebarWidth >= 80;
@@ -408,7 +412,14 @@ export function App({
   );
 
   const composerRows = Math.min(fitted.composer, wrappedInputRows);
-  const freeRows = fitted.content - composerRows;
+
+  const previewSpace = previewLayout(
+    fitted.content - composerRows,
+    minimumTranscriptRows + state.queue.length,
+    chat ? preview?.status : undefined,
+  );
+
+  const freeRows = previewSpace.body;
   const listFirst = Math.max(0, listSelected - listRows + 1);
 
   // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
@@ -917,6 +928,7 @@ export function App({
       <Request
         key={request.id}
         request={request}
+        preview={coordinator.coordination?.preview}
         width={bodyWidth}
         height={bodyHeight}
         cwd={cwd}
@@ -1027,6 +1039,11 @@ export function App({
                 )}
           </Text>
         </Box>
+        <Preview
+          owner={coordinator.coordination?.preview}
+          width={bodyWidth}
+          height={previewSpace.preview}
+        />
         <Box height={fitted.message} overflow="hidden" flexShrink={0}>
           {agent?.message && (
             <Text dimColor wrap="truncate-end">

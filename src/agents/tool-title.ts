@@ -105,6 +105,9 @@ function inputOnly(rest: string): boolean {
 }
 
 const controlActions = new Set([
+  'preview',
+  'preview-status',
+  'preview-close',
   'peers',
   'claim',
   'recommend',
@@ -186,7 +189,7 @@ export function boundCommandTitle(
 
       const value =
         option[2] ??
-        (['peers', 'json', 'without-mcp'].includes(name)
+        (['peers', 'preview-status', 'json', 'without-mcp'].includes(name)
           ? undefined
           : words[++at]);
 
@@ -204,9 +207,11 @@ export function boundCommandTitle(
 
       if (!action) continue;
 
-      if (title || (name !== 'peers' && !value)) return;
+      const flag = name === 'peers' || name === 'preview-status';
 
-      title = name === 'peers' ? name : `${action} ${value!}`;
+      if (title || (!flag && !value)) return;
+
+      title = flag ? name : `${action} ${value!}`;
     }
 
     if (title)
