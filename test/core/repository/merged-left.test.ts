@@ -594,7 +594,7 @@ test("a branch config that can't be read after the deletion says the branch was 
     ),
     {
       message:
-        '#7 merged: stayed on main and deleted branch feat/x, but could not read its config: Command failed: git config --get-regexp ^branch\\.feat/x\\.\nfatal: injected\n',
+        '#7 merged: stayed on main and deleted branch feat/x, but could not read its config: Command failed: git config --get-regexp ^branch\\.feat/x\\.\nfatal: injected',
     },
   );
 
