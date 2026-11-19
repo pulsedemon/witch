@@ -1,3 +1,4 @@
+import { cliOptions, bindingOptions } from '../cli-options.js';
 import { basename } from 'node:path';
 
 /** input fields that say what a call acts on, most telling first. */
@@ -177,16 +178,13 @@ export function boundCommandTitle(
 
       const name = option[1]!;
 
-      if (
-        ['control-dir', 'control-conversation', 'control-activation'].includes(
-          name,
-        )
-      )
-        return;
+      if (bindingOptions.some((option) => option === name)) return;
 
       const value =
         option[2] ??
-        (['peers', 'json', 'without-mcp'].includes(name)
+        (Object.entries(cliOptions).some(
+          ([option, config]) => option === name && config.type === 'boolean',
+        )
           ? undefined
           : words[++at]);
 
