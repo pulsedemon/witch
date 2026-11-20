@@ -185,7 +185,6 @@ export function App({
 
   const commandViews = useCommandViews({
     coordinator,
-    state,
     cwd,
     jobs,
     policy,

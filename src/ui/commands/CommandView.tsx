@@ -36,7 +36,6 @@ import { wrapSourceLines } from '../wrap.js';
 
 export function useCommandViews({
   coordinator,
-  state,
   cwd,
   jobs,
   policy,
@@ -46,7 +45,6 @@ export function useCommandViews({
   toEnd,
 }: {
   coordinator: Coordinator;
-  state: Snapshot;
   cwd: string;
   jobs?: Pick<JobWatch, 'list' | 'stop'>;
   policy?: Parameters<typeof delegation>[1];
@@ -102,9 +100,8 @@ export function useCommandViews({
     try {
       await operation;
 
-      if (viewRef.current.kind === 'chat') {
+      if (viewRef.current.kind === 'chat')
         openPage({ kind: 'coordination', mode: 'task' });
-      }
 
       return true;
     } catch (error) {
@@ -148,19 +145,18 @@ export function useCommandViews({
       'Shared memory',
       [{ id: '+', label: 'Edit project essentials' }, ...noteChoices],
       (file) => {
-        if (file === '+') {
-          return coordinator.editMemory();
-        } else if (notes.find((note) => note.path === file)?.deleted) {
+        if (file === '+') return coordinator.editMemory();
+
+        if (notes.find((note) => note.path === file)?.deleted)
           return showHistory(file, active);
-        } else {
-          openPage({
-            kind: 'page',
-            title: file,
-            text: noteChoices.find((choice) => choice.id === file)!.search,
-            link: memory.root && join(memory.root, file),
-            note: file,
-          });
-        }
+
+        openPage({
+          kind: 'page',
+          title: file,
+          text: noteChoices.find((choice) => choice.id === file)!.search,
+          link: memory.root && join(memory.root, file),
+          note: file,
+        });
       },
     );
   };
@@ -271,22 +267,22 @@ export function useCommandViews({
         if (argument) {
           const [id, effort] = argument.split(/\s+/);
           await selectModel(id!, effort);
-        } else {
-          if (!(await coordinator.refreshModels()) || !active()) return false;
 
-          return picker(
-            'Models · type an ID or choose one',
-            coordinator.snapshot.models.map((model) => ({
-              id: modelKey(model),
-              label: `${agentLabel(state.agents, model.agent)} · ${model.label}`,
-              exact: model.id,
-            })),
-            (id) => selectModel(id, undefined, active),
-            true,
-          );
+          break;
         }
 
-        break;
+        if (!(await coordinator.refreshModels()) || !active()) return false;
+
+        return picker(
+          'Models · type an ID or choose one',
+          coordinator.snapshot.models.map((model) => ({
+            id: modelKey(model),
+            label: `${agentLabel(coordinator.snapshot.agents, model.agent)} · ${model.label}`,
+            exact: model.id,
+          })),
+          (id) => selectModel(id, undefined, active),
+          { custom: true },
+        );
 
       case 'delegation': {
         const text = await delegation(argument, policy, coordinator);
@@ -316,19 +312,18 @@ export function useCommandViews({
         return showJobs(active);
 
       case 'updates':
-        return showUpdates(
-          argument,
+        return showUpdates(argument, {
           updates,
-          state.agents,
+          agents: coordinator.snapshot.agents,
           active,
           picker,
-          () => {
+          details: () => {
             openPage({ kind: 'updates' });
 
             return true;
           },
-          (text) => coordinator.notice(text, { cwd, save: false }),
-        );
+          notice: (text) => coordinator.notice(text, { cwd, save: false }),
+        });
 
       case 'help':
         openPage({
@@ -351,6 +346,9 @@ export function useCommandViews({
         onExit();
 
         break;
+
+      default:
+        return name satisfies never;
     }
 
     return true;
@@ -368,11 +366,7 @@ export function useCommandViews({
       return true;
     }
 
-    if (
-      view.kind === 'page' ||
-      view.kind === 'coordination' ||
-      view.kind === 'updates'
-    ) {
+    if (view.kind !== 'chat') {
       if (view.kind === 'page' && view.note && !modified) {
         if (input === 'e') {
           setView({ kind: 'chat' });
@@ -421,6 +415,50 @@ export function useCommandViews({
   };
 }
 
+function pageContent(
+  view: View,
+  cwd: string,
+  coordination: CoordinationSnapshot | undefined,
+  updates: RuntimeUpdateSnapshot,
+  agents: Snapshot['agents'],
+): { title: string; text: string } | undefined {
+  switch (view.kind) {
+    case 'page':
+      return {
+        // a note's file name can hold a line break, and Ink keeps OSC 8 links
+        title: oneLine(view.title),
+        text: view.styled
+          ? view.text
+          : markdown(
+              view.text,
+              cwd,
+              view.note === undefined
+                ? cwd
+                : view.link
+                  ? dirname(view.link)
+                  : null,
+            ),
+      };
+
+    case 'coordination':
+      return {
+        title: view.mode === 'peers' ? 'Repository sessions' : 'Current task',
+        text: coordinationText(coordination, view.mode),
+      };
+
+    case 'updates':
+      return {
+        title: 'Native runtime updates',
+        text: updatesText(updates, agents),
+      };
+
+    case 'chat':
+
+    case 'picker':
+      return;
+  }
+}
+
 export function CommandView({
   views,
   width: bodyWidth,
@@ -452,27 +490,13 @@ export function CommandView({
   const pageCoordination =
     view.kind === 'coordination' ? coordination : undefined;
 
-  const pageLines = useMemo(() => {
-    const pageText =
-      view.kind === 'page' && view.styled
-        ? view.text
-        : view.kind === 'page'
-          ? markdown(
-              view.text,
-              cwd,
-              view.note === undefined
-                ? cwd
-                : view.link
-                  ? dirname(view.link)
-                  : null,
-            )
-          : view.kind === 'coordination'
-            ? coordinationText(pageCoordination, view.mode)
-            : view.kind === 'updates'
-              ? updatesText(updates, agents)
-              : '';
+  const pageContentAndLines = useMemo(() => {
+    const content = pageContent(view, cwd, pageCoordination, updates, agents);
 
-    return wrapSourceLines(pageText, bodyWidth);
+    return {
+      title: content?.title ?? '',
+      lines: wrapSourceLines(content?.text ?? '', bodyWidth),
+    };
   }, [view, cwd, pageCoordination, updates, agents, bodyWidth]);
 
   const pageHeading = Number(bodyHeight >= 3);
@@ -483,7 +507,7 @@ export function CommandView({
 
   const page = (
     <ScrollPage
-      lines={pageLines}
+      lines={pageContentAndLines.lines}
       height={pageRows}
       scroll={pageScroll}
       setScroll={setPageScroll}
@@ -548,20 +572,8 @@ export function CommandView({
         </Box>
       </Box>
     );
-  } else if (
-    view.kind === 'page' ||
-    view.kind === 'coordination' ||
-    view.kind === 'updates'
-  ) {
-    // a note's file name is agent-written and can hold a line break, and Ink keeps OSC 8 links
-    const title =
-      view.kind === 'page'
-        ? oneLine(view.title)
-        : view.kind === 'updates'
-          ? 'Native runtime updates'
-          : view.mode === 'peers'
-            ? 'Repository sessions'
-            : 'Current task';
+  } else if (view.kind !== 'chat') {
+    const title = pageContentAndLines.title;
 
     return (
       <Box flexDirection="column" height={bodyHeight}>
