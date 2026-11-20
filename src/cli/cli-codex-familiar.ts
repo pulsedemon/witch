@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from '../agents/codex/adapter.js';
 import { nativeLaunch } from '../agents/native-launch.js';
@@ -66,8 +65,7 @@ export async function runCodexFamiliar(
   withoutMcp = false,
 ): Promise<number> {
   const argv = codexArguments(args);
-  const path = resolve(reportFile);
-  const file = await open(path, 'wx', 0o600);
+  const file = await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
   const abort = new AbortController();
   let session: AgentSession | undefined;
@@ -376,7 +374,7 @@ export async function runCodexFamiliar(
       }
     }
 
-    process.stdout.write(`${report}\n\nSaved report: ${path}\n`);
+    process.stdout.write(`${report}\n\nSaved report: ${reportFile}\n`);
 
     return exitCode(status);
   } finally {
