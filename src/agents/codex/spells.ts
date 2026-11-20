@@ -2,6 +2,61 @@ import { realpathSync } from 'node:fs';
 import { basename, dirname, extname, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { shellWords } from '../tool-title.js';
+import type { JsonRpc } from './json-rpc.js';
+import type { Skill } from '../types.js';
+
+const skillList = z.object({
+  data: z.array(
+    z.object({
+      skills: z.array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
+          shortDescription: z.string().nullish(),
+          interface: z
+            .object({ shortDescription: z.string().nullish() })
+            .nullish(),
+          path: z.string(),
+          enabled: z.boolean(),
+        }),
+      ),
+      errors: z.array(z.object({ path: z.string(), message: z.string() })),
+    }),
+  ),
+});
+
+type EnabledSpell = z.infer<typeof skillList>['data'][number]['skills'][number];
+
+export async function readSpells(rpc: JsonRpc, cwd: string) {
+  const { data } = skillList.parse(
+    await rpc.request('skills/list', { cwds: [cwd], forceReload: true }),
+  );
+
+  return {
+    enabled: data
+      .flatMap((entry) => entry.skills)
+      .filter((skill) => skill.enabled),
+    errors: data.flatMap((entry) => entry.errors),
+  };
+}
+
+export function skillsOf(enabled: readonly EnabledSpell[]): Skill[] {
+  const skills: Skill[] = [];
+
+  for (const skill of enabled) {
+    if (skills.some(({ name }) => name === skill.name)) continue;
+
+    skills.push({
+      name: skill.name,
+      description:
+        skill.interface?.shortDescription ??
+        skill.shortDescription ??
+        skill.description,
+    });
+  }
+
+  return skills;
+}
 
 const readers = ['cat', 'head', 'tail', 'sed', 'nl', 'bat'];
 

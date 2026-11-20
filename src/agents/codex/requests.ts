@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { object } from './config.js';
 import { fileChangeIdentity, fileChangeKey } from './items.js';
 import type { RpcMessage } from './json-rpc.js';
-import type { FileDiff, UserRequest } from '../types.js';
+import type { FileDiff, UserRequest, UserResponse } from '../types.js';
 
 const questionList = z.array(
   z.object({
@@ -12,6 +12,48 @@ const questionList = z.array(
     options: z.array(z.object({ label: z.string() })).nullable(),
   }),
 );
+
+export function requestResult(
+  request: RpcMessage,
+  response: UserResponse,
+): unknown {
+  const params = object.parse(request.params);
+
+  switch (request.method) {
+    case 'item/tool/requestUserInput':
+      return {
+        answers: Object.fromEntries(
+          Object.entries(response.answers ?? {}).map(([key, answers]) => [
+            key,
+            { answers },
+          ]),
+        ),
+      };
+
+    case 'mcpServer/elicitation/request':
+      return {
+        action: response.decision,
+        content: response.content ?? null,
+        _meta: null,
+      };
+
+    case 'item/permissions/requestApproval':
+      return {
+        permissions:
+          response.decision === 'accept'
+            ? Object.fromEntries(
+                Object.entries(object.parse(params.permissions)).filter(
+                  ([, value]) => value !== null,
+                ),
+              )
+            : {},
+        scope: 'turn',
+      };
+
+    default:
+      return { decision: response.decision };
+  }
+}
 
 /** undefined for an unsupported method; throws when the params don't parse. */
 export function parseRequest(

@@ -30,7 +30,7 @@ import {
   turnId,
   untooled,
 } from './items.js';
-import { parseRequest } from './requests.js';
+import { parseRequest, requestResult } from './requests.js';
 import { diffLines } from '../file-diff.js';
 import { errorMessage } from '../../errors.js';
 import {
@@ -41,7 +41,7 @@ import {
   stopOptions,
   terminationReserveMs,
 } from '../shutdown.js';
-import { castIndex } from './spells.js';
+import { castIndex, readSpells, skillsOf } from './spells.js';
 import type {
   AgentAdapter,
   AccountReading,
@@ -63,26 +63,6 @@ import type {
 const stringValue = z.string();
 const nullishString = stringValue.nullish();
 const turnDiff = z.object({ turnId: stringValue, diff: stringValue });
-
-const skillList = z.object({
-  data: z.array(
-    z.object({
-      skills: z.array(
-        z.object({
-          name: z.string(),
-          description: z.string(),
-          shortDescription: z.string().nullish(),
-          interface: z
-            .object({ shortDescription: z.string().nullish() })
-            .nullish(),
-          path: z.string(),
-          enabled: z.boolean(),
-        }),
-      ),
-      errors: z.array(z.object({ path: z.string(), message: z.string() })),
-    }),
-  ),
-});
 
 const tokenUsage = z.object({
   tokenUsage: z.object({
@@ -122,6 +102,15 @@ async function initializeRpc(rpc: JsonRpc): Promise<void> {
   });
 
   rpc.notify('initialized');
+}
+
+function waitForStop(
+  stopped: Promise<void>,
+  options: AgentStopOptions & { deadline: number },
+): Promise<void> {
+  return options.restart
+    ? stopped
+    : beforeDeadline(stopped, options.deadline - terminationReserveMs);
 }
 
 export class CodexAdapter implements AgentAdapter {
@@ -313,11 +302,8 @@ class CodexSession implements AgentSession {
 
     const isolated = !answer && this.options.withoutMcp;
 
-    const parameters = {
-      ...answer,
-      ...(answer && this.options.resume ? { excludeTurns: true } : {}),
+    const base = {
       cwd: this.options.cwd,
-      model: this.options.model,
       // an omitted selection restores the thread's saved workspace roots
       runtimeWorkspaceRoots: [
         ...new Set([this.options.cwd, ...this.options.memoryDirectories]),
@@ -333,19 +319,25 @@ class CodexSession implements AgentSession {
           ),
         ),
       },
-      ...(this.options.resume ? { threadId: this.options.resume } : {}),
     };
 
     this.automaticCompaction = await CodexCompactionPolicy.read(
       this.rpc,
       this.options,
-      parameters.config,
+      base,
       this.contextCatalog,
     );
 
-    parameters.config = {
-      ...parameters.config,
-      ...this.automaticCompaction?.configuration(parameters.model),
+    const parameters = {
+      ...answer,
+      ...(answer && this.options.resume ? { excludeTurns: true } : {}),
+      ...base,
+      model: this.options.model,
+      config: {
+        ...base.config,
+        ...this.automaticCompaction?.configuration(this.options.model),
+      },
+      ...(this.options.resume ? { threadId: this.options.resume } : {}),
     };
 
     this.updateInfo(
@@ -378,41 +370,19 @@ class CodexSession implements AgentSession {
   }
 
   async skills(): Promise<Skill[]> {
-    const { data } = skillList.parse(
-      await this.rpc.request('skills/list', {
-        cwds: [this.options.cwd],
-        forceReload: true,
-      }),
-    );
+    const { enabled, errors } = await readSpells(this.rpc, this.options.cwd);
 
-    for (const { path, message } of data.flatMap((entry) => entry.errors))
+    for (const { path, message } of errors)
       this.options.onEvent({
         type: 'notice',
         text: `Can't load spell ${path}: ${message}`,
         transient: true,
       });
 
-    const enabled = data
-      .flatMap((entry) => entry.skills)
-      .filter((skill) => skill.enabled);
-
     this.spellIndex = enabled;
     this.castIndex = castIndex(enabled);
-    const skills: Skill[] = [];
 
-    for (const skill of enabled) {
-      if (skills.some(({ name }) => name === skill.name)) continue;
-
-      skills.push({
-        name: skill.name,
-        description:
-          skill.interface?.shortDescription ??
-          skill.shortDescription ??
-          skill.description,
-      });
-    }
-
-    return skills;
+    return skillsOf(enabled);
   }
 
   /** Codex accepts any id at selection, and only its backend refuses one at the next turn. */
@@ -477,13 +447,11 @@ class CodexSession implements AgentSession {
     this.native.contextWindow = contextWindow;
     await this.configureCompaction();
 
-    this.info = {
+    this.setInfo({
       ...this.info,
       model: this.native.model,
       effort: effort === undefined ? this.info.effort : (effort ?? undefined),
-    };
-
-    this.options.onEvent({ type: 'info', info: this.info });
+    });
   }
 
   private beginTurn(): NonNullable<CodexSession['turn']> {
@@ -575,8 +543,7 @@ class CodexSession implements AgentSession {
 
       if (this.turn === turn) this.turn.id = response.turn.id;
 
-      this.info = { ...this.info, hasHistory: true };
-      this.options.onEvent({ type: 'info', info: this.info });
+      this.setInfo({ ...this.info, hasHistory: true });
     } catch (error) {
       if (this.turn === turn) this.finish('failed', errorMessage(error));
     }
@@ -625,8 +592,7 @@ class CodexSession implements AgentSession {
     if (contextWindow === undefined) return;
 
     if (this.info.contextWindow !== this.native.contextWindow) {
-      this.info = { ...this.info, contextWindow: this.native.contextWindow };
-      this.options.onEvent({ type: 'info', info: this.info });
+      this.setInfo({ ...this.info, contextWindow: this.native.contextWindow });
     }
 
     if (contextWindow !== this.usage.contextWindow)
@@ -663,8 +629,7 @@ class CodexSession implements AgentSession {
         command,
       });
 
-      this.info = { ...this.info, hasHistory: true };
-      this.options.onEvent({ type: 'info', info: this.info });
+      this.setInfo({ ...this.info, hasHistory: true });
     } catch (error) {
       this.finish('failed', errorMessage(error));
     }
@@ -752,9 +717,7 @@ class CodexSession implements AgentSession {
     })();
 
     try {
-      if (options.restart) await stopped;
-      else
-        await beforeDeadline(stopped, options.deadline - terminationReserveMs);
+      await waitForStop(stopped, options);
     } catch (error) {
       if (!(error instanceof NativeStopTimeout)) throw error;
 
@@ -784,51 +747,7 @@ class CodexSession implements AgentSession {
 
     if (!request || request.id === undefined) return;
 
-    const params = object.parse(request.params);
-    let result: unknown;
-
-    switch (request.method) {
-      case 'item/tool/requestUserInput':
-        result = {
-          answers: Object.fromEntries(
-            Object.entries(response.answers ?? {}).map(([key, answers]) => [
-              key,
-              { answers },
-            ]),
-          ),
-        };
-
-        break;
-
-      case 'mcpServer/elicitation/request':
-        result = {
-          action: response.decision,
-          content: response.content ?? null,
-          _meta: null,
-        };
-
-        break;
-
-      case 'item/permissions/requestApproval':
-        result = {
-          permissions:
-            response.decision === 'accept'
-              ? Object.fromEntries(
-                  Object.entries(object.parse(params.permissions)).filter(
-                    ([, value]) => value !== null,
-                  ),
-                )
-              : {},
-          scope: 'turn',
-        };
-
-        break;
-
-      default:
-        result = { decision: response.decision };
-    }
-
-    this.rpc.respond(request.id, result);
+    this.rpc.respond(request.id, requestResult(request, response));
     this.requests.delete(id);
     this.options.onEvent({ type: 'request-resolved', id });
   }
@@ -852,9 +771,7 @@ class CodexSession implements AgentSession {
         await this.interrupt(options);
       });
 
-      if (options.restart) await stopped;
-      else
-        await beforeDeadline(stopped, options.deadline - terminationReserveMs);
+      await waitForStop(stopped, options);
     } catch (error) {
       if (!(error instanceof NativeStopTimeout)) throw error;
 
@@ -879,16 +796,21 @@ class CodexSession implements AgentSession {
     });
   }
 
+  private setInfo(info: SessionInfo): void {
+    this.info = info;
+    this.options.onEvent({ type: 'info', info });
+  }
+
   private updateInfo(response: unknown): void {
-    this.info = sessionInfo(response, this.info);
+    const info = sessionInfo(response, this.info);
 
     this.native = {
       ...this.native,
-      model: this.info.model,
-      effort: this.info.nativeEffort,
+      model: info.model,
+      effort: info.nativeEffort,
     };
 
-    this.options.onEvent({ type: 'info', info: this.info });
+    this.setInfo(info);
   }
 
   /** one malformed notification posts a notice per method and fails only what it settles. */
@@ -1022,16 +944,15 @@ class CodexSession implements AgentSession {
           effort: nullishString.parse(settings.effort) ?? undefined,
         };
 
-        this.info = {
+        this.setInfo({
           ...this.info,
           model: this.native.model,
           nativeEffort: this.native.effort,
           permissionProfile: permissionProfile(
             settings.activePermissionProfile,
           ),
-        };
+        });
 
-        this.options.onEvent({ type: 'info', info: this.info });
         this.settings?.resolve();
 
         break;
@@ -1255,8 +1176,7 @@ class CodexSession implements AgentSession {
           if (data.toModel !== this.info.model)
             this.report({ context: undefined, contextWindow: undefined });
 
-          this.info = { ...this.info, model: data.toModel };
-          this.options.onEvent({ type: 'info', info: this.info });
+          this.setInfo({ ...this.info, model: data.toModel });
         }
 
         break;

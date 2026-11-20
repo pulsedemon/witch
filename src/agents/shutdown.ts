@@ -1,7 +1,4 @@
-import type {
-  ChildProcess,
-  ChildProcessWithoutNullStreams,
-} from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import type { AgentStopOptions } from './types.js';
 
 const nativeStopTimeoutMs = 8000;
@@ -109,7 +106,7 @@ export function signalGroup(
 
 /** returns whether SIGKILL was needed; a sent signal alone does not establish process exit. */
 export async function terminateChild(
-  child: ChildProcessWithoutNullStreams,
+  child: ChildProcess,
   closed: Promise<void>,
   deadline: number,
 ): Promise<boolean> {
