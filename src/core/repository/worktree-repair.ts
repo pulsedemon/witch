@@ -26,6 +26,13 @@ interface Registration {
   registered: string;
 }
 
+interface RepairContext {
+  map: (path: string) => string | undefined;
+  report: MoveReport;
+  run: Run;
+  preview: boolean;
+}
+
 /** the paths `git worktree list` registers for `cwd`'s repository, main checkout first. */
 export async function listWorktrees(run: Run, cwd: string): Promise<string[]> {
   const { stdout } = await run(
@@ -159,10 +166,7 @@ async function leftWorktree(
 /** checks every registration of `main`'s repository, then repairs its links when a main checkout or worktree moved. */
 async function repairWorktrees(
   main: string,
-  map: (path: string) => string | undefined,
-  report: MoveReport,
-  run: Run,
-  preview: boolean,
+  { map, report, run, preview }: RepairContext,
 ) {
   const common = await actualCase(
     (
@@ -303,11 +307,9 @@ async function repairWorktrees(
 export async function repairRepositories(
   ledger: Ledger,
   main: string | undefined,
-  map: (path: string) => string | undefined,
-  report: MoveReport,
-  run: Run,
-  preview: boolean,
+  context: RepairContext,
 ): Promise<void> {
+  const { map, report } = context;
   const mains = new Set<string>();
 
   if (main) mains.add(main);
@@ -328,8 +330,7 @@ export async function repairRepositories(
 
       visited.add(repository);
 
-      if (await present(repository))
-        await repairWorktrees(repository, map, report, run, preview);
+      if (await present(repository)) await repairWorktrees(repository, context);
       else if (await leftWorktree(ledger, repository, map))
         report.unresolved.push({
           path: repository,

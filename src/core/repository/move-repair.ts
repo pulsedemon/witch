@@ -341,7 +341,13 @@ export async function repairMoves(
     };
 
     const { map } = await mapper(ledger);
-    await repairRepositories(ledger, listed?.[0], map, report, run, preview);
+
+    await repairRepositories(ledger, listed?.[0], {
+      map,
+      report,
+      run,
+      preview,
+    });
 
     if (!preview) await record(ledger, cwd, seeds, records, run, report);
 
@@ -431,16 +437,13 @@ async function repairConversations(
 
       const repaired =
         preview ||
-        (await rewrite(
+        (await rewrite(saved, target, destination, {
           store,
           memory,
           scopes,
-          saved,
-          target,
-          destination,
           resolved,
           report,
-        ));
+        }));
 
       if (repaired)
         tally.repaired.push({
@@ -603,14 +606,22 @@ async function record(
 
 /** rewrites one conversation's history and record under its lock, stopping native processes and `!` shells a crash left running, or says why it can't. */
 async function rewrite(
-  store: StateStore,
-  memory: Memory,
-  scopes: Scopes,
   saved: ConversationRecord,
   target: string,
   destination: Identity & { path: string },
-  resolved: Snapshot,
-  report: MoveReport,
+  {
+    store,
+    memory,
+    scopes,
+    resolved,
+    report,
+  }: {
+    store: StateStore;
+    memory: Memory;
+    scopes: Scopes;
+    resolved: Snapshot;
+    report: MoveReport;
+  },
 ): Promise<boolean> {
   try {
     return (
