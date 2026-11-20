@@ -81,6 +81,19 @@ export async function checkTargets(
       const number = index + 1;
       const parts = segments(visible);
 
+      const cite = (
+        shown: string,
+        content: string,
+        start: number,
+        end: number,
+        name: string | undefined,
+      ): void => {
+        if (!checkRange(shown, content, start, end, fail, number)) return;
+
+        if (name)
+          checkIdentifier(name, shown, content, start, end, fail, number);
+      };
+
       for (const link of links(parts)) {
         const target = resolveLink(link.target, path, repository);
 
@@ -124,13 +137,7 @@ export async function checkTargets(
         if (range) {
           const start = Number(range[1]);
           const end = Number(range[2] ?? range[1]);
-
-          if (!checkRange(shown, content, start, end, fail, number)) continue;
-
-          const name = quoted(link.text);
-
-          if (name)
-            checkIdentifier(name, shown, content, start, end, fail, number);
+          cite(shown, content, start, end, quoted(link.text));
         } else if (
           extname(target.path) === '.md' &&
           !anchors(content).has(link.anchor)
@@ -151,13 +158,7 @@ export async function checkTargets(
         const start = Number(cited[2]);
         const end = Number(cited[3] ?? cited[2]);
         const shown = relative(cwd, target);
-
-        if (!checkRange(shown, content, start, end, fail, number)) continue;
-
-        const name = citedName(parts, position);
-
-        if (name)
-          checkIdentifier(name, shown, content, start, end, fail, number);
+        cite(shown, content, start, end, citedName(parts, position));
       }
 
       if (!/^\s*>/.test(line)) checkWriting(writable(parts), fail, number);
