@@ -19,6 +19,7 @@ import { checkTargets } from './review-checks.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Reviewer, Reviewers } from './reviewers.js';
 import type { Routed } from '../runtime/routing.js';
+import { agentLabel } from '../snapshot.js';
 import { untitled } from '../state.js';
 import type { ConversationRecord, DisplayUpdate } from '../state.js';
 
@@ -87,10 +88,6 @@ async function runReview(
 ): Promise<ReviewOutcome | undefined> {
   const { conversation, coordination, signal } = host;
   const { cwd } = conversation;
-
-  const label = (runtime: string) =>
-    host.agents.find(({ id }) => id === runtime)?.label ?? runtime;
-
   const router = coordination?.router;
 
   if (!coordination || !router) {
@@ -284,9 +281,15 @@ async function runReview(
 
     host.notice(
       `Review round ${number} · ${scope}: ${routes
-        .map(({ runtime, model }) => `${label(runtime)} · ${model}`)
+        .map(
+          ({ runtime, model }) =>
+            `${agentLabel(host.agents, runtime)} · ${model}`,
+        )
         .join(', ')}${dropped
-        .map(({ runtime, why }) => `; ${label(runtime)} sits out: ${why}`)
+        .map(
+          ({ runtime, why }) =>
+            `; ${agentLabel(host.agents, runtime)} sits out: ${why}`,
+        )
         .join('')}`,
     );
 

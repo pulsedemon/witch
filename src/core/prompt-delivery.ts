@@ -314,18 +314,11 @@ export class PromptDelivery {
 
   private backgroundSwitchReady(): boolean {
     return (
-      this.host.snapshot().phase === 'idle' &&
-      !this.host.task() &&
-      !this.admissions &&
       !this.runtimes.backgroundBusy &&
       !this.runtimes.awaitingRecovery &&
-      !this.automaticHeld &&
       !this.pauses.held &&
-      !this.host.opening() &&
-      !this.host.closed() &&
       !this.host.snapshot().error &&
-      (!this.coordination ||
-        this.coordination.events.pauses(this.host.current().id) !== undefined)
+      this.idleForAutomaticWork(() => this.host.current().id)
     );
   }
 
@@ -453,19 +446,25 @@ export class PromptDelivery {
     const record = this.host.record();
 
     return (
+      !this.deliveryHeld &&
+      !this.host.halted() &&
+      !this.host.snapshot().requests.length &&
+      !!record &&
+      this.idleForAutomaticWork(() => record.id)
+    );
+  }
+
+  private idleForAutomaticWork(conversation: () => string): boolean {
+    return (
       this.host.snapshot().phase === 'idle' &&
       !this.host.task() &&
       !this.admissions &&
-      !this.deliveryHeld &&
-      !this.host.halted() &&
+      !this.automaticHeld &&
       !this.host.opening() &&
       !this.host.closed() &&
-      !this.host.snapshot().requests.length &&
-      !this.automaticHeld &&
-      !!record &&
       // a pause the first read missed would otherwise let automatic work through
       (!this.coordination ||
-        this.coordination.events.pauses(record.id) !== undefined)
+        this.coordination.events.pauses(conversation()) !== undefined)
     );
   }
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentEvent, SessionInfo, TurnResult } from '../agents/types.js';
-import { contextWindowChoiceSchema } from '../agents/types.js';
+import { contextWindowChoiceSchema, fileDiffShape } from '../agents/types.js';
 import { copilotReviewStateSchema } from './review/copilot-reviews.js';
 import { pullRequestSchema } from './repository/pull-requests.js';
 
@@ -121,25 +121,6 @@ export const conversationRecordSchema = conversationSchema.extend({
     .optional(),
 });
 
-const hunk = z.object({
-  oldStart: z.number(),
-  newStart: z.number(),
-  lines: z.array(z.string()),
-});
-
-const fileDiff = z.object({
-  path: z.string(),
-  kind: z.enum(['add', 'delete', 'update']),
-  movePath: z.string().optional(),
-  hunks: z.array(hunk),
-  unshown: z
-    .union([
-      z.object({ added: z.number(), removed: z.number() }),
-      z.literal('binary'),
-    ])
-    .optional(),
-});
-
 export const displayUpdateSchema = z.object({
   id: z.string(),
   kind: z.enum(['user', 'assistant', 'tool', 'notice']),
@@ -156,7 +137,7 @@ export const displayUpdateSchema = z.object({
   // the runtime withdrew the row, which leaves the transcript
   retracted: z.literal(true).optional(),
   images: z.array(z.string()).optional(),
-  diff: z.array(fileDiff).optional(),
+  diff: z.array(fileDiffShape).optional(),
   // a command the user ran with `!`
   shell: z.boolean().optional(),
   // a tool call that failed or was declined

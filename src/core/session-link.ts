@@ -124,7 +124,7 @@ export class SessionLink {
       await this.usage.suspend();
       this.catalog.cancel();
 
-      if (reconnect) await this.disconnect(true);
+      if (reconnect) await this.disconnect({ keepActivation: true });
 
       await run();
     } catch (error) {
@@ -299,7 +299,12 @@ export class SessionLink {
     }
 
     // an initial connect keeps the activation published when its conversation opened; a runtime switch drops questions once it activates
-    await this.disconnect(!this.connected, true, undefined, !!restoreAdmission);
+    await this.disconnect({
+      keepActivation: !this.connected,
+      keepQuestions: true,
+      quiesced: !!restoreAdmission,
+    });
+
     const connection = (this.connection = {});
     await this.coordination?.activate(conversation, scope.project);
     this.aborter = new AbortController();
@@ -405,12 +410,17 @@ export class SessionLink {
     }
   }
 
-  async disconnect(
-    keepActivation = false,
-    keepQuestions = false,
-    stop?: AgentStopOptions,
-    quiesced = false,
-  ): Promise<void> {
+  async disconnect({
+    keepActivation,
+    keepQuestions,
+    stop,
+    quiesced,
+  }: {
+    keepActivation?: boolean;
+    keepQuestions?: boolean;
+    stop?: AgentStopOptions;
+    quiesced?: boolean;
+  } = {}): Promise<void> {
     if (!keepActivation && !quiesced && this.coordination)
       await this.coordination.quiesce();
 
@@ -419,17 +429,11 @@ export class SessionLink {
     this.connection = undefined;
     this.connected = undefined;
     const owned = this.reviewers.owns;
-
-    for (const event of stoppedActivity(this.host.snapshot(), owned))
-      this.host.background(event);
-
+    const ended = this.ended();
     const snapshot = this.host.snapshot();
 
     this.host.publish({
-      native: undefined,
-      nativeRunning: false,
-      nativeCompacting: false,
-      usage: {},
+      ...ended,
       skills: [],
       subagents: snapshot.subagents.filter(({ id }) => owned(id)),
       requests: keepQuestions
@@ -454,6 +458,24 @@ export class SessionLink {
 
       if (!keepActivation) await this.coordination?.deactivate();
     }
+  }
+
+  private ended(): Pick<
+    Snapshot,
+    'native' | 'nativeRunning' | 'nativeCompacting' | 'usage'
+  > {
+    for (const event of stoppedActivity(
+      this.host.snapshot(),
+      this.reviewers.owns,
+    ))
+      this.host.background(event);
+
+    return {
+      native: undefined,
+      nativeRunning: false,
+      nativeCompacting: false,
+      usage: {},
+    };
   }
 
   private receive(
@@ -487,14 +509,10 @@ export class SessionLink {
 
       host.publish({ requests: [...host.snapshot().requests, event.request] });
     } else if (event.type === 'closed') {
-      for (const event of stoppedActivity(host.snapshot(), this.reviewers.owns))
-        host.background(event);
+      const ended = this.ended();
 
       host.publish({
-        native: undefined,
-        nativeRunning: false,
-        nativeCompacting: false,
-        usage: {},
+        ...ended,
         requests: host
           .snapshot()
           .requests.filter((request) => request.replyAsPrompt),

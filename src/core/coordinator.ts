@@ -157,7 +157,7 @@ export class Coordinator {
       this.turns.perform(prompt, kind, { images }),
     connect: (choice, ready = () => true) =>
       this.link.connect(choice.agent, undefined, choice, ready),
-    disconnect: () => this.link.disconnect(false, true),
+    disconnect: () => this.link.disconnect({ keepQuestions: true }),
     save: () => this.save(),
     publish: (update) => this.publish(update),
     notice: (text) => this.notice(text),
@@ -316,7 +316,7 @@ export class Coordinator {
       coordination,
     );
 
-    this.snapshot = initialSnapshot(agents);
+    this.snapshot = initialSnapshot(this.catalog.availability);
     this.coordination?.attach(() => this.link.session);
     this.publish({});
 
@@ -409,11 +409,7 @@ export class Coordinator {
     this.opening = true;
 
     try {
-      // pending admissions still belong to this conversation and can block the switch.
-      await this.delivery.admitted;
-
-      if (this.snapshot.queue.length)
-        throw new Error('Prompts are still queued for this conversation');
+      await this.refuseQueued();
 
       const files =
         'id' in target
@@ -544,11 +540,7 @@ export class Coordinator {
 
   async clear(): Promise<void> {
     await this.operate('starting', async () => {
-      await this.delivery.admitted;
-
-      if (this.snapshot.queue.length)
-        throw new Error('Prompts are still queued for this conversation');
-
+      await this.refuseQueued();
       const conversation = this.current();
 
       await this.link.clear(
@@ -556,6 +548,14 @@ export class Coordinator {
         () => this.turns.forget(conversation.id),
       );
     });
+  }
+
+  /** pending admissions still belong to this conversation and can block a switch or clear. */
+  private async refuseQueued(): Promise<void> {
+    await this.delivery.admitted;
+
+    if (this.snapshot.queue.length)
+      throw new Error('Prompts are still queued for this conversation');
   }
 
   async selectConversation(id: string): Promise<void> {
@@ -734,7 +734,7 @@ export class Coordinator {
       else delete conversation.sessions[selection.agent];
 
       await this.link
-        .disconnect(true, true)
+        .disconnect({ keepActivation: true, keepQuestions: true })
         .catch((closing: unknown) => this.notice(errorMessage(closing)));
 
       await this.save();
@@ -1034,7 +1034,7 @@ export class Coordinator {
       } catch (error) {
         failure = error;
         // Codex's close() interrupts again and would rethrow, so the session ends here
-        await this.link.disconnect(false, false, stop).catch(() => {});
+        await this.link.disconnect({ stop }).catch(() => {});
       }
 
       await this.task?.catch(() => {});
@@ -1051,7 +1051,7 @@ export class Coordinator {
     } finally {
       try {
         await this.accountUsage.close(stop);
-        await this.link.disconnect(false, false, stop);
+        await this.link.disconnect({ stop });
       } finally {
         try {
           await this.coordination?.close(options);

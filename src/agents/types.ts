@@ -185,9 +185,8 @@ const hunkSchema = z.object({
 export type Hunk = z.infer<typeof hunkSchema>;
 
 /** a file a tool changed. */
-const fileDiffSchema = z.object({
-  /** absolute. */
-  path: z.string().refine(isAbsolute, 'File paths must be absolute.'),
+export const fileDiffShape = z.object({
+  path: z.string(),
   kind: z.enum(['add', 'delete', 'update']),
   /** where an update moved the file. */
   movePath: z.string().optional(),
@@ -199,6 +198,10 @@ const fileDiffSchema = z.object({
       z.literal('binary'),
     ])
     .optional(),
+});
+
+const fileDiffSchema = fileDiffShape.extend({
+  path: z.string().refine(isAbsolute, 'File paths must be absolute.'),
 });
 
 export type FileDiff = z.infer<typeof fileDiffSchema>;
@@ -309,7 +312,7 @@ export interface AnswerInput {
   requestFile: string;
 }
 
-type TurnPurpose = 'user' | 'peer-answer' | 'pr-review' | 'pr-repair';
+export type TurnPurpose = 'user' | 'peer-answer' | 'pr-review' | 'pr-repair';
 
 export interface SendOptions {
   skill?: SkillCall;

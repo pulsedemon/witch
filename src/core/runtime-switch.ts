@@ -9,7 +9,7 @@ import { taskActivity } from './coordination/coordination-state.js';
 import { handoff } from './handoff.js';
 import { modelEffort, type ModelSelection } from './runtime/models.js';
 import { comparable, resolve } from './runtime/routing.js';
-import type { Snapshot } from './snapshot.js';
+import { agentLabel, type Snapshot } from './snapshot.js';
 import type { ConversationRecord } from './state.js';
 import {
   creditCapacity,
@@ -369,14 +369,12 @@ export class RuntimeSwitch {
     const host = this.host;
     const { phase, error, commandsPending } = host.snapshot();
     const { agent } = host.conversation();
-    const from = this.label(agent);
+    const from = agentLabel(this.host.snapshot().agents, agent);
 
     if (host.closed() || error) return false;
 
     if (this.hopped) {
-      host.notice(
-        `${from} is also out of usage. The conversation stays on ${from}.`,
-      );
+      this.alsoExhausted(from);
 
       return false;
     }
@@ -453,7 +451,7 @@ export class RuntimeSwitch {
     );
 
     const chosen = destinations.find((choice) => 'selection' in choice);
-    const from = this.label(agent);
+    const from = agentLabel(this.host.snapshot().agents, agent);
 
     if (!chosen || !('selection' in chosen)) {
       const reasons = destinations.flatMap((choice) =>
@@ -474,12 +472,16 @@ export class RuntimeSwitch {
     );
 
     if (this.continuation?.status === 'failed' && this.continuation.exhausted) {
-      const to = this.label(chosen.selection.agent);
-
-      host.notice(
-        `${to} is also out of usage. The conversation stays on ${to}.`,
+      this.alsoExhausted(
+        agentLabel(this.host.snapshot().agents, chosen.selection.agent),
       );
     }
+  }
+
+  private alsoExhausted(label: string): void {
+    this.host.notice(
+      `${label} is also out of usage. The conversation stays on ${label}.`,
+    );
   }
 
   /** `to` qualifies on room or usable credits observed after it last ran out, with a model comparable to the one `from` ran. */
@@ -490,7 +492,7 @@ export class RuntimeSwitch {
   ): Destination {
     const { accounts, models, latest } = this.host.snapshot();
     const now = Date.now();
-    const name = this.label(to);
+    const name = agentLabel(this.host.snapshot().agents, to);
     const account = accounts[to];
     const model = this.host.conversation().sessions[from]?.model;
     const family = model && comparable(from, model, to);
@@ -543,13 +545,7 @@ export class RuntimeSwitch {
 
     return {
       selection: { agent: to, id: resolved.model },
-      notice: `${describeExhaustion(this.label(from), limit, now)}. Continuing on ${name} · ${resolved.model}: ${describeReading(name, account, now, limits)} has ${room ? 'room' : 'usable credits'}`,
+      notice: `${describeExhaustion(agentLabel(this.host.snapshot().agents, from), limit, now)}. Continuing on ${name} · ${resolved.model}: ${describeReading(name, account, now, limits)} has ${room ? 'room' : 'usable credits'}`,
     };
-  }
-
-  private label(id: string): string {
-    return (
-      this.host.snapshot().agents.find((agent) => agent.id === id)?.label ?? id
-    );
   }
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { aborted, errorMessage } from '../errors.js';
-import type { AgentSession, TurnResult } from '../agents/types.js';
+import type { AgentSession, TurnPurpose, TurnResult } from '../agents/types.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { ConversationStore } from '../persistence/store.js';
@@ -49,6 +49,14 @@ import {
 
 type TurnKind = 'turn' | 'handoff' | 'answer' | 'review' | 'repair';
 
+const purposes = {
+  turn: 'user',
+  handoff: 'user',
+  answer: 'peer-answer',
+  review: 'pr-review',
+  repair: 'pr-repair',
+} as const satisfies Record<TurnKind, TurnPurpose>;
+
 interface TurnOptions {
   delivered?: () => void;
   /** the user row is shown, just before the save that records it. */
@@ -65,6 +73,29 @@ interface TurnOptions {
   refused?: (error: string) => void;
   /** saved images the turn sends as they are, as a handoff's continuation resends its unfinished turn's. */
   images?: readonly string[];
+}
+
+function turnNotice(
+  prompt: string,
+  {
+    requests,
+    review,
+    repair,
+  }: Pick<TurnOptions, 'requests' | 'review' | 'repair'>,
+): string {
+  if (requests) return answerNotice(requests);
+
+  if (review)
+    return `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`;
+
+  if (repair) {
+    if (repair.failed)
+      return `Repairing failed checks on #${repair.pullRequest.number}: ${repair.failed.map(({ name }) => name).join(', ')}.`;
+
+    return `Repairing the conflict on #${repair.pullRequest.number} with ${repair.pullRequest.base}.`;
+  }
+
+  return prompt;
 }
 
 interface TurnHost {
@@ -260,12 +291,12 @@ export class TurnRunner {
   ): Promise<TurnResult> {
     const conversation = this.host.conversation();
     const answer = kind === 'answer';
-    const automatic = answer || kind === 'review' || kind === 'repair';
+    const automatic = purposes[kind] !== 'user';
 
     if (kind === 'turn') this.host.publish({ completedTurn: undefined });
 
     const { activity, scope } = await this.host.beginActivity(
-      automatic ? 'turn' : kind,
+      kind === 'handoff' ? 'handoff' : 'turn',
       read,
     );
 
@@ -290,6 +321,9 @@ export class TurnRunner {
 
     if (!session || this.host.cancelled())
       return { status: 'interrupted', text: '' };
+
+    const open = session;
+    const over = () => this.host.cancelled() || open.closed;
 
     if (!answer) this.coordination?.beginTurn(activity.id);
 
@@ -376,7 +410,7 @@ export class TurnRunner {
 
         if (refusal !== undefined) {
           // a stop or restart also fails the check, and leaves the repair attempted
-          if (!this.host.cancelled() && !session.closed) refused?.(refusal);
+          if (!over()) refused?.(refusal);
 
           return { status: 'interrupted', text: '' };
         }
@@ -387,24 +421,16 @@ export class TurnRunner {
       // aborted an earlier controller, so a cancelled turn starts none
       const images = options.images
         ? [...options.images]
-        : kind === 'turn' &&
-            !silent &&
-            command === undefined &&
-            !this.host.cancelled() &&
-            !session.closed
+        : kind === 'turn' && !silent && command === undefined && !over()
           ? await this.host.prepareImages(prompt).catch((error: unknown) => {
-              if (this.host.cancelled() || session.closed) return [];
+              if (over()) return [];
 
               throw error;
             })
           : [];
 
       // a stop during an awaited check must prevent native input.
-      if (
-        this.host.cancelled() ||
-        session.closed ||
-        (queued && this.host.deliveryHeld())
-      )
+      if (over() || (queued && this.host.deliveryHeld()))
         return { status: 'interrupted', text: '' };
 
       if (kind === 'turn' && !silent && conversation.title === untitled)
@@ -416,15 +442,7 @@ export class TurnRunner {
         this.host.display({
           id: row,
           kind: kind === 'turn' ? 'user' : 'notice',
-          text: requests
-            ? answerNotice(requests)
-            : review
-              ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
-              : repair
-                ? repair.failed
-                  ? `Repairing failed checks on #${repair.pullRequest.number}: ${repair.failed.map(({ name }) => name).join(', ')}.`
-                  : `Repairing the conflict on #${repair.pullRequest.number} with ${repair.pullRequest.base}.`
-                : prompt,
+          text: turnNotice(prompt, { requests, review, repair }),
           cwd: conversation.cwd,
           ...(images.length ? { images } : {}),
         });
@@ -452,7 +470,7 @@ export class TurnRunner {
           const held =
             queued && command === undefined && this.host.deliveryHeld();
 
-          if (this.host.cancelled() || session.closed || held)
+          if (over() || held)
             result = {
               status: 'interrupted',
               text: '',
@@ -481,13 +499,7 @@ export class TurnRunner {
             const sending = session.send(input.prompt, {
               skill: skillCall(prompt, this.host.snapshot().skills),
               context: input.context,
-              purpose: !automatic
-                ? 'user'
-                : answer
-                  ? 'peer-answer'
-                  : repair
-                    ? 'pr-repair'
-                    : 'pr-review',
+              purpose: purposes[kind],
               answer: batch && {
                 outputSchema: peerAnswerOutputSchema,
                 requestFile: batch.file,
