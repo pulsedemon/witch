@@ -108,7 +108,7 @@ export class ClaudeContext {
     return usage.context;
   }
 
-  observe(value: unknown): void {
+  private observe(value: unknown): void {
     this.context = context.safeParse(value).data;
   }
 

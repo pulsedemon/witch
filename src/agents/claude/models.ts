@@ -9,3 +9,20 @@ export function modelsOf(models: readonly ModelInfo[]): Model[] {
     efforts: model.supportedEffortLevels ?? [],
   }));
 }
+
+export function fallbackModel(change: {
+  direction: string;
+  scope?: string;
+  original_model: string;
+  fallback_model: string;
+}): string | undefined {
+  if (change.scope === 'local') return;
+
+  return change.direction === 'revert'
+    ? change.original_model
+    : change.fallback_model;
+}
+
+export function reportedModel(model: string | undefined): string | undefined {
+  return model === '<synthetic>' ? undefined : model;
+}

@@ -1,5 +1,6 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { TurnResult } from '../types.js';
+import { resultInputs } from './turn.js';
 
 /** a manual compact has its own input/result identity even while the ordinary turn stays open. */
 export class ClaudeCompaction {
@@ -9,7 +10,7 @@ export class ClaudeCompaction {
   private error?: string;
 
   constructor(
-    readonly uuid: string,
+    private readonly uuid: string,
     private started: boolean,
   ) {}
 
@@ -45,7 +46,7 @@ export class ClaudeCompaction {
       )
         this.error = message.compact_error ?? 'Claude compaction failed';
     } else if (message.type === 'result') {
-      const uuids = message.user_message_uuids ?? [message.user_message_uuid];
+      const uuids = resultInputs(message);
 
       if (!uuids.includes(this.uuid)) return false;
 

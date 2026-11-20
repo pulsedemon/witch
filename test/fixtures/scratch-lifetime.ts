@@ -4,7 +4,7 @@ import { constants, existsSync, writeSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { runShell } from '../../src/agents/user-shell.js';
+import { runShell } from '../../src/agents/claude/user-shell.js';
 import { JobWatch } from '../../src/core/jobs/jobs.js';
 import { instanceDirectory } from '../../src/persistence/instance.js';
 import { writeJson } from '../../src/persistence/json.js';

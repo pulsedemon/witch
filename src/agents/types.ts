@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { isAbsolute } from 'node:path';
 import type { ControlBinding } from '../persistence/control.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
-import type { CommandPrefixes } from './tool-title.js';
+import type { CommandPrefixes, ToolTitle } from './tool-title.js';
 
 export const contextWindowChoiceSchema = z.enum(['default', 'maximum']);
 
@@ -242,15 +242,9 @@ export type AgentEvent =
   | { type: 'text'; id: string; text: string; replace?: boolean }
   /** the runtime withdrew the output of these earlier text and tool events; an id it never sent is ignored. */
   | { type: 'retracted'; ids: string[] }
-  | {
+  | (ToolTitle & {
       type: 'tool';
       id: string;
-      title: string;
-      /** the file path `title` shows, so its row links the path whole. */
-      path?: string;
-      /** the complete label, including the native name or original command, shown on expansion. */
-      expandedTitle?: string;
-      singleLine?: true;
       text: string;
       done: boolean;
       cwd?: string;
@@ -263,9 +257,7 @@ export type AgentEvent =
       shell?: boolean;
       /** the call failed or was declined; set with `done`. */
       failed?: true;
-      /** the call ran a shell command, which can change files it doesn't report. */
-      command?: true;
-    }
+    })
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }
   | { type: 'closed' }

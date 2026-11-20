@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import { runShell } from '../../../src/agents/user-shell.js';
+import { runShell } from '../../../src/agents/claude/user-shell.js';
 import {
   JobWatch,
   parseDetails,
