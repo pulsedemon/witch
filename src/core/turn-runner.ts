@@ -296,7 +296,7 @@ export class TurnRunner {
     if (kind === 'turn') this.host.publish({ completedTurn: undefined });
 
     const { activity, scope } = await this.host.beginActivity(
-      automatic ? 'turn' : kind,
+      kind === 'handoff' ? 'handoff' : 'turn',
       read,
     );
 
