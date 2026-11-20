@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../../../src/core/coordinator.js';
-import { main } from '../../../src/memory/memory.js';
+import { main } from '../../../src/memory/names.js';
 import { FixtureAgent, TurnGate } from '../../fixtures/agent.js';
 import {
   activity,

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { access, readFile, realpath } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
@@ -10,7 +10,6 @@ import { errorMessage } from './errors.js';
 import { controlPrefix } from './cli/cli-control.js';
 import type { parseCommand } from './cli/cli-control.js';
 import { Coordinator } from './core/coordinator.js';
-import { describeMoves, repairMoves } from './core/repository/move-repair.js';
 import { SessionCoordination } from './core/coordination/coordination.js';
 import { JobWatch, jobCheckpointSchema } from './core/jobs/jobs.js';
 import { watchMerges } from './core/repository/merge-watch.js';
@@ -48,8 +47,7 @@ interface Handover {
 }
 
 /**
- * opens the state directory for the interactive app or a directory recovery. kept out of `cli.ts` so control
- * commands and familiar wrappers start without loading the app.
+ * keeps interactive startup out of headless commands and familiar wrappers.
  */
 export async function runWitch(
   { values, positionals }: ReturnType<typeof parseCommand>,
@@ -64,47 +62,10 @@ export async function runWitch(
   let store: StateStore;
 
   try {
-    if (values['recover-directory'] !== undefined)
-      await access(join(root, 'conversations'));
-
     store = await StateStore.open(root);
   } catch (error) {
     process.stderr.write(`witch: ${errorMessage(error)}\n`);
     process.exit(1);
-  }
-
-  const source = values['recover-directory'];
-
-  if (source !== undefined) {
-    try {
-      const preview = !values.apply;
-
-      const report = await repairMoves(
-        store,
-        new Memory(memoryRepository(store.root)),
-        await realpath(process.cwd()),
-        {
-          declared: {
-            from: isAbsolute(source)
-              ? normalize(source).replace(/(.)\/$/, '$1')
-              : source,
-            to: await realpath(process.cwd()),
-          },
-          preview,
-        },
-      );
-
-      process.stdout.write(
-        `${describeMoves(report, store.root, preview) ?? 'Nothing to recover.'}\n`,
-      );
-
-      if (!preview && report.blocked.length) process.exitCode = 1;
-    } catch (error) {
-      process.stderr.write(`witch: ${errorMessage(error)}\n`);
-      process.exitCode = 1;
-    }
-
-    return;
   }
 
   registerNativeParticipant();

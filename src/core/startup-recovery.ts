@@ -1,6 +1,6 @@
 import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../errors.js';
-import { branchOf } from '../memory/memory.js';
+import { branchOf } from '../memory/names.js';
 import type { Memory } from '../memory/memory.js';
 import { present } from '../persistence/directories.js';
 import { LockedElsewhere } from '../persistence/store.js';

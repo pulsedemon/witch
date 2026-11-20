@@ -1,5 +1,5 @@
 import { aborted } from '../errors.js';
-import { main } from '../memory/memory.js';
+import { main } from '../memory/names.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { editInVSCode } from './editor.js';

@@ -32,15 +32,15 @@ import { lockedFiles, tryOpenLocked } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
-function conversationsPath(root: string): string {
+export function conversationsPath(root: string): string {
   return join(root, 'conversations');
 }
 
-function recordPath(directory: string): string {
+export function recordPath(directory: string): string {
   return join(directory, 'state.json');
 }
 
-function historyPath(directory: string): string {
+export function historyPath(directory: string): string {
   return join(directory, 'history.jsonl');
 }
 

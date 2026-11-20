@@ -6,6 +6,7 @@ import { ps, sameProcess } from './process.js';
 
 const execute = promisify(execFile);
 export const scratchProbeTimeout = 10_000;
+const processColumns = 'pid=,ppid=,uid=,stat=,lstart=,ucomm=';
 
 export type ScratchUse = 'used' | 'unused' | 'unknown';
 
@@ -128,7 +129,7 @@ function files(output: string): {
 export async function scratchRequiresBoot(): Promise<boolean> {
   try {
     const rows = processes(
-      await ps('pid=,ppid=,uid=,stat=,lstart=,ucomm=', undefined, {
+      await ps(processColumns, undefined, {
         timeout: scratchProbeTimeout,
       }),
     );
@@ -143,14 +144,18 @@ export async function scratchRequiresBoot(): Promise<boolean> {
   }
 }
 
+function unknownUse(
+  candidates: readonly ScratchCandidate[],
+): Map<string, ScratchUse> {
+  return new Map(candidates.map(({ directory }) => [directory, 'unknown']));
+}
+
 /** classifies native observations without changing a candidate or trusting missing records. */
 export function classifyScratch(
   candidates: readonly ScratchCandidate[],
   observation: ScratchObservation,
 ): ReadonlyMap<string, ScratchUse> {
-  const results = new Map<string, ScratchUse>(
-    candidates.map(({ directory }) => [directory, 'unknown']),
-  );
+  const results = unknownUse(candidates);
 
   try {
     const before = processes(observation.before);
@@ -249,14 +254,10 @@ export async function inspectScratch(
 ): Promise<ReadonlyMap<string, ScratchUse>> {
   if (!candidates.length) return new Map();
 
-  const unknown = new Map<string, ScratchUse>(
-    candidates.map(({ directory }) => [directory, 'unknown']),
-  );
+  const unknown = unknownUse(candidates);
 
   try {
-    const format = 'pid=,ppid=,uid=,stat=,lstart=,ucomm=';
-
-    const before = await ps(format, undefined, {
+    const before = await ps(processColumns, undefined, {
       timeout: scratchProbeTimeout,
     });
 
@@ -283,7 +284,9 @@ export async function inspectScratch(
     )
       return unknown;
 
-    const after = await ps(format, undefined, { timeout: scratchProbeTimeout });
+    const after = await ps(processColumns, undefined, {
+      timeout: scratchProbeTimeout,
+    });
 
     return classifyScratch(candidates, {
       before,

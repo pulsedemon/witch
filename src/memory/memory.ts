@@ -8,8 +8,9 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { basename, dirname, join, posix } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Workspace } from './workspace.js';
+import { branches, indexNote, main, notePath, printable } from './names.js';
 import { present } from '../persistence/directories.js';
 import { gone } from '../persistence/json.js';
 
@@ -44,13 +45,6 @@ export type GitRunner = (
 const remote =
   /^(?=[^/]*:)(?:[a-zA-Z][\w+.-]*:\/\/(?:[^/]*@)?(\[[^\]]*\]|[^/:@]+)(?::\d*)?\/|(?:[^/:]*@)?(\[[^\]]*\]|[^/:@]+):)\/*(.+?)(?:\.git)?\/?$/s;
 
-/** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
-export const main = 'refs/heads/main';
-const branches = 'conversations/';
-/** the branch a conversation's memory worktree is on. */
-export const branchOf = (id: string) => `${branches}${id}`;
-/** the note that indexes the rest of its scope. */
-export const indexNote = 'MEMORY.md';
 export const indexByteLimit = 6_000;
 const changeListByteLimit = 2_000;
 
@@ -147,22 +141,6 @@ async function physical(path: string): Promise<string> {
   const parent = dirname(path);
 
   return parent === path ? path : join(await physical(parent), basename(path));
-}
-
-/** a note path relative to the memory root, refusing one that leaves the root or enters `.git`. */
-export function notePath(path: string): string {
-  const file = posix.normalize(path);
-  const [top] = file.split('/');
-
-  if (top === '..' || top === '.git')
-    throw new Error('Memory path is outside the note directories');
-
-  return file;
-}
-
-/** a note name is agent-written; without control characters it can't carry a terminal escape, such as an OSC 8 link, or a line break into text Witch writes around it. */
-export function printable(path: string): string {
-  return path.replace(/\p{Cc}/gu, '');
 }
 
 /** text for a notice, which renders as Markdown, escaped so it can't carry a Markdown link of its own. */

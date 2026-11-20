@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { main } from '../../../src/memory/memory.js';
+import { main } from '../../../src/memory/names.js';
 import { fixture } from '../../fixtures/coordinator.js';
 
 for (const window of ['beginActivity', 'prepareNote'] as const) {
