@@ -51,6 +51,27 @@ test('a cancelled command cannot start another checkout mutation', async () => {
   await assert.rejects(readFile(join(cwd, 'mutation')), { code: 'ENOENT' });
 });
 
+test("a cancellable command stops at the caller's maxBuffer", async () => {
+  const cwd = await scratch('witch-command-');
+
+  await assert.rejects(
+    runCommand(
+      process.execPath,
+      ['-e', "process.stdout.write('x'.repeat(64))"],
+      {
+        cwd,
+        timeout: 5000,
+        signal: new AbortController().signal,
+        maxBuffer: 16,
+      },
+    ),
+    {
+      code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+      message: /stdout maxBuffer length exceeded/,
+    },
+  );
+});
+
 for (const killSignal of [undefined, 'SIGKILL'] as const) {
   test(`native timeout failures retain their output and metadata (${killSignal ?? 'default signal'})`, async () => {
     const cwd = await scratch('witch-command-');
