@@ -353,6 +353,10 @@ export function taskReference(reference: string, project: string): string {
   throw new Error('Use a full GitHub issue or pr URL, or task:<name>.');
 }
 
+export function referenceLabel(reference: string, project: string): string {
+  return reference.replace(`task:${project}:`, 'task:');
+}
+
 /** the parts of a `github:owner/repo#n` reference, which `taskReference` writes. */
 export function githubReference(
   reference: string,

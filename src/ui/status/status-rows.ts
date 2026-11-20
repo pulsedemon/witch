@@ -218,6 +218,8 @@ export function statusLines(
 ): [string, string, ...string[]] {
   const { usage, repository } = status;
   const context = Math.floor(usage.context ?? 0);
+  const model = plain(status.model || '?').toUpperCase();
+  const effort = plain(status.effort || 'default').toUpperCase();
 
   const capacity =
     usage.contextWindow === undefined
@@ -234,8 +236,8 @@ export function statusLines(
       : '';
 
     return piped([
-      white(plain(status.model || '?').toUpperCase()),
-      plain(status.effort || 'default').toUpperCase(),
+      white(model),
+      effort,
       // a conversation can open after the clock was last read
       duration(Math.max(0, now - (status.openedAt ?? now))),
       ...(limits ? [limits] : []),
@@ -272,20 +274,14 @@ export function statusLines(
 
     const balance = wrapLines(plain(text), width, true);
 
-    const compact = [
+    const fallback = [
       ...balance,
       ...wrapLines('Details: /delegation', width, true),
     ] as [string, string, ...string[]];
 
-    if (compact.length < maxRows)
-      compact.unshift(
-        piped([
-          plain(status.model || '?').toUpperCase(),
-          plain(status.effort || 'default').toUpperCase(),
-        ]),
-      );
+    if (fallback.length < maxRows) fallback.unshift(piped([model, effort]));
 
-    return compact;
+    return fallback;
   }
 
   return lines;

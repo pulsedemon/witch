@@ -10,8 +10,7 @@ export type Picker = (
   title: string,
   choices: readonly Choice[],
   choose: (id: string) => void | boolean | Promise<void | boolean>,
-  custom?: boolean,
-  caption?: string,
+  options?: { custom?: boolean; caption?: string },
 ) => Promise<boolean>;
 
 export type View =

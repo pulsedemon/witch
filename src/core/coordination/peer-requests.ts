@@ -11,6 +11,7 @@ import type {
   CoordinationAction,
   TaskClaim,
 } from './coordination-state.js';
+import { referenceLabel } from './coordination-state.js';
 import type { PeerAnswerBatch } from './peer-answers.js';
 
 export const peerRequestSchema = z.object({
@@ -149,9 +150,7 @@ function peerText(text: string): string {
 }
 
 function about(request: PeerRequest): string {
-  return peerText(
-    request.reference.replace(`task:${request.project}:`, 'task:'),
-  );
+  return peerText(referenceLabel(request.reference, request.project));
 }
 
 export function peerRequestNotices(

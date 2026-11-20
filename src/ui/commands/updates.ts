@@ -15,6 +15,9 @@ import { plain } from '../links.js';
 
 type Agents = Snapshot['agents'];
 
+const runtimeCommands = (agents: Agents) =>
+  agents.map(({ id }) => `/updates ${id}`).sort();
+
 /** whether `/updates <runtime>` offers to qualify the installed version; a blocked check only restricts installing. */
 function qualifiable(
   entry: RuntimeUpdateEntry,
@@ -127,7 +130,7 @@ export function updatesText(
   }
 
   lines.push(
-    '/updates check refreshes releases. /updates claude or /updates codex opens confirmation.',
+    `/updates check refreshes releases. ${runtimeCommands(agents).join(' or ')} opens confirmation.`,
   );
 
   return plain(lines.join('\n'));
@@ -147,12 +150,23 @@ export function useRuntimeUpdates(
 
 export async function showUpdates(
   argument: string,
-  updates: RuntimeUpdates | undefined,
-  agents: Agents,
-  active: () => boolean,
-  picker: Picker,
-  details: () => boolean,
-  notice: (text: string) => void,
+  {
+    updates,
+    agents,
+    active,
+    picker,
+    details,
+    notice,
+  }: {
+    updates?: RuntimeUpdates;
+    agents: Agents;
+    active(): boolean;
+
+    picker: Picker;
+    details(): boolean;
+
+    notice(text: string): void;
+  },
 ): Promise<boolean> {
   if (!updates) {
     notice('Native updates are unavailable in this session.');
@@ -160,8 +174,13 @@ export async function showUpdates(
     return false;
   }
 
-  if (argument && !['check', 'claude', 'codex'].includes(argument)) {
-    notice('Use /updates, /updates check, /updates claude or /updates codex.');
+  if (
+    argument &&
+    argument !== 'check' &&
+    !agents.some(({ id }) => id === argument)
+  ) {
+    const commands = ['/updates', '/updates check', ...runtimeCommands(agents)];
+    notice(`Use ${commands.slice(0, -1).join(', ')} or ${commands.at(-1)}.`);
 
     return false;
   }
@@ -213,8 +232,7 @@ export async function showUpdates(
 
         return true;
       },
-      false,
-      launcher,
+      { caption: launcher },
     );
   };
 
