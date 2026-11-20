@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { errorMessage, issuesText } from '../../errors.js';
 import { within } from '../../paths.js';
 
-export const execute = promisify(execFile);
+const execute = promisify(execFile);
 
 export const pullRequestSchema = z.object({
   number: z.number(),
@@ -529,7 +529,7 @@ export class RepositoryWatch {
 
     if (this.requested || known?.branch !== branch) return true;
 
-    const wait = known.value?.mergeable === 'UNKNOWN' ? 10_000 : 90_000;
+    const wait = known.value?.mergeable === 'UNKNOWN' ? 10_000 : reread;
 
     return Date.now() - known.at >= wait;
   }
