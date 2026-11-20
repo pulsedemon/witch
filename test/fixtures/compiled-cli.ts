@@ -35,7 +35,11 @@ async function buildCli(): Promise<string> {
       await promisify(execFile)(process.execPath, [
         join(repository, 'scripts/build.mjs'),
         output,
-      ]);
+      ]).catch((error: Error & { stdout: string }) => {
+        if (error.stdout.trim()) error.message += `\n${error.stdout.trim()}`;
+
+        throw error;
+      });
 
       await rename(output, dist);
     }

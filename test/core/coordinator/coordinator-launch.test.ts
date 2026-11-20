@@ -1160,14 +1160,18 @@ test.each([false, true])(
     vi.spyOn(ConversationStore.prototype, 'items').mockImplementationOnce(
       async function (this: ConversationStore) {
         const items = await read.call(this);
-        coordinator.notice('During history read', project, false);
+
+        coordinator.notice('During history read', {
+          cwd: project,
+          save: false,
+        });
 
         return items;
       },
     );
 
     try {
-      coordinator.notice('Update check failed', project, false);
+      coordinator.notice('Update check failed', { cwd: project, save: false });
       const early = coordinator.snapshot.items[0];
 
       await coordinator.initialize(

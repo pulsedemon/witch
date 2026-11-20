@@ -175,7 +175,7 @@ async function fixture(
         watch,
         (error) => {
           failures.push(error);
-          coordinator.notice(error.message, undefined, false);
+          coordinator.notice(error.message, { save: false });
         },
         {
           platform: 'darwin',

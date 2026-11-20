@@ -120,7 +120,7 @@ export function useCommandViews({
 
       return true;
     } catch (error) {
-      coordinator.notice(errorMessage(error), undefined, false);
+      coordinator.notice(errorMessage(error), { save: false });
 
       return false;
     }
@@ -324,8 +324,7 @@ export function useCommandViews({
         if (argument) {
           coordinator.notice(
             'Use /task, /task release or /task take <reference>.',
-            undefined,
-            false,
+            { save: false },
           );
 
           return false;
@@ -395,7 +394,7 @@ export function useCommandViews({
 
             return true;
           },
-          (text) => coordinator.notice(text, cwd, false),
+          (text) => coordinator.notice(text, { cwd, save: false }),
         );
 
       case 'help':

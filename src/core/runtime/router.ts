@@ -13,10 +13,7 @@ const refreshWait = 3000;
 
 /** cancellation suppresses late notices that would land in another conversation. */
 export function router(
-  coordinator: Pick<
-    Coordinator,
-    'snapshot' | 'accountUsage' | 'notice' | 'warning'
-  >,
+  coordinator: Pick<Coordinator, 'snapshot' | 'accountUsage' | 'notice'>,
   policy: Pick<DelegationStore, 'read'>,
   readDemand: (deadline: number) => Promise<Demand>,
 ) {
@@ -71,8 +68,9 @@ export function router(
             },
             (error: unknown) => {
               if (active())
-                coordinator.warning(
+                coordinator.notice(
                   `Routing workload unavailable: ${errorMessage(error)}`,
+                  { warning: true },
                 );
             },
           )
@@ -86,8 +84,9 @@ export function router(
     if (!active()) return cancelled;
 
     if (readingDemand)
-      coordinator.warning(
+      coordinator.notice(
         `Routing workload unavailable: the read timed out after ${refreshWait} ms.`,
+        { warning: true },
       );
 
     const decision = route({
@@ -110,15 +109,17 @@ export function router(
       const text = `Routed ${action.work} to ${agentLabel(snapshot.agents, runtime)} · ${model}`;
 
       if (from)
-        coordinator.warning(
+        coordinator.notice(
           `${text}, passing over ${agentLabel(snapshot.agents, from)} for capacity: ${reason}`,
+          { warning: true },
         );
       else coordinator.notice(`${text}: ${reason}`);
     }
 
     for (const { runtime, model, reason, from } of decision.folded ?? [])
-      coordinator.warning(
+      coordinator.notice(
         `Passed over ${agentLabel(snapshot.agents, from!)} for ${action.work} for capacity; ${agentLabel(snapshot.agents, runtime)} · ${model} already has it: ${reason}`,
+        { warning: true },
       );
 
     return { kind: 'route', ...decision };

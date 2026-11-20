@@ -282,7 +282,7 @@ test('recovery works without a loaded conversation and retries the original init
   await assert.rejects(c.initialize(project));
   const initial = c.snapshot;
   assert.equal(initial.conversation, undefined);
-  c.notice('Codex update available', undefined, false);
+  c.notice('Codex update available', { save: false });
   assert.equal(c.snapshot.items.at(-1)?.text, 'Codex update available');
 
   const update = await runtimeUpdateFixture({

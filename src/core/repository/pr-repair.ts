@@ -367,7 +367,10 @@ export function watchConflicts(
       items.some((item) => item.kind === 'notice' && item.text === text);
 
     if (conflict && !shown(conflictNotice(conflict)))
-      coordinator.notice(conflictNotice(conflict), conversation.cwd, false);
+      coordinator.notice(conflictNotice(conflict), {
+        cwd: conversation.cwd,
+        save: false,
+      });
 
     /** posts a read failure unless its notice for that same failure still shows, and returns the failure reported. */
     const report = (what: string, failure?: string, last?: string) => {
@@ -377,7 +380,7 @@ export function watchConflicts(
 
       if (failure === last && shown(text)) return last;
 
-      coordinator.notice(text, conversation.cwd, false);
+      coordinator.notice(text, { cwd: conversation.cwd, save: false });
 
       return failure;
     };

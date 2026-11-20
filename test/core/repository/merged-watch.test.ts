@@ -83,7 +83,10 @@ function fixture(register: RegisterCleanup) {
       conversation: { id: 'c' },
     } as unknown as Snapshot,
     // as the real one does, a notice publishes, and only a saved one reaches the transcript's record
-    notice: (text: string, _cwd?: string, save = true) => {
+    notice: (
+      text: string,
+      { save = true }: Parameters<Coordinator['notice']>[1] = {},
+    ) => {
       if (save) notices.push(text);
 
       publishCoordinator({});

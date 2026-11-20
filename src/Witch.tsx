@@ -203,12 +203,12 @@ export async function runWitch(
             )?.executable;
         }
       }),
-    notice: (message) => coordinator.notice(message, undefined, false),
+    notice: (message) => coordinator.notice(message, { save: false }),
   });
 
   /** a desktop action that failed; nothing in the conversation depends on it. */
   const warn = (error: unknown) =>
-    coordinator.notice(errorMessage(error), undefined, false);
+    coordinator.notice(errorMessage(error), { save: false });
 
   const stopWake = keepAwake(coordinator, jobs, warn);
   const policy = await DelegationStore.open(join(store.root, 'delegation'));
@@ -307,7 +307,7 @@ export async function runWitch(
       .then(() => clickTarget(link, () => coordinator.memoryDirectories()))
       .then((target) => {
         if ('notice' in target)
-          coordinator.notice(target.notice, undefined, false);
+          coordinator.notice(target.notice, { save: false });
         else
           execFile('/usr/bin/open', [target.open], (error) => {
             if (error) warn(error);
@@ -373,12 +373,7 @@ export async function runWitch(
     // initialize shows its own failure
     .catch(() => {});
 
-  void updates
-    .check()
-    .catch((error) =>
-      coordinator.notice(errorMessage(error), undefined, false),
-    );
-
+  void updates.check().catch(warn);
   await application.waitUntilExit();
   updates.close();
   stopMerges();

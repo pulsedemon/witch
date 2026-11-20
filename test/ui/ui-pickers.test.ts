@@ -926,12 +926,7 @@ test('/jobs lists each job on one row with its CPU, age and command, also after 
     assert.deepEqual(calls, [
       ['stop', 4343, 9],
       ['report', 'Error: Job 4343 has not stopped.'],
-      [
-        'notice',
-        'Commands canceled. Retry explicitly: /jobs',
-        undefined,
-        false,
-      ],
+      ['notice', 'Commands canceled. Retry explicitly: /jobs', { save: false }],
     ]);
 
     await until(
@@ -988,12 +983,7 @@ test('/jobs reports a list that fails', async () => {
 
     assert.deepEqual(calls, [
       ['report', 'Error: ps failed'],
-      [
-        'notice',
-        'Commands canceled. Retry explicitly: /jobs',
-        undefined,
-        false,
-      ],
+      ['notice', 'Commands canceled. Retry explicitly: /jobs', { save: false }],
     ]);
   } finally {
     ui.unmount();
