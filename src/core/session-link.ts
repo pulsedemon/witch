@@ -13,6 +13,7 @@ import type { Workspace } from '../memory/workspace.js';
 import { processReports } from '../persistence/process.js';
 import type { ConversationStore } from '../persistence/store.js';
 import { stoppedActivity } from './background-activity.js';
+import type { Coordinator } from './coordinator.js';
 import type { SessionCoordination } from './coordination/coordination.js';
 import type { JobWatch } from './jobs/jobs.js';
 import {
@@ -60,7 +61,7 @@ interface LinkHost {
 
   display(update: DisplayUpdate): void;
 
-  notice(text: string, cwd?: string, save?: boolean): void;
+  notice: Coordinator['notice'];
 
   background(
     event: Extract<AgentEvent, { type: 'subagent' | 'command' }>,
@@ -387,7 +388,7 @@ export class SessionLink {
 
       // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
       const skills = await session.skills().catch((error: unknown) => {
-        this.host.notice(errorMessage(error), undefined, false);
+        this.host.notice(errorMessage(error), { save: false });
 
         return [];
       });
@@ -522,7 +523,7 @@ export class SessionLink {
         requests: host.snapshot().requests.filter(({ id }) => id !== event.id),
       });
     } else if (event.type === 'notice') {
-      host.notice(event.text, undefined, !event.transient);
+      host.notice(event.text, { save: !event.transient });
     } else if (event.type === 'skills') {
       if (this.live(agent)) host.publish({ skills: event.skills });
     } else if (event.type === 'usage') {
@@ -655,7 +656,7 @@ export class SessionLink {
         if (files.closed || this.changeFailures.get(files) === text) return;
 
         this.changeFailures.set(files, text);
-        this.host.notice(text, undefined, false);
+        this.host.notice(text, { save: false });
       },
     );
   }

@@ -114,7 +114,7 @@ export class Coordinator {
     holdDelivery: () => this.holdPromptDelivery(),
     stop: () => this.stopCurrent(),
     changed: () => this.delivery.drainAfter(),
-    notice: (text) => this.notice(text, undefined, false),
+    notice: (text) => this.notice(text, { save: false }),
   });
   readonly copilot = new CopilotReviewController({
     record: () => this.record,
@@ -212,7 +212,7 @@ export class Coordinator {
     changes?: WorkTreeChanges,
   ) {
     this.catalog = new ModelCatalog(agents, (error) =>
-      this.notice(errorMessage(error), undefined, false),
+      this.notice(errorMessage(error), { save: false }),
     );
 
     this.accountUsage = new AccountUsage(agents, (accounts) =>
@@ -236,7 +236,7 @@ export class Coordinator {
         },
         publish: (update) => this.publish(update),
         display: (update) => this.display(update),
-        notice: (text, cwd, save) => this.notice(text, cwd, save),
+        notice: (text, options) => this.notice(text, options),
         background: (event, cwd) => this.background(event, cwd),
         save: () => this.save(),
         persist: (operation) => this.persist(operation),
@@ -384,7 +384,7 @@ export class Coordinator {
     // a failed connect leaves the conversation open, as a failed send does
     const failure = await failureOf(this.link.connect(undefined, scope));
 
-    if (moved) this.notice(moved, undefined, false);
+    if (moved) this.notice(moved, { save: false });
 
     const adoption = await failureOf(
       adoptMoved(
@@ -392,7 +392,7 @@ export class Coordinator {
         scope,
         this.current().cwd,
         this.store.root,
-      ).then((notice) => notice && this.notice(notice, undefined, false)),
+      ).then((notice) => notice && this.notice(notice, { save: false })),
     );
 
     // a scope directory that can't be created can fail both, so its message shows once
@@ -899,7 +899,11 @@ export class Coordinator {
     await this.operate('editing', async () => {
       const scope = await this.memory.scopePaths(this.current().cwd);
       const note = path ?? `${scope.project}/${indexNote}`;
-      this.notice(`Memory edit: ${noticeText(note)}`, this.workspace!.root);
+
+      this.notice(`Memory edit: ${noticeText(note)}`, {
+        cwd: this.workspace!.root,
+      });
+
       await this.beginActivity('memory-edit', scope);
       const abort = (this.editorCancellation = new AbortController());
 
@@ -989,7 +993,7 @@ export class Coordinator {
     await this.operate('editing', async () => {
       this.notice(
         `Memory restore: ${noticeText(path)} at ${revision.slice(0, 8)}`,
-        this.workspace!.root,
+        { cwd: this.workspace!.root },
       );
 
       await this.beginActivity('memory-edit');
@@ -1008,7 +1012,7 @@ export class Coordinator {
 
       error.reported = true;
 
-      return this.notice(error.message, undefined, false);
+      return this.notice(error.message, { save: false });
     }
 
     this.publish({ error: errorMessage(error) });
@@ -1093,7 +1097,7 @@ export class Coordinator {
       scope,
     );
 
-    if (begun.notice) this.notice(begun.notice, undefined, false);
+    if (begun.notice) this.notice(begun.notice, { save: false });
 
     await this.save();
 
@@ -1140,16 +1144,22 @@ export class Coordinator {
   /** transient notices must not make an unused conversation resumable. */
   notice(
     text: string,
-    cwd = this.record?.cwd ?? process.cwd(),
-    save = true,
+    {
+      cwd = this.record?.cwd ?? process.cwd(),
+      save = true,
+      warning,
+    }: { cwd?: string; save?: boolean; warning?: true } = {},
   ): void {
-    this.display({ id: randomUUID(), kind: 'notice', text, cwd }, save);
-  }
-
-  warning(text: string): void {
-    const cwd = this.record?.cwd ?? process.cwd();
-    const id = randomUUID();
-    this.display({ id, kind: 'notice', text, cwd, warning: true });
+    this.display(
+      {
+        id: randomUUID(),
+        kind: 'notice',
+        text,
+        cwd,
+        ...(warning && { warning }),
+      },
+      save,
+    );
   }
 
   private save(): Promise<void> {

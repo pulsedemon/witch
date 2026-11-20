@@ -145,8 +145,7 @@ export async function delegation(
         typeof changed === 'string'
           ? changed
           : 'This Witch has no policy file.',
-        undefined,
-        false,
+        { save: false },
       );
 
       return;

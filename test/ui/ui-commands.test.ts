@@ -467,8 +467,7 @@ for (const failure of ['native', 'refusal'] as const)
           [
             'notice',
             `Commands canceled. Retry explicitly: ${first}; /model a-big high; /clear`,
-            undefined,
-            false,
+            { save: false },
           ],
         ],
       );

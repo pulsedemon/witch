@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
+import type { Coordinator } from '../../../src/core/coordinator.js';
 import type { MergeEvent } from '../../../src/core/repository/merge-events.js';
 import { watchConflicts } from '../../../src/core/repository/pr-repair.js';
 import { RepositoryWatch } from '../../../src/core/repository/repository.js';
@@ -57,7 +58,10 @@ function fixture(
 
       return () => listeners.delete(listener);
     },
-    notice: (text: string, cwd?: string, save?: boolean) => {
+    notice: (
+      text: string,
+      { cwd, save }: Parameters<Coordinator['notice']>[1] = {},
+    ) => {
       notices.push({ text, save });
 
       publish({

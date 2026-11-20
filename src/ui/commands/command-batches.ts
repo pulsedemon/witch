@@ -58,8 +58,7 @@ export class CommandBatches {
     if (notice && commands.length)
       this.coordinator.notice(
         `Commands canceled. Retry explicitly: ${commands.map(({ name, argument }) => `/${name}${argument ? ` ${argument}` : ''}`).join('; ')}`,
-        undefined,
-        false,
+        { save: false },
       );
 
     for (const batch of batches) batch.release();

@@ -901,7 +901,7 @@ test('a report after a queued turn stays on screen, and the prompts after it wai
     await coordinator.send('/review');
     gate.open();
     await within(sending, 2000, 'the queued turns');
-    coordinator.notice('desktop failed', undefined, false);
+    coordinator.notice('desktop failed', { save: false });
     assert.equal(coordinator.snapshot.items.at(-1)?.text, 'desktop failed');
     assert.equal(coordinator.snapshot.phase, 'idle');
     assert.match(coordinator.snapshot.error ?? '', /cannot lock ref/);
