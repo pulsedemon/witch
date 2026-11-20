@@ -1,7 +1,8 @@
 import type { Coordinator } from '../coordinator.js';
 import { changed } from './checkout-git.js';
 import type { MergeCleanup } from './merged.js';
-import type { PullRequest, Repository, RepositoryWatch } from './repository.js';
+import type { Repository, RepositoryWatch } from './repository.js';
+import type { PullRequest } from './pull-requests.js';
 
 const changedState =
   "the checkout isn't in the state the cleanup needs, so it waits for a repository update";

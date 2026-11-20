@@ -1,6 +1,6 @@
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { PullRequest } from '../../src/core/repository/repository.js';
+import type { PullRequest } from '../../src/core/repository/pull-requests.js';
 import { quote } from '../../src/shell.js';
 import { git } from './git.js';
 import { execute } from './merged-environment.js';

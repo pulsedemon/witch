@@ -7,7 +7,7 @@ import { answerable, answered, peerRequestNotices } from './peer-requests.js';
 import type { PeerRequest } from './peer-requests.js';
 import { pauseNotices } from './pauses.js';
 import type { Pause } from './pauses.js';
-import type { PullRequest } from '../repository/repository.js';
+import type { PullRequest } from '../repository/pull-requests.js';
 import type { Snapshot } from '../snapshot.js';
 import type { DisplayUpdate } from '../state.js';
 

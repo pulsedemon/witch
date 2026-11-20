@@ -4,8 +4,9 @@ import { z } from 'zod';
 import {
   fromGitHub,
   gitHubPullRequestFields,
-} from '../repository/repository.js';
-import type { PullRequest, Run } from '../repository/repository.js';
+} from '../repository/pull-requests.js';
+import type { Run } from '../repository/repository.js';
+import type { PullRequest } from '../repository/pull-requests.js';
 
 const execute = promisify(execFile);
 

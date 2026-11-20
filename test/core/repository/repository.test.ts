@@ -8,9 +8,9 @@ import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import {
   RepositoryWatch,
-  parsePullRequest,
   parseStatus,
 } from '../../../src/core/repository/repository.js';
+import { parsePullRequest } from '../../../src/core/repository/pull-requests.js';
 import { view } from '../../fixtures/repository.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until } from '../../fixtures/within.js';

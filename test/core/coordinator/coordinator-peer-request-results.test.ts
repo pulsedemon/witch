@@ -11,7 +11,7 @@ import { CodexAdapter } from '../../../src/agents/codex/adapter.js';
 import { unreportedContextCatalog } from '../../fixtures/codex-adapter.js';
 import { answerInstruction } from '../../../src/core/coordination/peer-requests.js';
 import type { PeerRequest } from '../../../src/core/coordination/peer-requests.js';
-import type { PullRequest } from '../../../src/core/repository/repository.js';
+import type { PullRequest } from '../../../src/core/repository/pull-requests.js';
 import {
   CoordinationStore,
   DeadlineExpired,

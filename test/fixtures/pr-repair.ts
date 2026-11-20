@@ -1,8 +1,6 @@
 import type { TestContext } from 'vitest';
-import type {
-  PullRequest,
-  Repository,
-} from '../../src/core/repository/repository.js';
+import type { Repository } from '../../src/core/repository/repository.js';
+import type { PullRequest } from '../../src/core/repository/pull-requests.js';
 import { orderedCleanup } from './cleanup.js';
 import { notices } from './coordinator.js';
 import { git, unitCoordinationFixture } from './coordination.js';

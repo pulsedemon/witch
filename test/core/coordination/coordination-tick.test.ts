@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import type { SessionCoordination } from '../../../src/core/coordination/coordination.js';
 import type { SessionPresence } from '../../../src/core/coordination/coordination-state.js';
-import type { PullRequest } from '../../../src/core/repository/repository.js';
+import type { PullRequest } from '../../../src/core/repository/pull-requests.js';
 import { callControl } from '../../../src/persistence/control.js';
 import {
   CoordinationStore,

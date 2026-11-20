@@ -11,10 +11,8 @@ import { ClaudeAdapter } from '../../../src/agents/claude/adapter.js';
 import type { Coordinator } from '../../../src/core/coordinator.js';
 import type { SessionCoordination } from '../../../src/core/coordination/coordination.js';
 import type { MergeEvent } from '../../../src/core/repository/merge-events.js';
-import type {
-  PullRequest,
-  Repository,
-} from '../../../src/core/repository/repository.js';
+import type { Repository } from '../../../src/core/repository/repository.js';
+import type { PullRequest } from '../../../src/core/repository/pull-requests.js';
 import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import { TurnGate } from '../../fixtures/agent.js';
 import { coordinationFixture, git } from '../../fixtures/coordination.js';

@@ -6,10 +6,8 @@ import * as github from '../../../src/core/review/github-reviews.js';
 import { answerInstruction } from '../../../src/core/coordination/peer-requests.js';
 import { watchConflicts } from '../../../src/core/repository/pr-repair.js';
 import { conversationRecordSchema } from '../../../src/core/state.js';
-import type {
-  PullRequest,
-  Repository,
-} from '../../../src/core/repository/repository.js';
+import type { Repository } from '../../../src/core/repository/repository.js';
+import type { PullRequest } from '../../../src/core/repository/pull-requests.js';
 import { callControl } from '../../../src/persistence/control.js';
 import { TurnGate } from '../../fixtures/agent.js';
 import { reviewSource } from '../../fixtures/github-reviews.js';

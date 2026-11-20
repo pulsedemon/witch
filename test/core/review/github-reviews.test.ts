@@ -5,10 +5,8 @@ import {
   readGitHubReviews,
   reviewCommitPushed,
 } from '../../../src/core/review/github-reviews.js';
-import type {
-  PullRequest,
-  Run,
-} from '../../../src/core/repository/repository.js';
+import type { Run } from '../../../src/core/repository/repository.js';
+import type { PullRequest } from '../../../src/core/repository/pull-requests.js';
 
 const pr: PullRequest = {
   number: 12,

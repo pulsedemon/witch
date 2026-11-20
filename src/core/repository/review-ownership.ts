@@ -11,7 +11,8 @@ import { recordTaskAssignment } from '../coordination/github-assignment.js';
 import type { assignGitHubTask } from '../coordination/github-assignment.js';
 import type { Verify } from '../../persistence/coordination.js';
 import type { SessionCoordination } from '../coordination/coordination.js';
-import type { PullRequest, Repository } from './repository.js';
+import type { Repository } from './repository.js';
+import type { PullRequest } from './pull-requests.js';
 
 interface ReviewScope {
   owner: ClaimOwner;

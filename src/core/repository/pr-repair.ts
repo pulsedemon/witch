@@ -3,12 +3,8 @@ import type { TurnResult } from '../../agents/types.js';
 import { taskReference } from '../coordination/coordination-state.js';
 import type { SessionCoordination } from '../coordination/coordination.js';
 import type { Coordinator } from '../coordinator.js';
-import type {
-  Conflict,
-  PullRequest,
-  Repository,
-  RepositoryWatch,
-} from './repository.js';
+import type { Conflict, Repository, RepositoryWatch } from './repository.js';
+import type { PullRequest } from './pull-requests.js';
 import {
   bindingChanged,
   revoke,
