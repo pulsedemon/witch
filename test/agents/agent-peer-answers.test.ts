@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { claudeResult } from '../../src/agents/claude/turn.js';
 import { AnswerTurn } from '../../src/agents/answer-turn.js';
 import type { AgentEvent, AgentSession } from '../../src/agents/types.js';
 import { writeJson } from '../../src/persistence/json.js';
@@ -284,6 +286,42 @@ for (const history of [false, true]) {
     );
 
     assert.equal((await session.send('normal afterward')).status, 'completed');
+  });
+}
+
+for (const [name, explanation, expectedError] of [
+  [
+    'with its native explanation',
+    'Bash is disabled, so I cannot complete the requested check.',
+    'Bash is disabled, so I cannot complete the requested check.',
+  ],
+  ['without an explanation', '', 'Claude returned no structured answer.'],
+] as const) {
+  test(`Claude refuses a completed answer without structured output ${name}`, async () => {
+    const capture = await readFile(
+      new URL('../fixtures/native/claude/basic-0.jsonl', import.meta.url),
+      'utf8',
+    );
+
+    const native = capture
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line).message as SDKMessage)
+      .find(
+        (message) => message.type === 'result' && message.subtype === 'success',
+      );
+
+    assert.ok(native?.type === 'result' && native.subtype === 'success');
+    assert.equal(native.structured_output, undefined);
+
+    assert.deepEqual(
+      claudeResult({ ...native, result: explanation }, true, ''),
+      {
+        status: 'failed',
+        text: explanation,
+        error: expectedError,
+      },
+    );
   });
 }
 

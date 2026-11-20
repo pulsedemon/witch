@@ -52,6 +52,13 @@ export function claudeResult(
 ): TurnResult {
   const success = message.subtype === 'success' && !message.is_error;
 
+  if (success && answer && message.structured_output === undefined)
+    return {
+      status: 'failed',
+      text: message.result,
+      error: message.result || 'Claude returned no structured answer.',
+    };
+
   return {
     status: success ? 'completed' : 'failed',
     text:

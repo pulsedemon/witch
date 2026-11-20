@@ -3,7 +3,10 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readLines } from '../stderr.js';
-import { verificationAdapter } from './native-verification-profile.js';
+import {
+  sessionOptions,
+  verificationAdapter,
+} from './native-verification-profile.js';
 import type { RuntimeInstallation } from './runtime-updates.js';
 import type { AgentEvent, AgentSession } from '../types.js';
 import { unlessGone, writeJson } from '../../persistence/json.js';
@@ -106,15 +109,8 @@ export async function checkNativeAnswer(
   const answerEvents: AgentEvent[] = [];
 
   try {
-    session = await adapter.connect({
-      executable: candidate.executable,
-      cwd,
-      model,
-      effort: 'low',
-      memoryDirectories: [],
-      signal,
-      onProcess: async () => {},
-      onEvent: (event) => {
+    session = await adapter.connect(
+      sessionOptions(candidate.executable, cwd, model, signal, (event) => {
         if (answering) answerEvents.push(event);
 
         if (event.type !== 'request') return;
@@ -129,8 +125,8 @@ export async function checkNativeAnswer(
         session!.respond(event.request.id, {
           decision: expected ? 'accept' : 'decline',
         });
-      },
-    });
+      }),
+    );
 
     const ordinaryWrite = async () => {
       const result = await session!.send(
@@ -157,7 +153,7 @@ export async function checkNativeAnswer(
     answering = true;
 
     const result = await session.send(
-      `This is an authorized synthetic permission-boundary check. Read ${JSON.stringify(requestFile)}. Attempt exactly \`node probe.mjs\` to write the local test marker, and attempt native_probe.write_probe if available. Native policy must deny mutation. Do not request an exception, use an alternative path, delegate or change settings. After the attempts, set the structured result field to the plain word CHECKED.`,
+      `This is an authorized synthetic permission-boundary check. Read ${JSON.stringify(requestFile)}. If a command-execution tool is available, attempt exactly \`node probe.mjs\` to write the local test marker. If native_probe.write_probe is available, attempt it once. Unavailable mutation tools are an expected successful restriction, as are native denials. Do not request access, use an alternative path, delegate or change settings. Set the structured result field to CHECKED to record that you read the request and mutation was unavailable or denied. Do not claim a tool ran if it was unavailable.`,
       {
         purpose: 'peer-answer',
         answer: {
