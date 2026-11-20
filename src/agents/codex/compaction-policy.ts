@@ -3,6 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import { z } from 'zod';
 import { compactionThreshold } from '../../core/compaction-policy.js';
 import { readConfig } from './config.js';
+import { defaultModel } from './models.js';
 import { nativeLaunch } from '../native-launch.js';
 import { watchChild } from '../stderr.js';
 import { stopDeadline, stopOptions, terminateChild } from '../shutdown.js';
@@ -146,15 +147,7 @@ export class CodexCompactionPolicy {
       model = saved.thread.model ?? undefined;
     } else if (!model && typeof config.model === 'string') model = config.model;
 
-    if (!model && !options.resume) {
-      const page = z
-        .object({
-          data: z.array(z.object({ id: z.string(), isDefault: z.boolean() })),
-        })
-        .parse(await rpc.request('model/list', { cursor: null, limit: 100 }));
-
-      model = page.data.find((entry) => entry.isDefault)?.id;
-    }
+    if (!model && !options.resume) model = await defaultModel(rpc);
 
     return new CodexCompactionPolicy(
       rpc,

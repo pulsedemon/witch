@@ -16,6 +16,24 @@ const modelPage = z.object({
   nextCursor: z.string().nullable(),
 });
 
+const defaultPage = z.object({
+  data: z.array(z.object({ id: z.string(), isDefault: z.boolean() })),
+  nextCursor: z.string().nullish(),
+});
+
+export async function defaultModel(rpc: JsonRpc): Promise<string | undefined> {
+  for await (const data of pages(
+    rpc,
+    'model/list',
+    { cursor: null, limit: 100 },
+    defaultPage,
+  )) {
+    const model = data.find((entry) => entry.isDefault);
+
+    if (model) return model.id;
+  }
+}
+
 /** hidden models run but stay out of Codex's own picker. */
 export async function readModels(
   rpc: JsonRpc,
