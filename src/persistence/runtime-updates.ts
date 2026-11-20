@@ -80,6 +80,12 @@ const key = (root: string) => createHash('sha256').update(root).digest('hex');
 const journalFile = (directory: string, root: string) =>
   join(directory, `${key(root)}.json`);
 
+const useFile = (directory: string, root: string) =>
+  join(directory, `${key(root)}.use`);
+
+const checkFile = (directory: string, root: string, channel: string) =>
+  join(directory, `${key(root)}-${channel}.check.json`);
+
 export class NativeUpdatePending extends Error {
   constructor(
     message = 'A native runtime update needs attention. Press Ctrl+P and choose Native runtime updates and recovery.',
@@ -95,7 +101,7 @@ export function holdRuntime(
   mkdirSync(directory, { recursive: true, mode: 0o700 });
 
   const descriptor = tryOpenLockedSync(
-    join(directory, `${key(root)}.use`),
+    useFile(directory, root),
     constants.O_CREAT | constants.O_RDWR,
     true,
   );
@@ -149,7 +155,7 @@ export class RuntimeUpdateStore {
       signal.throwIfAborted();
 
       const file = await tryOpenLocked(
-        join(this.directory, `${key(root)}.use`),
+        useFile(this.directory, root),
         constants.O_CREAT | constants.O_RDWR,
       );
 
@@ -194,7 +200,7 @@ export class RuntimeUpdateStore {
 
   cached(root: string, channel: string) {
     return readJson(
-      join(this.directory, `${key(root)}-${channel}.check.json`),
+      checkFile(this.directory, root, channel),
       cachedCheckSchema,
     );
   }
@@ -202,9 +208,10 @@ export class RuntimeUpdateStore {
   async cache(check: z.infer<typeof runtimeCheckSchema>): Promise<boolean> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
 
-    const file = join(
+    const file = checkFile(
       this.directory,
-      `${key(check.installation.root)}-${check.installation.channel}.check.json`,
+      check.installation.root,
+      check.installation.channel,
     );
 
     const lock = await openLocked(

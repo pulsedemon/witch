@@ -27,6 +27,7 @@ import {
   verificationProfile,
   verifyNativeUpdate,
 } from '../../agents/updates/native-verification.js';
+import type { NativeVerificationReport } from '../../agents/updates/native-verification.js';
 import { verificationAdapter } from '../../agents/updates/native-verification-profile.js';
 import { errorMessage } from '../../errors.js';
 import {
@@ -132,6 +133,23 @@ export async function runtimeBuildIdentity(): Promise<string> {
       ].join('\0'),
     )
     .digest('hex');
+}
+
+function acceptedReport(
+  report: NativeVerificationReport,
+  journal: UpdateJournal,
+  candidate: RuntimeInstallation,
+): boolean {
+  return (
+    report.passed &&
+    report.build === journal.build &&
+    report.profile === verificationProfile &&
+    report.runtime === journal.previous.runtime &&
+    JSON.stringify(report.completed) ===
+      JSON.stringify(requiredNativeChecks(journal.previous.runtime)) &&
+    report.previous.digest === journal.previous.digest &&
+    report.candidate.digest === candidate.digest
+  );
 }
 
 export class RuntimeUpdates {
@@ -271,7 +289,7 @@ export class RuntimeUpdates {
             installation = await this.native.inspect(
               registration,
               this.stopping.signal,
-              this.host.cwd?.() ?? process.cwd(),
+              this.cwd(),
             );
 
             const cached = await this.store.cached(
@@ -348,6 +366,70 @@ export class RuntimeUpdates {
     return registration;
   }
 
+  private cwd = () => this.host.cwd?.() ?? process.cwd();
+
+  private async refuseUsers(root: string): Promise<void> {
+    const users = await this.native.users(root, this.store.directory);
+
+    if (users.length)
+      throw new Error(
+        users.map((user) => `PID ${user.pid}: ${user.reason}`).join('\n'),
+      );
+  }
+
+  private async qualificationBase(
+    current: RuntimeInstallation,
+    registration: AgentRegistration,
+    cwd: string,
+    signal: AbortSignal,
+  ): Promise<RuntimeInstallation> {
+    const earlier = await this.native.earlier(current);
+
+    if (!earlier)
+      throw new Error(
+        `No earlier ${current.runtime} version is installed to check conversation resume against.`,
+      );
+
+    const artifact = await this.native.inspect(
+      { ...registration, executable: earlier.executable },
+      signal,
+      cwd,
+    );
+
+    if (artifact.root !== current.root || artifact.version !== earlier.version)
+      throw new Error(
+        `The earlier ${current.runtime} artifact at ${earlier.executable} is not version ${earlier.version} of this installation.`,
+      );
+
+    return {
+      ...current,
+      executable: artifact.executable,
+      version: artifact.version,
+      digest: artifact.digest,
+    };
+  }
+
+  private async settleFailure(
+    journal: UpdateJournal,
+    error: unknown,
+    changed: boolean,
+  ): Promise<void> {
+    journal.error = errorMessage(error);
+
+    if (changed) {
+      try {
+        await this.restore(journal);
+      } catch (recovery) {
+        journal.phase = 'failed';
+        journal.error += `\nRecovery failed: ${errorMessage(recovery)}`;
+        await this.record(journal);
+      }
+    } else {
+      journal.phase = 'aborted';
+      await this.record(journal);
+    }
+  }
+
   private progress = (message: string) => this.publish({ progress: message });
 
   /** installs and qualifies `check.target`, or with no newer release qualifies the installed version. */
@@ -402,7 +484,7 @@ export class RuntimeUpdates {
           throw new Error('Recover the unfinished update first.');
 
         const registration = await this.registration(installed.runtime);
-        const cwd = this.host.cwd?.() ?? process.cwd();
+        const cwd = this.cwd();
         const current = await this.native.inspect(registration, signal, cwd);
 
         if (
@@ -431,50 +513,20 @@ export class RuntimeUpdates {
           await this.record(journal);
           recorded = true;
           exclusive = await this.store.exclusive(installed.root, signal);
-
-          const users = await this.native.users(
-            installed.root,
-            this.store.directory,
-          );
-
-          if (users.length)
-            throw new Error(
-              users.map((user) => `PID ${user.pid}: ${user.reason}`).join('\n'),
-            );
+          await this.refuseUsers(installed.root);
         } else {
           if (qualifiedBy(unfinished, current, build))
             throw new Error(
               'This version is already verified with this Witch build.',
             );
 
-          const earlier = await this.native.earlier(current);
-
-          if (!earlier)
-            throw new Error(
-              `No earlier ${installed.runtime} version is installed to check conversation resume against.`,
-            );
-
-          const artifact = await this.native.inspect(
-            { ...registration, executable: earlier.executable },
-            signal,
-            cwd,
-          );
-
-          if (
-            artifact.root !== current.root ||
-            artifact.version !== earlier.version
-          )
-            throw new Error(
-              `The earlier ${installed.runtime} artifact at ${earlier.executable} is not version ${earlier.version} of this installation.`,
-            );
-
           // no journal is written until the checks pass: a pending one blocks launches and demands recovery
-          journal.previous = {
-            ...current,
-            executable: artifact.executable,
-            version: artifact.version,
-            digest: artifact.digest,
-          };
+          journal.previous = await this.qualificationBase(
+            current,
+            registration,
+            cwd,
+            signal,
+          );
 
           journal.selected = current;
         }
@@ -526,16 +578,7 @@ export class RuntimeUpdates {
 
         const report = await this.native.verify(prepared, candidate, options);
 
-        if (
-          !report.passed ||
-          report.build !== build ||
-          report.profile !== verificationProfile ||
-          report.runtime !== installed.runtime ||
-          JSON.stringify(report.completed) !==
-            JSON.stringify(requiredNativeChecks(installed.runtime)) ||
-          report.previous.digest !== journal.previous.digest ||
-          report.candidate.digest !== candidate.digest
-        )
+        if (!acceptedReport(report, journal, candidate))
           throw new Error('Native qualification did not verify this version.');
 
         if ((await this.identifyBuild()) !== build)
@@ -545,22 +588,7 @@ export class RuntimeUpdates {
         await this.record(journal);
         qualified = journal;
       } catch (error) {
-        if (recorded) {
-          journal.error = errorMessage(error);
-
-          if (changed) {
-            try {
-              await this.restore(journal);
-            } catch (recovery) {
-              journal.phase = 'failed';
-              journal.error += `\nRecovery failed: ${errorMessage(recovery)}`;
-              await this.record(journal);
-            }
-          } else {
-            journal.phase = 'aborted';
-            await this.record(journal);
-          }
-        }
+        if (recorded) await this.settleFailure(journal, error, changed);
 
         throw new Error(
           [
@@ -613,7 +641,7 @@ export class RuntimeUpdates {
     };
 
     const current = await this.native
-      .inspect(registration, signal, this.host.cwd?.() ?? process.cwd())
+      .inspect(registration, signal, this.cwd())
       .catch(() => undefined);
 
     if (current && current.root !== journal.previous.root)
@@ -638,7 +666,7 @@ export class RuntimeUpdates {
     const restored = await this.native.inspect(
       registration,
       signal,
-      this.host.cwd?.() ?? process.cwd(),
+      this.cwd(),
     );
 
     if (
@@ -670,16 +698,7 @@ export class RuntimeUpdates {
           throw new Error('Recovery state changed. Open /updates again.');
 
         exclusive = await this.store.exclusive(current.previous.root, signal);
-
-        const users = await this.native.users(
-          current.previous.root,
-          this.store.directory,
-        );
-
-        if (users.length)
-          throw new Error(
-            users.map((user) => `PID ${user.pid}: ${user.reason}`).join('\n'),
-          );
+        await this.refuseUsers(current.previous.root);
 
         try {
           await this.restore(current);

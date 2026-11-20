@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
+import type { Stats } from 'node:fs';
 import { lstat, readFile, readdir, readlink, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -77,16 +78,26 @@ export async function contentDigest(path: string): Promise<string> {
   return hash.digest('hex');
 }
 
+export const codexHome = () =>
+  process.env.CODEX_HOME ?? join(homedir(), '.codex');
+
+async function codexPackage(
+  runtime: NativeRuntime,
+  executable: string,
+): Promise<Stats | undefined> {
+  return runtime === 'codex' && basename(dirname(executable)) === 'bin'
+    ? unlessGone(
+        lstat(join(dirname(dirname(executable)), 'codex-package.json')),
+      )
+    : undefined;
+}
+
 export async function artifactDigest(
   runtime: NativeRuntime,
   executable: string,
 ): Promise<string> {
   const release = dirname(dirname(executable));
-
-  const packageFile =
-    runtime === 'codex' && basename(dirname(executable)) === 'bin'
-      ? await unlessGone(lstat(join(release, 'codex-package.json')))
-      : undefined;
+  const packageFile = await codexPackage(runtime, executable);
 
   return contentDigest(packageFile?.isFile() ? release : executable);
 }
@@ -167,14 +178,7 @@ export async function inspectRuntime(
 
   const launcher = registration.executable;
   const executable = await realpath(launcher);
-
-  const packageFile =
-    runtime === 'codex' && basename(dirname(executable)) === 'bin'
-      ? await unlessGone(
-          lstat(join(dirname(dirname(executable)), 'codex-package.json')),
-        )
-      : undefined;
-
+  const packageFile = await codexPackage(runtime, executable);
   const detectedRoot = nativeInstallationRoot(executable);
 
   if (!detectedRoot && !packageFile?.isFile())
@@ -196,12 +200,7 @@ export async function inspectRuntime(
   const digest = await artifactDigest(runtime, executable);
 
   if (runtime === 'codex') {
-    const root = join(
-      process.env.CODEX_HOME ?? join(homedir(), '.codex'),
-      'packages',
-      'standalone',
-    );
-
+    const root = join(codexHome(), 'packages', 'standalone');
     const release = dirname(dirname(executable));
 
     const metadata = await unlessGone(
