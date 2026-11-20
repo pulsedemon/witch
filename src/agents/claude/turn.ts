@@ -71,6 +71,46 @@ export function claudeResult(
   };
 }
 
+export function unreadInput(
+  turn: Turn,
+  queued: readonly string[],
+): Pick<TurnResult, 'unread' | 'unreadContext' | 'inputUnread'> {
+  const unreadContext = queued.flatMap(
+    (uuid) => turn.commandRecords.get(uuid)?.records ?? [],
+  );
+
+  return {
+    unread: queued.flatMap((uuid) => turn.inputs.get(uuid)?.prompt ?? []),
+    ...(queued.includes(turn.initialInput!) ? { inputUnread: true } : {}),
+    ...(unreadContext.length ? { unreadContext } : {}),
+  };
+}
+
+export function unwrittenInput(
+  turn: Turn,
+): Pick<TurnResult, 'unread' | 'unreadContext' | 'inputUnsent'> {
+  const unreadContext = [...turn.commandRecords.values()].flatMap(
+    ({ records, writeAttempted }) => (writeAttempted ? [] : records),
+  );
+
+  const inputUnsent =
+    turn.initialInput !== undefined &&
+    turn.commandRecords.get(turn.initialInput)?.writeAttempted === false;
+
+  // input goes in order, so what was steered behind unwritten input is unwritten too
+  const unread = inputUnsent
+    ? [...turn.inputs.values()].flatMap(({ prompt, pending }) =>
+        pending && prompt !== undefined ? [prompt] : [],
+      )
+    : [];
+
+  return {
+    ...(unread.length ? { unread } : {}),
+    ...(unreadContext.length ? { unreadContext } : {}),
+    ...(inputUnsent ? { inputUnsent } : {}),
+  };
+}
+
 /** an interrupt receipt proves which waiting prompts can move without replaying consumed input. */
 export async function recoverInput(
   turn: Turn,
@@ -80,8 +120,8 @@ export async function recoverInput(
   try {
     await input.flush();
     const receipt = await query.interrupt();
-    const unread = receipt?.still_queued;
-    const inputUnread = unread?.includes(turn.initialInput!) ?? false;
+    const unread = unreadInput(turn, receipt?.still_queued ?? []);
+    const inputUnread = unread.inputUnread;
 
     if (!inputUnread && !turn.result) throw new Error(unknownInput);
 
@@ -91,15 +131,9 @@ export async function recoverInput(
             status: 'failed' as const,
             text: '',
             exhausted: true as const,
-            inputUnread: true as const,
           }
         : idleResult(turn, undefined)),
-      unread: (unread ?? []).flatMap(
-        (uuid) => turn.inputs.get(uuid)?.prompt ?? [],
-      ),
-      unreadContext: (unread ?? []).flatMap(
-        (uuid) => turn.commandRecords.get(uuid)?.records ?? [],
-      ),
+      ...unread,
     };
   } catch (error) {
     return {

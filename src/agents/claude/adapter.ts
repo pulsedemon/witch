@@ -25,6 +25,8 @@ import {
   idleResult,
   claudeResult,
   recoverInput,
+  unreadInput,
+  unwrittenInput,
   type Turn,
 } from './turn.js';
 import { accountReading, ClaudeUsage } from './usage.js';
@@ -54,7 +56,7 @@ import {
 } from '../shutdown.js';
 import { modelsOf } from './models.js';
 import { skillsOf } from './spells.js';
-import { bashRecord, runShell, shellFailed } from '../user-shell.js';
+import { ClaudeShell } from './shell.js';
 import { RateLimit } from './limits.js';
 import type {
   AgentAdapter,
@@ -190,9 +192,7 @@ class ClaudeSession implements AgentSession {
   private compaction?: ClaudeCompaction;
   private readonly context: ClaudeContext;
   readonly restoreCompactionContext?: AgentSession['restoreCompactionContext'];
-  private command?: { controller: AbortController; finished: Promise<void> };
-  /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
-  private records: string[] = [];
+  private readonly userShell: ClaudeShell;
   private readonly commands: ClaudeCommands;
   private readonly projection: ClaudeProjection;
   private connected = false;
@@ -207,6 +207,7 @@ class ClaudeSession implements AgentSession {
     connect: (options: SessionOptions) => Promise<AgentSession>,
   ) {
     this.answers = new AnswerTurn(options, connect);
+    this.userShell = new ClaudeShell(options);
 
     options.signal?.addEventListener('abort', this.cancelConnection, {
       once: true,
@@ -382,7 +383,7 @@ class ClaudeSession implements AgentSession {
     return (
       !this.closed &&
       !this.answers.busy &&
-      !this.command &&
+      !this.userShell.running &&
       (!turn ||
         (!!turn.initialInput &&
           !turn.interrupted &&
@@ -493,7 +494,8 @@ class ClaudeSession implements AgentSession {
   }
 
   async compact(): Promise<TurnResult> {
-    if (this.command) throw new Error('This agent is already running');
+    if (this.userShell.running)
+      throw new Error('This agent is already running');
 
     const turn = this.beginTurn();
     turn.compaction = true;
@@ -513,7 +515,7 @@ class ClaudeSession implements AgentSession {
       turn.held ||
       turn.compaction ||
       this.compacting ||
-      this.command ||
+      this.userShell.running ||
       (!this.messageLifecycle && !this.replied)
     )
       return undefined;
@@ -549,77 +551,10 @@ class ClaudeSession implements AgentSession {
   async shell(command: string): Promise<TurnResult> {
     if (this.closed) throw new Error('The Claude session is closed');
 
-    if (this.turn || this.command)
+    if (this.turn || this.userShell.running)
       throw new Error('This agent is already running');
 
-    return this.run(command);
-  }
-
-  private async run(command: string): Promise<TurnResult> {
-    const abort = new AbortController();
-    const finished = Promise.withResolvers<void>();
-    this.command = { controller: abort, finished: finished.promise };
-
-    try {
-      const id = randomUUID();
-
-      const row = (text: string, done = false, failed = false) =>
-        this.options.onEvent({
-          type: 'tool',
-          id,
-          title: '',
-          text,
-          done,
-          append: true,
-          ...(failed ? { failed: true } : {}),
-        });
-
-      this.options.onEvent({
-        type: 'tool',
-        id,
-        title: command,
-        text: '',
-        done: false,
-        shell: true,
-      });
-
-      let started: Promise<void> | undefined;
-      let failed = true;
-
-      try {
-        const run = await runShell(command, {
-          cwd: this.options.cwd,
-          env: this.options.mark?.environment,
-          signal: abort.signal,
-          onOutput: (text) => row(text),
-          onSpawn: (pid) => {
-            started = this.options.onShell?.(pid);
-            // awaited once the command ends, which can be long after a failed report
-            started?.catch(() => {});
-          },
-        });
-
-        this.records.push(bashRecord(command, run));
-        failed = shellFailed(run);
-
-        return {
-          status: run.interrupted ? 'interrupted' : 'completed',
-          text: '',
-        };
-      } catch (error) {
-        return { status: 'failed', text: '', error: errorMessage(error) };
-      } finally {
-        row('', true, failed);
-
-        if (started) {
-          await started;
-          await this.options.onShell?.(undefined);
-        }
-      }
-    } finally {
-      this.command = undefined;
-      finished.resolve();
-    }
+    return this.userShell.run(command);
   }
 
   async steer(
@@ -706,7 +641,7 @@ class ClaudeSession implements AgentSession {
     let ran: TurnResult;
 
     try {
-      ran = await this.run(command);
+      ran = await this.userShell.run(command);
     } catch (error) {
       ran = { status: 'failed', text: '', error: errorMessage(error) };
     }
@@ -759,7 +694,7 @@ class ClaudeSession implements AgentSession {
 
     if (this.answers.busy) return this.answers.interrupt(options);
 
-    this.command?.controller.abort();
+    this.userShell.abort();
     const turn = this.turn;
 
     if (!turn) return Promise.resolve();
@@ -824,10 +759,6 @@ class ClaudeSession implements AgentSession {
 
     // the CLI would run what it still holds after this turn, outside any turn
     if (receipt?.still_queued?.length) {
-      const unreadContext = receipt.still_queued.flatMap(
-        (uuid) => turn.commandRecords.get(uuid)?.records ?? [],
-      );
-
       this.closed = true;
       this.mcp.stop();
       void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
@@ -835,13 +766,7 @@ class ClaudeSession implements AgentSession {
       this.finish(turn, {
         status: 'interrupted',
         text: turn.messages.text,
-        unread: receipt.still_queued.flatMap(
-          (uuid) => turn.inputs.get(uuid)?.prompt ?? [],
-        ),
-        ...(receipt.still_queued.some((uuid) => uuid === turn.initialInput) && {
-          inputUnread: true,
-        }),
-        ...(unreadContext.length ? { unreadContext } : {}),
+        ...unreadInput(turn, receipt.still_queued),
       });
 
       this.query.close();
@@ -857,8 +782,8 @@ class ClaudeSession implements AgentSession {
   }
 
   private async closeSession(deadline: number): Promise<void> {
-    const command = this.command;
-    command?.controller.abort();
+    const shellFinished = this.userShell.finished;
+    this.userShell.abort();
     this.closed = true;
     this.mcp.stop();
     const usageClosed = this.usageReader.close({ deadline });
@@ -884,7 +809,7 @@ class ClaudeSession implements AgentSession {
 
       await this.reading;
       await this.child?.closed;
-      await command?.finished;
+      await shellFinished;
       await usageClosed;
 
       if (cleanupError) throw cleanupError;
@@ -908,7 +833,7 @@ class ClaudeSession implements AgentSession {
       }
 
       await beforeDeadline(
-        Promise.all([this.reading, usageClosed, command?.finished]),
+        Promise.all([this.reading, usageClosed, shellFinished]),
         deadline,
       );
     } finally {
@@ -941,10 +866,7 @@ class ClaudeSession implements AgentSession {
   }
 
   takeUnreadContext(): string[] {
-    const records = this.records;
-    this.records = [];
-
-    return records;
+    return this.userShell.take();
   }
 
   /** returns the uuid the message went with; a composed message goes as written, with no slash dispatch or `@path` expansion. */
@@ -1271,7 +1193,7 @@ class ClaudeSession implements AgentSession {
     const turn = this.turn;
 
     // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI
-    if (turn) this.command?.controller.abort();
+    if (turn) this.userShell.abort();
 
     this.query.close();
 
@@ -1296,21 +1218,6 @@ class ClaudeSession implements AgentSession {
       this.messageLifecycle && this.backgroundRun && uncertainInput(turn);
 
     if (turn) {
-      const unreadContext = [...turn.commandRecords.values()].flatMap(
-        ({ records, writeAttempted }) => (writeAttempted ? [] : records),
-      );
-
-      const inputUnsent =
-        turn.initialInput !== undefined &&
-        turn.commandRecords.get(turn.initialInput)?.writeAttempted === false;
-
-      // input goes in order, so what was steered behind unwritten input is unwritten too
-      const unread = inputUnsent
-        ? [...turn.inputs.values()].flatMap(({ prompt, pending }) =>
-            pending && prompt !== undefined ? [prompt] : [],
-          )
-        : [];
-
       // a CLI that dies after a rejection confirms it as a failed result would; Witch's own close doesn't
       const limit =
         closed || unknown || turn.interrupted
@@ -1321,9 +1228,7 @@ class ClaudeSession implements AgentSession {
         status: 'failed',
         text: this.reportedStopTimeout ? turn.messages.text : '',
         error: unknown ? unknownInput : text,
-        ...(unread.length ? { unread } : {}),
-        ...(unreadContext.length ? { unreadContext } : {}),
-        ...(inputUnsent ? { inputUnsent } : {}),
+        ...unwrittenInput(turn),
         ...(limit ? { exhausted: true, limit } : {}),
       });
     }
@@ -1375,7 +1280,7 @@ class ClaudeSession implements AgentSession {
     turn.started.resolve(false);
 
     if (this.turn === turn) {
-      if (!turn.initialInput && !turn.compaction && this.records.length)
+      if (!turn.initialInput && !turn.compaction && this.userShell.unread)
         result = { ...result, unreadContext: this.takeUnreadContext() };
 
       this.turn = undefined;
