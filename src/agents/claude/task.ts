@@ -4,6 +4,7 @@ import type { FamiliarProgress } from '../familiar-report.js';
 import { errorMessage } from '../../errors.js';
 import { claudeTitle } from './tool-title.js';
 import { skillCasts } from './spells.js';
+import { fallbackModel, reportedModel } from './models.js';
 import type { Cast } from '../types.js';
 
 const frame = z.object({
@@ -103,13 +104,9 @@ export class ClaudeTask {
         message.subtype === 'model_refusal_fallback'
       ) {
         const change = modelChange.parse(value);
+        const model = fallbackModel(change);
 
-        if (!this.identity || change.scope === 'local') return;
-
-        const model =
-          change.direction === 'revert'
-            ? change.original_model
-            : change.fallback_model;
+        if (!this.identity || model === undefined) return;
 
         if (model !== this.identity.model) {
           this.identity = { ...this.identity, model };
@@ -123,10 +120,12 @@ export class ClaudeTask {
           message: { model, content },
         } = assistant.parse(value);
 
-        const changed =
-          model !== '<synthetic>' && model !== this.identity.model;
+        const observed = reportedModel(model);
 
-        if (changed) this.identity = { ...this.identity, model };
+        const changed =
+          observed !== undefined && observed !== this.identity.model;
+
+        if (changed) this.identity = { ...this.identity, model: observed };
 
         const previousTools = this.tools.size;
 

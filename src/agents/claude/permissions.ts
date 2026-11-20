@@ -14,7 +14,7 @@ const questions = z.object({
   ),
 });
 
-export async function toolRequest(
+async function toolRequest(
   toolName: string,
   input: Record<string, unknown>,
   toolUseID: string,

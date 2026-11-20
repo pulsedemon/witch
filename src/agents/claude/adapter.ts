@@ -11,6 +11,11 @@ import { AbortError, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   Query,
   SDKMessage,
+  SDKSystemMessage,
+  SDKModelRefusalFallbackMessage,
+  SDKSessionStateChangedMessage,
+  SDKRateLimitEvent,
+  SDKResultMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
@@ -27,6 +32,7 @@ import {
   recoverInput,
   unreadInput,
   unwrittenInput,
+  resultInputs,
   type Turn,
 } from './turn.js';
 import { accountReading, ClaudeUsage } from './usage.js';
@@ -54,7 +60,7 @@ import {
   terminateChild,
   terminationReserveMs,
 } from '../shutdown.js';
-import { modelsOf } from './models.js';
+import { modelsOf, fallbackModel } from './models.js';
 import { skillsOf } from './spells.js';
 import { ClaudeShell } from './shell.js';
 import { RateLimit } from './limits.js';
@@ -759,9 +765,7 @@ class ClaudeSession implements AgentSession {
 
     // the CLI would run what it still holds after this turn, outside any turn
     if (receipt?.still_queued?.length) {
-      this.closed = true;
-      this.mcp.stop();
-      void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
+      void this.markClosed().catch(() => {});
 
       this.finish(turn, {
         status: 'interrupted',
@@ -781,12 +785,17 @@ class ClaudeSession implements AgentSession {
     return (this.closeTask ??= this.closeSession(this.stopUntil));
   }
 
+  private markClosed(): Promise<void> {
+    this.closed = true;
+    this.mcp.stop();
+
+    return this.usageReader.close({ deadline: this.stopUntil });
+  }
+
   private async closeSession(deadline: number): Promise<void> {
     const shellFinished = this.userShell.finished;
     this.userShell.abort();
-    this.closed = true;
-    this.mcp.stop();
-    const usageClosed = this.usageReader.close({ deadline });
+    const usageClosed = this.markClosed();
     void usageClosed.catch(() => {});
 
     const stopped = (async () => {
@@ -937,45 +946,7 @@ class ClaudeSession implements AgentSession {
     if (type === 'command_lifecycle') {
       const lifecycle = commandLifecycle.safeParse(message);
 
-      if (!lifecycle.success) return;
-
-      if (
-        lifecycle.data.session_id === this.info.id &&
-        this.compaction?.lifecycle(
-          lifecycle.data.command_uuid,
-          lifecycle.data.state,
-        )
-      )
-        this.completeCompaction();
-
-      const turn = this.turn;
-
-      if (
-        this.messageLifecycle &&
-        turn &&
-        lifecycle.data.session_id === this.info.id
-      ) {
-        const input = turn.inputs.get(lifecycle.data.command_uuid);
-        const state = lifecycle.data.state;
-
-        if (input && state !== 'queued') {
-          if (state === 'started') this.backgroundRun = undefined;
-
-          if (state === 'started' && input.pending) turn.result = undefined;
-
-          input.pending = false;
-
-          if (
-            state !== 'started' &&
-            state !== 'completed' &&
-            !turn.interrupted &&
-            !input.contextOnly
-          )
-            turn.inputError ??= `Claude ${state} a prompt`;
-
-          this.finishIdle(turn);
-        }
-      }
+      if (lifecycle.success) this.lifecycle(lifecycle.data);
 
       return;
     }
@@ -983,57 +954,10 @@ class ClaudeSession implements AgentSession {
     this.projection.receive(message);
 
     if (message.type === 'system') {
-      if (message.subtype === 'init') {
-        this.messageLifecycle =
-          message.capabilities?.includes('msg_lifecycle_v1') ?? false;
-
-        this.info = {
-          ...this.info,
-          id: message.session_id,
-          model: message.model,
-          modelBeforeFallback:
-            this.info.model !== message.model
-              ? undefined
-              : this.info.modelBeforeFallback,
-          permissionMode: message.permissionMode,
-          hasHistory: true,
-          // null when no effort will be sent, and absent on CLIs that don't report it
-          nativeEffort:
-            message.effort === undefined
-              ? this.info.nativeEffort
-              : (message.effort ?? undefined),
-        };
-
-        this.options.onEvent({ type: 'info', info: this.info });
-        this.mcp.refresh();
-      } else if (message.subtype === 'model_refusal_fallback') {
-        // a subagent's or side question's fallback leaves the session's model alone
-        if (message.scope === 'local') return;
-
-        const reverted = message.direction === 'revert';
-
-        const model = reverted
-          ? message.original_model
-          : message.fallback_model;
-
-        const modelBeforeFallback = reverted
-          ? undefined
-          : (this.info.modelBeforeFallback ??
-            (message.original_model !== model
-              ? message.original_model
-              : undefined));
-
-        if (
-          model === this.info.model &&
-          modelBeforeFallback === this.info.modelBeforeFallback
-        )
-          return;
-
-        if (model !== this.info.model) this.report(this.context.invalidate());
-
-        this.info = { ...this.info, model, modelBeforeFallback };
-        this.options.onEvent({ type: 'info', info: this.info });
-      } else if (message.subtype === 'compact_boundary') {
+      if (message.subtype === 'init') this.initialized(message);
+      else if (message.subtype === 'model_refusal_fallback')
+        this.fellBack(message);
+      else if (message.subtype === 'compact_boundary') {
         if (message.session_id !== this.info.id) return;
 
         this.options.onEvent({ type: 'compacted' });
@@ -1042,71 +966,163 @@ class ClaudeSession implements AgentSession {
           type: 'skills',
           skills: skillsOf(message.commands),
         });
-      } else if (message.subtype === 'session_state_changed') {
-        this.sessionLifecycle = true;
-        const running = message.state !== 'idle';
+      } else if (message.subtype === 'session_state_changed')
+        this.sessionState(message);
+    } else if (message.type === 'rate_limit_event') this.rateLimited(message);
+    else if (message.type === 'result') this.resulted(message);
+  }
 
-        if (running && !this.nativeRunning && !this.turn)
-          this.backgroundRun = {
-            eligible: this.backgroundEligible,
-            exhausted: false,
-            identity: {},
-          };
+  private lifecycle(message: z.infer<typeof commandLifecycle>): void {
+    if (
+      message.session_id === this.info.id &&
+      this.compaction?.lifecycle(message.command_uuid, message.state)
+    )
+      this.completeCompaction();
 
-        this.nativeRunning = running;
-        this.options.onEvent({ type: 'running', running });
-        const turn = this.turn;
+    const turn = this.turn;
 
-        if (turn) {
-          turn.idle = !running;
+    if (this.messageLifecycle && turn && message.session_id === this.info.id) {
+      const input = turn.inputs.get(message.command_uuid);
+      const state = message.state;
 
-          if (turn.idle && turn.held && turn.answer !== undefined)
-            this.release(turn);
-          else this.finishIdle(turn);
-        }
+      if (input && state !== 'queued') {
+        if (state === 'started') this.backgroundRun = undefined;
+
+        if (state === 'started' && input.pending) turn.result = undefined;
+
+        input.pending = false;
+
+        if (
+          state !== 'started' &&
+          state !== 'completed' &&
+          !turn.interrupted &&
+          !input.contextOnly
+        )
+          turn.inputError ??= `Claude ${state} a prompt`;
+
+        this.finishIdle(turn);
       }
-    } else if (message.type === 'rate_limit_event') {
-      if (!this.turn || (this.messageLifecycle && pendingInput(this.turn)))
-        this.backgroundRun ??= {
-          eligible: this.backgroundEligible,
-          exhausted: false,
-          identity: this.turn ?? {},
-        };
-
-      this.rateLimit.report(
-        message.rate_limit_info,
-        this.backgroundRun?.identity ?? this.turn,
-      );
-    } else if (message.type === 'result') {
-      const result = claudeResult(
-        message,
-        !!this.options.answer,
-        message.subtype === 'success' ? '' : (this.turn?.messages.text ?? ''),
-      );
-
-      const success = result.status === 'completed';
-      const uuids = message.user_message_uuids ?? [message.user_message_uuid];
-
-      const correlated = uuids.some(
-        (uuid) => uuid !== undefined && this.turn?.inputs.has(uuid),
-      );
-
-      if (!this.turn || (this.backgroundRun && !correlated)) {
-        if (success) this.rateLimit.clear();
-        else if (this.confirmBackgroundExhaustion() && this.turn)
-          void this.recoverBackgroundInput(this.turn);
-
-        return;
-      }
-
-      if (!this.turn.initialInput || this.turn.compaction) return;
-
-      if (correlated) this.backgroundRun = undefined;
-
-      recordResult(this.turn, result, uuids, this.messageLifecycle);
-
-      if (!this.sessionLifecycle) this.finishIdle(this.turn);
     }
+  }
+
+  private initialized(message: SDKSystemMessage): void {
+    this.messageLifecycle =
+      message.capabilities?.includes('msg_lifecycle_v1') ?? false;
+
+    this.info = {
+      ...this.info,
+      id: message.session_id,
+      model: message.model,
+      modelBeforeFallback:
+        this.info.model !== message.model
+          ? undefined
+          : this.info.modelBeforeFallback,
+      permissionMode: message.permissionMode,
+      hasHistory: true,
+      // null when no effort will be sent, and absent on CLIs that don't report it
+      nativeEffort:
+        message.effort === undefined
+          ? this.info.nativeEffort
+          : (message.effort ?? undefined),
+    };
+
+    this.options.onEvent({ type: 'info', info: this.info });
+    this.mcp.refresh();
+  }
+
+  private fellBack(message: SDKModelRefusalFallbackMessage): void {
+    const model = fallbackModel(message);
+
+    if (model === undefined) return;
+
+    const reverted = message.direction === 'revert';
+
+    const modelBeforeFallback = reverted
+      ? undefined
+      : (this.info.modelBeforeFallback ??
+        (message.original_model !== model
+          ? message.original_model
+          : undefined));
+
+    if (
+      model === this.info.model &&
+      modelBeforeFallback === this.info.modelBeforeFallback
+    )
+      return;
+
+    if (model !== this.info.model) this.report(this.context.invalidate());
+
+    this.info = { ...this.info, model, modelBeforeFallback };
+    this.options.onEvent({ type: 'info', info: this.info });
+  }
+
+  private sessionState(message: SDKSessionStateChangedMessage): void {
+    this.sessionLifecycle = true;
+    const running = message.state !== 'idle';
+
+    if (running && !this.nativeRunning && !this.turn)
+      this.backgroundRun = {
+        eligible: this.backgroundEligible,
+        exhausted: false,
+        identity: {},
+      };
+
+    this.nativeRunning = running;
+    this.options.onEvent({ type: 'running', running });
+    const turn = this.turn;
+
+    if (turn) {
+      turn.idle = !running;
+
+      if (turn.idle && turn.held && turn.answer !== undefined)
+        this.release(turn);
+      else this.finishIdle(turn);
+    }
+  }
+
+  private rateLimited(message: SDKRateLimitEvent): void {
+    if (!this.turn || (this.messageLifecycle && pendingInput(this.turn)))
+      this.backgroundRun ??= {
+        eligible: this.backgroundEligible,
+        exhausted: false,
+        identity: this.turn ?? {},
+      };
+
+    this.rateLimit.report(
+      message.rate_limit_info,
+      this.backgroundRun?.identity ?? this.turn,
+    );
+  }
+
+  private resulted(message: SDKResultMessage): void {
+    const result = claudeResult(
+      message,
+      !!this.options.answer,
+      message.subtype === 'success' ? '' : (this.turn?.messages.text ?? ''),
+    );
+
+    const success = result.status === 'completed';
+    const uuids = resultInputs(message);
+
+    const correlated = uuids.some(
+      (uuid) => uuid !== undefined && this.turn?.inputs.has(uuid),
+    );
+
+    if (!this.turn || (this.backgroundRun && !correlated)) {
+      if (success) this.rateLimit.clear();
+      else if (this.confirmBackgroundExhaustion() && this.turn)
+        void this.recoverBackgroundInput(this.turn);
+
+      return;
+    }
+
+    if (!this.turn.initialInput || this.turn.compaction) return;
+
+    if (correlated) this.backgroundRun = undefined;
+
+    recordResult(this.turn, result, uuids, this.messageLifecycle);
+
+    if (!this.sessionLifecycle) this.finishIdle(this.turn);
   }
 
   private confirmBackgroundExhaustion(): boolean {
@@ -1186,10 +1202,8 @@ class ClaudeSession implements AgentSession {
 
     if (!closed) this.confirmBackgroundExhaustion();
 
-    this.closed = true;
-    this.mcp.stop();
     this.stopUntil ??= stopDeadline();
-    void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
+    void this.markClosed().catch(() => {});
     const turn = this.turn;
 
     // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI

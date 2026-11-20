@@ -1,7 +1,12 @@
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  SDKMessage,
+  SDKPartialAssistantMessage,
+  SDKAssistantMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import { commandLifecycle } from './turn.js';
 import { acknowledged, skillCasts } from './spells.js';
 import { reportedDiff } from './diff.js';
+import { reportedModel } from './models.js';
 import { claudeTitle } from './tool-title.js';
 import { mergeCasts } from '../familiar-report.js';
 import type { TurnText } from '../turn-text.js';
@@ -48,232 +53,237 @@ export class ClaudeProjection {
   }
 
   receive(message: SDKMessage): void {
-    if (message.type === 'system') {
-      if (
-        // ambient tasks are housekeeping, such as forked-skill workers
-        message.subtype === 'task_started' &&
-        (message.task_type === 'local_agent' ||
-          message.task_type === 'local_workflow') &&
-        !message.ambient &&
-        !this.late(message)
-      ) {
-        if (message.run_id) this.runs.set(message.task_id, message.run_id);
-
-        // a workflow holds off idle as a familiar does, though its agents never reach the stream
-        if (message.task_type === 'local_workflow')
-          this.workflows.add(message.task_id);
-        else {
-          this.subagent({
-            id: message.task_id,
-            parent: message.parent_task_id,
-            name: message.description,
-            kind: message.subagent_type ?? '',
-            runtime: 'claude',
-            status: 'running',
-            run: message.run_id,
-          });
-        }
-
-        this.startedHolder();
-      } else if (message.subtype === 'background_tasks_changed') {
-        const listed = new Set(message.tasks.map(({ task_id }) => task_id));
-
-        // registry removal or a full output queue can omit the task notification.
-        for (const id of this.listed) {
-          if (listed.has(id)) continue;
-
-          this.workflows.delete(id);
-          const subagent = this.subagents.get(id);
-
-          if (subagent?.status === 'running')
-            this.subagent({ ...subagent, status: 'stopped' });
-        }
-
-        this.listed = listed;
-        this.settledHolder();
-      } else if (message.subtype === 'task_notification') {
-        if (this.late(message)) return;
-
-        this.workflows.delete(message.task_id);
-        const subagent = this.subagents.get(message.task_id);
-
-        if (subagent) this.subagent({ ...subagent, status: message.status });
-
-        this.settledHolder();
-      } else if (message.subtype === 'model_refusal_fallback')
-        this.retract(message.retracted_message_uuids ?? []);
-    } else if (
+    if (message.type === 'system') this.task(message);
+    else if (
       message.type === 'stream_event' &&
       message.parent_tool_use_id === null
-    ) {
-      const event = message.event;
-
-      if (event.type === 'message_start')
-        this.currentMessage = event.message.id;
-
-      if (
-        event.type === 'content_block_delta' &&
-        event.delta.type === 'text_delta'
-      ) {
-        const text = event.delta.text;
-        const id = this.currentMessage;
-        this.messages()?.append(id, text);
-        this.options.onEvent({ type: 'text', id, text });
-      }
-
-      if (
-        (event.type === 'content_block_start' &&
-          event.content_block.type === 'thinking') ||
-        (event.type === 'content_block_delta' &&
-          event.delta.type === 'thinking_delta')
-      )
-        this.options.onEvent({ type: 'reasoned' });
-    } else if (
+    )
+      this.streamed(message);
+    else if (
       message.type === 'assistant' &&
       message.parent_tool_use_id === null
-    ) {
-      const id = message.message.id;
-      this.retract(message.supersedes ?? []);
-
-      const text = message.message.content
-        .filter((block) => block.type === 'text')
-        .map((block) => block.text)
-        .join('\n');
-
-      this.produced.set(message.uuid, [
-        ...(text ? [id] : []),
-        ...message.message.content.flatMap((block) =>
-          block.type === 'tool_use' ? [block.id] : [],
-        ),
-      ]);
-
-      if (text) {
-        this.textFrames.set(id, message.uuid);
-        this.messages()?.replace(id, text);
-        this.options.onEvent({ type: 'text', id, text, replace: true });
-      }
-
-      for (const block of message.message.content) {
-        if (block.type === 'tool_use')
-          this.options.onEvent({
-            type: 'tool',
-            id: block.id,
-            ...claudeTitle(
-              block.name,
-              block.input,
-              this.options.cwd,
-              this.options.commandPrefixes,
-            ),
-            text: JSON.stringify(block.input, null, 2),
-            done: false,
-          });
-      }
-
-      this.cast(skillCasts(message.message.content));
-    } else if (
+    )
+      this.assistant(message);
+    else if (
       message.type === 'assistant' &&
       !(message.agent_id && this.subagents.has(message.agent_id))
     ) {
       // an ambient worker's or an unattributed nested cast is shown as the main agent's
       this.cast(skillCasts(message.message.content));
-    } else if (message.type === 'assistant' && message.agent_id) {
-      const subagent = this.subagents.get(message.agent_id)!;
-      const observed = message.message.model;
+    } else if (message.type === 'assistant' && message.agent_id)
+      this.subagentFrame(message);
+    else if (message.type === 'user' && message.parent_tool_use_id === null)
+      this.toolResults(message);
+  }
 
-      const model =
-        observed && observed !== '<synthetic>' ? observed : subagent.model;
+  private task(message: Extract<SDKMessage, { type: 'system' }>): void {
+    if (
+      // ambient tasks are housekeeping, such as forked-skill workers
+      message.subtype === 'task_started' &&
+      (message.task_type === 'local_agent' ||
+        message.task_type === 'local_workflow') &&
+      !message.ambient &&
+      !this.late(message)
+    ) {
+      if (message.run_id) this.runs.set(message.task_id, message.run_id);
 
-      let { activity, tools = 0, report } = subagent;
+      // a workflow holds off idle as a familiar does, though its agents never reach the stream
+      if (message.task_type === 'local_workflow')
+        this.workflows.add(message.task_id);
+      else {
+        this.subagent({
+          id: message.task_id,
+          parent: message.parent_task_id,
+          name: message.description,
+          kind: message.subagent_type ?? '',
+          runtime: 'claude',
+          status: 'running',
+          run: message.run_id,
+        });
+      }
 
-      for (const block of message.message.content)
-        if (block.type === 'tool_use') {
-          activity = claudeTitle(
+      this.startedHolder();
+    } else if (message.subtype === 'background_tasks_changed') {
+      const listed = new Set(message.tasks.map(({ task_id }) => task_id));
+
+      // registry removal or a full output queue can omit the task notification.
+      for (const id of this.listed) {
+        if (listed.has(id)) continue;
+
+        this.workflows.delete(id);
+        const subagent = this.subagents.get(id);
+
+        if (subagent?.status === 'running')
+          this.subagent({ ...subagent, status: 'stopped' });
+      }
+
+      this.listed = listed;
+      this.settledHolder();
+    } else if (message.subtype === 'task_notification') {
+      if (this.late(message)) return;
+
+      this.workflows.delete(message.task_id);
+      const subagent = this.subagents.get(message.task_id);
+
+      if (subagent) this.subagent({ ...subagent, status: message.status });
+
+      this.settledHolder();
+    } else if (message.subtype === 'model_refusal_fallback')
+      this.retract(message.retracted_message_uuids ?? []);
+  }
+
+  private streamed(message: SDKPartialAssistantMessage): void {
+    const event = message.event;
+
+    if (event.type === 'message_start') this.currentMessage = event.message.id;
+
+    if (
+      event.type === 'content_block_delta' &&
+      event.delta.type === 'text_delta'
+    ) {
+      const text = event.delta.text;
+      const id = this.currentMessage;
+      this.messages()?.append(id, text);
+      this.options.onEvent({ type: 'text', id, text });
+    }
+
+    if (
+      (event.type === 'content_block_start' &&
+        event.content_block.type === 'thinking') ||
+      (event.type === 'content_block_delta' &&
+        event.delta.type === 'thinking_delta')
+    )
+      this.options.onEvent({ type: 'reasoned' });
+  }
+
+  private assistant(message: SDKAssistantMessage): void {
+    const id = message.message.id;
+    this.retract(message.supersedes ?? []);
+
+    const text = message.message.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n');
+
+    this.produced.set(message.uuid, [
+      ...(text ? [id] : []),
+      ...message.message.content.flatMap((block) =>
+        block.type === 'tool_use' ? [block.id] : [],
+      ),
+    ]);
+
+    if (text) {
+      this.textFrames.set(id, message.uuid);
+      this.messages()?.replace(id, text);
+      this.options.onEvent({ type: 'text', id, text, replace: true });
+    }
+
+    for (const block of message.message.content) {
+      if (block.type === 'tool_use')
+        this.options.onEvent({
+          type: 'tool',
+          id: block.id,
+          ...claudeTitle(
             block.name,
             block.input,
             this.options.cwd,
-          ).title;
+            this.options.commandPrefixes,
+          ),
+          text: JSON.stringify(block.input, null, 2),
+          done: false,
+        });
+    }
 
-          tools++;
-        } else if (block.type === 'text') {
-          report =
-            report &&
-            this.reportMessages.get(subagent.id) === message.message.id
-              ? `${report}\n${block.text}`
-              : block.text;
+    this.cast(skillCasts(message.message.content));
+  }
 
-          this.reportMessages.set(subagent.id, message.message.id);
-        }
+  private subagentFrame(message: SDKAssistantMessage): void {
+    const subagent = this.subagents.get(message.agent_id!)!;
+    const model = reportedModel(message.message.model) || subagent.model;
+    let { activity, tools = 0, report } = subagent;
 
-      const spells = mergeCasts(
-        subagent.spells,
-        skillCasts(message.message.content),
+    for (const block of message.message.content)
+      if (block.type === 'tool_use') {
+        activity = claudeTitle(block.name, block.input, this.options.cwd).title;
+        tools++;
+      } else if (block.type === 'text') {
+        report =
+          report && this.reportMessages.get(subagent.id) === message.message.id
+            ? `${report}\n${block.text}`
+            : block.text;
+
+        this.reportMessages.set(subagent.id, message.message.id);
+      }
+
+    const spells = mergeCasts(
+      subagent.spells,
+      skillCasts(message.message.content),
+    );
+
+    if (
+      model !== subagent.model ||
+      tools !== (subagent.tools ?? 0) ||
+      report !== subagent.report ||
+      spells
+    )
+      this.subagent({
+        ...subagent,
+        model,
+        activity,
+        tools,
+        report,
+        ...(spells ? { spells } : {}),
+      });
+  }
+
+  private toolResults(message: Extract<SDKMessage, { type: 'user' }>): void {
+    if (!Array.isArray(message.message.content)) return;
+
+    // use each result's own report block, replacing result text with its diff.
+    const diff = reportedDiff(message.tool_use_result, this.options.cwd);
+
+    if (message.uuid)
+      this.produced.set(
+        message.uuid,
+        message.message.content.flatMap((block) =>
+          block.type === 'tool_result' ? [block.tool_use_id] : [],
+        ),
       );
 
-      if (
-        model !== subagent.model ||
-        tools !== (subagent.tools ?? 0) ||
-        report !== subagent.report ||
-        spells
-      )
-        this.subagent({
-          ...subagent,
-          model,
-          activity,
-          tools,
-          report,
-          ...(spells ? { spells } : {}),
-        });
-    } else if (
-      message.type === 'user' &&
-      message.parent_tool_use_id === null &&
-      Array.isArray(message.message.content)
-    ) {
-      // use each result's own report block, replacing result text with its diff.
-      const diff = reportedDiff(message.tool_use_result, this.options.cwd);
+    for (const block of message.message.content) {
+      if (block.type !== 'tool_result') continue;
 
-      if (message.uuid)
-        this.produced.set(
-          message.uuid,
-          message.message.content.flatMap((block) =>
-            block.type === 'tool_result' ? [block.tool_use_id] : [],
-          ),
-        );
+      const parts =
+        typeof block.content === 'string'
+          ? [{ type: 'text' as const, text: block.content }]
+          : (block.content ?? []);
 
-      for (const block of message.message.content) {
-        if (block.type !== 'tool_result') continue;
+      const images: string[] = [];
 
-        const parts =
-          typeof block.content === 'string'
-            ? [{ type: 'text' as const, text: block.content }]
-            : (block.content ?? []);
+      const texts = parts.flatMap((part) => {
+        if (part.type === 'image' && part.source.type === 'base64') {
+          images.push(
+            `data:${part.source.media_type};base64,${part.source.data}`,
+          );
 
-        const images: string[] = [];
+          return [];
+        }
 
-        const texts = parts.flatMap((part) => {
-          if (part.type === 'image' && part.source.type === 'base64') {
-            images.push(
-              `data:${part.source.media_type};base64,${part.source.data}`,
-            );
+        return [
+          part.type === 'text' ? part.text : JSON.stringify(part, null, 2),
+        ];
+      });
 
-            return [];
-          }
-
-          return [
-            part.type === 'text' ? part.text : JSON.stringify(part, null, 2),
-          ];
-        });
-
-        this.options.onEvent({
-          type: 'tool',
-          id: block.tool_use_id,
-          title: '',
-          text: diff ? '' : texts.join('\n'),
-          done: true,
-          ...(images.length ? { images } : {}),
-          ...(diff ? { diff } : {}),
-          ...(block.is_error ? { failed: true } : {}),
-        });
-      }
+      this.options.onEvent({
+        type: 'tool',
+        id: block.tool_use_id,
+        title: '',
+        text: diff ? '' : texts.join('\n'),
+        done: true,
+        ...(images.length ? { images } : {}),
+        ...(diff ? { diff } : {}),
+        ...(block.is_error ? { failed: true } : {}),
+      });
     }
   }
 

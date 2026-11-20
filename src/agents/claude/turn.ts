@@ -144,6 +144,12 @@ export async function recoverInput(
   }
 }
 
+export function resultInputs(
+  message: SDKResultMessage,
+): (string | undefined)[] {
+  return message.user_message_uuids ?? [message.user_message_uuid];
+}
+
 export function recordResult(
   turn: Turn,
   result: TurnResult,
