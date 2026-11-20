@@ -1,12 +1,12 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { ControlBinding } from '../../persistence/control.js';
-import { checkDeadline } from '../../persistence/coordination.js';
 import {
   addFamiliar,
   admitFamiliar,
   admitted,
   boundMarker,
+  checkReporting,
   findFamiliar,
   respondFamiliar,
 } from '../familiar-report.js';
@@ -196,7 +196,7 @@ export class ClaudeCommands {
     action: FamiliarAction,
     deadline: number,
   ): Promise<FamiliarOutcome> {
-    this.admit(deadline);
+    checkReporting(deadline, !this.stopped && !this.closing && !!this.binding);
 
     if (
       action.kind === 'familiar-register' &&
@@ -209,7 +209,10 @@ export class ClaudeCommands {
           await this.query.getTaskOutput(entry.id),
         );
 
-        this.admit(deadline);
+        checkReporting(
+          deadline,
+          !this.stopped && !this.closing && !!this.binding,
+        );
 
         if (this.entries.get(entry.id) !== entry || entry.status !== 'running')
           continue;
@@ -246,13 +249,6 @@ export class ClaudeCommands {
 
   respond(id: string, response: UserResponse): boolean {
     return respondFamiliar(this.entries.values(), id, response);
-  }
-
-  private admit(deadline: number): void {
-    checkDeadline(deadline);
-
-    if (this.stopped || this.closing || !this.binding)
-      throw new Error('Familiar reporting is unavailable.');
   }
 
   async close(): Promise<void> {

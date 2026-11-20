@@ -1,19 +1,20 @@
 import { z } from 'zod';
 import type { ControlBinding } from '../../persistence/control.js';
-import { checkDeadline } from '../../persistence/coordination.js';
 import {
   addFamiliar,
   admitFamiliar,
   admitted,
-  boundMarker,
+  checkReporting,
   findFamiliar,
   respondFamiliar,
+  scanMarkers,
 } from '../familiar-report.js';
 import { FamiliarRun } from '../familiar-requests.js';
 import type {
   FamiliarAction,
   FamiliarOutcome,
   FamiliarSlot,
+  MarkerLine,
 } from '../familiar-report.js';
 import { pages } from './json-rpc.js';
 import type { JsonRpc, RpcMessage } from './json-rpc.js';
@@ -31,8 +32,7 @@ interface Command {
   interrupted?: boolean;
   done?: boolean;
   command?: BackgroundCommand;
-  partial: string;
-  discarding?: boolean;
+  line: MarkerLine;
   familiars: FamiliarSlot[];
   cleanup?: Promise<void>;
 }
@@ -119,7 +119,7 @@ export class CodexCommands {
         processId:
           typeof item.processId === 'string' ? item.processId : undefined,
         ended: false,
-        partial: '',
+        line: { partial: '', discarding: false },
         familiars: [],
       });
 
@@ -188,35 +188,13 @@ export class CodexCommands {
     )
       return;
 
-    for (const part of delta.split(/(?<=\n)/)) {
-      const ends = part.endsWith('\n');
-
-      if (!entry.discarding) {
-        entry.partial += part;
-
-        if (entry.partial.length > 4096) {
-          entry.partial = '';
-          entry.discarding = true;
-        } else if (ends) {
-          const marker = boundMarker(entry.partial.trimEnd(), this.binding);
-
-          if (marker) addFamiliar(entry.familiars, marker);
-        }
-      }
-
-      if (ends) {
-        entry.partial = '';
-        entry.discarding = false;
-      }
-    }
+    scanMarkers(entry.line, delta, this.binding, (marker) =>
+      addFamiliar(entry.familiars, marker),
+    );
   }
 
   report(action: FamiliarAction, deadline: number): FamiliarOutcome {
-    checkDeadline(deadline);
-
-    if (this.stopped || this.closing || !this.binding)
-      throw new Error('Familiar reporting is unavailable.');
-
+    checkReporting(deadline, !this.stopped && !this.closing && !!this.binding);
     const found = findFamiliar(this.entries.values(), action);
 
     if (!found) return { kind: 'familiar-pending' };
