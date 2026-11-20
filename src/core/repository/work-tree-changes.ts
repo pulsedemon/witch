@@ -635,35 +635,7 @@ export class WorkTreeChanges {
 
     let reset = state.source !== source;
 
-    if (reset) {
-      const tracked: SnapshotState['tracked'] = new Map();
-
-      for (const row of fields(
-        await this.git(original, ['ls-files', '-s', '-t', '-z'], listBuffer),
-      )) {
-        const tab = row.indexOf('\t');
-
-        const [status, mode, id, stage] = row.slice(0, tab).split(' ') as [
-          string,
-          string,
-          string,
-          string,
-        ];
-
-        const path = row.slice(tab + 1);
-
-        // a gitlink in any merge stage must keep nested filters out of the snapshot.
-        if (tracked.get(path)?.mode !== gitlink)
-          tracked.set(path, {
-            mode,
-            id,
-            skipped: status === 'S',
-            unmerged: stage !== '0',
-          });
-      }
-
-      state.tracked = tracked;
-    }
+    if (reset) state.tracked = await this.trackedEntries(original);
 
     const discovered = new Set(
       fields(
@@ -693,27 +665,7 @@ export class WorkTreeChanges {
       listBuffer,
     );
 
-    const attributes = new Map([...paths].map((path) => [path, '']));
-
-    if (paths.size) {
-      const rows = fields(
-        await this.git(
-          original,
-          ['check-attr', '--all', '-z', '--stdin'],
-          listBuffer,
-          `${[...paths].join('\0')}\0`,
-        ),
-      );
-
-      for (let index = 0; index + 2 < rows.length; index += 3) {
-        const path = rows[index]!;
-
-        attributes.set(
-          path,
-          `${attributes.get(path) ?? ''}${rows[index + 1]}\0${rows[index + 2]}\0`,
-        );
-      }
-    }
+    const attributes = await this.attributesOf(original, paths);
 
     reset ||=
       state.configuration !== configuration ||
@@ -781,6 +733,114 @@ export class WorkTreeChanges {
         selected.add(path);
     }
 
+    const changed = await this.stage(
+      checkout,
+      state,
+      selected,
+      metadata,
+      entries,
+      excluded,
+      reset,
+    );
+
+    const tree =
+      changed || !state.latest
+        ? (await this.git(checkout, ['write-tree'])).trim()
+        : state.latest.tree;
+
+    if (tree !== state.latest?.tree)
+      state.entries = await this.treeEntries(checkout, tree);
+
+    for (const path of selected) {
+      const before = metadata.get(path);
+
+      if (
+        before &&
+        before.signature !==
+          (await this.fileState(join(checkout.top, path)))?.signature
+      )
+        metadata.delete(path);
+    }
+
+    state.source = source;
+    state.configuration = configuration;
+    state.attributes = attributes;
+    state.metadata = metadata;
+    state.latest = { tree, head, mergeHeads, at };
+
+    return state.latest;
+  }
+
+  private async trackedEntries(
+    checkout: Checkout,
+  ): Promise<SnapshotState['tracked']> {
+    const tracked: SnapshotState['tracked'] = new Map();
+
+    for (const row of fields(
+      await this.git(checkout, ['ls-files', '-s', '-t', '-z'], listBuffer),
+    )) {
+      const tab = row.indexOf('\t');
+
+      const [status, mode, id, stage] = row.slice(0, tab).split(' ') as [
+        string,
+        string,
+        string,
+        string,
+      ];
+
+      const path = row.slice(tab + 1);
+
+      // a gitlink in any merge stage must keep nested filters out of the snapshot.
+      if (tracked.get(path)?.mode !== gitlink)
+        tracked.set(path, {
+          mode,
+          id,
+          skipped: status === 'S',
+          unmerged: stage !== '0',
+        });
+    }
+
+    return tracked;
+  }
+
+  private async attributesOf(
+    checkout: Checkout,
+    paths: Set<string>,
+  ): Promise<Map<string, string>> {
+    const attributes = new Map([...paths].map((path) => [path, '']));
+
+    if (paths.size) {
+      const rows = fields(
+        await this.git(
+          checkout,
+          ['check-attr', '--all', '-z', '--stdin'],
+          listBuffer,
+          `${[...paths].join('\0')}\0`,
+        ),
+      );
+
+      for (let index = 0; index + 2 < rows.length; index += 3) {
+        const path = rows[index]!;
+
+        attributes.set(
+          path,
+          `${attributes.get(path) ?? ''}${rows[index + 1]}\0${rows[index + 2]}\0`,
+        );
+      }
+    }
+
+    return attributes;
+  }
+
+  private async stage(
+    checkout: Checkout,
+    state: SnapshotState,
+    selected: Set<string>,
+    metadata: Map<string, FileState | undefined>,
+    entries: SnapshotState['entries'],
+    excluded: Set<string>,
+    reset: boolean,
+  ): Promise<boolean> {
     const unmerged = [...selected].some(
       (path) => state.tracked.get(path)?.unmerged,
     );
@@ -853,32 +913,7 @@ export class WorkTreeChanges {
       await this.add(checkout, directories);
     }
 
-    const tree =
-      changed || !state.latest
-        ? (await this.git(checkout, ['write-tree'])).trim()
-        : state.latest.tree;
-
-    if (tree !== state.latest?.tree)
-      state.entries = await this.treeEntries(checkout, tree);
-
-    for (const path of selected) {
-      const before = metadata.get(path);
-
-      if (
-        before &&
-        before.signature !==
-          (await this.fileState(join(checkout.top, path)))?.signature
-      )
-        metadata.delete(path);
-    }
-
-    state.source = source;
-    state.configuration = configuration;
-    state.attributes = attributes;
-    state.metadata = metadata;
-    state.latest = { tree, head, mergeHeads, at };
-
-    return state.latest;
+    return changed;
   }
 
   private async resetIndex(checkout: Checkout): Promise<void> {

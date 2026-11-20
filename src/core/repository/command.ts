@@ -45,6 +45,7 @@ async function cancellable(
   });
 
   const output = { stdout: '', stderr: '' };
+  const limit = options.maxBuffer ?? 1 << 20;
   let failure: Error | undefined;
   let stopped = false;
   let timedOut = false;
@@ -82,7 +83,7 @@ async function cancellable(
     child[name].on('data', (text: string) => {
       if (failure) return;
 
-      if (Buffer.byteLength(output[name]) + Buffer.byteLength(text) > 1 << 20) {
+      if (Buffer.byteLength(output[name]) + Buffer.byteLength(text) > limit) {
         failure = Object.assign(
           new Error(`${name} maxBuffer length exceeded`),
           {

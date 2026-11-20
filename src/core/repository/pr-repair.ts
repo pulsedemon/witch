@@ -188,6 +188,18 @@ export class PullRequestRepair {
     return !!this.candidate();
   }
 
+  private recheck(record: ConversationRecord, claim: string, id: string) {
+    const found = this.candidate();
+
+    if (
+      found?.record === record &&
+      found.repair.claim === claim &&
+      found.id === id &&
+      this.host.ready()
+    )
+      return found;
+  }
+
   /** true once its turn was entered. */
   async run(): Promise<boolean> {
     const found = this.candidate();
@@ -201,16 +213,9 @@ export class PullRequestRepair {
     try {
       if (!repair.failed) {
         await this.refresh!();
-        const fresh = this.candidate();
+        const fresh = this.recheck(record, repair.claim, id);
 
-        if (
-          !fresh ||
-          fresh.record !== record ||
-          fresh.repair.claim !== repair.claim ||
-          fresh.id !== id ||
-          !this.host.ready()
-        )
-          return false;
+        if (!fresh) return false;
 
         repair = fresh.repair;
       }
@@ -226,16 +231,7 @@ export class PullRequestRepair {
     }
 
     // nothing may await between this check and the turn's admission
-    const now = this.candidate();
-
-    if (
-      !now ||
-      now.record !== record ||
-      now.repair.claim !== repair.claim ||
-      now.id !== id ||
-      !this.host.ready()
-    )
-      return false;
+    if (!this.recheck(record, repair.claim, id)) return false;
 
     if (refusal !== undefined) {
       this.decline(record, repair, refusal);
