@@ -108,14 +108,28 @@ test("witch --spawn outside a repository exits 1 with git's error, without a ter
   assert.deepEqual(files, []);
 });
 
-test('witch --recover-directory previews, applies and reports a blocked record without launching an agent', async () => {
+test('witch --recover-directory previews, applies and reports a blocked record without loading the app or launching an agent', async () => {
   const root = await scratch('witch-cli-recover-');
   const state = join(root, 'state');
   const destination = join(root, 'destination');
   const bin = join(root, 'bin');
   const launched = join(root, 'launched');
+  const headless = join(root, 'headless.mjs');
   await mkdir(destination);
   await mkdir(bin);
+
+  await writeFile(
+    headless,
+    String.raw`import { registerHooks } from 'node:module';
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (/(?:^|\/)Witch\.js$/.test(specifier) || /^(?:ink|react)(?:\/|$)/.test(specifier))
+      throw new Error('Recovery loaded the interactive app: ' + specifier);
+    return nextResolve(specifier, context);
+  },
+});
+`,
+  );
 
   for (const agent of ['claude', 'codex'])
     await writeFile(join(bin, agent), `#!/bin/sh\ntouch ${quote(launched)}\n`, {
@@ -138,10 +152,10 @@ test('witch --recover-directory previews, applies and reports a blocked record w
 
   const recover = (apply: boolean) =>
     run(
-      `cd ${quote(destination)} && PATH=${quote(bin)}:$PATH ${quote(process.execPath)} ${quote(compiled)} --state-dir ${quote(state)} --recover-directory ${quote(source)}${apply ? ' --apply' : ''}`,
+      `cd ${quote(destination)} && PATH=${quote(bin)}:$PATH ${command} --state-dir ${quote(state)} --recover-directory ${quote(source)}${apply ? ' --apply' : ''}`,
     );
 
-  const compiled = await compiledCli();
+  const command = `${quote(process.execPath)} --import ${quote(headless)} ${quote(await compiledCli())}`;
 
   const record = async () =>
     (
@@ -171,7 +185,7 @@ test('witch --recover-directory previews, applies and reports a blocked record w
 
   try {
     const blocked = await run(
-      `cd ${quote(destination)} && ${quote(process.execPath)} ${quote(compiled)} --state-dir ${quote(state)} --recover-directory ${quote(join(root, 'also gone'))} --apply`,
+      `cd ${quote(destination)} && ${command} --state-dir ${quote(state)} --recover-directory ${quote(join(root, 'also gone'))} --apply`,
     );
 
     assert.equal(blocked.code, 1);

@@ -128,6 +128,14 @@ if (familiar) {
 } else if (spawn !== undefined) {
   const { runSpawn } = await import('./cli/spawn.js');
   process.exitCode = await runSpawn(process.cwd(), spawn, defaultState);
+} else if (values['recover-directory'] !== undefined) {
+  const { runRecoverDirectory } = await import('./cli/recover-directory.js');
+
+  process.exitCode = await runRecoverDirectory(
+    resolve(values['state-dir'] ?? defaultState),
+    values['recover-directory'],
+    values.apply ?? false,
+  );
 } else {
   // React picks its slower development build when loaded without this, and agents inherit the environment, so it lasts only the load
   const production = process.env.NODE_ENV === undefined;
