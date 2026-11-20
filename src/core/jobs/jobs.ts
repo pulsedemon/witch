@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { processArguments, ps } from '../../persistence/process.js';
 import { quote } from '../../shell.js';
-import { isEmacsDaemon } from './emacs.js';
+import { isEmacsDaemon, isEmacsName } from './emacs.js';
 
 const mark = 'WITCH_JOBS';
 
@@ -99,35 +99,110 @@ async function describe(pids: number[]): Promise<Detail[]> {
   return parseDetails(await ps('pid=,pgid=,%cpu=,lstart=,command=', pids));
 }
 
+async function byPid(
+  fields: string,
+  pids: number[],
+  options?: { environment: boolean },
+): Promise<[number, string][]> {
+  return (await ps(fields, pids, options)).flatMap<[number, string]>((line) => {
+    const [, pid, rest] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+
+    return pid ? [[Number(pid), rest!]] : [];
+  });
+}
+
 /** marked pids and their macOS service names. ps prints no environment for Apple's platform binaries. */
 async function carrying(
   entry: string,
   pids: number[],
 ): Promise<Map<number, string | undefined>> {
   return new Map(
-    (await ps('pid=,command=', pids, { environment: true })).flatMap((line) => {
-      const [, pid, rest] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+    (await byPid('pid=,command=', pids, { environment: true })).flatMap(
+      ([pid, rest]) => {
+        if (!` ${rest} `.includes(` ${entry} `)) return [];
 
-      if (!pid || !` ${rest} `.includes(` ${entry} `)) return [];
+        // use the last value because ps appends the environment after arguments.
+        const service = [
+          ...rest.matchAll(/(?:^| )XPC_SERVICE_NAME=([^ ]*)/g),
+        ].at(-1)?.[1];
 
-      // use the last value because ps appends the environment after arguments.
-      const service = [
-        ...rest!.matchAll(/(?:^| )XPC_SERVICE_NAME=([^ ]*)/g),
-      ].at(-1)?.[1];
-
-      return [[Number(pid), service] as const];
-    }),
+        return [[pid, service] as const];
+      },
+    ),
   );
 }
 
 /** each listed process's argv[0], which LaunchServices and Chromium set to the executable's full path. */
 async function executables(pids: number[]): Promise<Map<number, string>> {
-  return new Map(
-    (await ps('pid=,comm=', pids)).flatMap((line) => {
-      const [, pid, path] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+  return new Map(await byPid('pid=,comm=', pids));
+}
 
-      return pid ? [[Number(pid), path!] as const] : [];
-    }),
+async function boundaries(
+  rows: Row[],
+  children: Map<number, Row[]>,
+  previous: ReadonlySet<string>,
+  readArguments: (pids: number[]) => Promise<Map<number, string[]>>,
+): Promise<{ excluded: Set<string>; excludedGroups: Set<number> }> {
+  const excluded = new Set<string>();
+
+  const emacs = rows.filter(
+    ({ name, identity }) => isEmacsName(name) && !previous.has(identity),
+  );
+
+  const args = emacs.length
+    ? await readArguments(emacs.map(({ pid }) => pid))
+    : new Map<number, string[]>();
+
+  const daemons = new Set(
+    [...args].filter(([, argv]) => isEmacsDaemon(argv)).map(([pid]) => pid),
+  );
+
+  const pending = rows.filter(
+    ({ pid, name, identity }) =>
+      name === 'tmux' ||
+      name === 'zellij' ||
+      daemons.has(pid) ||
+      previous.has(identity),
+  );
+
+  while (pending.length) {
+    const row = pending.pop()!;
+
+    if (row.pid === process.pid || excluded.has(row.identity)) continue;
+
+    excluded.add(row.identity);
+    pending.push(...(children.get(row.pid) ?? []));
+  }
+
+  return {
+    excluded,
+    excludedGroups: new Set(
+      rows
+        .filter(({ identity }) => excluded.has(identity))
+        .map(({ pgid }) => pgid),
+    ),
+  };
+}
+
+function userApp(
+  candidate: Row,
+  service: string | undefined,
+  path: string | undefined,
+): boolean {
+  if (
+    service?.startsWith('application.') &&
+    service !== process.env.XPC_SERVICE_NAME
+  )
+    return true;
+
+  // only the outermost app outside a framework matches, so Xcode's nested tools and framework-installed Python stay jobs
+  const bundle =
+    /^(?:(?!\.app\/|\.framework\/).)*\.app\/Contents\/(MacOS|Frameworks)\//.exec(
+      path ?? '',
+    );
+
+  return (
+    !!bundle && (candidate.pid === candidate.pgid || bundle[1] === 'Frameworks')
   );
 }
 
@@ -382,45 +457,12 @@ export class JobWatch {
 
     const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
-    const excluded = new Set<string>();
 
-    const emacs = rows.filter(
-      ({ name, identity }) =>
-        /^emacs(?:-\d+(?:\.\d+)*)?$/i.test(name) &&
-        !this.excluded.has(identity),
-    );
-
-    const args = emacs.length
-      ? await (this.options.arguments ?? processArguments)(
-          emacs.map(({ pid }) => pid),
-        )
-      : new Map<number, string[]>();
-
-    const daemons = new Set(
-      [...args].filter(([, argv]) => isEmacsDaemon(argv)).map(([pid]) => pid),
-    );
-
-    const boundaries = rows.filter(
-      ({ pid, name, identity }) =>
-        name === 'tmux' ||
-        name === 'zellij' ||
-        daemons.has(pid) ||
-        this.excluded.has(identity),
-    );
-
-    while (boundaries.length) {
-      const row = boundaries.pop()!;
-
-      if (row.pid === process.pid || excluded.has(row.identity)) continue;
-
-      excluded.add(row.identity);
-      boundaries.push(...(children.get(row.pid) ?? []));
-    }
-
-    const excludedGroups = new Set(
-      rows
-        .filter(({ identity }) => excluded.has(identity))
-        .map(({ pgid }) => pgid),
+    const { excluded, excludedGroups } = await boundaries(
+      rows,
+      children,
+      this.excluded,
+      this.options.arguments ?? processArguments,
     );
 
     // the agents' commands lead sessions and their MCP servers don't. a server's detached helpers sit a level deeper
@@ -496,23 +538,12 @@ export class JobWatch {
           : new Map<number, string>();
 
         for (const candidate of candidates) {
-          // exclude app-origin daemons even when they reparent between reads.
-          const service = marked.get(candidate.pid);
-
-          const application =
-            service?.startsWith('application.') &&
-            service !== process.env.XPC_SERVICE_NAME;
-
-          // only the outermost app outside a framework matches, so Xcode's nested tools and framework-installed Python stay jobs
-          const bundle =
-            /^(?:(?!\.app\/|\.framework\/).)*\.app\/Contents\/(MacOS|Frameworks)\//.exec(
-              paths.get(candidate.pid) ?? '',
-            );
-
           if (
-            !application &&
-            (!bundle ||
-              (candidate.pid !== candidate.pgid && bundle[1] === 'MacOS'))
+            !userApp(
+              candidate,
+              marked.get(candidate.pid),
+              paths.get(candidate.pid),
+            )
           )
             continue;
 

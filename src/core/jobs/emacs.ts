@@ -131,6 +131,10 @@ function matchesOption(option: string, name: string, minimum: number): boolean {
   );
 }
 
+export function isEmacsName(name: string): boolean {
+  return /^emacs(?:-\d+(?:\.\d+)*)?$/i.test(name);
+}
+
 /** option operands and Lisp payloads cannot select daemon or batch mode. */
 export function isEmacsDaemon(argv: readonly string[]): boolean {
   let daemon = false;
