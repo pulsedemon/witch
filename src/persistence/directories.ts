@@ -437,6 +437,13 @@ function firstPassing(
 const through = (path: string, { from, to }: Move) =>
   within(path, from) ? to + path.slice(from.length) : path;
 
+async function sitsAt(entry: Identity, target: string): Promise<boolean> {
+  return (
+    sameIdentity(entry, await identify(target).catch(() => undefined)) &&
+    !(await caseDestination(target, entry).catch(() => true))
+  );
+}
+
 /**
  * where missing entries went: seeds, then siblings of a resolved move that hold their identity, then on macOS each one's
  * own identity. an entry carried along by a resolved move gets no move of its own.
@@ -474,11 +481,7 @@ export async function findMoves(
 
       const target = through(entry.path, move);
 
-      if (
-        sameIdentity(entry, await look(target)) &&
-        !(await caseDestination(target, entry).catch(() => true))
-      )
-        return true;
+      if (await sitsAt(entry, target)) return true;
     }
 
     return false;
@@ -789,11 +792,7 @@ export async function resolve(
     for (const entry of entries.under(move.from)) {
       const target = through(entry.path, move);
 
-      if (
-        sameIdentity(entry, await identify(target).catch(() => undefined)) &&
-        !(await caseDestination(target, entry).catch(() => true))
-      )
-        carried.push([entry, target]);
+      if (await sitsAt(entry, target)) carried.push([entry, target]);
     }
 
     entries.relocate(carried);
