@@ -631,7 +631,7 @@ class CodexSession implements AgentSession {
 
       this.setInfo({ ...this.info, hasHistory: true });
     } catch (error) {
-      this.finish('failed', errorMessage(error));
+      if (this.turn === turn) this.finish('failed', errorMessage(error));
     }
 
     return turn.finished.promise;
