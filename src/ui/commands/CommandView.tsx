@@ -9,7 +9,7 @@ import type {
   RuntimeUpdates,
   RuntimeUpdateSnapshot,
 } from '../../core/runtime/runtime-updates.js';
-import type { Snapshot } from '../../core/snapshot.js';
+import { agentLabel, type Snapshot } from '../../core/snapshot.js';
 import type { CoordinationSnapshot } from '../../core/coordination/coordination-state.js';
 import { errorMessage } from '../../errors.js';
 import { CommandBatches } from './command-batches.js';
@@ -346,7 +346,7 @@ export function useCommandViews({
             'Models · type an ID or choose one',
             coordinator.snapshot.models.map((model) => ({
               id: modelKey(model),
-              label: `${state.agents.find((agent) => agent.id === model.agent)!.label} · ${model.label}`,
+              label: `${agentLabel(state.agents, model.agent)} · ${model.label}`,
               exact: model.id,
             })),
             (id) => selectModel(id, undefined, active),

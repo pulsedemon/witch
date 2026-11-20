@@ -72,6 +72,13 @@ export interface Recovery {
   root: string;
 }
 
+export function agentLabel(
+  agents: readonly Pick<Snapshot['agents'][number], 'id' | 'label'>[],
+  id: string,
+): string {
+  return agents.find((agent) => agent.id === id)?.label ?? id;
+}
+
 export function initialSnapshot(agents: Snapshot['agents']): Snapshot {
   return {
     phase: 'starting',

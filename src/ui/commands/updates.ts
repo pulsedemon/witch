@@ -5,7 +5,7 @@ import type {
   RuntimeUpdates,
   RuntimeUpdateSnapshot,
 } from '../../core/runtime/runtime-updates.js';
-import type { Snapshot } from '../../core/snapshot.js';
+import { agentLabel, type Snapshot } from '../../core/snapshot.js';
 import type { Picker } from './choices.js';
 import {
   pendingUpdate,
@@ -14,9 +14,6 @@ import {
 import { plain } from '../links.js';
 
 type Agents = Snapshot['agents'];
-
-const label = (agents: Agents, runtime: string) =>
-  agents.find((agent) => agent.id === runtime)!.label;
 
 /** whether `/updates <runtime>` offers to qualify the installed version; a blocked check only restricts installing. */
 function qualifiable(
@@ -39,7 +36,7 @@ export function updateChoice(
   snapshot: RuntimeUpdateSnapshot,
   agents: Agents,
 ): string {
-  const name = label(agents, entry.runtime);
+  const name = agentLabel(agents, entry.runtime);
 
   if (entry.journal && pendingUpdate(entry.journal))
     return `${name} · recovery required`;
@@ -71,7 +68,7 @@ export function updatesText(
   ];
 
   for (const entry of snapshot.entries) {
-    lines.push(label(agents, entry.runtime));
+    lines.push(agentLabel(agents, entry.runtime));
 
     if (entry.journal && pendingUpdate(entry.journal)) {
       lines.push(
@@ -194,7 +191,7 @@ export async function showUpdates(
       : installation.launcher;
 
     return picker(
-      `${journal ? 'Recover' : qualify ? 'Qualify' : 'Update'} ${label(agents, entry.runtime)} ${entry.installation?.version ?? installation.version}?`,
+      `${journal ? 'Recover' : qualify ? 'Qualify' : 'Update'} ${agentLabel(agents, entry.runtime)} ${entry.installation?.version ?? installation.version}?`,
       [
         { id: 'cancel', label: 'Cancel' },
         {

@@ -1,5 +1,6 @@
 import type { Coordinator } from '../../core/coordinator.js';
 import { modelTarget } from '../../core/runtime/models.js';
+import { agentLabel } from '../../core/snapshot.js';
 import type { Picker } from './choices.js';
 import { tokenCount } from '../status/status-rows.js';
 
@@ -101,7 +102,7 @@ export function chooseModel(
           label:
             selection.agent === active
               ? 'Keep current effort'
-              : `Use ${agents.find((agent) => agent.id === selection.agent)!.label}'s current/default effort`,
+              : `Use ${agentLabel(agents, selection.agent)}'s current/default effort`,
         },
         ...efforts.map((effort) => ({ id: effort, label: effort })),
       ],

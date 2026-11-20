@@ -4,6 +4,7 @@ import type { DelegationStore } from '../../persistence/delegation.js';
 import type { ControlOutcome } from '../../persistence/control.js';
 import type { RouteAction } from '../coordination/coordination-state.js';
 import type { Coordinator } from '../coordinator.js';
+import { agentLabel } from '../snapshot.js';
 import { route } from './routing.js';
 import type { Demand } from './demand.js';
 
@@ -105,22 +106,19 @@ export function router(
 
     if ('refused' in decision) return refuse(decision.refused);
 
-    const label = (runtime: string) =>
-      snapshot.agents.find(({ id }) => id === runtime)?.label ?? runtime;
-
     for (const { runtime, model, reason, from } of decision.routes) {
-      const text = `Routed ${action.work} to ${label(runtime)} · ${model}`;
+      const text = `Routed ${action.work} to ${agentLabel(snapshot.agents, runtime)} · ${model}`;
 
       if (from)
         coordinator.warning(
-          `${text}, passing over ${label(from)} for capacity: ${reason}`,
+          `${text}, passing over ${agentLabel(snapshot.agents, from)} for capacity: ${reason}`,
         );
       else coordinator.notice(`${text}: ${reason}`);
     }
 
     for (const { runtime, model, reason, from } of decision.folded ?? [])
       coordinator.warning(
-        `Passed over ${label(from!)} for ${action.work} for capacity; ${label(runtime)} · ${model} already has it: ${reason}`,
+        `Passed over ${agentLabel(snapshot.agents, from!)} for ${action.work} for capacity; ${agentLabel(snapshot.agents, runtime)} · ${model} already has it: ${reason}`,
       );
 
     return { kind: 'route', ...decision };
