@@ -115,7 +115,7 @@ export class ModelCatalog {
   async read(
     cwd: string,
     active?: AgentSession,
-    refresh = false,
+    { refresh = false }: { refresh?: boolean } = {},
   ): Promise<ModelChoice[]> {
     const discovery = new AbortController();
     this.discovery = discovery;

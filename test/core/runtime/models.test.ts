@@ -47,7 +47,7 @@ test('catalogs preserve runtime order and identity, and reuse inactive lists unt
   );
 
   try {
-    assert.deepEqual(await catalog.read(cwd, active, true), [
+    assert.deepEqual(await catalog.read(cwd, active, { refresh: true }), [
       { agent: 'a', id: 'same', label: 'Refreshed', efforts: ['high'] },
       { agent: 'b', id: 'same', label: 'Second', efforts: ['low'] },
     ]);
@@ -67,9 +67,10 @@ test('catalogs preserve runtime order and identity, and reuse inactive lists unt
     assert.equal(b!.discoveries.length, 1);
     b!.failDiscovery = true;
 
-    assert.deepEqual((await catalog.read(cwd, active, true)).map(modelKey), [
-      'a:same',
-    ]);
+    assert.deepEqual(
+      (await catalog.read(cwd, active, { refresh: true })).map(modelKey),
+      ['a:same'],
+    );
 
     assert.match(String(errors[0]), /b: Discovery failed/);
 
@@ -185,11 +186,11 @@ test('latest models are read once per process, again on a refresh or after a fai
   assert.deepEqual(catalog.latest, { a: { opus: 'a-opus-2' } });
   await catalog.read(cwd);
   assert.equal(reads.length, 2);
-  await catalog.read(cwd, undefined, true);
+  await catalog.read(cwd, undefined, { refresh: true });
   assert.equal(reads.length, 3);
   let release!: () => void;
   gate.hold = new Promise((resolve) => (release = resolve));
-  const reading = catalog.read(cwd, undefined, true);
+  const reading = catalog.read(cwd, undefined, { refresh: true });
   await setImmediate();
   catalog.cancel(new Error('stop'));
   release();

@@ -588,11 +588,9 @@ export class Coordinator {
         const { cwd, agent } = this.current();
 
         try {
-          const models = await this.catalog.read(
-            cwd,
-            this.link.live(agent),
-            true,
-          );
+          const models = await this.catalog.read(cwd, this.link.live(agent), {
+            refresh: true,
+          });
 
           if (!refresh.cancelled)
             this.publish({ models, latest: this.catalog.latest });
