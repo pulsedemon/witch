@@ -510,7 +510,7 @@ for await (const line of lines) {
           model: second ? 'model-b' : 'model-a',
           displayName: second ? 'B' : 'A',
           description: 'fixture',
-          isDefault: !second,
+          isDefault: existsSync(file('default-second')) ? second : !second,
           supportedReasoningEfforts: [
             { reasoningEffort: second ? 'high' : 'low' },
           ],
@@ -697,7 +697,9 @@ for await (const line of lines) {
     model =
       request.params.model ??
       (request.method === 'thread/start' ? configuration().model : undefined) ??
-      model;
+      (request.method === 'thread/start' && existsSync(file('default-second'))
+        ? 'model-b'
+        : model);
 
     reply(session());
   }

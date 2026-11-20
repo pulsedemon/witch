@@ -874,6 +874,32 @@ for (const configured of [false, true]) {
   });
 }
 
+test("a default model on a later page sets the policy's model", async () => {
+  const calls: RpcMessage[] = [];
+
+  const f = await fixture(undefined, {
+    automaticCompaction: true,
+    contextCatalog: async (options) => {
+      await writeFile(join(options.cwd, 'default-second'), 'yes');
+
+      return catalog();
+    },
+    onClient: (message) => calls.push(message),
+  });
+
+  try {
+    const start = calls.find((call) => call.method === 'thread/start')!
+      .params as { model?: string; config: Record<string, unknown> };
+
+    assert.equal(start.model, undefined);
+    assert.equal(f.session.info.model, 'model-b');
+    assert.equal(start.config.model_auto_compact_token_limit, 204_800);
+    assert.equal(start.config.model_auto_compact_token_limit_scope, 'total');
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
 for (const stop of ['interrupt', 'close'] as const) {
   test(`Claude ${stop} during pending policy configuration leaves initial and following input unsent`, async () => {
     const ready = Promise.withResolvers<void>();
