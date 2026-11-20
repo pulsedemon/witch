@@ -14,14 +14,16 @@ import { z } from 'zod';
 import { CodexAdapter } from '../src/agents/codex/adapter.js';
 import { readContextCatalog } from '../src/agents/codex/compaction-policy.js';
 import type { RpcMessage } from '../src/agents/codex/json-rpc.js';
+import { streamResponse } from '../src/agents/updates/native-sandbox-check.js';
 import { installedAgents } from '../src/agents/registry.js';
 import type { AgentEvent, SessionOptions } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Snapshot } from '../src/core/snapshot.js';
 import type { ProcessIdentity } from '../src/core/state.js';
 import { Memory } from '../src/memory/memory.js';
-import { identifyProcess } from '../src/persistence/process.js';
+import { identifyProcess, runs } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
+import { quote } from '../src/shell.js';
 
 const execute = promisify(execFile);
 const names = ['alpha', 'beta', 'gamma'] as const;
@@ -58,10 +60,6 @@ const turnFrame = z.object({
 
 const ajv = new Ajv({ strict: false });
 
-function quote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 async function within<T>(
   label: string,
   work: Promise<T>,
@@ -84,12 +82,8 @@ async function within<T>(
   }
 }
 
-async function running(recorded: ProcessIdentity): Promise<boolean> {
-  return (await identifyProcess(recorded.pid))?.started === recorded.started;
-}
-
 async function killRecorded(recorded: ProcessIdentity): Promise<void> {
-  if (!(await running(recorded))) return;
+  if (!(await runs(recorded))) return;
 
   try {
     process.kill(recorded.pid, 'SIGKILL');
@@ -98,7 +92,7 @@ async function killRecorded(recorded: ProcessIdentity): Promise<void> {
   }
 
   for (let attempt = 0; attempt < 50; attempt++) {
-    if (!(await running(recorded))) return;
+    if (!(await runs(recorded))) return;
 
     await delay(100);
   }
@@ -270,41 +264,7 @@ async function runScenario(version: 'v1' | 'v2'): Promise<void> {
 
   const sendResponse = (response: ServerResponse, item: unknown): void => {
     const id = `response-${++responseId}`;
-
-    const messages = [
-      { type: 'response.created', response: { id } },
-      { type: 'response.output_item.done', output_index: 0, item },
-      {
-        type: 'response.completed',
-        response: {
-          id,
-          status: 'completed',
-          usage: {
-            input_tokens: 10,
-            output_tokens: 10,
-            total_tokens: 20,
-            input_tokens_details: { cached_tokens: 0 },
-            output_tokens_details: { reasoning_tokens: 0 },
-          },
-        },
-      },
-    ];
-
-    model.push(observe({ response: messages }));
-
-    response.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      Connection: 'close',
-    });
-
-    response.end(
-      messages
-        .map(
-          (message) =>
-            `event: ${message.type}\ndata: ${JSON.stringify(message)}\n\n`,
-        )
-        .join(''),
-    );
+    model.push(observe({ response: streamResponse(response, id, item) }));
   };
 
   const final = (response: ServerResponse, text: string) =>
@@ -814,7 +774,7 @@ supports_websockets = false
       const first = origin(name);
 
       assert.ok(
-        await running(workerIdentity(name)),
+        await runs(workerIdentity(name)),
         `${name}: worker is alive before admission`,
       );
 
@@ -878,7 +838,7 @@ supports_websockets = false
     const following = send('PARENT_FOLLOW');
     await until('Alpha later turn held', () => held.has('alpha-follow'));
     const alphaLater = laterTurn('alpha');
-    assert.ok(await running(workerIdentity('alpha')));
+    assert.ok(await runs(workerIdentity('alpha')));
     listed(...names);
     await writeFile(join(cwd, 'alpha.release'), 'go');
 
@@ -899,7 +859,7 @@ supports_websockets = false
 
     await until(
       'Gamma worker exits through native shutdown',
-      async () => !(await running(workerIdentity('gamma'))),
+      async () => !(await runs(workerIdentity('gamma'))),
     );
 
     await until('Gamma terminal brew event', () =>
@@ -912,7 +872,7 @@ supports_websockets = false
 
     assert.equal(turnEnded(alphaLater.threadId, alphaLater.turn.id), undefined);
     assert.equal(turnEnded(betaLater.threadId, betaLater.turn.id), undefined);
-    assert.ok(await running(workerIdentity('beta')));
+    assert.ok(await runs(workerIdentity('beta')));
 
     assert.deepEqual(
       commands()
@@ -1001,7 +961,7 @@ supports_websockets = false
 
       await until(
         `${name}: worker gone`,
-        async () => !(await running(workerIdentity(name))),
+        async () => !(await runs(workerIdentity(name))),
       );
     }
 

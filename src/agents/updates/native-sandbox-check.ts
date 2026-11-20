@@ -2,11 +2,53 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import type { ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { CodexAdapter } from '../codex/adapter.js';
 import type { AgentSession } from '../types.js';
 import { unlessGone, writeJson } from '../../persistence/json.js';
 import { quote } from '../../shell.js';
+
+export function streamResponse(
+  response: ServerResponse,
+  id: string,
+  item: unknown,
+): object[] {
+  const messages = [
+    { type: 'response.created', response: { id } },
+    { type: 'response.output_item.done', output_index: 0, item },
+    {
+      type: 'response.completed',
+      response: {
+        id,
+        status: 'completed',
+        usage: {
+          input_tokens: 10,
+          output_tokens: 10,
+          total_tokens: 20,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens_details: { reasoning_tokens: 0 },
+        },
+      },
+    },
+  ];
+
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    Connection: 'close',
+  });
+
+  response.end(
+    messages
+      .map(
+        (message) =>
+          `event: ${message.type}\ndata: ${JSON.stringify(message)}\n\n`,
+      )
+      .join(''),
+  );
+
+  return messages;
+}
 
 /** a deterministic local model forces the real native tool to exercise the answer's sandbox. */
 export async function checkCodexAnswerSandbox(
@@ -157,39 +199,7 @@ async function checkProfile(
       }
 
       const id = `response-${phase}-${output ? 'done' : 'tool'}`;
-
-      const messages = [
-        { type: 'response.created', response: { id } },
-        { type: 'response.output_item.done', output_index: 0, item },
-        {
-          type: 'response.completed',
-          response: {
-            id,
-            status: 'completed',
-            usage: {
-              input_tokens: 10,
-              output_tokens: 10,
-              total_tokens: 20,
-              input_tokens_details: { cached_tokens: 0 },
-              output_tokens_details: { reasoning_tokens: 0 },
-            },
-          },
-        },
-      ];
-
-      response.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        Connection: 'close',
-      });
-
-      response.end(
-        messages
-          .map(
-            (message) =>
-              `event: ${message.type}\ndata: ${JSON.stringify(message)}\n\n`,
-          )
-          .join(''),
-      );
+      streamResponse(response, id, item);
     })().catch((error) => {
       failure ??= error;
       response.writeHead(500);

@@ -2,10 +2,10 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { lstat, mkdir, symlink } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ClaudeAdapter } from '../claude/adapter.js';
 import { CodexAdapter } from '../codex/adapter.js';
+import { codexHome } from './runtime-updates.js';
 import type { NativeRuntime } from './runtime-updates.js';
 import type { AgentAdapter } from '../types.js';
 import { unlessGone } from '../../persistence/json.js';
@@ -45,10 +45,7 @@ export async function verificationAdapter(
     const auth = join(config, 'auth.json');
 
     if ((await unlessGone(lstat(auth))) === undefined)
-      await symlink(
-        join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'auth.json'),
-        auth,
-      );
+      await symlink(join(codexHome(), 'auth.json'), auth);
   }
 
   const controls = {
