@@ -5,6 +5,7 @@ import { appendedDisplayText } from '../../core/state.js';
 import { prepareDiff } from './diff.js';
 import { markdown, markdownAppend } from './markdown.js';
 import { accent, colors } from '../theme.js';
+import { agentRow } from '../status/agent-activity.js';
 import { castTitle } from '../status/cast.js';
 import type { Graphics } from './images.js';
 import { hyperlink, linkify, linkifyAppend, plain } from '../links.js';
@@ -494,8 +495,7 @@ function groupable(item: DisplayItem): boolean {
     item.kind === 'tool' &&
     !!item.done &&
     !item.failed &&
-    // agent tool rows are `<activity>/<agent>/<native id>`; familiar and brew rows, saved ones too, are bare UUIDs
-    item.id.includes('/') &&
+    agentRow(item) &&
     !isExpanded(item, unchosen)
   );
 }

@@ -1,3 +1,4 @@
+import type { DisplayItem } from '../../core/state.js';
 import type { Snapshot } from '../../core/snapshot.js';
 import { oneLine } from '../links.js';
 
@@ -16,6 +17,11 @@ export interface AgentActivity {
 // a row shows far less, and a long reply is cleaned on every update while it streams
 const messageLength = 1000;
 
+/** agent rows use `<activity>/<agent>/<native id>`; familiar and brew rows have bare ids, and `!` commands are the user's. */
+export function agentRow(item: DisplayItem): boolean {
+  return item.id.includes('/') && !item.shell;
+}
+
 export function agentActivity({
   phase,
   activityStartedAt,
@@ -33,13 +39,7 @@ export function agentActivity({
   for (let index = items.length - 1; index >= 0; index--) {
     const item = items[index]!;
 
-    // the agent's own rows are text and tool rows whose ids `SessionLink` joins with slashes;
-    // a familiar's and a brew's tool rows have bare ids, and a `!` command is the user's
-    if (
-      (item.kind !== 'assistant' && item.kind !== 'tool') ||
-      !item.id.includes('/') ||
-      item.shell
-    )
+    if ((item.kind !== 'assistant' && item.kind !== 'tool') || !agentRow(item))
       continue;
 
     const at = item.at ? Date.parse(item.at) : NaN;

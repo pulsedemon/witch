@@ -490,7 +490,7 @@ export function CommandView({
   const pageCoordination =
     view.kind === 'coordination' ? coordination : undefined;
 
-  const pageContentAndLines = useMemo(() => {
+  const { title, lines: pageLines } = useMemo(() => {
     const content = pageContent(view, cwd, pageCoordination, updates, agents);
 
     return {
@@ -507,7 +507,7 @@ export function CommandView({
 
   const page = (
     <ScrollPage
-      lines={pageContentAndLines.lines}
+      lines={pageLines}
       height={pageRows}
       scroll={pageScroll}
       setScroll={setPageScroll}
@@ -573,8 +573,6 @@ export function CommandView({
       </Box>
     );
   } else if (view.kind !== 'chat') {
-    const title = pageContentAndLines.title;
-
     return (
       <Box flexDirection="column" height={bodyHeight}>
         {pageHeading > 0 && (

@@ -6,16 +6,15 @@ import type {
 import {
   githubReference,
   presenceStatus,
+  referenceLabel,
   selectionStatus,
 } from '../../core/coordination/coordination-state.js';
 import { hyperlink, oneLine, plain } from '../links.js';
 
-function referenceTarget(reference: string): string | undefined {
-  const issue = githubReference(reference);
-
-  return issue
-    ? `https://github.com/${issue.repository}/issues/${issue.number}`
-    : undefined;
+function referenceTarget(
+  issue: NonNullable<ReturnType<typeof githubReference>>,
+): string {
+  return `https://github.com/${issue.repository}/issues/${issue.number}`;
 }
 
 export function peerTitle(peer: CoordinationSnapshot['peers'][number]): string {
@@ -24,9 +23,11 @@ export function peerTitle(peer: CoordinationSnapshot['peers'][number]): string {
       `${peer.presence.title}${peer.selection ? '' : ' (unclaimed)'}`,
   );
 
-  const target = peer.claim?.references.map(referenceTarget).find(Boolean);
+  const issue = peer.claim?.references.map(githubReference).find(Boolean);
 
-  return target ? hyperlink(title, target, peer.presence.cwd) : title;
+  return issue
+    ? hyperlink(title, referenceTarget(issue), peer.presence.cwd)
+    : title;
 }
 
 export function peerStatus(
@@ -46,11 +47,15 @@ function claimText(claim: TaskClaim): string {
     ...(claim.suggestion ? ['Suggested task'] : []),
     plain(claim.summary),
     ...claim.references.map((reference) => {
-      const target = referenceTarget(reference);
+      const issue = githubReference(reference);
 
-      return target
-        ? hyperlink(reference.slice('github:'.length), target, '/')
-        : oneLine(reference.replace(`task:${claim.owner.project}:`, 'task:'));
+      return issue
+        ? hyperlink(
+            `${issue.repository}#${issue.number}`,
+            referenceTarget(issue),
+            '/',
+          )
+        : oneLine(referenceLabel(reference, claim.owner.project));
     }),
     `Claim: ${oneLine(claim.id)}`,
     `Conversation: ${oneLine(claim.owner.conversation)}`,

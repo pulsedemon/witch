@@ -219,11 +219,11 @@ export function Request({
       setSelection(Math.min(count - 1, selectionRef.current + 1));
 
     if (request.kind === 'approval') {
-      const plain = !key.ctrl && !key.meta && !key.super;
+      const unmodified = !key.ctrl && !key.meta && !key.super;
 
-      if (plain && input === 'y') respond({ decision: 'accept' });
+      if (unmodified && input === 'y') respond({ decision: 'accept' });
 
-      if (plain && input === 'n') respond({ decision: 'decline' });
+      if (unmodified && input === 'n') respond({ decision: 'decline' });
 
       if (key.return)
         respond({ decision: approvals[selectionRef.current]!.decision });
