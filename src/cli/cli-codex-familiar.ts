@@ -1,18 +1,18 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from '../agents/codex/adapter.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import type {
   FamiliarAction,
   FamiliarProgress,
+  MarkerLine,
 } from '../agents/familiar-report.js';
 import {
-  boundMarker,
   familiarMarker,
   mergeCasts,
+  scanMarkers,
 } from '../agents/familiar-report.js';
 import { errorMessage } from '../errors.js';
 import { watchChild, withTail } from '../agents/stderr.js';
@@ -65,8 +65,7 @@ export async function runCodexFamiliar(
   withoutMcp = false,
 ): Promise<number> {
   const argv = codexArguments(args);
-  const path = resolve(reportFile);
-  const file = await open(path, 'wx', 0o600);
+  const file = await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
   const abort = new AbortController();
   let session: AgentSession | undefined;
@@ -162,10 +161,7 @@ export async function runCodexFamiliar(
     });
   };
 
-  const commandOutput = new Map<
-    string,
-    { partial: string; discarding: boolean }
-  >();
+  const commandOutput = new Map<string, MarkerLine>();
 
   // nested wrappers register with the owning host, which sees only this wrapper's stdout.
   const forwardMarkers = (event: Extract<AgentEvent, { type: 'tool' }>) => {
@@ -185,27 +181,9 @@ export async function runCodexFamiliar(
 
     if (!output) return;
 
-    for (const part of event.text.split(/(?<=\n)/)) {
-      const ends = part.endsWith('\n');
-
-      if (!output.discarding) {
-        output.partial += part;
-
-        if (output.partial.length > 4096) {
-          output.partial = '';
-          output.discarding = true;
-        } else if (ends) {
-          const marker = boundMarker(output.partial.trimEnd(), binding);
-
-          if (marker) process.stdout.write(familiarMarker(marker));
-        }
-      }
-
-      if (ends) {
-        output.partial = '';
-        output.discarding = false;
-      }
-    }
+    scanMarkers(output, event.text, binding, (marker) =>
+      process.stdout.write(familiarMarker(marker)),
+    );
   };
 
   const receive = (event: AgentEvent) => {
@@ -396,7 +374,7 @@ export async function runCodexFamiliar(
       }
     }
 
-    process.stdout.write(`${report}\n\nSaved report: ${path}\n`);
+    process.stdout.write(`${report}\n\nSaved report: ${reportFile}\n`);
 
     return exitCode(status);
   } finally {

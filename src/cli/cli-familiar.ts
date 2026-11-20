@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { ClaudeTask } from '../agents/claude/task.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import { running, terminateGraceMs } from '../agents/shutdown.js';
@@ -70,8 +69,7 @@ export async function runClaudeFamiliar(
   args: readonly string[],
 ): Promise<number> {
   const argv = claudeArguments(args);
-  const path = resolve(reportFile);
-  const file = await open(path, 'wx', 0o600);
+  const file = await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
   let stopped: NodeJS.Signals | undefined;
   let child: ReturnType<typeof spawn> | undefined;
@@ -182,13 +180,15 @@ export async function runClaudeFamiliar(
       await save();
     }
 
-    process.stdout.write(`${terminal.report ?? ''}\n\nSaved report: ${path}\n`);
+    process.stdout.write(
+      `${terminal.report ?? ''}\n\nSaved report: ${reportFile}\n`,
+    );
 
     return exitCode(terminal.status);
   } catch (error) {
     const message = errorMessage(error);
     await file.writeFile(message);
-    process.stderr.write(`witch: ${message}\nSaved report: ${path}\n`);
+    process.stderr.write(`witch: ${message}\nSaved report: ${reportFile}\n`);
 
     return stopped ? 130 : 1;
   } finally {

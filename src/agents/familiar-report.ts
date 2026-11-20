@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
+import { checkDeadline } from '../persistence/coordination.js';
 import { FamiliarRun } from './familiar-requests.js';
 import type { Cast, UserResponse } from './types.js';
 import {
@@ -95,7 +96,7 @@ const familiarMarkerSchema = z.object({
   run: z.string().uuid(),
 });
 
-type FamiliarMarker = z.infer<typeof familiarMarkerSchema>;
+export type FamiliarMarker = z.infer<typeof familiarMarkerSchema>;
 
 const familiarMarkerPrefix = 'WITCH_FAMILIAR ';
 
@@ -126,6 +127,46 @@ export function boundMarker(
     marker.activation === binding.activation
     ? marker
     : undefined;
+}
+
+export interface MarkerLine {
+  partial: string;
+  discarding: boolean;
+}
+
+export function scanMarkers(
+  line: MarkerLine,
+  delta: string,
+  binding: Pick<ControlBinding, 'conversation' | 'activation'>,
+  found: (marker: FamiliarMarker) => void,
+): void {
+  for (const part of delta.split(/(?<=\n)/)) {
+    const ends = part.endsWith('\n');
+
+    if (!line.discarding) {
+      line.partial += part;
+
+      if (line.partial.length > 4096) {
+        line.partial = '';
+        line.discarding = true;
+      } else if (ends) {
+        const marker = boundMarker(line.partial.trimEnd(), binding);
+
+        if (marker) found(marker);
+      }
+    }
+
+    if (ends) {
+      line.partial = '';
+      line.discarding = false;
+    }
+  }
+}
+
+export function checkReporting(deadline: number, available: boolean): void {
+  checkDeadline(deadline);
+
+  if (!available) throw new Error('Familiar reporting is unavailable.');
 }
 
 /** a familiar run a command's output named; one command can start several. */
