@@ -112,6 +112,13 @@ export function changes(
   };
 }
 
+type Scope = Round['scope'];
+
+interface NextRound {
+  number: number;
+  closing: boolean;
+}
+
 export interface Round {
   number: number;
   scope: 'diff' | 'full';
@@ -191,9 +198,7 @@ export function afterCorrection({
   sittingOut: readonly SitOut[];
   stopAfter?: string;
   changedDuring: boolean;
-}):
-  | { stop: string; ok: boolean }
-  | { next: { number: number; closing: boolean }; sittingOut: SitOut[] } {
+}): { stop: string; ok: boolean } | { next: NextRound; sittingOut: SitOut[] } {
   if (blockers && !changedDuring)
     return { stop: 'the blockers were not applied', ok: false };
 
@@ -208,10 +213,7 @@ export function afterCorrection({
 }
 
 /** round 1, a closing pass and a large diff review the full text. */
-export function scopeFor(
-  next: { number: number; closing: boolean },
-  ratio: number,
-): 'diff' | 'full' {
+export function scopeFor(next: NextRound, ratio: number): Scope {
   return next.number === 1 || next.closing || ratio > 0.5 ? 'full' : 'diff';
 }
 
@@ -266,7 +268,7 @@ export function brief({
   known,
 }: {
   files: readonly string[];
-  scope: 'diff' | 'full';
+  scope: Scope;
   diff?: string;
   known: readonly CheckFailure[];
 }): string {

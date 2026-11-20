@@ -17,7 +17,7 @@ import {
 import type { Finding, Review, SitOut, Texts } from './review.js';
 import { checkTargets } from './review-checks.js';
 import type { CheckFailure } from './review-checks.js';
-import type { Reviewer, Reviewers } from './reviewers.js';
+import type { Reviewer, ReviewerResult, Reviewers } from './reviewers.js';
 import type { Routed } from '../runtime/routing.js';
 import { agentLabel } from '../snapshot.js';
 import { untitled } from '../state.js';
@@ -81,21 +81,10 @@ export async function runReviewCommand(
   return true;
 }
 
-/** runs review rounds over the files `argument` names until they settle or stop; undefined when it refuses to start: no router, no files, a name that isn't a file in the directory, or one that holds a line break. */
-async function runReview(
+async function reviewTargets(
   argument: string,
-  host: ReviewHost,
-): Promise<ReviewOutcome | undefined> {
-  const { conversation, coordination, signal } = host;
-  const { cwd } = conversation;
-  const router = coordination?.router;
-
-  if (!coordination || !router) {
-    host.notice('This Witch cannot route work.');
-
-    return;
-  }
-
+  cwd: string,
+): Promise<string[] | { refused: string }> {
   // quotes or a backslash keep a space inside one name
   const named = [
     ...argument.matchAll(/(?:[^\s"'\\]|\\[^]|"[^"]*"|'[^']*')+/g),
@@ -107,11 +96,7 @@ async function runReview(
     ),
   );
 
-  if (!named.length) {
-    host.notice('Use /review <files>.');
-
-    return;
-  }
+  if (!named.length) return { refused: 'Use /review <files>.' };
 
   const files: string[] = [];
 
@@ -127,22 +112,63 @@ async function runReview(
       inside.startsWith(`..${sep}`) ||
       isAbsolute(inside) ||
       !exists
-    ) {
-      host.notice(`Review refused: ${file} is not a file in ${cwd}`);
-
-      return;
-    }
+    )
+      return { refused: `Review refused: ${file} is not a file in ${cwd}` };
 
     // the brief and the correction prompt list targets one per line
-    if (/[\n\r]/.test(inside)) {
-      host.notice(
-        `Review refused: ${JSON.stringify(inside)} has a line break in its name`,
-      );
-
-      return;
-    }
+    if (/[\n\r]/.test(inside))
+      return {
+        refused: `Review refused: ${JSON.stringify(inside)} has a line break in its name`,
+      };
 
     files.push(inside);
+  }
+
+  return files;
+}
+
+function reviewerFailure(
+  result: ReviewerResult,
+  route: Routed,
+  findings: Finding[] | { invalid: string },
+): string | undefined {
+  if (result.status !== 'completed')
+    return result.status
+      ? `ended ${result.status}`
+      : 'ended without registering';
+
+  if (result.code !== 0) return `exited with code ${result.code}`;
+
+  if (result.model !== route.model)
+    return `ran on ${result.model ?? 'an unreported model'}, not ${route.model}`;
+
+  if ('invalid' in findings)
+    return `did not report findings: ${findings.invalid}`;
+
+  return undefined;
+}
+
+/** runs review rounds over the files `argument` names until they settle or stop; undefined when it refuses to start: no router, no files, a name that isn't a file in the directory, or one that holds a line break. */
+async function runReview(
+  argument: string,
+  host: ReviewHost,
+): Promise<ReviewOutcome | undefined> {
+  const { conversation, coordination, signal } = host;
+  const { cwd } = conversation;
+  const router = coordination?.router;
+
+  if (!coordination || !router) {
+    host.notice('This Witch cannot route work.');
+
+    return;
+  }
+
+  const files = await reviewTargets(argument, cwd);
+
+  if ('refused' in files) {
+    host.notice(files.refused);
+
+    return;
   }
 
   if (conversation.title === untitled)
@@ -223,11 +249,12 @@ async function runReview(
     // a second pass sends failures the first correction introduced
     for (let pass = 0; pass < 2; pass++) {
       const seen = identities(failures, texts);
+      const unsent = seen.filter((identity) => !sent.has(identity));
       const fresh = failures.filter((_, index) => !sent.has(seen[index]!));
 
       if (!fresh.length) break;
 
-      for (const identity of identities(fresh, texts)) sent.add(identity);
+      for (const identity of unsent) sent.add(identity);
 
       if (!(await host.turn(correctionPrompt({ failures: fresh }))))
         return stopped(incomplete);
@@ -333,19 +360,7 @@ async function runReview(
     for (const [index, result] of results.entries()) {
       const { route, name, reportFile } = reviewers[index]!;
       const findings = parseFindings(result.report, cwd, files);
-
-      const reason =
-        result.status !== 'completed'
-          ? result.status
-            ? `ended ${result.status}`
-            : 'ended without registering'
-          : result.code !== 0
-            ? `exited with code ${result.code}`
-            : result.model !== route.model
-              ? `ran on ${result.model ?? 'an unreported model'}, not ${route.model}`
-              : 'invalid' in findings
-                ? `did not report findings: ${findings.invalid}`
-                : undefined;
+      const reason = reviewerFailure(result, route, findings);
 
       if (reason || 'invalid' in findings)
         failed.push(
