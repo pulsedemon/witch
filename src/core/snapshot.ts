@@ -1,4 +1,3 @@
-import type { AgentRegistration } from '../agents/registry.js';
 import type {
   BackgroundCommand,
   AccountReading,
@@ -73,9 +72,7 @@ export interface Recovery {
   root: string;
 }
 
-export function initialSnapshot(
-  agents: readonly AgentRegistration[],
-): Snapshot {
+export function initialSnapshot(agents: Snapshot['agents']): Snapshot {
   return {
     phase: 'starting',
     activityStartedAt: Date.now(),
@@ -91,10 +88,6 @@ export function initialSnapshot(
     usage: {},
     accounts: {},
     latest: {},
-    agents: agents.map(({ adapter, executable }) => ({
-      id: adapter.id,
-      label: adapter.label,
-      installed: !!executable,
-    })),
+    agents,
   };
 }

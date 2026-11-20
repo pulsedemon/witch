@@ -374,9 +374,7 @@ export class RuntimeSwitch {
     if (host.closed() || error) return false;
 
     if (this.hopped) {
-      host.notice(
-        `${from} is also out of usage. The conversation stays on ${from}.`,
-      );
+      this.alsoExhausted(from);
 
       return false;
     }
@@ -474,12 +472,14 @@ export class RuntimeSwitch {
     );
 
     if (this.continuation?.status === 'failed' && this.continuation.exhausted) {
-      const to = this.label(chosen.selection.agent);
-
-      host.notice(
-        `${to} is also out of usage. The conversation stays on ${to}.`,
-      );
+      this.alsoExhausted(this.label(chosen.selection.agent));
     }
+  }
+
+  private alsoExhausted(label: string): void {
+    this.host.notice(
+      `${label} is also out of usage. The conversation stays on ${label}.`,
+    );
   }
 
   /** `to` qualifies on room or usable credits observed after it last ran out, with a model comparable to the one `from` ran. */
