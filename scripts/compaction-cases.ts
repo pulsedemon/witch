@@ -5,6 +5,11 @@ import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import {
+  conversationsPath,
+  historyPath,
+  recordPath,
+} from '../src/persistence/store.js';
 
 const { values } = parseArgs({
   options: {
@@ -367,7 +372,7 @@ function trailing(entries: Entry[], from: number, to: number, count: number) {
 
 const shown = (entry: Entry) => entry.kind !== 'compaction';
 const natives = [...(await claudeCompactions()), ...(await codexCompactions())];
-const conversations = join(homedir(), '.witch', 'conversations');
+const conversations = conversationsPath(join(homedir(), '.witch'));
 // one history at a time, streamed, so tool output never accumulates in memory
 const read = [];
 
@@ -376,15 +381,14 @@ for (const entry of await readdir(conversations, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
 
   const id = entry.name;
+  const directory = join(conversations, id);
 
   // only each runtime's latest session is recorded; older ones match by time alone
   const { sessions = {} } = JSON.parse(
-    await readFile(join(conversations, id, 'state.json'), 'utf8').catch(
-      absent('{}'),
-    ),
+    await readFile(recordPath(directory), 'utf8').catch(absent('{}')),
   ) as { sessions?: Record<string, { id?: string } | undefined> };
 
-  const entries = await transcript(join(conversations, id, 'history.jsonl'));
+  const entries = await transcript(historyPath(directory));
   read.push({ id, sessions, entries });
 }
 
