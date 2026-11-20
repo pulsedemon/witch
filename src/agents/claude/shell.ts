@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { errorMessage } from '../../errors.js';
-import { bashRecord, runShell, shellFailed } from '../user-shell.js';
+import { bashRecord, runShell, shellFailed } from './user-shell.js';
 import type { SessionOptions, TurnResult } from '../types.js';
 
 export class ClaudeShell {

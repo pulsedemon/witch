@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { controlPrefix, parseCommand } from '../../src/cli/cli-control.js';
-import { boundCommandTitle, claudeTitle } from '../../src/agents/tool-title.js';
+import { boundCommandTitle } from '../../src/agents/tool-title.js';
+import { claudeTitle } from '../../src/agents/claude/tool-title.js';
 import { quote } from '../../src/shell.js';
 import { cliOptions } from '../../src/cli-options.js';
 

@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import { bashRecord, runShell } from '../../src/agents/user-shell.js';
-import { scratch } from '../fixtures/scratch.js';
-import { until, within } from '../fixtures/within.js';
+import { bashRecord, runShell } from '../../../src/agents/claude/user-shell.js';
+import { scratch } from '../../fixtures/scratch.js';
+import { until, within } from '../../fixtures/within.js';
 
 const execute = promisify(execFile);
 
@@ -112,7 +112,7 @@ test("a background child holding a command's output doesn't keep the process ali
 
   await writeFile(
     script,
-    `import { runShell } from ${JSON.stringify(new URL('../../src/agents/user-shell.ts', import.meta.url).href)};
+    `import { runShell } from ${JSON.stringify(new URL('../../../src/agents/claude/user-shell.ts', import.meta.url).href)};
 await runShell('echo parent; (sleep 2.517; echo late) &', { cwd: process.cwd(), signal: new AbortController().signal, onOutput() {} });
 console.log('settled');
 `,
