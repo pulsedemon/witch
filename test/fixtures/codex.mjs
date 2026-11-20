@@ -802,6 +802,36 @@ for await (const line of lines) {
       continue;
     }
 
+    if (command === 'late refusal') {
+      const id = request.id;
+
+      notify('turn/started', {
+        threadId: 'native-thread',
+        turn: { id: 'turn-shell', status: 'inProgress' },
+      });
+
+      shellItem('item/started', command, { status: 'inProgress' });
+
+      shellItem('item/completed', command, {
+        status: 'completed',
+        exitCode: 0,
+        aggregatedOutput: 'finished before refusal',
+      });
+
+      finishShell('completed');
+
+      notify('error', {
+        error: { message: 'shell refusal barrier' },
+        willRetry: true,
+      });
+
+      void waitFor('release-refusal').then(() =>
+        send({ id, error: { code: -32600, message: 'late refusal' } }),
+      );
+
+      continue;
+    }
+
     reply({});
 
     if (command === 'die soon') {
