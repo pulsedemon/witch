@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { z } from 'zod';
 import { compactionThreshold } from '../../core/compaction-policy.js';
 import { readConfig } from './config.js';
+import { defaultModel } from './models.js';
 import { nativeLaunch } from '../native-launch.js';
 import { watchChild } from '../stderr.js';
 import { stopDeadline, stopOptions, terminateChild } from '../shutdown.js';
@@ -36,6 +37,12 @@ type ContextCatalog = z.infer<typeof catalog>;
 
 type ContextModel = ContextCatalog['models'][number];
 
+interface ThreadBase {
+  cwd: string;
+  runtimeWorkspaceRoots: string[];
+  config: Record<string, unknown>;
+}
+
 function usableWindow(model: ContextModel, window: number): number {
   return Math.floor((window * model.effective_context_window_percent) / 100);
 }
@@ -63,7 +70,7 @@ export async function readContextCatalog(
   options: ModelDiscoveryOptions,
   env = process.env,
 ) {
-  let child: ChildProcessWithoutNullStreams | undefined;
+  let child: ChildProcess | undefined;
   let closed: Promise<void> | undefined;
 
   try {
@@ -80,7 +87,7 @@ export async function readContextCatalog(
           },
           (error, output) => (error ? reject(error) : resolve(output)),
         ),
-      ) as ChildProcessWithoutNullStreams;
+      );
 
       closed = watchChild(child).closed;
     });
@@ -103,10 +110,10 @@ export class CodexCompactionPolicy {
   private constructor(
     private readonly rpc: JsonRpc,
     private readonly options: SessionOptions,
-    readonly model: string | undefined,
+    private readonly model: string | undefined,
     private readonly catalog: ContextCatalog,
     private readonly configuredWindow: unknown,
-    private readonly baseConfiguration: Record<string, unknown>,
+    private readonly base: ThreadBase,
   ) {
     this.appliedWindow = this.window();
     this.appliedTarget = this.target();
@@ -115,7 +122,7 @@ export class CodexCompactionPolicy {
   static async read(
     rpc: JsonRpc,
     options: SessionOptions,
-    baseConfiguration: Record<string, unknown>,
+    base: ThreadBase,
     read: typeof readContextCatalog,
   ): Promise<CodexCompactionPolicy | undefined> {
     if (!options.automaticCompaction) return;
@@ -140,15 +147,7 @@ export class CodexCompactionPolicy {
       model = saved.thread.model ?? undefined;
     } else if (!model && typeof config.model === 'string') model = config.model;
 
-    if (!model && !options.resume) {
-      const page = z
-        .object({
-          data: z.array(z.object({ id: z.string(), isDefault: z.boolean() })),
-        })
-        .parse(await rpc.request('model/list', { cursor: null, limit: 100 }));
-
-      model = page.data.find((entry) => entry.isDefault)?.id;
-    }
+    if (!model && !options.resume) model = await defaultModel(rpc);
 
     return new CodexCompactionPolicy(
       rpc,
@@ -156,7 +155,7 @@ export class CodexCompactionPolicy {
       model,
       models,
       config.model_context_window,
-      baseConfiguration,
+      base,
     );
   }
 
@@ -196,7 +195,7 @@ export class CodexCompactionPolicy {
       : undefined;
   }
 
-  target(model = this.model, choice = this.options.contextWindow) {
+  private target(model = this.model, choice = this.options.contextWindow) {
     const window = this.capacity(model, choice);
 
     return window === undefined
@@ -252,13 +251,10 @@ export class CodexCompactionPolicy {
     const response = await this.rpc.request(
       info.hasHistory ? 'thread/resume' : 'thread/start',
       {
-        cwd: this.options.cwd,
+        ...this.base,
         ...(!info.hasHistory ? { model } : {}),
-        runtimeWorkspaceRoots: [
-          ...new Set([this.options.cwd, ...this.options.memoryDirectories]),
-        ],
         config: {
-          ...this.baseConfiguration,
+          ...this.base.config,
           ...this.configuration(model, contextWindow),
           ...(!info.hasHistory && effort
             ? { model_reasoning_effort: effort }

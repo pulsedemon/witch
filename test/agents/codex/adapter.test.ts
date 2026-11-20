@@ -1364,6 +1364,40 @@ test('a prompt steered while a shell command runs is refused, and an interrupt e
   }
 });
 
+test('a shell request refused after its turn completed leaves a later turn alone', async () => {
+  const barrier = Promise.withResolvers<void>();
+
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'notice' && event.text === 'shell refusal barrier')
+      barrier.resolve();
+  });
+
+  try {
+    const shell = session.shell('late refusal');
+    await within(barrier.promise, 3000, 'shell completion barrier');
+    const turn = session.send('hold');
+    await appears(join(cwd, 'prompt.json'));
+    await writeFile(join(cwd, 'release-refusal'), 'yes');
+
+    assert.equal(
+      (await within(shell, 3000, 'late refusal')).status,
+      'completed',
+    );
+
+    const interrupted = session.interrupt();
+    await writeFile(join(cwd, 'release'), 'yes');
+    await within(interrupted, 3000, 'interrupt');
+
+    assert.equal(
+      (await within(turn, 3000, 'later turn')).status,
+      'interrupted',
+    );
+  } finally {
+    await writeFile(join(cwd, 'release-refusal'), 'yes');
+    await close(session, cwd);
+  }
+});
+
 test('an interrupt waiting on a shell turn that never started ends when Codex exits', async () => {
   const { session, cwd } = await fixture();
 

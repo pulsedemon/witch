@@ -151,6 +151,36 @@ function itemImages(type: string, item: Record<string, unknown>): string[] {
   });
 }
 
+function itemText(
+  type: string,
+  item: Record<string, unknown>,
+  diff: FileDiff[] | undefined,
+): string {
+  // a change's diff comes before it applies and stays after it fails or is declined
+  if (diff)
+    return item.status === 'failed' || item.status === 'declined'
+      ? `Patch ${item.status}`
+      : '';
+
+  if (typeof item.aggregatedOutput === 'string') return item.aggregatedOutput;
+
+  if (type === 'commandExecution') return '';
+
+  // image data shows as the image, not as base64 text
+  return JSON.stringify(
+    item,
+    (_key, value: unknown) =>
+      typeof value === 'object' &&
+      value !== null &&
+      'type' in value &&
+      value.type === 'image' &&
+      imageContent.safeParse(value).success
+        ? { ...value, data: '…' }
+        : value,
+    2,
+  );
+}
+
 export function itemTool(
   item: Record<string, unknown>,
   done: boolean,
@@ -169,28 +199,7 @@ export function itemTool(
     ...(command === undefined
       ? itemTitle(type, item, cwd, prefixes)
       : { title: command }),
-    // a change's diff comes before it applies and stays after it fails or is declined
-    text: diff
-      ? item.status === 'failed' || item.status === 'declined'
-        ? `Patch ${item.status}`
-        : ''
-      : typeof item.aggregatedOutput === 'string'
-        ? item.aggregatedOutput
-        : type === 'commandExecution'
-          ? ''
-          : // image data shows as the image, not as base64 text
-            JSON.stringify(
-              item,
-              (_key, value: unknown) =>
-                typeof value === 'object' &&
-                value !== null &&
-                'type' in value &&
-                value.type === 'image' &&
-                imageContent.safeParse(value).success
-                  ? { ...value, data: '…' }
-                  : value,
-              2,
-            ),
+    text: itemText(type, item, diff),
     done,
     cwd: typeof item.cwd === 'string' ? item.cwd : undefined,
     ...(images.length ? { images } : {}),
