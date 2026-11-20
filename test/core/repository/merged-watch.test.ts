@@ -7,10 +7,8 @@ import { watchMerges } from '../../../src/core/repository/merge-watch.js';
 import { cleanUpMerge } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import { RepositoryWatch } from '../../../src/core/repository/repository.js';
-import type {
-  PullRequest,
-  Repository,
-} from '../../../src/core/repository/repository.js';
+import type { Repository } from '../../../src/core/repository/repository.js';
+import type { PullRequest } from '../../../src/core/repository/pull-requests.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
 import { git } from '../../fixtures/git.js';
 import { branches, idle, merge, merged } from '../../fixtures/merged.js';

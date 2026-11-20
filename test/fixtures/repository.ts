@@ -1,7 +1,5 @@
-import type {
-  PullRequest,
-  Repository,
-} from '../../src/core/repository/repository.js';
+import type { Repository } from '../../src/core/repository/repository.js';
+import type { PullRequest } from '../../src/core/repository/pull-requests.js';
 
 /** open pull request #7 from `feat/x` into `main`; only an open one gets `checks`, as `parsePullRequest` reads it. */
 export function pullRequest(fields: Partial<PullRequest> = {}): PullRequest {

@@ -1,7 +1,7 @@
 import { errorMessage } from '../../errors.js';
 import { runCommand } from './command.js';
-import { gitHubRepository } from './repository.js';
-import type { PullRequest } from './repository.js';
+import { gitHubRepository } from './pull-requests.js';
+import type { PullRequest } from './pull-requests.js';
 
 /** forks do not inherit the base repository's head-retention policy. */
 export async function headRetention(

@@ -5,7 +5,8 @@ import {
   readGitHubReviews,
 } from './github-reviews.js';
 import type { GitHubReviews } from './github-reviews.js';
-import type { PullRequest, RepositoryWatch } from '../repository/repository.js';
+import type { RepositoryWatch } from '../repository/repository.js';
+import type { PullRequest } from '../repository/pull-requests.js';
 import type { Coordinator } from '../coordinator.js';
 
 export class CopilotReviewWatch {

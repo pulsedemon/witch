@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AgentEvent, SessionInfo, TurnResult } from '../agents/types.js';
 import { contextWindowChoiceSchema } from '../agents/types.js';
 import { copilotReviewStateSchema } from './review/copilot-reviews.js';
-import { pullRequestSchema } from './repository/repository.js';
+import { pullRequestSchema } from './repository/pull-requests.js';
 
 const session = z.object({
   id: z.string(),

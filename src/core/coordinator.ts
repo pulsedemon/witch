@@ -50,7 +50,8 @@ import { runReviewCommand } from './review/review-run.js';
 import { Reviewers } from './review/reviewers.js';
 import { ModelCatalog, type ModelSelection } from './runtime/models.js';
 import { AccountUsage } from './runtime/usage.js';
-import type { Conflict, PullRequest } from './repository/repository.js';
+import type { Conflict } from './repository/repository.js';
+import type { PullRequest } from './repository/pull-requests.js';
 import { watchEventNotices } from './coordination/conversation-events.js';
 import { ConversationPauses } from './coordination/conversation-pauses.js';
 import {

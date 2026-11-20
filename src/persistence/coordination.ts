@@ -44,7 +44,7 @@ import {
   sameRequest,
 } from '../core/coordination/pauses.js';
 import type { Pause, PauseRecipient } from '../core/coordination/pauses.js';
-import type { PullRequest } from '../core/repository/repository.js';
+import type { PullRequest } from '../core/repository/pull-requests.js';
 import { identifyProcesses, sameProcess } from './process.js';
 import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
 import { readJson, writeJson } from './json.js';

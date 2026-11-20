@@ -6,7 +6,7 @@ import { Memory } from '../../../src/memory/memory.js';
 import { StateStore } from '../../../src/persistence/store.js';
 import { runMergeCleanup } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
-import type { PullRequest } from '../../../src/core/repository/repository.js';
+import type { PullRequest } from '../../../src/core/repository/pull-requests.js';
 import { record } from '../../fixtures/coordinator.js';
 import { git } from '../../fixtures/git.js';
 import {

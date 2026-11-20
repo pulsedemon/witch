@@ -29,8 +29,9 @@ import { headRetention } from './head-retention.js';
 import { removePlans } from './merged-plans.js';
 import type { PlanRemoval } from './merged-plans.js';
 import type { Conversation } from '../state.js';
-import { gitHubRepository } from './repository.js';
-import type { PullRequest, Repository } from './repository.js';
+import { gitHubRepository } from './pull-requests.js';
+import type { Repository } from './repository.js';
+import type { PullRequest } from './pull-requests.js';
 
 export interface MergeCleanup {
   cwd?: string;
