@@ -5,7 +5,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { verificationAdapter } from './native-verification-profile.js';
+import {
+  sessionOptions,
+  verificationAdapter,
+} from './native-verification-profile.js';
 import type { VerificationLaunch } from './native-verification-profile.js';
 import { checkNativeAnswer } from './native-answer-check.js';
 import { checkCodexAnswerSandbox } from './native-sandbox-check.js';
@@ -17,7 +20,6 @@ import type { NativeRuntime, RuntimeInstallation } from './runtime-updates.js';
 import type {
   AgentEvent,
   AgentSession,
-  SessionOptions,
   TurnResult,
   UserRequest,
 } from '../types.js';
@@ -26,6 +28,14 @@ import { errorMessage } from '../../errors.js';
 
 export const verificationProfile = 'native-update-1';
 const execute = promisify(execFile);
+
+type NativeCheck =
+  | 'cross-version resume'
+  | 'native approval and denial'
+  | 'ordinary settings'
+  | 'automatic answer boundaries'
+  | 'native answer sandbox'
+  | NativeScenario;
 
 function nativeScenarios(runtime: NativeRuntime): NativeScenario[] {
   return [
@@ -37,13 +47,13 @@ function nativeScenarios(runtime: NativeRuntime): NativeScenario[] {
   ];
 }
 
-export function requiredNativeChecks(runtime: NativeRuntime): string[] {
+export function requiredNativeChecks(runtime: NativeRuntime): NativeCheck[] {
   return [
     'cross-version resume',
     'native approval and denial',
     'ordinary settings',
     'automatic answer boundaries',
-    ...(runtime === 'codex' ? ['native answer sandbox'] : []),
+    ...(runtime === 'codex' ? ['native answer sandbox' as const] : []),
     ...nativeScenarios(runtime),
   ];
 }
@@ -115,25 +125,6 @@ function completed(result: TurnResult): void {
     'completed',
     result.error ?? 'Native check did not complete',
   );
-}
-
-function sessionOptions(
-  executable: string,
-  cwd: string,
-  model: string,
-  signal: AbortSignal,
-  onEvent: (event: AgentEvent) => void,
-): SessionOptions {
-  return {
-    executable,
-    cwd,
-    model,
-    effort: 'low',
-    memoryDirectories: [],
-    signal,
-    onEvent,
-    onProcess: async () => {},
-  };
 }
 
 export async function prepareNativeUpdate(
@@ -439,7 +430,7 @@ export async function verifyNativeUpdate(
     passed: false,
   };
 
-  const check = async (name: string, run: () => Promise<unknown>) => {
+  const check = async (name: NativeCheck, run: () => Promise<unknown>) => {
     options.signal.throwIfAborted();
     options.progress(`Checking ${candidate.runtime}: ${name}`);
     await run();
@@ -447,83 +438,75 @@ export async function verifyNativeUpdate(
     await writeJson(join(options.directory, 'qualification.json'), report);
   };
 
-  try {
-    await check('cross-version resume', () =>
+  async function scenario(name: NativeScenario): Promise<void> {
+    const directory = join(options.directory, name);
+    const cwd = await project(directory, name === 'spell');
+
+    const adapter = await verificationAdapter(candidate.runtime, directory, {
+      start: options.launch,
+    });
+
+    const events: AgentEvent[] = [];
+
+    try {
+      await nativeScenario(
+        adapter,
+        sessionOptions(
+          candidate.executable,
+          cwd,
+          prepared.model,
+          options.signal,
+          () => {},
+        ),
+        name,
+        (event) => events.push(event),
+        true,
+      );
+    } finally {
+      await writeJson(join(directory, 'events.json'), events);
+    }
+  }
+
+  const runs: Record<NativeCheck, () => Promise<unknown>> = {
+    'cross-version resume': () =>
       recall(prepared, candidate.executable, options),
-    );
-
-    await check('native approval and denial', () =>
+    'native approval and denial': () =>
       checkNativeApprovals(candidate, prepared.model, options),
-    );
-
-    await check('ordinary settings', () =>
+    'ordinary settings': () =>
       checkNativeSettings(
         candidate,
         prepared.model,
         join(options.directory, 'settings'),
         options.signal,
       ),
-    );
-
-    await check('automatic answer boundaries', () =>
+    'automatic answer boundaries': () =>
       checkNativeAnswer(
         candidate,
         prepared.model,
         join(options.directory, 'answer'),
         options.signal,
       ),
-    );
+    'native answer sandbox': () =>
+      checkCodexAnswerSandbox(
+        candidate.executable,
+        join(options.directory, 'sandbox'),
+        options.signal,
+      ),
+    basic: () => scenario('basic'),
+    control: () => scenario('control'),
+    background: () => scenario('background'),
+    spell: () => scenario('spell'),
+    'idle-run': () => scenario('idle-run'),
+  };
 
-    if (candidate.runtime === 'codex')
-      await check('native answer sandbox', () =>
-        checkCodexAnswerSandbox(
-          candidate.executable,
-          join(options.directory, 'sandbox'),
-          options.signal,
-        ),
-      );
-
-    for (const scenario of nativeScenarios(candidate.runtime)) {
-      const directory = join(options.directory, scenario);
-      const cwd = await project(directory, scenario === 'spell');
-
-      const adapter = await verificationAdapter(candidate.runtime, directory, {
-        start: options.launch,
-      });
-
-      const events: AgentEvent[] = [];
-
-      await check(scenario, async () => {
-        try {
-          return await nativeScenario(
-            adapter,
-            sessionOptions(
-              candidate.executable,
-              cwd,
-              prepared.model,
-              options.signal,
-              () => {},
-            ),
-            scenario,
-            (event) => events.push(event),
-            true,
-          );
-        } finally {
-          await writeJson(join(directory, 'events.json'), events);
-        }
-      });
-    }
+  try {
+    for (const name of requiredNativeChecks(candidate.runtime))
+      await check(name, runs[name]);
 
     assert.equal(
       await artifactDigest(candidate.runtime, candidate.executable),
       candidate.digest,
       'Candidate changed during qualification',
-    );
-
-    assert.deepEqual(
-      report.completed,
-      requiredNativeChecks(candidate.runtime),
-      'Native qualification omitted a required check',
     );
 
     report.passed = true;

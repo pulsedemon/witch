@@ -3,7 +3,10 @@ import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { verificationAdapter } from './native-verification-profile.js';
+import {
+  sessionOptions,
+  verificationAdapter,
+} from './native-verification-profile.js';
 import { probeApproval } from './native-scenario.js';
 import type { RuntimeInstallation } from './runtime-updates.js';
 import type { AgentEvent, AgentSession } from '../types.js';
@@ -82,26 +85,25 @@ export async function checkNativeSettings(
   const events: AgentEvent[] = [];
   const failure = new AbortController();
 
-  const session: AgentSession = await adapter.connect({
-    executable: candidate.executable,
-    cwd,
-    model,
-    effort: 'low',
-    memoryDirectories: [],
-    signal: AbortSignal.any([signal, failure.signal]),
-    onProcess: async () => {},
-    onEvent: (event) => {
-      events.push(event);
+  const session: AgentSession = await adapter.connect(
+    sessionOptions(
+      candidate.executable,
+      cwd,
+      model,
+      AbortSignal.any([signal, failure.signal]),
+      (event) => {
+        events.push(event);
 
-      if (event.type === 'request') {
-        try {
-          session!.respond(event.request.id, probeApproval(event.request));
-        } catch (error) {
-          failure.abort(error);
+        if (event.type === 'request') {
+          try {
+            session!.respond(event.request.id, probeApproval(event.request));
+          } catch (error) {
+            failure.abort(error);
+          }
         }
-      }
-    },
-  });
+      },
+    ),
+  );
 
   try {
     const result = await session.send(

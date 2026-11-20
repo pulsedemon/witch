@@ -3,7 +3,10 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readLines } from '../stderr.js';
-import { verificationAdapter } from './native-verification-profile.js';
+import {
+  sessionOptions,
+  verificationAdapter,
+} from './native-verification-profile.js';
 import type { RuntimeInstallation } from './runtime-updates.js';
 import type { AgentEvent, AgentSession } from '../types.js';
 import { unlessGone, writeJson } from '../../persistence/json.js';
@@ -106,15 +109,8 @@ export async function checkNativeAnswer(
   const answerEvents: AgentEvent[] = [];
 
   try {
-    session = await adapter.connect({
-      executable: candidate.executable,
-      cwd,
-      model,
-      effort: 'low',
-      memoryDirectories: [],
-      signal,
-      onProcess: async () => {},
-      onEvent: (event) => {
+    session = await adapter.connect(
+      sessionOptions(candidate.executable, cwd, model, signal, (event) => {
         if (answering) answerEvents.push(event);
 
         if (event.type !== 'request') return;
@@ -129,8 +125,8 @@ export async function checkNativeAnswer(
         session!.respond(event.request.id, {
           decision: expected ? 'accept' : 'decline',
         });
-      },
-    });
+      }),
+    );
 
     const ordinaryWrite = async () => {
       const result = await session!.send(

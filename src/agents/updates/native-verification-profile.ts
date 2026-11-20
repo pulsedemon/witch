@@ -7,7 +7,7 @@ import { ClaudeAdapter } from '../claude/adapter.js';
 import { CodexAdapter } from '../codex/adapter.js';
 import { codexHome } from './runtime-updates.js';
 import type { NativeRuntime } from './runtime-updates.js';
-import type { AgentAdapter } from '../types.js';
+import type { AgentAdapter, AgentEvent, SessionOptions } from '../types.js';
 import { unlessGone } from '../../persistence/json.js';
 import { withoutModelPins } from '../claude/side.js';
 
@@ -21,6 +21,25 @@ export type VerificationLaunch = (
 
 const launch: VerificationLaunch = (command, args, cwd, env, signal) =>
   spawn(command, args, { cwd, env, signal, stdio: 'pipe' });
+
+export function sessionOptions(
+  executable: string,
+  cwd: string,
+  model: string,
+  signal: AbortSignal,
+  onEvent: (event: AgentEvent) => void,
+): SessionOptions {
+  return {
+    executable,
+    cwd,
+    model,
+    effort: 'low',
+    memoryDirectories: [],
+    signal,
+    onEvent,
+    onProcess: async () => {},
+  };
+}
 
 /** credentials stay in the native store; only synthetic sessions and settings live in this directory. */
 export async function verificationAdapter(
