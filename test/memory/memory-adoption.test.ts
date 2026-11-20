@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, test } from 'vitest';
-import { main } from '../../src/memory/memory.js';
+import { main } from '../../src/memory/names.js';
 import type { Workspace } from '../../src/memory/workspace.js';
 import { passThrough } from '../fixtures/git.js';
 import { fixture, save, git, repository } from '../fixtures/memory.js';

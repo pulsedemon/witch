@@ -12,7 +12,7 @@ import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from '../errors.js';
 import { escapeRegExp } from '../regexp.js';
-import { branchOf, indexNote, main, notePath, printable } from './memory.js';
+import { branchOf, indexNote, main, notePath, printable } from './names.js';
 import type { Memory, MemoryScope } from './memory.js';
 import { within } from '../paths.js';
 import { mapper, present } from '../persistence/directories.js';
@@ -434,12 +434,7 @@ export class Workspace {
 
       const moved = await this.adoptAll(scope, former).catch(
         async (error: unknown) => {
-          await this.discardPending().catch((rollback: unknown) => {
-            throw new Error(
-              `${errorMessage(error)}\n\nCould not discard the failed memory move: ${errorMessage(rollback)}`,
-              { cause: error },
-            );
-          });
+          await this.rollBack(error, 'move');
 
           throw error;
         },
@@ -492,18 +487,25 @@ export class Workspace {
     try {
       return { repointed: await this.repoint(ledger) };
     } catch (error) {
-      await this.discardPending().catch((rollback: unknown) => {
-        throw new Error(
-          `${errorMessage(error)}\n\nCould not discard the failed memory repoint: ${errorMessage(rollback)}`,
-          { cause: error },
-        );
-      });
+      await this.rollBack(error, 'repoint');
 
       return {
         repointed: 0,
         notice: `Could not repoint memory notes at moved directories: ${errorMessage(error)}`,
       };
     }
+  }
+
+  private async rollBack(
+    error: unknown,
+    what: 'move' | 'repoint',
+  ): Promise<void> {
+    await this.discardPending().catch((rollback: unknown) => {
+      throw new Error(
+        `${errorMessage(error)}\n\nCould not discard the failed memory ${what}: ${errorMessage(rollback)}`,
+        { cause: error },
+      );
+    });
   }
 
   /** rewrites references to moved directories in every scope as a commit of its own, and says how many notes changed. */

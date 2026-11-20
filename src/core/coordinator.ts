@@ -20,7 +20,8 @@ import type {
   AgentStopOptions,
   UserResponse,
 } from '../agents/types.js';
-import { indexNote, noticeText } from '../memory/memory.js';
+import { noticeText } from '../memory/memory.js';
+import { indexNote } from '../memory/names.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type {

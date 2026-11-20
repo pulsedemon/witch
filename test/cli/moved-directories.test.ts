@@ -5,7 +5,7 @@ import { test, vi } from 'vitest';
 import { runCommand } from '../../src/core/repository/command.js';
 import { Coordinator } from '../../src/core/coordinator.js';
 import type { Run } from '../../src/core/repository/repository.js';
-import { main as accepted } from '../../src/memory/memory.js';
+import { main as accepted } from '../../src/memory/names.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { identify } from '../../src/persistence/directories.js';
 import { quote } from '../../src/shell.js';

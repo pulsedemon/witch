@@ -14,7 +14,7 @@ import type {
   ReviewerResult,
 } from '../../../src/core/review/reviewers.js';
 import type { Routed } from '../../../src/core/runtime/routing.js';
-import { main } from '../../../src/memory/memory.js';
+import { main } from '../../../src/memory/names.js';
 import { Workspace } from '../../../src/memory/workspace.js';
 import { ConversationStore } from '../../../src/persistence/store.js';
 import { CommandBatches } from '../../../src/ui/commands/command-batches.js';

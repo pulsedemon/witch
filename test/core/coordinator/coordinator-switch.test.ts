@@ -5,7 +5,7 @@ import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
-import { main } from '../../../src/memory/memory.js';
+import { main } from '../../../src/memory/names.js';
 import type { SessionInfo } from '../../../src/agents/types.js';
 import type { ConversationRecord } from '../../../src/core/state.js';
 import { ConversationStore } from '../../../src/persistence/store.js';

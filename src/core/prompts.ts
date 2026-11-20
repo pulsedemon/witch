@@ -7,7 +7,8 @@ import type {
   SkillCall,
   UserResponse,
 } from '../agents/types.js';
-import { indexByteLimit, indexNote } from '../memory/memory.js';
+import { indexByteLimit } from '../memory/memory.js';
+import { indexNote } from '../memory/names.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { Conversation } from './state.js';

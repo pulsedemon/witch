@@ -4,7 +4,7 @@ import { chmod, mkdir, readFile, rename } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
-import { main } from '../../src/memory/memory.js';
+import { main } from '../../src/memory/names.js';
 import { repointText } from '../../src/memory/workspace.js';
 import { identify, mapper } from '../../src/persistence/directories.js';
 import type { Ledger, LedgerMove } from '../../src/persistence/directories.js';
