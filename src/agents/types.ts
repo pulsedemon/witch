@@ -309,7 +309,7 @@ export interface AnswerInput {
   requestFile: string;
 }
 
-type TurnPurpose = 'user' | 'peer-answer' | 'pr-review' | 'pr-repair';
+export type TurnPurpose = 'user' | 'peer-answer' | 'pr-review' | 'pr-repair';
 
 export interface SendOptions {
   skill?: SkillCall;
