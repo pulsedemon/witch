@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, flushSync, useInput } from 'ink';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { fullFormats } from 'ajv-formats/dist/formats.js';
@@ -201,8 +201,10 @@ export function Request({
     if (!active || key.eventType === 'release') return;
 
     if (key.ctrl && input === 'o' && expandable) {
-      setFull((previous) => !previous);
-      setScroll(pageStart);
+      flushSync(() => {
+        setFull((previous) => !previous);
+        setScroll(pageStart);
+      });
 
       return;
     }

@@ -638,6 +638,73 @@ test('wheel then Ctrl+O in one read copies the displayed approval title after th
   }
 });
 
+for (const wheels of [2, 100]) {
+  test(`Ctrl+O then a wheel step starts at the reset after ${wheels} scroll steps`, async () => {
+    const mounted = mount({
+      requests: [
+        {
+          id: 'r',
+          kind: 'approval',
+          title: 'Approval title',
+          detail: 'reason',
+          diff: [
+            {
+              path: '/work/a',
+              kind: 'add',
+              hunks: [
+                {
+                  oldStart: 0,
+                  newStart: 1,
+                  lines: Array.from(
+                    { length: 45 },
+                    (_, row) => `+line ${row + 1}`,
+                  ),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const { ui } = mounted;
+
+    try {
+      await until('the approval title', () =>
+        ui.text().includes('Approval title'),
+      );
+
+      const [, top] = cell(ui, 'Approval title');
+      ui.stdin.write('\u001b[<65;3;4M'.repeat(wheels));
+
+      await until(
+        'the scrolled approval',
+        () => !ui.text().includes('Approval title'),
+      );
+
+      ui.stdin.write('\u001b[111;5u\u001b[<65;3;4M');
+
+      await until('the expanded approval', () =>
+        ui.text().includes('CTRL+O SHOW PREVIEW'),
+      );
+
+      assert.deepEqual(
+        ui
+          .text()
+          .split('\n')
+          .slice(top, top + 3)
+          .map((row) => row.trim()),
+        ['', '', 'Create ./a +45'],
+      );
+
+      await copy(mounted, dragText(ui, 'line 1'), 'line 1');
+      assert.deepEqual(mounted.calls, []);
+    } finally {
+      ui.unmount();
+    }
+  });
+}
+
 test('rewriting a page selection endpoint ends its held drag until a fresh press', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
