@@ -1,8 +1,8 @@
 import stringWidth from 'string-width';
 import { castRows, castTitle } from '../status/cast.js';
 import { colors } from '../theme.js';
-import { highlightRow } from './selection.js';
-import type { Point } from './selection.js';
+import { highlightRow } from '../selection.js';
+import type { Point } from '../selection.js';
 import type { TranscriptLayout } from './transcript-layout.js';
 
 interface VisibleRowsOptions {

@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { measureElement } from 'ink';
 import type { DOMElement, Key } from 'ink';
 import type { RefObject } from 'react';
-import { useLiveState } from '../useLiveState.js';
-import { useHover } from '../terminal/mouse.js';
-import type { Cell, Pointer } from '../terminal/mouse.js';
+import { useLiveState } from './useLiveState.js';
+import { useHover } from './terminal/mouse.js';
+import type { Cell, Pointer } from './terminal/mouse.js';
 import {
   drawsIn,
   selectedText,
@@ -12,67 +12,78 @@ import {
   stepEnd,
   textEnds,
 } from './selection.js';
-import type { Point, RangeEnd } from './selection.js';
-import type { TranscriptLayout } from './transcript-layout.js';
+import type { Point, SelectionSource } from './selection.js';
 
-interface SelectionOptions {
-  transcript: ReturnType<TranscriptLayout['render']>;
+export interface SelectionEnd<Anchor> {
+  identity: unknown;
+  anchor: Anchor;
+  column: number;
+  width: number;
+  text: string;
+}
+
+interface SelectionOptions<Anchor> {
+  source: SelectionSource<Anchor>;
+  identity: unknown;
   /** the main column's width, which a range end records so a resize drops it. */
   width: number;
   bodyWidth: number;
-  /** the transcript's box; unset while another view covers it. */
+  /** the selectable content box; unset while another view covers it. */
   box: RefObject<DOMElement | null>;
-  /** false while another view covers the transcript, which ends a held press. */
-  shown: boolean;
-  /** whether the drawn frame pins the clear reminder above the transcript. */
-  pinned: boolean;
+  /** false when the source is no longer visible or current. */
+  shown(): boolean;
+
   /** the viewport from the latest scroll position, not the rendered one. */
-  viewport(): { top: number; height: number; pinned: boolean };
+  viewport(): { top: number; height: number; originShift?: number };
 
   scrollBy(rows: number): boolean;
 
-  /** called once for every press, before the transcript is measured, so the caller can record the press; true when something outside the transcript takes it, such as the new-messages notice. */
+  /** called once for every press, before the content is measured, so the caller can record the press; true when something outside the transcript takes it, such as the new-messages notice. */
   covers(cell: Cell): boolean;
 
-  /** puts text on the clipboard and calls `copied` once the clipboard holds it. */
-  copy?(text: string, copied: () => void): void;
+  markerAt?(anchor: Anchor, column: number): boolean;
 
-  copied(): void;
+  copy?(text: string): void;
 }
 
-/** the transcript's selection: its range, the press, click run and edge scroll that drag it, and the keys that copy it, select the whole transcript, and extend and clear it. */
-export function useSelection({
-  transcript,
+/** anchored text selection with mouse gestures, edge scrolling and optional keyboard controls. */
+export function useSelection<Anchor>({
+  source,
+  identity,
   width,
   bodyWidth,
-  box: transcriptBox,
-  shown: transcriptShown,
-  pinned,
+  box: contentBox,
+  shown,
   viewport,
   scrollBy,
   covers,
   copy,
-  copied,
-}: SelectionOptions) {
+  markerAt,
+}: SelectionOptions<Anchor>) {
   // a drag's ends are anchored to their text, so they follow it when output above grows
   const [range, rangeRef, setRange] = useLiveState<
-    { from: RangeEnd; to: RangeEnd } | undefined
+    { from: SelectionEnd<Anchor>; to: SelectionEnd<Anchor> } | undefined
   >(undefined);
 
-  const pressedAt = useRef<RangeEnd>(undefined);
+  const pressedAt = useRef<SelectionEnd<Anchor>>(undefined);
   /** what the held press selects by: a double click's words, a triple click's lines. */
   const pressedUnit = useRef<'cell' | 'word' | 'line'>('cell');
+
   /** the last press's text and how many presses its cell had seen before that text came under it. */
-  const pressStreak = useRef<{ end: RangeEnd; before: number }>(undefined);
-  /** the scrolling of a drag held past the transcript's top or bottom, and the cell it is held on. */
+  const pressStreak = useRef<{ end: SelectionEnd<Anchor>; before: number }>(
+    undefined,
+  );
+
+  /** the scrolling of a drag held past the content's top or bottom, and the cell it is held on. */
   const edgeScroll = useRef<{ timer: NodeJS.Timeout; cell: Cell }>(undefined);
 
-  const pointOf = (end: RangeEnd): Point | undefined => {
-    const row = transcript.rowOf(end.anchor);
+  const pointOf = (end: SelectionEnd<Anchor>): Point | undefined => {
+    const row = source.rowOf(end.anchor);
 
-    return end.width === width &&
-      transcript.starts.has(end.anchor.item) &&
-      transcript.lines.at(row) === end.text
+    return end.identity === identity &&
+      row !== undefined &&
+      end.width === width &&
+      source.lines.at(row) === end.text
       ? { row, column: end.column }
       : undefined;
   };
@@ -91,11 +102,11 @@ export function useSelection({
 
   const ends = endsOf(range);
 
-  /** the selection's ends while the transcript shows; another view covering it leaves nothing to copy or move. */
+  /** the current visible source is the only one whose selection can copy or move. */
   const selection = () =>
-    transcriptBox.current ? endsOf(rangeRef.current) : undefined;
+    shown() && contentBox.current ? endsOf(rangeRef.current) : undefined;
 
-  // a range or a held press off its text drops, so it can't come back with the width or the tool
+  // changed endpoint text or width invalidates the range and held press
   useEffect(() => {
     if (range && !ends) setRange(undefined);
 
@@ -113,26 +124,38 @@ export function useSelection({
     stopEdgeScroll();
   };
 
-  // a press still held when another view covers the transcript ends there, so no drag resumes once it closes
+  const visible = shown();
+
   useEffect(() => {
-    if (!transcriptShown) endPress();
-  }, [transcriptShown]);
+    if (!visible) endPress();
+  }, [visible]);
+
+  useLayoutEffect(() => {
+    setRange(undefined);
+    endPress();
+    pressStreak.current = undefined;
+    pressedUnit.current = 'cell';
+  }, [identity]);
 
   useEffect(() => stopEdgeScroll, []);
   // any report but the left button's or a vertical wheel step ends the press: motion with no button held means its release went missing
   useHover(endPress);
 
-  const rangeEnd = ({ row, column }: Point): RangeEnd | undefined => {
-    const anchor = transcript.anchorAt(row);
+  const rangeEnd = ({
+    row,
+    column,
+  }: Point): SelectionEnd<Anchor> | undefined => {
+    const anchor = source.anchorAt(row);
 
-    return anchor && { anchor, column, width, text: transcript.lines.at(row)! };
+    return anchor === undefined
+      ? undefined
+      : { identity, anchor, column, width, text: source.lines.at(row)! };
   };
 
-  const select = (from: RangeEnd, to: RangeEnd) => {
-    const same = (a: RangeEnd, b: RangeEnd) =>
-      a.anchor.item === b.anchor.item &&
-      a.anchor.line === b.anchor.line &&
-      a.anchor.offset === b.anchor.offset &&
+  const select = (from: SelectionEnd<Anchor>, to: SelectionEnd<Anchor>) => {
+    const same = (a: SelectionEnd<Anchor>, b: SelectionEnd<Anchor>) =>
+      a.identity === b.identity &&
+      source.sameAnchor(a.anchor, b.anchor) &&
       a.column === b.column &&
       a.width === b.width &&
       a.text === b.text;
@@ -144,32 +167,19 @@ export function useSelection({
     setRange({ from, to });
   };
 
-  const spanAt = (at: Point, unit: 'word' | 'line') =>
-    spanOf(transcript, at, unit);
+  const spanAt = (at: Point, unit: 'word' | 'line') => spanOf(source, at, unit);
 
-  /** the tool whose `+ ✓` cells a press is on; they hold no link, so a click on them toggles it. */
-  const markerOf = (pressed: RangeEnd | undefined) => {
-    const item = transcript.items.find(({ id }) => id === pressed?.anchor.item);
-
-    return pressed &&
-      item?.kind === 'tool' &&
-      pressed.column < 3 &&
-      transcript.rowOf(pressed.anchor) === transcript.starts.get(item.id)
-      ? item
-      : undefined;
-  };
-
-  /** updates the selection and reports whether the held press is past the transcript's top or bottom. */
+  /** updates the selection and reports whether the held press is past the content's top or bottom. */
   const point = (
     pointer: Pointer | 'wheel',
     { column, row }: Cell,
     presses = 1,
   ) => {
-    // a press or release ends the drag even while another view covers the transcript
+    // a press or release ends the drag even while another view covers the content
     if (pointer === 'press' || pointer === 'release')
       pressedAt.current = undefined;
 
-    // a press anywhere but on the same transcript text, another view included, ends the run of presses on it
+    // a press anywhere but on the same source text, another view included, ends the run of presses on it
     const streak = pressStreak.current;
 
     if (pointer === 'press') {
@@ -179,24 +189,29 @@ export function useSelection({
       if (covers({ column, row })) return false;
     }
 
-    if (!transcriptBox.current) return false;
+    if (!shown() || !contentBox.current || !source.lines.length) return false;
 
-    const box = measureElement(transcriptBox.current);
+    const box = measureElement(contentBox.current);
     // reports in one read arrive before a render, so each starts where the last one scrolled
-    const { top: first, height, pinned: currentPinned } = viewport();
-    const shown = Math.min(height, transcript.lines.length - first);
+    const { top: first, height, originShift = 0 } = viewport();
+
+    if (height <= 0 || bodyWidth <= 0) return false;
+
+    const shownRows = Math.min(height, source.lines.length - first);
     // a queued scroll can move the notice before Ink moves the content box
-    const origin = box.y + Number(currentPinned) - Number(pinned);
-    const offset = Math.max(-1, Math.min(shown, row - origin));
+    const origin = box.y + originShift;
+    const offset = Math.max(-1, Math.min(shownRows, row - origin));
 
     // a wheel already scrolled; a drag reaches the adjacent row its scroll will reveal
     const selectedOffset =
-      pointer === 'wheel' ? Math.max(0, Math.min(shown - 1, offset)) : offset;
+      pointer === 'wheel'
+        ? Math.max(0, Math.min(shownRows - 1, offset))
+        : offset;
 
     const at = {
       row: Math.max(
         0,
-        Math.min(transcript.lines.length - 1, first + selectedOffset),
+        Math.min(source.lines.length - 1, first + selectedOffset),
       ),
       column: Math.max(0, Math.min(bodyWidth - 1, column - box.x)),
     };
@@ -204,7 +219,12 @@ export function useSelection({
     const end = rangeEnd(at);
 
     if (pointer === 'press') {
-      if (offset < 0 || offset >= shown || column >= box.x + bodyWidth)
+      if (
+        offset < 0 ||
+        offset >= shownRows ||
+        column < box.x ||
+        column >= box.x + bodyWidth
+      )
         return false;
 
       pressedAt.current = end;
@@ -215,9 +235,8 @@ export function useSelection({
         end &&
         streak &&
         presses > 1 &&
-        streak.end.anchor.item === end.anchor.item &&
-        streak.end.anchor.line === end.anchor.line &&
-        streak.end.anchor.offset === end.anchor.offset &&
+        streak.end.identity === identity &&
+        source.sameAnchor(streak.end.anchor, end.anchor) &&
         streak.end.column === end.column &&
         streak.end.text === end.text
           ? streak.before
@@ -228,7 +247,11 @@ export function useSelection({
 
       // two clicks on a marker in one read toggle it back to the text it had, so the count alone would select it
       pressedUnit.current =
-        repeats < 2 || markerOf(end) ? 'cell' : repeats === 2 ? 'word' : 'line';
+        repeats < 2 || (end && markerAt?.(end.anchor, end.column))
+          ? 'cell'
+          : repeats === 2
+            ? 'word'
+            : 'line';
 
       const span =
         pressedUnit.current !== 'cell' && spanAt(at, pressedUnit.current);
@@ -240,9 +263,9 @@ export function useSelection({
       return false;
     }
 
-    if (!pressedAt.current || !end) return false;
+    if (!pressedAt.current || !pointOf(pressedAt.current) || !end) return false;
 
-    // rows of the box under a short transcript are not past its bottom
+    // rows of the box under short content are not past its bottom
     const pastEdge = offset < 0 || row - origin >= height;
 
     if (pastEdge && pointer !== 'wheel') scrollBy(offset < 0 ? -1 : 1);
@@ -299,7 +322,7 @@ export function useSelection({
       timer:
         edgeScroll.current?.timer ??
         setInterval(() => {
-          // a resize can bring the held cell back inside the transcript
+          // a resize can bring the held cell back inside the content
           if (
             !edgeScroll.current ||
             !latestPoint.current('drag', edgeScroll.current.cell)
@@ -312,14 +335,13 @@ export function useSelection({
   /** true when the key was a selection key and is consumed. */
   const onKey = (input: string, key: Key) => {
     if (key.super && input === 'c') {
-      // nothing copies while another view covers the transcript, and blank rows or images hold no text to replace the clipboard with
+      // nothing copies while another view covers the content, and blank rows or images hold no text to replace the clipboard with
       const selected = selection();
 
       const text =
-        selected &&
-        selectedText(transcript.lines, ...selected, transcript.joinBefore);
+        selected && selectedText(source.lines, ...selected, source.joinBefore);
 
-      if (text?.trim()) copy?.(text, copied);
+      if (text?.trim()) copy?.(text);
 
       return true;
     }
@@ -327,7 +349,7 @@ export function useSelection({
     // Ghostty keeps Cmd+A for its own selection
     if (key.ctrl && key.shift && input === 'a') {
       const [from, to] = (
-        (transcriptBox.current && textEnds(transcript.lines)) ||
+        (shown() && contentBox.current && textEnds(source.lines)) ||
         []
       ).map(rangeEnd);
 
@@ -354,7 +376,7 @@ export function useSelection({
       !key.super &&
       selection()
     ) {
-      const next = stepEnd(transcript.lines, pointOf(moved.to)!, direction);
+      const next = stepEnd(source.lines, pointOf(moved.to)!, direction);
       const end = rangeEnd(next);
 
       if (end) {
@@ -370,13 +392,13 @@ export function useSelection({
       return true;
     }
 
-    if (key.escape && transcriptBox.current) {
+    if (key.escape && shown() && contentBox.current) {
       const selected = endsOf(rangeRef.current);
       const { top, height } = viewport();
 
       if (
         selected &&
-        drawsIn(transcript.lines, ...selected, top, top + height - 1, bodyWidth)
+        drawsIn(source.lines, ...selected, top, top + height - 1, bodyWidth)
       ) {
         endPress();
         setRange(undefined);
@@ -391,11 +413,13 @@ export function useSelection({
   return {
     /** the drawn range's ends in row order. */
     ends,
-    /** whether a selection exists while the transcript shows. */
+    /** whether the current source has a visible selection. */
     active: () => !!selection(),
     point: onPointer,
-    /** the tool whose marker the held press is on. */
-    pressedTool: () => markerOf(pressedAt.current),
+    pressed: () =>
+      shown() && pressedAt.current && pointOf(pressedAt.current)
+        ? pressedAt.current
+        : undefined,
     key: onKey,
   };
 }

@@ -7,7 +7,7 @@ import { present } from '../persistence/directories.js';
 import { resolveFile, unescapePath } from '../paths.js';
 import { copiedLink, destination, linkedFile } from './link-destination.js';
 import { imageFile } from './transcript/images.js';
-import { shown, tabbed, uncopied } from './transcript/selection.js';
+import { shown, tabbed, uncopied } from './selection.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();

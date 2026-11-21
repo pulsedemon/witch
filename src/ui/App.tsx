@@ -42,7 +42,7 @@ import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell } from './terminal/mouse.js';
 import { transcriptViewport } from './transcript/viewport.js';
 import { visibleRows } from './transcript/visible-rows.js';
-import { useSelection } from './transcript/useSelection.js';
+import { useSelection } from './useSelection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
 import { useCasting } from './status/cast.js';
@@ -414,18 +414,52 @@ export function App({
     return pressedNewMessages.current;
   };
 
+  const markerAt = (anchor: ScrollAnchor, column: number) => {
+    const item = transcript.items.find(({ id }) => id === anchor.item);
+
+    return item?.kind === 'tool' &&
+      column < 3 &&
+      transcript.rowOf(anchor) === transcript.starts.get(item.id)
+      ? item
+      : undefined;
+  };
+
+  const currentConversation = () =>
+    coordinator.snapshot.conversation?.id === state.conversation?.id;
+
+  const copySelection = (text: string) => copy?.(text, showCopied);
+
   const selection = useSelection({
-    transcript,
+    source: {
+      ...transcript,
+      rowOf: (anchor: ScrollAnchor) =>
+        transcript.starts.has(anchor.item)
+          ? transcript.rowOf(anchor)
+          : undefined,
+      sameAnchor: (a: ScrollAnchor, b: ScrollAnchor) =>
+        a.item === b.item && a.line === b.line && a.offset === b.offset,
+    },
+    identity: state.conversation?.id,
     width,
     bodyWidth,
     box: transcriptBox,
-    shown: chat,
-    pinned,
-    viewport: () => viewport(topRef.current, seenRef.current),
+    shown: () =>
+      currentConversation() &&
+      viewRef.current.kind === 'chat' &&
+      !coordinator.snapshot.requests.length &&
+      coordinator.snapshot.phase !== 'recovery',
+    viewport: () => {
+      const current = viewport(topRef.current, seenRef.current);
+
+      return {
+        ...current,
+        originShift: Number(current.pinned) - Number(pinned),
+      };
+    },
     scrollBy,
     covers: pressedOnNewMessages,
-    copy,
-    copied: showCopied,
+    copy: copySelection,
+    markerAt: (anchor, column) => !!markerAt(anchor, column),
   });
 
   const busy = working || ['editing', 'closing'].includes(state.phase);
@@ -618,7 +652,8 @@ export function App({
       setTop(null);
     }
 
-    const tool = selection.pressedTool();
+    const pressed = selection.pressed();
+    const tool = pressed && markerAt(pressed.anchor, pressed.column);
 
     if (tool) toolFocus.toggle(tool, transcript.members(tool.id));
   });
