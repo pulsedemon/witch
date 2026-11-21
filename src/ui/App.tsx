@@ -7,7 +7,6 @@ import {
 } from 'react';
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
-import stringWidth from 'string-width';
 import { textCommands } from '../agents/claude/spells.js';
 import type { CompletionList } from './input/completion.js';
 import type { Coordinator } from '../core/coordinator.js';
@@ -53,11 +52,12 @@ import { useDrafts } from './input/useDrafts.js';
 import type { Browsing } from './input/useDrafts.js';
 import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell } from './terminal/mouse.js';
-import { highlightRow } from './transcript/selection.js';
+import { transcriptViewport } from './transcript/viewport.js';
+import { visibleRows } from './transcript/visible-rows.js';
 import { useSelection } from './transcript/useSelection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
-import { castRows, castTitle, useCasting } from './status/cast.js';
+import { useCasting } from './status/cast.js';
 import { elapsed } from './status/elapsed.js';
 import { Sidebar } from './status/Sidebar.js';
 import { sidebarWidth, usagePlacement } from './status/sidebar-layout.js';
@@ -444,41 +444,18 @@ export function App({
   const boundary = state.items[contextStart(state.items) - 1];
   const clearedAt = boundary && transcript.starts.get(boundary.id);
 
-  const viewport = (anchor: ScrollAnchor | null, read = seen) => {
-    const newMessages =
-      anchor !== null &&
-      read.conversation === state.conversation?.id &&
-      read.items !== state.items;
-
-    const queueRows = Math.max(
-      0,
-      Math.min(state.queue.length, freeRows - minimumTranscriptRows),
-    );
-
-    const availableRows = Math.max(minimumTranscriptRows, freeRows - queueRows);
-    const row = anchor === null ? Infinity : transcript.rowOf(anchor);
-
-    // decide before the notice takes a row, so hiding the last old row cannot turn it off
-    const unpinnedTop = Math.min(
-      row,
-      Math.max(0, transcript.lines.length - availableRows),
-    );
-
-    const pinned =
-      availableRows > 1 && clearedAt !== undefined && unpinnedTop < clearedAt;
-
-    const height = availableRows - Number(pinned);
-    const maxTop = Math.max(0, transcript.lines.length - height);
-
-    return {
-      pinned,
-      newMessages,
-      queueRows,
-      height,
-      maxTop,
-      top: Math.min(row, maxTop),
-    };
-  };
+  const viewport = (anchor: ScrollAnchor | null, read = seen) =>
+    transcriptViewport({
+      anchor,
+      read,
+      conversation: state.conversation?.id,
+      items: state.items,
+      queue: state.queue.length,
+      freeRows,
+      minimumRows: minimumTranscriptRows,
+      transcript,
+      clearedAt,
+    });
 
   const {
     pinned,
@@ -961,71 +938,17 @@ export function App({
       />
     );
   } else {
-    const visible = transcript.lines.slice(
-      scrollTop,
-      scrollTop + transcriptHeight,
-    );
-
-    /** in view and outside the selection, which shows the canonical rows it copies. */
-    const overlays = (row: number) =>
-      row >= scrollTop &&
-      row - scrollTop < visible.length &&
-      !(
-        selection.ends &&
-        row >= selection.ends[0].row &&
-        row <= selection.ends[1].row
-      );
-
-    for (const [id, frame] of casting) {
-      const row = transcript.starts.get(id);
-
-      if (
-        row === undefined ||
-        !overlays(row) ||
-        bodyWidth < stringWidth(castTitle())
-      )
-        continue;
-
-      const { heading, above } = castRows(
-        frame,
-        bodyWidth,
-        id,
-        overlays(row - 1) && visible[row - 1 - scrollTop] === '',
-      );
-
-      visible[row - scrollTop] = heading;
-
-      if (above !== undefined) visible[row - 1 - scrollTop] = above;
-    }
-
-    const selectedToolRow = transcript.starts.get(selectedTool?.id ?? '');
-
-    if (
-      toolFocus.focused &&
-      selectedToolRow !== undefined &&
-      selectedToolRow >= scrollTop &&
-      selectedToolRow < scrollTop + transcriptHeight
-    )
-      visible[selectedToolRow - scrollTop] = colors.inverse(
-        visible[selectedToolRow - scrollTop],
-      );
-
-    if (selection.ends) {
-      const [start, end] = selection.ends;
-
-      for (
-        let row = Math.max(scrollTop, start.row);
-        row <= Math.min(end.row, scrollTop + visible.length - 1);
-        row++
-      )
-        visible[row - scrollTop] = highlightRow(
-          visible[row - scrollTop]!,
-          row,
-          start,
-          end,
-          bodyWidth,
-        );
-    }
+    const visible = visibleRows(transcript.lines, {
+      top: scrollTop,
+      height: transcriptHeight,
+      casting,
+      starts: transcript.starts,
+      selectedRow: toolFocus.focused
+        ? transcript.starts.get(selectedTool?.id ?? '')
+        : undefined,
+      ends: selection.ends,
+      width: bodyWidth,
+    });
 
     body = (
       <Box flexDirection="column" height={bodyHeight}>
