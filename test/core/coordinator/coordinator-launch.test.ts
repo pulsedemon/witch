@@ -25,13 +25,13 @@ import {
 } from '../../../src/persistence/store.js';
 import { FixtureAgent, holdConnect, TurnGate } from '../../fixtures/agent.js';
 import {
-  record,
   activity,
   readRecord,
   fixture,
   unitFixture,
   stranded,
 } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { passThrough } from '../../fixtures/git.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { seededMemory } from '../../fixtures/seeded-memory.js';

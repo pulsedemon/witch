@@ -11,17 +11,12 @@ import {
   launcher,
 } from '../../fixtures/claude-adapter.js';
 import { until, within } from '../../fixtures/within.js';
+import { lifecycle } from '../../fixtures/claude-background.js';
 
 const probe: SkillCall = { name: 'probe', args: 'later' };
 
 const spells = (events: AgentEvent[]) =>
   events.flatMap((event) => (event.type === 'spell' ? [event.cast] : []));
-
-const lifecycle = (uuid: string, state: string) => ({
-  type: 'command_lifecycle',
-  command_uuid: uuid,
-  state,
-});
 
 const skill = (id: string, name: string) => ({
   type: 'tool_use',

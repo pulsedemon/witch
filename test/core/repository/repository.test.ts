@@ -14,6 +14,7 @@ import { parsePullRequest } from '../../../src/core/repository/pull-requests.js'
 import { view } from '../../fixtures/repository.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until } from '../../fixtures/within.js';
+import { identity } from '../../fixtures/git.js';
 
 const execute = promisify(execFile);
 
@@ -21,7 +22,7 @@ test("Git's status counts staged, modified and untracked entries, and the branch
   const root = await scratch('witch-repository-');
 
   const git = (cwd: string, ...args: string[]) =>
-    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+    execute('git', [...identity, ...args], {
       cwd,
     });
 
@@ -95,7 +96,7 @@ test.each([true, false])(
     const contents = 'unchanged\n'.repeat(20);
 
     const git = (cwd: string, ...args: string[]) =>
-      execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      execute('git', [...identity, ...args], {
         cwd,
       });
 
@@ -195,7 +196,7 @@ test("the watch's status read runs no filter driver from the repository's config
   const global = join(root, 'global');
 
   const git = (...args: string[]) =>
-    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+    execute('git', [...identity, ...args], {
       cwd: work,
     });
 
@@ -272,19 +273,9 @@ test("a submodule's own filter driver never runs, and changes inside its work tr
   const filter = join(root, 'filter.sh');
 
   const git = (cwd: string, ...args: string[]) =>
-    execute(
-      'git',
-      [
-        '-c',
-        'user.name=t',
-        '-c',
-        'user.email=t@t',
-        '-c',
-        'protocol.file.allow=always',
-        ...args,
-      ],
-      { cwd },
-    );
+    execute('git', [...identity, '-c', 'protocol.file.allow=always', ...args], {
+      cwd,
+    });
 
   await execute('git', ['init', '--quiet', '-b', 'main', sub]);
   await writeFile(join(sub, 's'), 's\n');
@@ -352,20 +343,9 @@ test("a filter driver whose name isn't valid UTF-8 leaves Git out without runnin
   await writeFile(join(work, 'a'), 'a\n');
   await execute('git', ['add', 'a'], { cwd: work });
 
-  await execute(
-    'git',
-    [
-      '-c',
-      'user.name=t',
-      '-c',
-      'user.email=t@t',
-      'commit',
-      '--quiet',
-      '-m',
-      'a',
-    ],
-    { cwd: work },
-  );
+  await execute('git', [...identity, 'commit', '--quiet', '-m', 'a'], {
+    cwd: work,
+  });
 
   await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
     mode: 0o755,

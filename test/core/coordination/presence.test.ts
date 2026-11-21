@@ -5,7 +5,7 @@ import { PresencePublisher } from '../../../src/core/coordination/presence.js';
 import type { Activation } from '../../../src/core/coordination/coordination.js';
 import type { SessionPresence } from '../../../src/core/coordination/coordination-state.js';
 import { initialSnapshot } from '../../../src/core/snapshot.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 
 test('presence counts familiars by runtime and unchanged counts do not publish another record', async () => {
   vi.useFakeTimers();

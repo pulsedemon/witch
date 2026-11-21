@@ -6,6 +6,7 @@ import type { ReactElement } from 'react';
 import stripAnsi from 'strip-ansi';
 import type { Coordinator } from '../../src/core/coordinator.js';
 import type { Snapshot } from '../../src/core/snapshot.js';
+import { initialSnapshot } from '../../src/core/snapshot.js';
 import { PentacleActivity } from '../../src/core/pentacle-activity.js';
 import { MouseInput } from '../../src/ui/terminal/mouse.js';
 import { Sidebar } from '../../src/ui/status/Sidebar.js';
@@ -131,34 +132,24 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       calls.push([name, ...args]);
     };
 
+  const state: Snapshot = {
+    ...initialSnapshot([]),
+    phase: 'idle',
+    agents: ['a', 'b'].map((id) => ({ id, label: id, installed: true })),
+    conversation: {
+      id: 'c',
+      title: 't',
+      cwd: '/work',
+      agent: 'a',
+      sessions: {},
+      createdAt: '',
+    },
+    ...snapshot,
+  };
+
   const coordinator = {
     pentacle: new PentacleActivity(),
-    snapshot: {
-      phase: 'idle',
-      activityStartedAt: Date.now(),
-      items: [],
-      queue: [],
-      commandsPending: false,
-      pendingCompaction: false,
-      requests: [],
-      models: [],
-      skills: [],
-      subagents: [],
-      backgroundCommands: [],
-      usage: {},
-      accounts: {},
-      latest: {},
-      agents: ['a', 'b'].map((id) => ({ id, label: id, installed: true })),
-      conversation: {
-        id: 'c',
-        title: 't',
-        cwd: '/work',
-        agent: 'a',
-        sessions: {},
-        createdAt: '',
-      },
-      ...snapshot,
-    } as Snapshot,
+    snapshot: state,
     memory: { root: '/state/memory.git' },
     subscribe(listener: () => void) {
       listeners.add(listener);

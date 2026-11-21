@@ -5,7 +5,7 @@ import { repairMoves } from '../../src/core/repository/move-repair.js';
 import type { Run } from '../../src/core/repository/repository.js';
 import type { ConversationRecord } from '../../src/core/state.js';
 import { StateStore } from '../../src/persistence/store.js';
-import { record } from './coordinator.js';
+import { record } from './store.js';
 import { git } from './git.js';
 import { scratch } from './scratch.js';
 import { seededMemory } from './seeded-memory.js';

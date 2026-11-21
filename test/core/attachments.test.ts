@@ -9,10 +9,12 @@ import type { TestContext } from 'vitest';
 import { test, vi } from 'vitest';
 import { Attachments, imagePaste } from '../../src/core/attachments.js';
 import { StateStore } from '../../src/persistence/store.js';
-import { unitFixture, record } from '../fixtures/coordinator.js';
+import { unitFixture } from '../fixtures/coordinator.js';
+import { record } from '../fixtures/store.js';
 import { png } from '../fixtures/png.js';
 import { scratch } from '../fixtures/scratch.js';
 import { within } from '../fixtures/within.js';
+import { hangingSips } from '../fixtures/sips.js';
 
 const pngSignature = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -227,32 +229,9 @@ test('cancel stops a running conversion, and the next delivery converts again', 
   const attachments = new Attachments();
   attachments.attach(join(directory, 'photo.jpg'));
   const store = await conversationStore(t);
-
-  t.onTestFinished(() => {
-    vi.restoreAllMocks();
-    syncBuiltinESMExports();
-  });
-
-  const started = Promise.withResolvers<void>();
-
-  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
-    const [, , { signal }, callback] = call as unknown as [
-      string,
-      string[],
-      { signal: AbortSignal },
-      (error: Error | null, stdout: string) => void,
-    ];
-
-    // a sips that never finishes on its own
-    signal.addEventListener('abort', () => callback(new Error('aborted'), ''));
-    started.resolve();
-
-    return new childProcess.ChildProcess();
-  });
-
-  syncBuiltinESMExports();
+  const started = hangingSips(t);
   const preparing = attachments.prepare([1], store);
-  await started.promise;
+  await started;
   attachments.cancel();
 
   await assert.rejects(

@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { AgentEvent } from '../../src/agents/types.js';
-import { agentDisplay, applyDisplayUpdate } from '../../src/core/state.js';
-import type { DisplayItem } from '../../src/core/state.js';
 import { quote } from '../../src/shell.js';
 import { frameWriter, launcher } from '../fixtures/claude-adapter.js';
 import { controlledFixture } from '../fixtures/codex-adapter.js';
 import { until } from '../fixtures/within.js';
+import { project } from '../fixtures/agent.js';
 
 const prefixes = {
   control:
@@ -17,20 +16,6 @@ const prefixes = {
 
 const claim = `${prefixes.control} --claim task:adapter-check --summary 'original summary'`;
 const foreign = claim.replace("'active'", "'another-activation'");
-
-function project(events: AgentEvent[]) {
-  let items: DisplayItem[] = [];
-
-  for (const event of events) {
-    if (event.type === 'tool')
-      items = applyDisplayUpdate(
-        items,
-        agentDisplay(event, event.id, 'Native', '/work'),
-      );
-  }
-
-  return items;
-}
 
 test('Codex command lifecycle events preserve bound titles, original commands and output', async () => {
   const f = await controlledFixture('brews', prefixes);

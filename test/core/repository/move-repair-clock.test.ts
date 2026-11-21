@@ -8,7 +8,7 @@ import { identify } from '../../../src/persistence/directories.js';
 import type * as Directories from '../../../src/persistence/directories.js';
 import type { LedgerMove } from '../../../src/persistence/directories.js';
 import { StateStore } from '../../../src/persistence/store.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { seededMemory } from '../../fixtures/seeded-memory.js';
 

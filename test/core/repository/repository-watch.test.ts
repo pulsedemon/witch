@@ -9,13 +9,14 @@ import { RepositoryWatch } from '../../../src/core/repository/repository.js';
 import type { Run } from '../../../src/core/repository/repository.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until } from '../../fixtures/within.js';
+import { identity } from '../../fixtures/git.js';
 
 const execute = promisify(execFile);
 // only macOS watches; Linux polls, as the polling tests in repository.test.ts cover
 const watching = test.skipIf(process.platform !== 'darwin');
 
 const git = (cwd: string, ...args: string[]) =>
-  execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+  execute('git', [...identity, ...args], {
     cwd,
   });
 

@@ -19,9 +19,26 @@ import type {
   TurnResult,
   Usage,
   UserResponse,
+  AgentEvent,
 } from '../../src/agents/types.js';
 import { peerRequestSchema } from '../../src/core/coordination/peer-requests.js';
 import type { PeerRequest } from '../../src/core/coordination/peer-requests.js';
+import type { DisplayItem } from '../../src/core/state.js';
+import { agentDisplay, applyDisplayUpdate } from '../../src/core/state.js';
+
+export function project(events: AgentEvent[]) {
+  let items: DisplayItem[] = [];
+
+  for (const event of events) {
+    if (event.type === 'tool')
+      items = applyDisplayUpdate(
+        items,
+        agentDisplay(event, event.id, 'Native', '/work'),
+      );
+  }
+
+  return items;
+}
 
 /**
  * a `beforeConnect` that signals `entered`, then holds the connect until `release`, or until the connect aborts with

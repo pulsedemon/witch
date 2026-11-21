@@ -25,7 +25,7 @@ import {
   pauseDiscovery,
   unitCoordinationFixture,
 } from '../../fixtures/coordination.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { selectionTurn } from '../../fixtures/task-selection.js';
 import { until, within } from '../../fixtures/within.js';
 import { countProbes } from '../../fixtures/probes.js';

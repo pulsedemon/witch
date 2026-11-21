@@ -17,6 +17,12 @@ import {
 import { tickMs } from '../../src/ui/useTick.js';
 import { drag, fake, show } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+import {
+  long,
+  first as firstRow,
+  CMD_C,
+  wheelUp,
+} from '../fixtures/ui-transcript.js';
 
 const castMs = castFrames * tickMs;
 
@@ -28,13 +34,6 @@ const cast = (id: string, at: number): DisplayItem => ({
   cwd: '/work',
   at: new Date(at).toISOString(),
 });
-
-const long: DisplayItem = {
-  id: 'long',
-  kind: 'assistant',
-  text: Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join('\n'),
-  cwd: '/work',
-};
 
 type View = ReturnType<typeof show>;
 
@@ -329,14 +328,14 @@ test('selecting a live heading shows and copies its canonical text through settl
     const selected = () => stripAnsi(titles(ui)[0] ?? '').trim() === '✦ Spell';
     await until('the selected canonical heading', selected);
     assert.ok(titles(ui)[0]!.includes('\u001b[7m'));
-    ui.stdin.write('\u001b[99;9u');
+    ui.stdin.write(CMD_C);
     await until('the copied spell', () => copied.length === 1);
     assert.deepEqual(copied, ['✦ Spell\nCast review']);
     vi.advanceTimersByTime(castMs);
     await delay(60);
     assert.ok(selected());
     assert.ok(titles(ui)[0]!.includes('\u001b[7m'));
-    ui.stdin.write('\u001b[99;9u');
+    ui.stdin.write(CMD_C);
     await until('the settled copy', () => copied.length === 2);
     assert.deepEqual(copied, ['✦ Spell\nCast review', '✦ Spell\nCast review']);
   } finally {
@@ -516,14 +515,14 @@ test('a cast published again after its window, while hidden, shows final from it
 test('typing and scrolling take effect while a cast animates', async () => {
   const at = Date.now();
   const { ui } = render([long, cast('review', at)]);
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  const first = () => firstRow(ui);
 
   try {
     await until('the animated title', () => animating(ui));
     ui.stdin.write('abc');
     await until('the typed draft', () => ui.text().includes('abc'));
     const bottom = first();
-    ui.stdin.write('\u001b[<64;10;10M'.repeat(3));
+    ui.stdin.write(wheelUp.repeat(3));
     await until('three rows up', () => first() === bottom - 3);
     assert.ok(Date.now() - at < castMs, `${Date.now() - at} ms`);
   } finally {

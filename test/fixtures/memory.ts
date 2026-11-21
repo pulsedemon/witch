@@ -6,10 +6,9 @@ import type { Workspace } from '../../src/memory/workspace.js';
 import { hookedGit, passThrough } from './git.js';
 import { scratch } from './scratch.js';
 import { seededMemory } from './seeded-memory.js';
+import { configureGitEnvironment } from './merged-environment.js';
 
-// a developer's `url.<base>.insteadOf` would rewrite the origins these tests key
-process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-process.env.GIT_CONFIG_NOSYSTEM = '1';
+configureGitEnvironment();
 const execute = promisify(execFile);
 
 export async function fixture() {

@@ -25,7 +25,7 @@ import {
   holdLedgerPast,
   legacyLock,
 } from '../../fixtures/coordination.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { within } from '../../fixtures/within.js';
 

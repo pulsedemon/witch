@@ -6,7 +6,7 @@ import type { Memory } from '../../src/memory/memory.js';
 import { initialSnapshot } from '../../src/core/snapshot.js';
 import { unreadRows } from '../../src/core/state.js';
 import type { ConversationRecord, DisplayItem } from '../../src/core/state.js';
-import { record } from '../fixtures/coordinator.js';
+import { record } from '../fixtures/store.js';
 
 const items: DisplayItem[] = [
   { id: 'u1', kind: 'user', text: 'migrate the store', cwd: '/w' },

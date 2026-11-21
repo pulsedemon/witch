@@ -20,14 +20,14 @@ import {
   activity,
   fixture,
   notices,
-  record,
   turns,
 } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { until, within } from '../../fixtures/within.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
 import { git } from '../../fixtures/git.js';
 import { repositoryRead } from '../../fixtures/repository.js';
-import { pullRequest } from '../../fixtures/merged.js';
+import { pullRequest, withGit } from '../../fixtures/merged.js';
 
 const kept =
   "#7 merged, but feat/x's last commit isn't the one it merged, so it stays.";
@@ -526,73 +526,60 @@ test('a merge cleanup that finds its checkout locked says another Witch is updat
 
 test('a partial cleanup failure reaches the coordinator without a success notice', async () => {
   const { coordinator, root, project, store } = await fixture();
-  const previousPath = process.env.PATH;
 
   try {
     const { origin, tip } = await mergedOrigin(root, project);
     const expectedRevision = await git(origin, 'rev-parse', 'main');
-    const bin = join(root, 'bin');
 
-    const realGit = (
-      await promisify(execFile)('/usr/bin/which', ['git'])
-    ).stdout.trim();
-
-    await mkdir(bin);
-
-    await writeFile(
-      join(bin, 'git'),
-      `#!${process.execPath}
-const { spawnSync } = require('node:child_process');
-const args = process.argv.slice(2);
-if (args[0] === 'for-each-ref' && args.includes('--merged')) {
+    await withGit(
+      root,
+      `if (args[0] === 'for-each-ref' && args.includes('--merged')) {
   process.stderr.write('injected sibling listing failure');
   process.exit(23);
-}
-process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1);
-`,
-      { mode: 0o755 },
-    );
+}`,
+      async () => {
+        let rejected: Error | undefined;
 
-    process.env.PATH = `${bin}:${previousPath}`;
-    let rejected: Error | undefined;
+        await assert.rejects(
+          coordinator.cleanUpMerge(pullRequest(tip)),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
+            rejected = error;
 
-    await assert.rejects(
-      coordinator.cleanUpMerge(pullRequest(tip)),
-      (error: unknown) => {
-        assert.ok(error instanceof Error);
-        rejected = error;
+            assert.ok(
+              error.message.startsWith(
+                '#7 merged: switched to main and pulled, deleted branch feat/x, but could not list other merged branches:',
+              ),
+            );
 
-        assert.ok(
-          error.message.startsWith(
-            '#7 merged: switched to main and pulled, deleted branch feat/x, but could not list other merged branches:',
-          ),
+            assert.match(error.message, /injected sibling listing failure/);
+            assert.equal((error.cause as { code: number }).code, 23);
+
+            return true;
+          },
         );
 
-        assert.match(error.message, /injected sibling listing failure/);
-        assert.equal((error.cause as { code: number }).code, 23);
+        assert.equal(coordinator.snapshot.error, rejected!.message);
+        assert.equal(coordinator.snapshot.phase, 'idle');
+        assert.deepEqual(notices(coordinator), [rejected!.message]);
+        const id = coordinator.snapshot.conversation!.id;
+        await coordinator.close();
 
-        return true;
+        assert.deepEqual(await savedNotices(store.root, id), [
+          rejected!.message,
+        ]);
+
+        assert.equal(await git(project, 'branch', '--show-current'), 'main');
+
+        assert.equal(
+          await git(project, 'branch', '--format=%(refname:short)'),
+          'main',
+        );
+
+        assert.equal(await git(project, 'rev-parse', 'HEAD'), expectedRevision);
       },
     );
-
-    assert.equal(coordinator.snapshot.error, rejected!.message);
-    assert.equal(coordinator.snapshot.phase, 'idle');
-    assert.deepEqual(notices(coordinator), [rejected!.message]);
-    const id = coordinator.snapshot.conversation!.id;
-    await coordinator.close();
-    assert.deepEqual(await savedNotices(store.root, id), [rejected!.message]);
-    assert.equal(await git(project, 'branch', '--show-current'), 'main');
-
-    assert.equal(
-      await git(project, 'branch', '--format=%(refname:short)'),
-      'main',
-    );
-
-    assert.equal(await git(project, 'rev-parse', 'HEAD'), expectedRevision);
   } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-
     await coordinator.close();
   }
 });

@@ -11,6 +11,7 @@ import { TurnGate } from '../../fixtures/agent.js';
 import { fixture, unitFixture, turns } from '../../fixtures/coordinator.js';
 import { png } from '../../fixtures/png.js';
 import { until, within } from '../../fixtures/within.js';
+import { hangingSips } from '../../fixtures/sips.js';
 
 const review = { name: 'review', description: 'Review changes' };
 
@@ -601,37 +602,14 @@ test('an interrupt while a turn saves its images sends nothing and leaves the pr
 
 test('an interrupt while a pasted image converts stops the conversion, sends nothing, reports no error and leaves the prompt queued', async (t) => {
   const f = await unitFixture();
-
-  t.onTestFinished(() => {
-    vi.restoreAllMocks();
-    syncBuiltinESMExports();
-  });
-
-  const started = Promise.withResolvers<void>();
-
-  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
-    const [, , { signal }, callback] = call as unknown as [
-      string,
-      string[],
-      { signal: AbortSignal },
-      (error: Error | null, stdout: string) => void,
-    ];
-
-    // a sips that never finishes on its own
-    signal.addEventListener('abort', () => callback(new Error('aborted'), ''));
-    started.resolve();
-
-    return new childProcess.ChildProcess();
-  });
-
-  syncBuiltinESMExports();
+  const started = hangingSips(t);
 
   try {
     const path = join(f.root, 'photo.jpg');
     await writeFile(path, 'jpeg bytes');
     const marker = f.coordinator.paste(path, '')!;
     const sending = f.coordinator.send(`look ${marker}`);
-    await within(started.promise, 2000, 'the conversion');
+    await within(started, 2000, 'the conversion');
     await f.coordinator.interrupt();
     await within(sending, 2000, 'the stopped turn');
     assert.deepEqual(f.a.inputs, []);

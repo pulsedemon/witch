@@ -9,6 +9,7 @@ import type { Memory } from '../../src/memory/memory.js';
 import { App } from '../../src/ui/App.js';
 import { fake, show, openCommand, ENTER } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+import { first as firstRow, wheelUp } from '../fixtures/ui-transcript.js';
 
 function peerUpdates(coordinator: ReturnType<typeof fake>['coordinator']) {
   const listeners = new Set<() => void>();
@@ -188,7 +189,7 @@ test('page movement starts from the visible top after content shrinks', async ()
     await until('last page', () => first('long') === 45);
     coordinator.publish({ recovery: recovery('short', 25) });
     await until('clamped short page', () => first('short') === 10);
-    ui.stdin.write('\u001b[<64;10;10M'.repeat(2));
+    ui.stdin.write(wheelUp.repeat(2));
     await until('two rows up', () => first('short') === 8);
     ui.stdin.write('\u001b[A');
     await until('one row up', () => first('short') === 7);
@@ -215,7 +216,7 @@ test('page key releases do not scroll', async () => {
     24,
   );
 
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  const first = () => firstRow(ui);
 
   try {
     await until('initial page', () => first() === 1);

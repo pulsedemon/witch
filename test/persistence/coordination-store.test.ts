@@ -26,7 +26,7 @@ import { StateStore } from '../../src/persistence/store.js';
 import { entry, pauseStatuses } from '../../src/core/coordination/pauses.js';
 import { identifyProcess } from '../../src/persistence/process.js';
 import { openLocked, lockedFiles } from '../../src/persistence/lock.js';
-import { record } from '../fixtures/coordinator.js';
+import { record } from '../fixtures/store.js';
 import { scratch } from '../fixtures/scratch.js';
 import { countProbes } from '../fixtures/probes.js';
 import { within } from '../fixtures/within.js';

@@ -4,7 +4,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 
-export interface WireFrame {
+interface WireFrame {
   direction: 'client' | 'server';
   message: unknown;
 }

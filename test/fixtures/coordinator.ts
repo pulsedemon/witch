@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentSession } from '../../src/agents/types.js';
 import { Coordinator } from '../../src/core/coordinator.js';
-import type { Conversation, ConversationRecord } from '../../src/core/state.js';
+import type { ConversationRecord } from '../../src/core/state.js';
 import { ConversationStore, StateStore } from '../../src/persistence/store.js';
 import { FixtureAgent } from './agent.js';
 import { hookedGit, passThrough } from './git.js';
@@ -13,17 +13,7 @@ import { scratch } from './scratch.js';
 import { seededMemory } from './seeded-memory.js';
 import { EmptyMemory } from './empty-memory.js';
 import { ephemeralFiles } from './ephemeral-files.js';
-
-export function record(id: string, cwd: string, agent = 'a'): Conversation {
-  return {
-    id,
-    title: `Title ${id}`,
-    cwd,
-    agent,
-    sessions: {},
-    createdAt: new Date().toISOString(),
-  };
-}
+import { record } from './store.js';
 
 export function activity(): ConversationRecord['activity'] {
   return {
@@ -221,11 +211,11 @@ export async function stranded(
   return { id, files: created, memory };
 }
 
-/** each turn's prompt and spell, in the order the agent got them. */
 export const notices = (coordinator: Coordinator) =>
   coordinator.snapshot.items
     .filter(({ kind }) => kind === 'notice')
     .map(({ text }) => text);
 
+/** each turn's prompt and spell, in the order the agent got them. */
 export const turns = (a: FixtureAgent) =>
   a.inputs.map(({ prompt, skill }) => [prompt, skill]);

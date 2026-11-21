@@ -6,6 +6,7 @@ import { test } from 'vitest';
 import { promisify } from 'node:util';
 import { listFiles } from '../../src/core/files.js';
 import { scratch } from '../fixtures/scratch.js';
+import { identity } from '../fixtures/git.js';
 
 const execute = promisify(execFile);
 
@@ -30,17 +31,7 @@ test('a work tree lists tracked and untracked files under the cwd, without ignor
   });
 
   await git('add', '.');
-
-  await git(
-    '-c',
-    'user.name=t',
-    '-c',
-    'user.email=t@t',
-    'commit',
-    '-qm',
-    'start',
-  );
-
+  await git(...identity, 'commit', '-qm', 'start');
   await rm(join(root, 'gone.txt'));
   await files(root, { 'new.txt': '', 'debug.log': '' });
 
@@ -60,15 +51,7 @@ test('a path in a merge conflict is listed once', async () => {
   const root = await scratch('witch-files-');
 
   const git = (...args: string[]) =>
-    execute('git', [
-      '-C',
-      root,
-      '-c',
-      'user.name=t',
-      '-c',
-      'user.email=t@t',
-      ...args,
-    ]);
+    execute('git', ['-C', root, ...identity, ...args]);
 
   await git('init', '-q', '-b', 'main');
   await files(root, { 'tracked.txt': 'base\n' });

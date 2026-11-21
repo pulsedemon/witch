@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import { test } from 'vitest';
 import { scratch } from '../../fixtures/scratch.js';
 import { until } from '../../fixtures/within.js';
+import { processRunning } from '../../../src/persistence/instance.js';
 
 const execute = promisify(execFile);
 
@@ -153,17 +154,7 @@ test('Claude installation preserves native argument ordering and retains install
   );
 
   const child = Number(await readFile(join(operation, 'child-pid'), 'utf8'));
-
-  await until('installer descendants stopped', () => {
-    try {
-      process.kill(child, 0);
-
-      return false;
-    } catch (error) {
-      return (error as NodeJS.ErrnoException).code === 'ESRCH';
-    }
-  });
-
+  await until('installer descendants stopped', () => !processRunning(child));
   await mkdir(join(home, 'zsh'));
   await writeFile(join(home, 'zsh/.zshrc'), 'alias claude="legacy-claude"\n');
   await assert.rejects(run(), /would edit.*\.zshrc/);

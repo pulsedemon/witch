@@ -17,7 +17,7 @@ import {
   holdLedgerPast,
   pauseDiscovery,
 } from '../../fixtures/coordination.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { selectionTurn } from '../../fixtures/task-selection.js';
 import { until, within } from '../../fixtures/within.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';

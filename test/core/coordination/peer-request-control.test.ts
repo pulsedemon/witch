@@ -10,18 +10,8 @@ import {
   pauseDiscovery,
 } from '../../fixtures/coordination.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';
-
-type Client = Awaited<
-  ReturnType<Awaited<ReturnType<typeof unitCoordinationFixture>>['start']>
->;
-
-async function claimed(client: Client, name: string) {
-  const result = await client.claim(`task:${name}`, `${name} work`);
-
-  if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
-
-  return result.claim;
-}
+import type { Client } from '../../fixtures/coordinator-peer-requests.js';
+import { claimed } from '../../fixtures/coordinator-peer-requests.js';
 
 async function ask(client: Client, claim: string, message: string) {
   return callControl(await client.binding(), { kind: 'ask', claim, message });

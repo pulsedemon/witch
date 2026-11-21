@@ -17,10 +17,9 @@ import {
 } from '../../fixtures/merged.js';
 import { git } from '../../fixtures/git.js';
 import { exists, until } from '../../fixtures/within.js';
+import { configureGitEnvironment } from '../../fixtures/merged-environment.js';
 
-// a developer's own git config would take part in the fixtures' switches and fetches
-process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-process.env.GIT_CONFIG_NOSYSTEM = '1';
+configureGitEnvironment();
 
 const detached = {
   text: '#7 merged: detached at origin/main, deleted branch feat/x.',

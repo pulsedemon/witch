@@ -12,6 +12,7 @@ import { openLocked } from '../../src/persistence/lock.js';
 import { identifyProcess } from '../../src/persistence/process.js';
 import { ScratchSpace } from '../../src/persistence/scratch.js';
 import { until } from './within.js';
+import { quote } from '../../src/shell.js';
 
 const [mode, parent, value] = process.argv.slice(2) as [string, string, string];
 const deadline = setTimeout(() => process.exit(1), 30_000);
@@ -76,9 +77,7 @@ try {
           marker,
         ];
 
-        const command = words
-          .map((word) => `'${word.replaceAll("'", "'\\''")}'`)
-          .join(' ');
+        const command = words.map(quote).join(' ');
 
         const result = await runShell(
           `${command} >/dev/null 2>&1 & printf '%s' "$!"`,

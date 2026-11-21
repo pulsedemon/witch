@@ -8,6 +8,7 @@ import { Screen } from '../../src/ui/terminal/screen.js';
 import { unitFixture } from '../fixtures/coordinator.js';
 import { show, fake, drag, left, ENTER, SHIFT_ENTER } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+import { CMD_C } from '../fixtures/ui-transcript.js';
 
 const reminder = 'Earlier messages shown here';
 const wheelUp = '\u001b[<64;5;5M';
@@ -263,7 +264,7 @@ test('batched drag events keep their row coordinates when scrolling removes the 
         left('drag', 8, 14).repeat(4) +
         left('drag', 8, 12) +
         left('release', 8, 12) +
-        '\u001b[99;9u',
+        CMD_C,
     );
 
     await until('batched selection copied', () => copied.length > 0);
@@ -314,7 +315,7 @@ test('the reminder preserves archived colors, selection and hyperlink coordinate
     const column = lines[row]!.indexOf(text);
     const count = copied.length;
     drag(ui, [column, row], [column + text.length - 1, row]);
-    ui.stdin.write('\u001b[99;9u');
+    ui.stdin.write(CMD_C);
     await until('selected text copied', () => copied.length > count);
     assert.equal(copied.at(-1), text);
   };

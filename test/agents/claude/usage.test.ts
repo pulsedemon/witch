@@ -30,14 +30,10 @@ import { show } from '../../fixtures/ui.js';
 import { until, within } from '../../fixtures/within.js';
 import { untimed } from '../../fixtures/limits.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
+import { state } from '../../fixtures/claude-background.js';
 
 const timeout = 10_000;
-
-const idle = {
-  type: 'system',
-  subtype: 'session_state_changed',
-  state: 'idle',
-};
+const idle = state('idle');
 
 const firstLimits = [
   { window: '5H', percent: 23.5, resetsAt: 2_000_000_000 },

@@ -42,6 +42,7 @@ async function fixture(sharedTmp?: string) {
     'package.json',
     'babel.config.js',
     'vitest.config.ts',
+    'src/persistence/instance.ts',
     'test/fixtures/vitest-setup.ts',
     'test/fixtures/cli-build.ts',
     'test/fixtures/scratch.ts',

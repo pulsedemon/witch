@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { test } from 'vitest';
 import { checkTargets } from '../../../src/core/review/review-checks.js';
 import { scratch } from '../../fixtures/scratch.js';
+import { identity } from '../../fixtures/git.js';
 
 const execute = promisify(execFile);
 
@@ -397,15 +398,7 @@ async function committed(
   const root = await scratch('witch-review-checks-');
 
   const git = (...args: string[]) =>
-    execute('git', [
-      '-C',
-      root,
-      '-c',
-      'user.name=t',
-      '-c',
-      'user.email=t@t',
-      ...args,
-    ]);
+    execute('git', ['-C', root, ...identity, ...args]);
 
   await git('init', '-q');
   await git('remote', 'add', 'origin', remote);

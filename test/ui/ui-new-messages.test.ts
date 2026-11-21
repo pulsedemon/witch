@@ -17,9 +17,9 @@ import {
   TAB,
 } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+import { wheelUp, first, CMD_C } from '../fixtures/ui-transcript.js';
 
 const label = '↓ New messages';
-const wheelUp = '\u001b[<64;10;10M';
 const wheelDown = '\u001b[<65;10;10M';
 const pageUp = '\u001b[5~';
 const pageDown = '\u001b[6~';
@@ -32,8 +32,6 @@ const long = {
 };
 
 type UI = ReturnType<typeof show>;
-
-const first = (ui: UI) => Number(/row (\d+)/.exec(ui.text())?.[1]);
 
 const rowOf = (ui: UI, text: string) =>
   ui
@@ -333,10 +331,7 @@ test('only a click on the shown button jumps and transcript selection still copi
     assert.ok(ui.text().includes(label));
 
     ui.stdin.write(
-      left('press', 1, 1) +
-        left('drag', 3, 1) +
-        left('release', 3, 1) +
-        '\u001b[99;9u',
+      left('press', 1, 1) + left('drag', 3, 1) + left('release', 3, 1) + CMD_C,
     );
 
     await until('copied transcript', () => copied.length > 0);
