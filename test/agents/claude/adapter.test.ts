@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import { AbortError } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { skillCall } from '../../../src/core/prompts.js';
 import type {
   AgentEvent,
   Usage,
@@ -76,16 +77,23 @@ test('refresh consumes a fresh native catalog without replacing the default syst
   }
 });
 
-test('skills list a built-in once with its own row and aliases in place of a row it shadows, and leave out the built-ins Witch sends as text, before and after a native change', async () => {
+test('skills preserve built-in precedence, aliases and text routing before and after a native change', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
 
   const nativeCommands = [
-    'autocompact',
-    'output-style',
-    'advisor',
-    'auto-mode-setup',
-  ].map((name) => ({ name, description: 'Native command', builtin: true }));
+    { name: 'autocompact' },
+    { name: 'config', aliases: ['settings'], sendAsText: true },
+    { name: 'output-style' },
+    { name: 'rename', aliases: ['name'], sendAsText: true },
+    { name: 'clear', aliases: ['reset', 'new'], sendAsText: true },
+    { name: 'advisor' },
+    { name: 'auto-mode-setup' },
+  ].map((command) => ({
+    ...command,
+    description: 'Native command',
+    builtin: true,
+  }));
 
   try {
     assert.deepEqual(await session.skills(), [
@@ -94,6 +102,13 @@ test('skills list a built-in once with its own row and aliases in place of a row
         description: 'Compact the conversation',
         builtin: true,
         aliases: ['squash'],
+      },
+      {
+        name: 'effort',
+        description: 'Set the effort level',
+        argumentHint: '[low|high]',
+        builtin: true,
+        sendAsText: true,
       },
       ...nativeCommands,
       {
@@ -153,6 +168,76 @@ test('initial slash prompts go as text unless a native command was selected', as
           undefined,
         ],
       ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+test('discovered aliases use native routing while text aliases stay text on initial and steered input', async () => {
+  const { session, cwd } = await fixture();
+  const skills = await session.skills();
+  const prompts = ['/squash 42', '/settings x', '/name audit', '/reset'];
+
+  try {
+    for (const prompt of prompts)
+      assert.equal(
+        (
+          await session.send(prompt, {
+            context: 'Witch context',
+            skill: skillCall(prompt, skills),
+          })
+        ).status,
+        'completed',
+      );
+
+    const held = session.send('reporting familiar');
+    await until('the reply', () => session.replied);
+
+    for (const prompt of prompts)
+      assert.equal(
+        await session.steer(prompt, { skill: skillCall(prompt, skills) }),
+        true,
+      );
+
+    await until(
+      'serialized alias inputs',
+      async () => (await jsonLines(join(cwd, 'inputs.jsonl'))).length === 9,
+    );
+
+    const inputs = (await jsonLines(
+      join(cwd, 'inputs.jsonl'),
+    )) as SDKUserMessage[];
+
+    assert.deepEqual(inputs[0]!.message.content, [
+      { type: 'text', text: 'Witch context\n\nUser request:\n/squash 42' },
+      { type: 'text', text: '/squash 42' },
+    ]);
+
+    assert.equal(inputs[0]!.client_composed, undefined);
+
+    for (const [index, prompt] of prompts.slice(1).entries()) {
+      assert.equal(
+        inputs[index + 1]!.message.content,
+        `Witch context\n\nUser request:\n${prompt}`,
+      );
+
+      assert.equal(inputs[index + 1]!.client_composed, true);
+    }
+
+    assert.deepEqual(
+      inputs
+        .slice(5)
+        .map((input) => [input.message.content, input.client_composed]),
+      prompts.map((prompt, index) => [prompt, index ? true : undefined]),
+    );
+
+    for (const name of ['allow-report', 'allow-idle'])
+      await writeFile(join(cwd, name), 'yes');
+
+    assert.equal(
+      (await within(held, 2000, 'the held turn')).status,
+      'completed',
     );
   } finally {
     await session.close();

@@ -39,17 +39,19 @@ const nativeVersion = JSON.parse(
 ).claude.version;
 
 const stateCommands = [
-  'autocompact',
-  'config',
-  'output-style',
-  'rename',
-  'advisor',
-  'auto-mode-setup',
-].map((name) => ({
+  ['autocompact', []],
+  ['config', ['settings']],
+  ['output-style', []],
+  ['rename', ['name']],
+  ['clear', ['reset', 'new']],
+  ['advisor', []],
+  ['auto-mode-setup', []],
+].map(([name, aliases]) => ({
   name,
   description: 'Native command',
   argumentHint: '',
   builtin: true,
+  ...(aliases.length ? { aliases } : {}),
 }));
 
 let initialization = 0;

@@ -148,40 +148,59 @@ for (const [name, prompt] of [
     }
   });
 
-test('a prompt sent behind a spell the turn refused steers past it, and the spell goes alone next', async () => {
-  const { coordinator, a } = await unitFixture(undefined, (a) => {
-    a.skills = [review];
+for (const alias of [false, true])
+  test(`a prompt sent behind a refused ${alias ? 'native alias' : 'spell'} steers past it, and it goes alone next`, async () => {
+    const prompt = alias ? '/cost now' : '/review now';
+
+    const call = {
+      name: alias ? 'cost' : 'review',
+      args: 'now',
+      ...(alias ? { builtin: true as const } : {}),
+    };
+
+    const { coordinator, a } = await unitFixture(undefined, (a) => {
+      a.skills = alias
+        ? [
+            {
+              name: 'usage',
+              description: 'Usage',
+              builtin: true,
+              aliases: ['cost'],
+            },
+          ]
+        : [review];
+    });
+
+    const gate = new TurnGate();
+
+    try {
+      a.gate = gate;
+      a.refuseSkillSteer = true;
+      const sending = coordinator.send('Start');
+      await within(gate.entered, 2000, 'the gated turn');
+      await coordinator.send(prompt);
+      assert.deepEqual(coordinator.snapshot.queue, [prompt]);
+
+      assert.ok(
+        !coordinator.snapshot.items.some(({ text }) => text === prompt),
+      );
+
+      await coordinator.send('after');
+      assert.deepEqual(a.steers, ['after']);
+      assert.deepEqual(coordinator.snapshot.queue, [prompt]);
+      gate.open();
+      await within(sending, 2000, 'the queued turn');
+      assert.deepEqual(coordinator.snapshot.queue, []);
+
+      assert.deepEqual(turns(a), [
+        ['Start', undefined],
+        [prompt, call],
+      ]);
+    } finally {
+      gate.open();
+      await coordinator.close();
+    }
   });
-
-  const gate = new TurnGate();
-
-  try {
-    a.gate = gate;
-    a.refuseSkillSteer = true;
-    const sending = coordinator.send('Start');
-    await within(gate.entered, 2000, 'the gated turn');
-    await coordinator.send('/review now');
-    assert.deepEqual(coordinator.snapshot.queue, ['/review now']);
-
-    assert.ok(
-      !coordinator.snapshot.items.some(({ text }) => text === '/review now'),
-    );
-
-    await coordinator.send('after');
-    assert.deepEqual(a.steers, ['after']);
-    assert.deepEqual(coordinator.snapshot.queue, ['/review now']);
-    gate.open();
-    await within(sending, 2000, 'the queued turn');
-
-    assert.deepEqual(turns(a), [
-      ['Start', undefined],
-      ['/review now', { name: 'review', args: 'now' }],
-    ]);
-  } finally {
-    gate.open();
-    await coordinator.close();
-  }
-});
 
 test('a spell an interrupt leaves unread goes alone next with its skill call', async () => {
   const { coordinator, a } = await unitFixture(undefined, (a) => {
