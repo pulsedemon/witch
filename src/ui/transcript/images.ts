@@ -39,6 +39,12 @@ interface Image {
 /** a key's image, its load waiting or running, or its failure, which may be retried from `retry`. */
 type Entry = Image | 'queued' | { retry: number };
 
+function isLoaded(entry: Entry | undefined): entry is Image {
+  return typeof entry === 'object' && 'id' in entry;
+}
+
+const deleteImage = (id: number) => `\u001b_Ga=d,d=I,i=${id},q=2\u001b\\`;
+
 /**
  * draws images inline with Kitty Unicode placeholders: each image is sent once, and again when its file changes,
  * then shown by text rows that scroll and clip with the transcript. the terminal fits the image into its rows,
@@ -89,7 +95,7 @@ export class Graphics {
       return [];
     }
 
-    if (image === 'queued' || 'retry' in image) return [];
+    if (!isLoaded(image)) return [];
 
     if (image.stamp !== undefined && !image.checkQueued) {
       image.checkQueued = true;
@@ -135,7 +141,7 @@ export class Graphics {
   id(source: string, cwd: string): number | undefined {
     const image = this.entries.get(entryKey(source, cwd));
 
-    return typeof image === 'object' && 'id' in image ? image.id : undefined;
+    return isLoaded(image) ? image.id : undefined;
   }
 
   /**
@@ -147,8 +153,7 @@ export class Graphics {
     this.controller = new AbortController();
 
     for (const image of this.entries.values())
-      if (image !== 'queued' && 'id' in image)
-        this.write(`\u001b_Ga=d,d=I,i=${image.id},q=2\u001b\\`);
+      if (isLoaded(image)) this.write(deleteImage(image.id));
 
     this.entries.clear();
     // synchronous, since a forced quit exits right after
@@ -160,12 +165,7 @@ export class Graphics {
     const { signal } = this.controller;
 
     for (const [key, image] of this.entries)
-      if (
-        key.startsWith('data:') &&
-        image !== 'queued' &&
-        'id' in image &&
-        image.link === link
-      ) {
+      if (key.startsWith('data:') && isLoaded(image) && image.link === link) {
         const loaded = await decode(key, signal);
 
         if (!loaded || loaded === 'unchanged') return;
@@ -180,9 +180,7 @@ export class Graphics {
     if (!signal.aborted) {
       // read here, since a check queued before this one may have replaced the image
       const entry = this.entries.get(key);
-
-      const shown =
-        typeof entry === 'object' && 'id' in entry ? entry : undefined;
+      const shown = isLoaded(entry) ? entry : undefined;
 
       // cleared before the file is read, so a view during the read queues a check of what the file holds after it
       if (shown) shown.checkQueued = false;
@@ -218,7 +216,7 @@ export class Graphics {
             );
           }
 
-          if (shown) this.write(`\u001b_Ga=d,d=I,i=${shown.id},q=2\u001b\\`);
+          if (shown) this.write(deleteImage(shown.id));
 
           this.entries.set(key, image);
           this.loads++;

@@ -11,6 +11,7 @@ import { shown, tabbed, uncopied } from './transcript/selection.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
+const scheme = /^[a-z][a-z\d+.-]*:/i;
 
 /** whether linkify-it's hostname pattern would try both readings of each `xn--` label in `text`, doubling its work with every one. */
 function backtracks(text: string): boolean {
@@ -118,7 +119,7 @@ export function hyperlink(
   copied = false,
 ): string {
   if (
-    /^[a-z][a-z\d+.-]*:/i.test(target) &&
+    scheme.test(target) &&
     !/^(https?:|file:|vscode:)/i.test(target) &&
     !/:\d+(?::\d+)?$/.test(target)
   )
@@ -158,7 +159,7 @@ export function markdownLink(
   cwd: string,
   explicit: boolean,
 ): string {
-  if (!/^[a-z][a-z\d+.-]*:/i.test(target)) {
+  if (!scheme.test(target)) {
     // a heading anchor is no part of the file; only a `#L12` location after a file is kept
     const hash = target.indexOf('#');
 
