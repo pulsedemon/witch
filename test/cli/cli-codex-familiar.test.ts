@@ -47,7 +47,7 @@ async function fixture(
   const bin = join(root, 'bin');
   await mkdir(bin);
 
-  for (const name of ['codex.mjs', 'peer-answer.mjs'])
+  for (const name of ['codex.mjs', 'codex-turns.mjs', 'peer-answer.mjs'])
     await copyFile(
       fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url)),
       join(root, name),
