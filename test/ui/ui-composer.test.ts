@@ -517,25 +517,67 @@ test('a native name the list leaves out sends as typed rather than as a spell ho
         builtin: true,
         aliases: ['cost'],
       },
-      { name: 'review', description: 'Native review', builtin: true },
+      {
+        name: 'code-review',
+        description: 'Native review',
+        builtin: true,
+        aliases: ['review'],
+      },
+      {
+        name: 'config',
+        description: 'Settings',
+        builtin: true,
+        aliases: ['settings'],
+        sendAsText: true,
+      },
+      {
+        name: 'rename',
+        description: 'Rename',
+        builtin: true,
+        aliases: ['name'],
+        sendAsText: true,
+      },
+      {
+        name: 'clear',
+        description: 'Clear',
+        builtin: true,
+        aliases: ['reset', 'new'],
+        sendAsText: true,
+      },
+      {
+        name: 'agents',
+        description: 'Native agents',
+        builtin: true,
+        aliases: ['peers'],
+      },
       { name: 'x:context-tools', description: 'Context tools' },
       { name: 'azure:azure-cost', description: 'Azure cost' },
       { name: 'discord:configure', description: 'Configure' },
+      { name: 'plugin-dev:plugin-settings', description: 'Plugin settings' },
+      { name: 'plugin:rename', description: 'Plugin rename' },
+      { name: 'plugin:reset', description: 'Plugin reset' },
     ],
   });
 
   try {
-    // a built-in's name, its alias and a command Witch sends as text
-    for (const [index, prompt] of ['/context', '/cost', '/config'].entries()) {
+    const submitted = [
+      '/context',
+      '/cost',
+      '/config',
+      '/settings',
+      '/name',
+      '/reset',
+    ];
+
+    for (const [index, prompt] of submitted.entries()) {
       ui.stdin.write(`${prompt}${ENTER}`);
       await until('the send', () => calls.length > index);
     }
 
-    assert.deepEqual(calls, [
-      ['send', '/context', { composer: true }],
-      ['send', '/cost', { composer: true }],
-      ['send', '/config', { composer: true }],
-    ]);
+    assert.deepEqual(
+      calls,
+      submitted.map((prompt) => ['send', prompt, { composer: true }]),
+    );
 
     // clear is sent as text and review is a built-in, but Witch runs both
     ui.stdin.write('/clear');
@@ -551,10 +593,61 @@ test('a native name the list leaves out sends as typed rather than as a spell ho
     await until('the review row', () =>
       ui.text().includes('/review Review files in rounds Witch runs'),
     );
+
+    let previous = 'review';
+
+    for (const [command, label] of [
+      ['new', 'New conversation'],
+      ['peers', 'Other sessions in this repository'],
+    ]) {
+      for (let i = 0; i < previous.length + 1; i++) ui.stdin.write('\u007f');
+
+      ui.stdin.write(`/${command}`);
+
+      await until('the Witch row', () =>
+        ui.text().includes(`/${command} ${label}`),
+      );
+
+      previous = command!;
+    }
   } finally {
     ui.unmount();
   }
 });
+
+for (const [name, native] of [
+  ['cost', 'usage'],
+  ['settings', 'config'],
+] as const)
+  test(`an exact ${name} spell is offered ahead of the ${native} built-in alias`, async () => {
+    const { ui, calls } = await launched({
+      conversation: claudeConversation,
+      skills: [
+        {
+          name: native,
+          description: 'Native command',
+          builtin: true,
+          aliases: [name],
+          ...(native === 'config' ? { sendAsText: true as const } : {}),
+        },
+        { name, description: 'Project spell' },
+      ],
+    });
+
+    try {
+      ui.stdin.write(`/${name}`);
+
+      await until('the exact spell', () =>
+        ui.text().includes(`/${name} Project spell`),
+      );
+
+      ui.stdin.write(ENTER);
+      await until('the submitted spell', () => calls.length > 0);
+      assert.deepEqual(calls, [['send', `/${name}`, { composer: true }]]);
+    } finally {
+      ui.unmount();
+    }
+  });
 
 test("a Claude text command's name lists matching spells in another runtime's conversation", async () => {
   const { ui } = await launched({

@@ -195,6 +195,52 @@ test('after the reply, a listed spell steers trimmed with its call, and an unlis
   }
 });
 
+test('a native alias has a call on initial and steered input while a text alias has none', async () => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
+    a.skills = [
+      { name: 'usage', description: 'Usage', builtin: true, aliases: ['cost'] },
+      {
+        name: 'config',
+        description: 'Settings',
+        builtin: true,
+        aliases: ['settings'],
+        sendAsText: true,
+      },
+    ];
+  });
+
+  const gate = new TurnGate();
+
+  try {
+    await coordinator.send('/cost initial');
+    await coordinator.send('/settings initial');
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    a.replied = true;
+    await coordinator.send('/cost later');
+    await coordinator.send('/settings later');
+    assert.deepEqual(a.steers, ['/cost later', '/settings later']);
+
+    assert.deepEqual(a.skillSteers, [
+      { name: 'cost', args: 'later', builtin: true },
+    ]);
+
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    gate.open();
+    await within(sending, 2000, 'the turn');
+
+    assert.deepEqual(turns(a), [
+      ['/cost initial', { name: 'cost', args: 'initial', builtin: true }],
+      ['/settings initial', undefined],
+      ['Start', undefined],
+    ]);
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 test('a turn that takes model changes applies a same-runtime choice before its reply', async () => {
   const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();

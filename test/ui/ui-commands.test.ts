@@ -84,6 +84,55 @@ for (const [text, expected] of cases)
     );
   });
 
+test('native aliases keep embedded Witch commands as arguments while Witch names retain priority', () => {
+  const skills = [
+    {
+      name: 'usage',
+      description: 'Usage',
+      builtin: true as const,
+      aliases: ['cost'],
+    },
+    {
+      name: 'config',
+      description: 'Settings',
+      builtin: true as const,
+      aliases: ['settings'],
+      sendAsText: true as const,
+    },
+    {
+      name: 'code-review',
+      description: 'Review',
+      builtin: true as const,
+      aliases: ['review'],
+    },
+    {
+      name: 'clear',
+      description: 'Clear',
+      builtin: true as const,
+      aliases: ['new'],
+      sendAsText: true as const,
+    },
+    {
+      name: 'agents',
+      description: 'Agents',
+      builtin: true as const,
+      aliases: ['peers'],
+    },
+  ];
+
+  assert.equal(parseCommands('/cost please /compact', skills), undefined);
+  assert.equal(parseCommands('/settings /compact', skills), undefined);
+
+  assert.deepEqual(parseCommands('/review target', skills), [
+    { name: 'review', argument: 'target' },
+  ]);
+
+  for (const name of ['new', 'peers'])
+    assert.deepEqual(parseCommands(`/${name}`, skills), [
+      { name, argument: '' },
+    ]);
+});
+
 async function submit(ui: ReturnType<typeof show>, text: string) {
   ui.stdin.write(text);
   await delay(30);

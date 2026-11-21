@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Skill } from '../../agents/types.js';
 import { textCommands } from '../../agents/claude/spells.js';
+import { skillNamed } from '../../core/prompts.js';
 import { commands, claimedCommands } from '../commands/commands.js';
 import { useLiveState } from '../useLiveState.js';
 import type { InputHandle } from './Input.js';
@@ -68,10 +69,7 @@ export function useCompletion({
     return (
       !claimedCommands.has(name) &&
       ((liveAgent === 'claude' && textCommands.has(name)) ||
-        skills.some(
-          ({ builtin, name: native, aliases = [] }) =>
-            builtin && [native, ...aliases].includes(name),
-        ))
+        skillNamed(name, skills)?.builtin)
     );
   };
 

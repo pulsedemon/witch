@@ -804,14 +804,8 @@ function addSkill(context) {
     type: 'system',
     subtype: 'commands_changed',
     commands: [
-      {
-        name: 'clear',
-        description: 'Clear',
-        argumentHint: '',
-        builtin: true,
-      },
-      { name: 'clear', description: 'Shadowed', argumentHint: '' },
       ...stateCommands,
+      { name: 'clear', description: 'Shadowed', argumentHint: '' },
       { name: 'config', description: 'Shadowed', argumentHint: '' },
       { name: 'rename', description: 'Shadowed', argumentHint: '' },
       { name: 'later', description: 'Added later', argumentHint: '' },
