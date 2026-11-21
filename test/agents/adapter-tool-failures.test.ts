@@ -1,25 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { AgentEvent } from '../../src/agents/types.js';
-import { agentDisplay, applyDisplayUpdate } from '../../src/core/state.js';
-import type { DisplayItem } from '../../src/core/state.js';
 import { frameWriter, launcher } from '../fixtures/claude-adapter.js';
 import { controlledFixture } from '../fixtures/codex-adapter.js';
 import { until } from '../fixtures/within.js';
-
-function project(events: AgentEvent[]) {
-  let items: DisplayItem[] = [];
-
-  for (const event of events) {
-    if (event.type === 'tool')
-      items = applyDisplayUpdate(
-        items,
-        agentDisplay(event, event.id, 'Native', '/work'),
-      );
-  }
-
-  return items;
-}
+import { project } from '../fixtures/agent.js';
 
 test('a Codex command that exits non-zero, fails or is declined marks its row failed', async () => {
   const f = await controlledFixture('brews');

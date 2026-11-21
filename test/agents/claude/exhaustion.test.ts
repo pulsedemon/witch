@@ -28,13 +28,7 @@ const limit = (info: object = {}) => ({
 });
 
 const failed = { type: 'result', is_error: true, result: 'API Error: 429' };
-
-const idle = {
-  type: 'system',
-  subtype: 'session_state_changed',
-  state: 'idle',
-};
-
+const idle = state('idle');
 const failure = [failed, idle];
 
 /** the last scripted turn's result on a sonnet session, once that turn failed or was interrupted. */

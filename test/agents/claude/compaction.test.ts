@@ -12,6 +12,7 @@ import {
   jsonLines,
 } from '../../fixtures/claude-adapter.js';
 import { settled, until, within } from '../../fixtures/within.js';
+import { state } from '../../fixtures/claude-background.js';
 
 async function scripted(sessionState = true) {
   const events: AgentEvent[] = [];
@@ -58,11 +59,7 @@ async function scripted(sessionState = true) {
   return { ...f, events, emit, compact };
 }
 
-const idle = {
-  type: 'system',
-  subtype: 'session_state_changed',
-  state: 'idle',
-};
+const idle = state('idle');
 
 const boundary = {
   type: 'system',

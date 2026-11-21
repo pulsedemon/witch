@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { processRunning } from '../../src/persistence/instance.js';
 
 const execute = promisify(execFile);
 let parent: Promise<string> | undefined;
@@ -33,7 +34,7 @@ async function open(): Promise<string> {
   for (const name of await readdir(base)) {
     const pid = /^(\d+)-[0-9A-Za-z]{6}$/.exec(name)?.[1];
 
-    if (pid === undefined || running(Number(pid))) continue;
+    if (pid === undefined || processRunning(Number(pid))) continue;
 
     const dead = join(base, name);
     // a run killed between a test's chmod and its restore leaves directories rm can't enter.
@@ -45,15 +46,4 @@ async function open(): Promise<string> {
   made = await mkdtemp(join(base, `${process.pid}-`));
 
   return made;
-}
-
-/** only ESRCH means gone: EPERM is another user's live process. */
-function running(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
 }
