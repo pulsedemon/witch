@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { cleanUpMerge } from '../../../src/core/repository/merged.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import { openLocked } from '../../../src/persistence/lock.js';
@@ -21,6 +21,7 @@ import {
   pullRequest,
   write,
   withGit,
+  withGh,
 } from '../../fixtures/merged.js';
 import { git } from '../../fixtures/git.js';
 import { exists } from '../../fixtures/within.js';
@@ -28,9 +29,60 @@ import {
   configureGitEnvironment,
   execute,
 } from '../../fixtures/merged-environment.js';
+import * as environment from '../../fixtures/merged-environment.js';
+import { scratch } from '../../fixtures/scratch.js';
 
 configureGitEnvironment();
 const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
+
+for (const [name, wrap] of Object.entries({ gh: withGh, git: withGit })) {
+  for (const fails of [false, true]) {
+    test(`${name} restores an absent PATH after its body ${fails ? 'rejects' : 'returns'}`, async (t) => {
+      const root = await scratch('witch-wrapper-path-');
+      const previousPath = process.env.PATH;
+
+      const restore = () => {
+        vi.restoreAllMocks();
+
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+      };
+
+      t.onTestFinished(restore);
+      const originalExecute = environment.execute;
+      const lookup = originalExecute('/usr/bin/which', ['git']);
+      await lookup;
+
+      vi.spyOn(environment, 'execute').mockImplementation((...args) =>
+        args[0] === '/usr/bin/which' ? lookup : originalExecute(...args),
+      );
+
+      delete process.env.PATH;
+
+      try {
+        let entered = false;
+        const failure = new Error('body failed');
+        const returned = Symbol('returned');
+
+        const work = wrap(root, '', async () => {
+          entered = true;
+
+          if (fails) throw failure;
+
+          return returned;
+        });
+
+        if (fails) await assert.rejects(work, (error) => error === failure);
+        else assert.equal(await work, returned);
+
+        assert.equal(entered, true);
+        assert.equal(Object.hasOwn(process.env, 'PATH'), false);
+      } finally {
+        restore();
+      }
+    });
+  }
+}
 
 test("a merged branch's checkout switches to the base, and loses the branch, its ignored plan and ledger, and the merged branches whose remote branch is gone", async () => {
   const { root, checkout, other, tip } = await merged();
