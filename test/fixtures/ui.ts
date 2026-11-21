@@ -72,6 +72,7 @@ export function show(element: ReactElement, columns = 100, rows = 40) {
   return {
     stdin,
     frame: () => stdout.frames.at(-1) ?? '',
+    frames: (): readonly string[] => stdout.frames,
     text: () => stripAnsi(stdout.frames.at(-1) ?? ''),
     resize: (columns: number, rows?: number) => stdout.resize(columns, rows),
     unmount: () => instance.unmount(),
