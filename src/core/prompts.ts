@@ -31,15 +31,26 @@ export function memoryAttribution(conversation: string, turn: string): string {
   return `conversation: ${conversation}\nturn: ${turn}`;
 }
 
+/** an exact name wins over a built-in alias, including when a spell owns that name. */
+export function skillNamed(
+  name: string,
+  skills: readonly Skill[],
+): Skill | undefined {
+  return (
+    skills.find((skill) => skill.name === name) ??
+    skills.find((skill) => skill.builtin && skill.aliases?.includes(name))
+  );
+}
+
 /** splits `/name args` as Claude Code does: the name ends at the first whitespace. */
 export function skillCall(
   prompt: string,
   skills: readonly Skill[],
 ): SkillCall | undefined {
   const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
-  const skill = match && skills.find(({ name }) => name === match[1]);
+  const skill = match && skillNamed(match[1]!, skills);
 
-  if (!match || !skill) return;
+  if (!match || !skill || skill.sendAsText) return;
 
   return {
     name: match[1]!,

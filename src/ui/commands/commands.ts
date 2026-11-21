@@ -1,5 +1,5 @@
 import type { Skill } from '../../agents/types.js';
-import { skillCall } from '../../core/prompts.js';
+import { skillNamed } from '../../core/prompts.js';
 
 const catalog = [
   { id: 'new', label: 'New conversation', takesArguments: true, leading: true },
@@ -68,9 +68,10 @@ export function parseCommands(
 ): WitchCommand[] | undefined {
   if (text.trimStart().startsWith('!')) return;
 
-  const native = skillCall(text, skills);
+  const leadingName = /^\/(\S+)/.exec(text.trimStart())?.[1];
 
-  if (native && !names.has(native.name)) return;
+  if (leadingName && !names.has(leadingName) && skillNamed(leadingName, skills))
+    return;
 
   const found: {
     command: (typeof commands)[number];

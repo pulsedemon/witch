@@ -47,7 +47,7 @@ export function skillsOf(commands: SlashCommand[]): Skill[] {
     const { name, description, argumentHint, aliases } =
       builtins.get(command.name) ?? command;
 
-    if (listed.has(name) || (builtin && textCommands.has(name))) continue;
+    if (listed.has(name)) continue;
 
     listed.set(name, {
       name,
@@ -55,6 +55,9 @@ export function skillsOf(commands: SlashCommand[]): Skill[] {
       ...(argumentHint ? { argumentHint } : {}),
       ...(builtin ? { builtin: true as const } : {}),
       ...(builtin && aliases?.length ? { aliases } : {}),
+      ...(builtin && textCommands.has(name)
+        ? { sendAsText: true as const }
+        : {}),
     });
   }
 

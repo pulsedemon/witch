@@ -15,15 +15,17 @@ export interface Model {
   contextWindows?: { default: number; maximum: number };
 }
 
-/** a native skill or command run by sending `/name args`; the composer offers it after `/` unless it is `builtin`. */
+/** a discovered skill or command; the composer offers it after `/` unless it is `builtin`. */
 export interface Skill {
   name: string;
   description: string;
   argumentHint?: string;
-  /** Claude Code's own command, which `/name args` runs natively but the composer doesn't offer. */
+  /** Claude Code's own command, which the composer doesn't offer. */
   builtin?: true;
   /** other names Claude Code runs a built-in under, such as `cost` for `usage`. */
   aliases?: string[];
+  /** keeps a native command and its aliases as text to preserve Witch's state ownership. */
+  sendAsText?: true;
 }
 
 /** a `/name args` prompt the coordinator matched to a listed skill or native command. */
