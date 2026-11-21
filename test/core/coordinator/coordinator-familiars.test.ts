@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
+import { ConversationStore } from '../../../src/persistence/store.js';
 import { TurnGate } from '../../fixtures/agent.js';
 import { unitFixture } from '../../fixtures/coordinator.js';
 import {
@@ -68,7 +69,11 @@ test('an exhausted source retains stopped familiar identities outside the transc
       );
     }
 
-    assert.doesNotMatch(context, /Unverified partial output/);
+    assert.match(
+      context,
+      /Familiar stopped {2}schema review[^\n]*\nUnverified partial output/,
+    );
+
     assert.doesNotMatch(context, /id: accepted/);
     assert.equal(saved.lastTurn?.status, 'failed');
     assert.equal(saved.handoff?.activated, true);
@@ -91,6 +96,64 @@ test('an exhausted source retains stopped familiar identities outside the transc
   } finally {
     gate.open();
     await sending;
+    await coordinator.close();
+  }
+});
+
+test('a report accepted during handoff preparation reaches the destination as completed', async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  const emit = claude.sessions.at(-1)!.options.onEvent;
+
+  claude.exhaust = () => {
+    for (const id of ['late', 'unfinished'])
+      emit({
+        type: 'subagent',
+        subagent: {
+          id,
+          run: `${id}-run`,
+          name: `${id} review`,
+          kind: '',
+          status: 'running',
+        },
+      });
+
+    return true;
+  };
+
+  let reported = false;
+  const save = ConversationStore.prototype.save;
+
+  vi.spyOn(ConversationStore.prototype, 'save').mockImplementation(
+    async function (this: ConversationStore, ...args: Parameters<typeof save>) {
+      if (!reported && this.record.handoff && !this.record.handoff.activated) {
+        reported = true;
+
+        emit({
+          type: 'subagent',
+          subagent: {
+            id: 'late',
+            run: 'late-run',
+            name: 'late review',
+            kind: '',
+            status: 'completed',
+            report: 'Keep the foreign key.',
+          },
+        });
+      }
+
+      return save.apply(this, args);
+    },
+  );
+
+  try {
+    await coordinator.send('Finish both reviews.');
+    assert.equal(reported, true);
+    const context = codex.inputs[0]!.context!;
+    assert.match(context, /Familiar completed {2}late review/);
+    assert.match(context, /Keep the foreign key/);
+    assert.match(context, /id: unfinished \| run: unfinished-run/);
+    assert.doesNotMatch(context, /id: late/);
+  } finally {
     await coordinator.close();
   }
 });
