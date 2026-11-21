@@ -61,6 +61,7 @@ export async function handoff(
 
   try {
     let summary = '';
+    let fallback = false;
     const { items } = host.snapshot();
     const context = items.slice(contextStart(items));
 
@@ -78,7 +79,7 @@ export async function handoff(
         !result ||
         (result.status === 'failed' && !conversation.activity)
       )
-        summary = transcriptContext(context);
+        fallback = true;
       else throw new Error(result.error ?? 'Handoff was interrupted');
     }
 
@@ -99,6 +100,17 @@ export async function handoff(
       await host.save();
 
       return;
+    }
+
+    if (fallback) {
+      const { items } = host.snapshot();
+
+      conversation.handoff.summary = [
+        transcriptContext(items.slice(contextStart(items))),
+        conversation.handoff.summary,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
     }
 
     const selected = await host.select(session, selection);
