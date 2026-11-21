@@ -1,13 +1,22 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { useWheel } from './terminal/mouse.js';
+import type { DOMElement } from 'ink';
+import { usePointer, useWheel } from './terminal/mouse.js';
+import { useSelection } from './useSelection.js';
+import { pageSelection } from './page-selection.js';
+import { highlightRow } from './selection.js';
 import type { WrappedLines } from './wrap.js';
 import { pageAnchorAt, pageRowOf } from './scroll-page-layout.js';
 import type { PagePosition } from './scroll-page-layout.js';
 
 interface Props {
   lines: WrappedLines;
+  width: number;
+  identity: unknown;
+  copy?(text: string): void;
+
+  current?(): boolean;
   height: number;
   scroll: PagePosition;
   setScroll: Dispatch<SetStateAction<PagePosition>>;
@@ -17,33 +26,71 @@ interface Props {
 
 export function ScrollPage({
   lines,
+  width,
+  identity,
+  copy,
+  current,
   height,
   scroll,
   setScroll,
   arrows = false,
   active = true,
 }: Props) {
-  const rows = useMemo(() => lines.flat(), [lines]);
+  const source = useMemo(() => pageSelection(lines), [lines]);
+  const rows = source.lines;
+  const box = useRef<DOMElement>(null);
+  const liveScroll = useRef(scroll);
+
+  useLayoutEffect(() => {
+    liveScroll.current = scroll;
+  }, [scroll]);
+
   const position = useMemo(() => pageRowOf(lines, scroll), [lines, scroll]);
   const last = Math.max(0, rows.length - height);
   const top = Math.min(position, last);
 
   /** steps from the shown top, so movement still works after the page shrinks. */
-  const scrollBy = (amount: number) =>
-    setScroll((current) => {
-      const shown = Math.min(pageRowOf(lines, current), last);
-      const next = Math.max(0, Math.min(last, shown + amount));
+  const scrollBy = (amount: number) => {
+    const shown = Math.min(pageRowOf(lines, liveScroll.current), last);
+    const next = Math.max(0, Math.min(last, shown + amount));
 
-      return next === shown ? current : pageAnchorAt(lines, next);
-    });
+    if (next === shown) return false;
 
-  // request input guards do not block scrolling.
-  useWheel((rows) => {
-    if (active) scrollBy(rows);
+    liveScroll.current = pageAnchorAt(lines, next);
+    setScroll(liveScroll.current);
+
+    return true;
+  };
+
+  const shown = () => active && (current?.() ?? true);
+
+  const selection = useSelection({
+    source,
+    identity,
+    width,
+    bodyWidth: width,
+    box,
+    shown,
+    viewport: () => ({
+      top: Math.min(pageRowOf(lines, liveScroll.current), last),
+      height,
+    }),
+    scrollBy,
+    covers: () => false,
+    copy,
   });
 
-  useInput((_, key) => {
-    if (!active || key.eventType === 'release') return;
+  usePointer(selection.point);
+
+  // request input guards do not block scrolling.
+  useWheel((rows, cell) => {
+    if (shown() && scrollBy(rows)) selection.point('wheel', cell);
+  });
+
+  useInput((input, key) => {
+    if (!shown() || key.eventType === 'release') return;
+
+    if (key.super && input === 'c') selection.key(input, key);
 
     const rows = key.pageDown
       ? height
@@ -59,12 +106,19 @@ export function ScrollPage({
   });
 
   return (
-    <Box height={height} overflow="hidden">
+    <Box ref={box} height={height} overflow="hidden">
       <Text>
-        {rows
-          .slice(top, top + height)
-          .map(({ text }) => text)
-          .join('\n')}
+        {Array.from(
+          { length: Math.max(0, Math.min(height, rows.length - top)) },
+          (_, index) => {
+            const row = top + index;
+            const text = rows.at(row)!;
+
+            return selection.ends
+              ? highlightRow(text, row, ...selection.ends, width)
+              : text;
+          },
+        ).join('\n')}
       </Text>
     </Box>
   );

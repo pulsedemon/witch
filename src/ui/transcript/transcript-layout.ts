@@ -1,4 +1,4 @@
-import stripAnsi from 'strip-ansi';
+import { wrapJoin } from '../selection.js';
 import wrapAnsi from 'wrap-ansi';
 import type { DisplayItem } from '../../core/state.js';
 import { appendedDisplayText } from '../../core/state.js';
@@ -272,13 +272,15 @@ function ending(
   const ended = rendered.rows.concat(
     diff
       .concat(
-        images.map((rows) => rows.map((text, offset) => ({ text, offset }))),
+        images.map((rows) =>
+          rows.map((text, offset) => ({ text, offset, copyBreak: true })),
+        ),
       )
       .flatMap((rows, index) =>
-        rows.map(({ text, offset }) => ({
+        rows.map(({ text, offset, copyBreak }) => ({
           text,
           anchor: { line: next + index, offset },
-          copyBreak: true,
+          copyBreak,
         })),
       ),
     {
@@ -704,15 +706,11 @@ export class TranscriptLayout {
 
         const { current, previous } = wrapped;
 
-        // a wrap that changed more than trimming has no source offset to reconstruct.
-        if (current.anchor.offset < 0 || previous.anchor.offset < 0) return ' ';
-
-        const trimmed =
-          current.anchor.offset -
-          previous.anchor.offset -
-          stripAnsi(previous.text).length;
-
-        return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
+        return wrapJoin(
+          previous.text,
+          previous.anchor.offset,
+          current.anchor.offset,
+        );
       },
       /** the first and last row of the line `row` is wrapped from; each diff or image row is its own line. */
       lineAt(row: number): { first: number; last: number } {

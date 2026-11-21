@@ -13,7 +13,14 @@ export function Recovery({
   width,
   scroll,
   setScroll,
+  identity,
+  copy,
+  current,
 }: {
+  identity: unknown;
+  copy?(text: string): void;
+
+  current?(): boolean;
   conflict: boolean;
   lines: WrappedLines;
   height: number;
@@ -66,6 +73,10 @@ export function Recovery({
         <Text>{explanation}</Text>
       </Box>
       <ScrollPage
+        width={width}
+        identity={identity}
+        copy={copy}
+        current={current}
         lines={lines}
         height={pageRows}
         scroll={scroll}

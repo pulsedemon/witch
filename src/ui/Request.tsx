@@ -31,6 +31,10 @@ interface Props {
   width: number;
   height: number;
   cwd: string;
+  copy?(text: string): void;
+
+  current?(): boolean;
+
   respond(response: UserResponse): void;
 }
 
@@ -47,6 +51,8 @@ export function Request({
   height,
   cwd,
   respond,
+  copy,
+  current,
   active = true,
 }: Props) {
   const [selection, selectionRef, setSelection] = useLiveState(0);
@@ -332,6 +338,12 @@ export function Request({
         request={request.id}
       />
       <ScrollPage
+        width={width}
+        identity={question ?? request}
+        copy={copy}
+        current={() =>
+          (current?.() ?? true) && questionIndexRef.current === questionIndex
+        }
         lines={lines}
         active={active}
         height={bodyHeight}

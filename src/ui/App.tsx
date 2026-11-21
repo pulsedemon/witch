@@ -28,7 +28,11 @@ import { usePreview } from './usePreview.js';
 import { previewLayout } from './preview-layout.js';
 import { Recovery } from './Recovery.js';
 import { pageStart } from './scroll-page-layout.js';
-import { canExpandDiff, diffExpansionHint } from './transcript/diff.js';
+import {
+  canExpandDiff,
+  diffExpansionHint,
+  diffCopyRows,
+} from './transcript/diff.js';
 import type { Graphics } from './transcript/images.js';
 import { TranscriptLayout } from './transcript/transcript-layout.js';
 import type { ScrollAnchor } from './transcript/transcript-layout.js';
@@ -107,7 +111,7 @@ export function App({
   /** replaces Witch with a fresh one on this conversation; /restart does nothing without it. */
   onRestart?(): void;
 
-  /** puts text on the clipboard, where Cmd+C sends the transcript's selection, and calls `copied` once the clipboard holds it. */
+  /** puts text on the clipboard, where Cmd+C sends the visible text selection, and calls `copied` once the clipboard holds it. */
   copy?(text: string, copied: () => void): void;
   /** sent once loading and cleanup end idle with nothing reported and tools unfocused, or ahead of a prompt submitted while waiting; otherwise left as the draft. */
   initialPrompt?: string;
@@ -625,14 +629,25 @@ export function App({
   const conflict = recovery?.kind === 'conflict';
 
   const pageLines = useMemo(() => {
-    const text = linkify(
-      conflict
-        ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nCommit that could not be published:\n${recovery.diff}`
-        : (recovery?.diff ?? ''),
-      recovery?.root ?? cwd,
+    const root = recovery?.root ?? cwd;
+
+    const explanation = conflict
+      ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nCommit that could not be published:\n`
+      : '';
+
+    const diff = diffCopyRows(
+      wrapSourceLines(linkify(recovery?.diff ?? '', root), bodyWidth),
     );
 
-    return wrapSourceLines(text, bodyWidth);
+    return explanation
+      ? [
+          ...wrapSourceLines(
+            linkify(explanation.slice(0, -1), root),
+            bodyWidth,
+          ),
+          ...diff,
+        ]
+      : diff;
   }, [recovery, conflict, cwd, bodyWidth]);
 
   usePointer((pointer, cell, presses) => {
@@ -757,6 +772,11 @@ export function App({
       <Request
         key={request.id}
         request={request}
+        copy={copySelection}
+        current={() =>
+          currentConversation() &&
+          coordinator.snapshot.requests[0]?.id === request.id
+        }
         preview={coordinator.coordination?.preview}
         width={bodyWidth}
         height={bodyHeight}
@@ -767,6 +787,14 @@ export function App({
   else if (state.phase === 'recovery') {
     body = (
       <Recovery
+        identity={recovery}
+        copy={copySelection}
+        current={() =>
+          currentConversation() &&
+          !coordinator.snapshot.requests.length &&
+          coordinator.snapshot.phase === 'recovery' &&
+          coordinator.snapshot.recovery === recovery
+        }
         conflict={conflict}
         lines={pageLines}
         height={bodyHeight}
@@ -779,6 +807,12 @@ export function App({
     body = (
       <CommandView
         views={commandViews}
+        copy={copySelection}
+        current={() =>
+          currentConversation() &&
+          !coordinator.snapshot.requests.length &&
+          coordinator.snapshot.phase !== 'recovery'
+        }
         width={bodyWidth}
         height={bodyHeight}
         cwd={cwd}

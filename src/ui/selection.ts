@@ -1,3 +1,4 @@
+import stripAnsi from 'strip-ansi';
 import {
   styledCharsFromTokens,
   styledCharsToString,
@@ -381,4 +382,18 @@ export function drawsIn(
   }
 
   return false;
+}
+
+/** restores only the spaces trimmed by a soft wrap; negative offsets have no source spacing. */
+export function wrapJoin(
+  previousText: string,
+  previousOffset: number,
+  currentOffset: number,
+): string {
+  if (currentOffset < 0 || previousOffset < 0) return ' ';
+
+  const trimmed =
+    currentOffset - previousOffset - stripAnsi(previousText).length;
+
+  return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
 }
