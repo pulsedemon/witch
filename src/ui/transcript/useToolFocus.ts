@@ -4,17 +4,20 @@ import type { DisplayItem } from '../../core/state.js';
 import { canExpandDiff } from './diff.js';
 import { useLiveState } from '../useLiveState.js';
 import { isExpanded, toggleGroup } from './transcript-layout.js';
+import type { TranscriptLayout } from './transcript-layout.js';
 
-/** where a shown row's id leads once grouping hides or regroups it; ungrouped, every id leads to itself. */
-type ShownAs = (id: string) => string;
+type Transcript = Pick<
+  ReturnType<TranscriptLayout['render']>,
+  'items' | 'shownAs' | 'members'
+>;
 
-/** the tools a group row stands for; undefined for any other row. */
-type Members = (id: string) => readonly DisplayItem[] | undefined;
+const toolsOf = (transcript: Transcript) =>
+  transcript.items.filter((item) => item.kind === 'tool');
 
 /** the index of the selected tool among `tools`; with none selected, or one no longer shown, the first. */
 function indexOf(
   tools: readonly DisplayItem[],
-  shownAs: ShownAs,
+  shownAs: Transcript['shownAs'],
   id: string | undefined,
 ): number {
   if (id === undefined) return 0;
@@ -60,18 +63,20 @@ export function useToolFocus(conversation: string | undefined) {
     expanded,
     fullDiffs,
     toggle,
-    selected: (tools: readonly DisplayItem[], shownAs: ShownAs) =>
-      indexOf(tools, shownAs, selection),
+    selectedTool(transcript: Transcript): DisplayItem | undefined {
+      const tools = toolsOf(transcript);
+
+      return tools[indexOf(tools, transcript.shownAs, selection)];
+    },
     /** ↑/↓, End, Ctrl+O and Enter while focused; `scrollTo(null)` returns to live output. */
     key(
       input: string,
       key: Key,
-      tools: readonly DisplayItem[],
-      shownAs: ShownAs,
-      members: Members,
+      transcript: Transcript,
       scrollTo: (id: string | null) => void,
     ) {
-      const current = indexOf(tools, shownAs, selectionRef.current);
+      const tools = toolsOf(transcript);
+      const current = indexOf(tools, transcript.shownAs, selectionRef.current);
       let next = current;
 
       if (key.upArrow) next = Math.max(0, current - 1);
@@ -102,7 +107,7 @@ export function useToolFocus(conversation: string | undefined) {
         scrollTo(item.id);
       }
 
-      if (key.return && item) toggle(item, members(item.id));
+      if (key.return && item) toggle(item, transcript.members(item.id));
     },
   };
 }

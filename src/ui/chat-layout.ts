@@ -2,6 +2,10 @@ import { piped } from './theme.js';
 import { wrapLines } from './wrap.js';
 
 export const commandWindowRows = 4;
+const transcriptReserve = 2;
+const composerReserve = 1;
+const borderReserve = 2;
+const gapReserve = 1;
 
 export function chatLayout(
   height: number,
@@ -14,8 +18,12 @@ export function chatLayout(
     hints: number;
   },
 ) {
-  const transcript = Math.min(2, Math.max(0, height - 1));
-  let remaining = Math.max(0, height - transcript - 1);
+  const transcript = Math.min(
+    transcriptReserve,
+    Math.max(0, height - composerReserve),
+  );
+
+  let remaining = Math.max(0, height - transcript - composerReserve);
 
   const take = (wanted: number) => {
     const rows = Math.min(wanted, remaining);
@@ -26,27 +34,31 @@ export function chatLayout(
 
   const activity = take(Number(controls.working));
   const pending = take(Number(controls.pending));
-  const border = width >= 6 && remaining >= 2;
-  const borderRows = take(border ? 2 : 0);
+  const border = width >= 6 && remaining >= borderReserve;
+  const borderRows = take(border ? borderReserve : 0);
   const minimumList = controls.list ? 1 : controls.hints;
   const hints = take(minimumList);
   const commands = take(commandWindowRows);
-  const gap = take(1);
+  const gap = take(gapReserve);
 
   const list =
     hints + (controls.list ? take(Math.min(8, controls.list) - hints) : 0);
 
-  const composer = Math.max(1, Math.min(Math.floor(height / 2), remaining + 1));
+  const composer = Math.max(
+    composerReserve,
+    Math.min(Math.floor(height / 2), remaining + composerReserve),
+  );
+
   // the agent's latest message takes a row only when the composer's limit leaves one
   const message = remaining >= composer ? take(Number(controls.message)) : 0;
 
   return {
     minimumRows:
-      2 +
-      1 +
-      2 +
+      transcriptReserve +
+      composerReserve +
+      borderReserve +
       commandWindowRows +
-      1 +
+      gapReserve +
       Number(controls.working) +
       Number(controls.pending) +
       minimumList,

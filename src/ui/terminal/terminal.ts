@@ -227,29 +227,23 @@ export function watchTerminal(
     } else if (!pending) {
       const owner = conversationId;
 
+      const current = () => {
+        const latest = coordinator.snapshot;
+
+        return (
+          latest.conversation?.id === owner &&
+          latest.completedTurn === completed &&
+          settled(latest)
+        );
+      };
+
       pending = setImmediate(() => {
         pending = undefined;
-        const current = coordinator.snapshot;
 
-        if (
-          stopped ||
-          current.conversation?.id !== owner ||
-          current.completedTurn !== completed ||
-          !settled(current)
-        )
-          return;
+        if (stopped || !current()) return;
 
         delivered = completed;
-
-        notify(() => {
-          const current = coordinator.snapshot;
-
-          return current.conversation?.id === owner &&
-            current.completedTurn === completed &&
-            settled(current)
-            ? 'Turn complete'
-            : undefined;
-        });
+        notify(() => (current() ? 'Turn complete' : undefined));
       });
 
       pending.unref();

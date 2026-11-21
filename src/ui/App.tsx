@@ -53,7 +53,7 @@ import { useDrafts } from './input/useDrafts.js';
 import type { Browsing } from './input/useDrafts.js';
 import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell } from './terminal/mouse.js';
-import { highlight } from './transcript/selection.js';
+import { highlightRow } from './transcript/selection.js';
 import { useSelection } from './transcript/useSelection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
@@ -79,6 +79,20 @@ const unbrowsed = (): Browsing => ({
   index: -1,
   texts: new Map<number, string>(),
 });
+
+function queueMerges(
+  snapshot: Pick<
+    Snapshot,
+    'queue' | 'commandsPending' | 'pendingCompaction' | 'skills'
+  >,
+  draft: string,
+): boolean {
+  return (
+    !snapshot.commandsPending &&
+    !snapshot.pendingCompaction &&
+    safeQueueMerge(snapshot.queue, draft, snapshot.skills)
+  );
+}
 
 export function App({
   coordinator,
@@ -355,8 +369,7 @@ export function App({
       recalled(buffer.value, recall.current, history.current),
     );
 
-  const tools = transcript.items.filter((item) => item.kind === 'tool');
-  const selectedTool = tools[toolFocus.selected(tools, transcript.shownAs)];
+  const selectedTool = toolFocus.selectedTool(transcript);
 
   const diffHint =
     toolFocus.focused && selectedTool?.diff && canExpandDiff(selectedTool.diff)
@@ -601,12 +614,7 @@ export function App({
 
     if (!snapshot.queue.length) return false;
 
-    if (
-      snapshot.phase !== 'error' &&
-      (snapshot.commandsPending ||
-        snapshot.pendingCompaction ||
-        !safeQueueMerge(snapshot.queue, draftToAppend(), snapshot.skills))
-    )
+    if (snapshot.phase !== 'error' && !queueMerges(snapshot, draftToAppend()))
       return false;
 
     const text = snapshot.queue.join('\n');
@@ -908,16 +916,10 @@ export function App({
     if (key.tab) toolFocus.setFocused(!toolFocus.focusedRef.current);
 
     if (toolFocus.focusedRef.current)
-      toolFocus.key(
-        input,
-        key,
-        tools,
-        transcript.shownAs,
-        transcript.members,
-        (id) =>
-          id === null
-            ? setTop(null)
-            : scrollTo(transcript.starts.get(id) ?? null),
+      toolFocus.key(input, key, transcript, (id) =>
+        id === null
+          ? setTop(null)
+          : scrollTo(transcript.starts.get(id) ?? null),
       );
   });
 
@@ -1016,10 +1018,12 @@ export function App({
         row <= Math.min(end.row, scrollTop + visible.length - 1);
         row++
       )
-        visible[row - scrollTop] = highlight(
+        visible[row - scrollTop] = highlightRow(
           visible[row - scrollTop]!,
-          row === start.row ? start.column : 0,
-          row === end.row ? end.column + 1 : bodyWidth,
+          row,
+          start,
+          end,
+          bodyWidth,
         );
     }
 
@@ -1123,9 +1127,7 @@ export function App({
             initialValue={draftOf(drafts, state) ?? ''}
             placeholder={
               state.queue.length
-                ? !state.commandsPending &&
-                  !state.pendingCompaction &&
-                  safeQueueMerge(state.queue, draft, state.skills)
+                ? queueMerges(state, draft)
                   ? 'Press ↑ to edit queued messages'
                   : 'Messages remain queued'
                 : undefined

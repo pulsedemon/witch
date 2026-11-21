@@ -199,7 +199,7 @@ export function stepEnd(
 /** columns `start` up to but not including `end` of a row, drawn as Ghostty draws a selection, in the window's colors swapped. */
 export function highlight(line: string, start: number, end: number): string {
   // inverting a placeholder changes the color that names its image
-  if (line.includes(placeholder)) return line;
+  if (image(line)) return line;
 
   const { before, inside, after, width } = cut(line, start, end);
   // past the text, the selection covers empty cells, as the terminal's does
@@ -216,6 +216,20 @@ export function highlight(line: string, start: number, end: number): string {
   }));
 
   return `${styledCharsToString(before)}${gap}${colors.inverse(styledCharsToString(selected) + blank)}${styledCharsToString(after)}`;
+}
+
+export function highlightRow(
+  line: string,
+  row: number,
+  start: Point,
+  end: Point,
+  width: number,
+): string {
+  return highlight(
+    line,
+    row === start.row ? start.column : 0,
+    row === end.row ? end.column + 1 : width,
+  );
 }
 
 /**
@@ -247,7 +261,7 @@ export function selectedText(
   for (let row = start.row; row <= end.row; row++) {
     const line = lines.at(row)!;
 
-    if (line.includes(placeholder)) continue;
+    if (image(line)) continue;
 
     const cells = cut(
       line,
@@ -361,14 +375,7 @@ export function drawsIn(
   ) {
     const line = lines.at(row)!;
 
-    if (
-      highlight(
-        line,
-        row === start.row ? start.column : 0,
-        row === end.row ? end.column + 1 : width,
-      ) !== line
-    )
-      return true;
+    if (highlightRow(line, row, start, end, width) !== line) return true;
   }
 
   return false;
