@@ -7,8 +7,7 @@ import { claudeTitle } from '../../src/agents/claude/tool-title.js';
 import { App } from '../../src/ui/App.js';
 import { show, fake, drag, TAB, ENTER } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
-
-const CMD_C = '\u001b[99;9u';
+import { CMD_C } from '../fixtures/ui-transcript.js';
 
 for (const runtime of ['Codex', 'Claude']) {
   test(`${runtime} control calls use one row at 120 columns and copy the full command only when expanded`, async () => {

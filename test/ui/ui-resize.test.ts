@@ -15,6 +15,7 @@ import {
   show,
 } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
+import { wheelUp } from '../fixtures/ui-transcript.js';
 
 for (const [columns, rows, visibleDraft] of [
   [100, 23, 'helloZ'],
@@ -470,7 +471,7 @@ test('the sidebar width transition preserves the reading line and draft', async 
       ui.text().includes('draft across a resize'),
     );
 
-    ui.stdin.write('\u001b[<64;10;10M'.repeat(200));
+    ui.stdin.write(wheelUp.repeat(200));
 
     await until('the first item', () =>
       ui.text().split('\n')[1]!.includes('Assistant'),

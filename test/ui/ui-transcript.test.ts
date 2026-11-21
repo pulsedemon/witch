@@ -554,7 +554,7 @@ test('Ctrl+O expands only the selected tool without editing the draft', async ()
     );
 
     await until('the selection', () => ui.frame().includes('\u001b[7m'));
-    ui.stdin.write('\u001b[99;9u');
+    ui.stdin.write(CMD_C);
     await until('the numbered copy', () => copied.length > 0);
     assert.deepEqual(copied, ['11 +alpha_11\n12 +alpha_12']);
     ui.stdin.write(ENTER);
