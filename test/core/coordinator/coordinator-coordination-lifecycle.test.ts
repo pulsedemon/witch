@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { ClaudeCommands } from '../../../src/agents/claude/commands.js';
+import { familiarMarker } from '../../../src/agents/familiar-report.js';
 import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import { callControl } from '../../../src/persistence/control.js';
 import {
   ConversationStore,
   LockedElsewhere,
 } from '../../../src/persistence/store.js';
-import { TurnGate } from '../../fixtures/agent.js';
+import { FixtureAgent, TurnGate } from '../../fixtures/agent.js';
+import { models, reading } from '../../fixtures/coordinator-exhaustion.js';
 import {
   git,
   pauseDiscovery,
@@ -18,6 +22,155 @@ import { orderedCleanup } from '../../fixtures/cleanup.js';
 import { record } from '../../fixtures/store.js';
 import { selectionTurn } from '../../fixtures/task-selection.js';
 import { until, within } from '../../fixtures/within.js';
+
+test('foreground exhaustion retains familiar outcomes without carrying old reporting authority', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await unitCoordinationFixture(cleanup);
+  const claude = new FixtureAgent('claude');
+  const codex = new FixtureAgent('codex');
+  claude.catalog.splice(0, Infinity, ...models(['claude-opus-5-5']));
+  codex.catalog.splice(0, Infinity, ...models(['gpt-6.1-astra']));
+  claude.accountRead = reading(10);
+  codex.accountRead = reading(40);
+
+  const a = await f.start(
+    'A',
+    {},
+    [claude, codex].map((adapter) => ({ adapter, executable: adapter.id })),
+  );
+
+  await a.coordinator.selectModel({ agent: 'claude', id: 'claude-opus-5-5' });
+  assert.equal((await a.claim('task:retain-review-outcomes')).kind, 'claimed');
+  const claim = (await a.query()).ownClaim;
+  const old = a.coordination.familiarBinding();
+  const native = claude.sessions.at(-1)!;
+  const outputs = new Map<string, string>();
+  const stopped: string[] = [];
+
+  const commands = new ClaudeCommands(
+    {
+      getTaskOutput: async (id) => ({ output: outputs.get(id) ?? '' }),
+      stopTask: async (id) => {
+        stopped.push(id);
+      },
+    },
+    old,
+    () => native.session.info.id,
+    () => false,
+    native.options.onEvent,
+  );
+
+  native.session.familiar = {
+    report: (action, deadline) => commands.report(action, deadline),
+  };
+
+  const close = native.session.close.bind(native.session);
+
+  native.session.close = async (options) => {
+    await commands.close();
+    await close(options);
+  };
+
+  const runs = [randomUUID(), randomUUID()];
+
+  for (const [index, run] of runs.entries()) {
+    const id = `review-${index}`;
+
+    outputs.set(
+      id,
+      familiarMarker({
+        version: 1,
+        conversation: old.conversation,
+        activation: old.activation,
+        run,
+      }),
+    );
+
+    commands.receive({
+      type: 'system',
+      session_id: native.session.info.id,
+      uuid: randomUUID(),
+      subtype: 'task_started',
+      task_id: id,
+      run_id: id,
+      task_type: 'local_bash',
+      description: id,
+      is_backgrounded: true,
+    } as SDKMessage);
+
+    assert.equal(
+      (
+        await callControl(old, {
+          kind: 'familiar-register',
+          run,
+          name: id,
+          runtime: 'codex',
+        })
+      ).kind,
+      'familiar-registered',
+    );
+  }
+
+  const gate = new TurnGate();
+  codex.gate = gate;
+  claude.exhaust = () => true;
+  const sending = a.coordinator.send('Complete both registered reviews.');
+
+  try {
+    await within(gate.entered, 5000, 'resumed destination');
+    const saved = (await f.store.records([old.conversation])).records[0]!;
+
+    for (const run of runs) {
+      assert.ok(saved.handoff!.summary!.includes(run));
+      assert.ok(codex.inputs[0]!.context!.includes(run));
+    }
+
+    assert.deepEqual(stopped, ['review-0', 'review-1']);
+
+    assert.equal(
+      (
+        await callControl(old, {
+          kind: 'familiar-update',
+          run: runs[0]!,
+          sequence: 99,
+          progress: { status: 'completed', report: 'Stale success' },
+        })
+      ).kind,
+      'error',
+    );
+
+    const current = await a.binding();
+    assert.notEqual(current.activation, old.activation);
+
+    assert.equal(
+      (
+        await callControl(
+          { ...current, activation: old.activation },
+          { kind: 'release', claim: claim!.id },
+        )
+      ).kind,
+      'error',
+    );
+
+    assert.equal((await callControl(current, { kind: 'peers' })).kind, 'peers');
+    assert.deepEqual((await a.query()).ownClaim, claim);
+
+    assert.ok(
+      !a.coordinator.snapshot.items.some(({ text }) =>
+        text.includes('Stale success'),
+      ),
+    );
+
+    gate.open();
+    await sending;
+    await a.coordinator.send('Continue without replaying the handoff.');
+
+    for (const run of runs) assert.ok(!codex.inputs[1]!.context?.includes(run));
+  } finally {
+    gate.open();
+    await sending;
+  }
+});
 
 test('switch revokes old authority before native close and releases the departed claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);

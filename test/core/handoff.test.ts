@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { AgentSession, TurnResult } from '../../src/agents/types.js';
-import { handoff, transcriptContext } from '../../src/core/handoff.js';
+import {
+  handoff,
+  interruptedFamiliarContext,
+  transcriptContext,
+} from '../../src/core/handoff.js';
 import type { Memory } from '../../src/memory/memory.js';
 import { initialSnapshot } from '../../src/core/snapshot.js';
 import { unreadRows } from '../../src/core/state.js';
@@ -59,7 +63,8 @@ function stubHost(summary: TurnResult, activity = false) {
           : { status: 'completed' as const, text: '' },
       );
     },
-    connect: () => Promise.resolve({} as AgentSession),
+    connect: (): Promise<AgentSession | undefined> =>
+      Promise.resolve({} as AgentSession),
     select: () =>
       Promise.resolve({
         id: 'codex-session',
@@ -80,6 +85,96 @@ function stubHost(summary: TurnResult, activity = false) {
 }
 
 const selection = { agent: 'codex', id: 'gpt-6.1-astra' };
+
+test('shutdown context supplied after an empty summary continues the unfinished task', async () => {
+  const { host, conversation, events } = stubHost({
+    status: 'completed',
+    text: '',
+  });
+
+  const context = 'Interrupted review run: check the migration again.';
+  let received: string | undefined;
+  const send = host.send;
+
+  host.connect = () => {
+    conversation.handoff!.summary = context;
+
+    return Promise.resolve({} as AgentSession);
+  };
+
+  host.send = (prompt, kind) => {
+    if (kind === 'turn') received = conversation.handoff?.summary;
+
+    return send(prompt, kind);
+  };
+
+  await handoff(host, selection);
+  assert.equal(received, context);
+  assert.equal(conversation.handoff?.summary, context);
+  assert.equal(events.filter((event) => event === 'send turn').length, 1);
+});
+
+test('an empty final summary sends no continuation and leaves no handoff', async () => {
+  const { host, conversation, events } = stubHost({
+    status: 'completed',
+    text: '',
+  });
+
+  await handoff(host, selection);
+  assert.equal(conversation.handoff, undefined);
+  assert.equal(events.includes('send turn'), false);
+});
+
+test('a deferred handoff restores earlier context without inventing interrupted work', async () => {
+  const { host, conversation, events } = stubHost({
+    status: 'completed',
+    text: 'Source summary',
+  });
+
+  const previous = {
+    from: 'other',
+    to: 'claude',
+    summary: 'Earlier context',
+    activated: true,
+  };
+
+  conversation.handoff = previous;
+  host.connect = () => Promise.resolve(undefined);
+  await handoff(host, selection);
+  assert.equal(conversation.agent, 'claude');
+  assert.equal(conversation.handoff, previous);
+  assert.equal(events.includes('send turn'), false);
+  assert.equal(events.includes('activated'), false);
+});
+
+test('interrupted familiar context identifies each incomplete run without accepting its partial report', () => {
+  assert.equal(interruptedFamiliarContext([]), undefined);
+
+  const context = interruptedFamiliarContext([
+    {
+      id: 'first',
+      run: 'first-run',
+      name: 'schema review',
+      kind: '',
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      status: 'stopped',
+      report: 'All checks passed.',
+    },
+    { id: 'second', name: 'caller review', kind: '', status: 'stopped' },
+  ])!;
+
+  assert.match(context, /results are incomplete/);
+  assert.match(context, /Recover or rerun/);
+
+  assert.match(
+    context,
+    /schema review.*codex.*gpt-6.1-sol.*id: first.*run: first-run/,
+  );
+
+  assert.match(context, /caller review.*id: second/);
+  assert.doesNotMatch(context, /All checks passed|undefined/);
+});
 
 test('a failed summary activates with transcript context and announces activation before the continuation', async () => {
   const { host, conversation, events } = stubHost({
