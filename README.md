@@ -90,7 +90,7 @@ Confirm before running `pnpm test:integration`: it runs real turns with your nat
 
 `pnpm test:integration:codex-brews` checks native child brews with the installed Codex and a localhost model fixture, without account usage, and retains its evidence under `TMPDIR`.
 
-`pnpm test:integration:background-exhaustion` runs the real background-exhaustion acceptance check for [#882](https://github.com/pulsedemon/witch/issues/882). Confirm its account usage before running it with `--allow-account-usage`. Select concrete model IDs from the current catalog: setup needs a healthy Claude model, a separately refusable Claude model, and an eligible Codex destination. The command does not change account settings or exhaust healthy allowance. A native permission request or refused model change blocks staging.
+`pnpm test:integration:background-exhaustion` runs the real background-exhaustion acceptance check for [#882](https://github.com/pulsedemon/witch/issues/882). Confirm its account usage before running it with `--allow-account-usage`. Supply explicit concrete model IDs: setup needs a healthy Claude model, a separately refusable Claude model, and an eligible Codex destination. Native setup determines whether the source can run; its catalog and usage meter do not establish that. The command does not change account settings or exhaust healthy allowance. A native permission request or refused model change blocks staging.
 
 ```sh
 capture_root=$(mktemp -d -p "$TMPDIR" background-exhaustion-XXXXXX)

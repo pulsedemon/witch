@@ -194,11 +194,7 @@ export async function releaseTrigger(
 
 export async function checkCapacity(
   agents: readonly AgentRegistration[],
-  {
-    sourceModel,
-    refusalModel,
-    signal,
-  }: Pick<CaseOptions, 'sourceModel' | 'refusalModel' | 'signal'>,
+  { refusalModel, signal }: Pick<CaseOptions, 'refusalModel' | 'signal'>,
   project: string,
   journal: EvidenceJournal,
 ): Promise<void> {
@@ -207,13 +203,11 @@ export async function checkCapacity(
     // serialize probes while Codex initializes a fresh home.
     const models = await adapter.models(settings);
     const account = await adapter.accountUsage(settings, { limits: [] });
-    const latest = (await adapter.latest?.(settings)) ?? {};
 
     return {
       runtime: adapter.id,
       models,
       account,
-      latest,
     };
   });
 
@@ -221,22 +215,7 @@ export async function checkCapacity(
   journal.fact('discovery', available);
   const source = available.find((value) => value.runtime === 'claude')!;
   const destination = available.find((value) => value.runtime === 'codex')!;
-
-  const listed = new Set([
-    ...source.models.map((model) => model.id),
-    ...Object.values(source.latest),
-  ]);
-
-  if (!listed.has(sourceModel) || !listed.has(refusalModel))
-    throw new CheckStopped('blocked', 'source-model-not-listed');
-
   const now = Date.now();
-
-  if (
-    !headroom(limitsFor(source.account, sourceModel), 100, now) &&
-    creditCapacity(source.account, now) !== 'available'
-  )
-    throw new CheckStopped('blocked', 'source-setup-capacity-unavailable');
 
   if (
     !over(limitsFor(source.account, refusalModel), 100, now) ||
@@ -543,7 +522,7 @@ export async function runCase(
     }
 
     await bounded(
-      checkCapacity(agents, { ...options, signal }, project, journal),
+      checkCapacity(agents, { refusalModel, signal }, project, journal),
     );
 
     await execute('git', ['init', '-b', 'main'], { cwd: project, signal });
@@ -564,6 +543,7 @@ export async function runCase(
       (binding) => controlPrefix(binding, entry),
     );
 
+    await mkdir(join(directory, 'jobs'), { mode: 0o700 });
     jobs = new JobWatch({ directory: join(directory, 'jobs'), interval: 100 });
 
     coordinator = new Coordinator(
