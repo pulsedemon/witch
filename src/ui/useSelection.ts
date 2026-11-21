@@ -14,7 +14,7 @@ import {
 } from './selection.js';
 import type { Point, SelectionSource } from './selection.js';
 
-export interface SelectionEnd<Anchor> {
+interface SelectionEnd<Anchor> {
   identity: unknown;
   anchor: Anchor;
   column: number;
@@ -25,7 +25,9 @@ export interface SelectionEnd<Anchor> {
 interface SelectionOptions<Anchor> {
   source: SelectionSource<Anchor>;
   identity: unknown;
-  /** the main column's width, which a range end records so a resize drops it. */
+  /** streamed transcript output can rewrite the far endpoint while the original press stays held. */
+  continueDragOnChange?: boolean;
+  /** recorded at each endpoint so a resize invalidates the range. */
   width: number;
   bodyWidth: number;
   /** the selectable content box; unset while another view covers it. */
@@ -38,7 +40,7 @@ interface SelectionOptions<Anchor> {
 
   scrollBy(rows: number): boolean;
 
-  /** called once for every press, before the content is measured, so the caller can record the press; true when something outside the transcript takes it, such as the new-messages notice. */
+  /** reserves a press for controls outside the text. */
   covers(cell: Cell): boolean;
 
   markerAt?(anchor: Anchor, column: number): boolean;
@@ -50,6 +52,7 @@ interface SelectionOptions<Anchor> {
 export function useSelection<Anchor>({
   source,
   identity,
+  continueDragOnChange = false,
   width,
   bodyWidth,
   box: contentBox,
@@ -78,10 +81,11 @@ export function useSelection<Anchor>({
   const edgeScroll = useRef<{ timer: NodeJS.Timeout; cell: Cell }>(undefined);
 
   const pointOf = (end: SelectionEnd<Anchor>): Point | undefined => {
+    if (end.identity !== identity) return undefined;
+
     const row = source.rowOf(end.anchor);
 
-    return end.identity === identity &&
-      row !== undefined &&
+    return row !== undefined &&
       end.width === width &&
       source.lines.at(row) === end.text
       ? { row, column: end.column }
@@ -106,14 +110,6 @@ export function useSelection<Anchor>({
   const selection = () =>
     shown() && contentBox.current ? endsOf(rangeRef.current) : undefined;
 
-  // changed endpoint text or width invalidates the range and held press
-  useEffect(() => {
-    if (range && !ends) setRange(undefined);
-
-    if (pressedAt.current && !pointOf(pressedAt.current))
-      pressedAt.current = undefined;
-  });
-
   const stopEdgeScroll = () => {
     clearInterval(edgeScroll.current?.timer);
     edgeScroll.current = undefined;
@@ -123,6 +119,16 @@ export function useSelection<Anchor>({
     pressedAt.current = undefined;
     stopEdgeScroll();
   };
+
+  useEffect(() => {
+    if (range && !ends) {
+      setRange(undefined);
+
+      if (!continueDragOnChange) endPress();
+    }
+
+    if (pressedAt.current && !pointOf(pressedAt.current)) endPress();
+  });
 
   const visible = shown();
 
@@ -175,6 +181,9 @@ export function useSelection<Anchor>({
     { column, row }: Cell,
     presses = 1,
   ) => {
+    if (!continueDragOnChange && rangeRef.current && !endsOf(rangeRef.current))
+      endPress();
+
     // a press or release ends the drag even while another view covers the content
     if (pointer === 'press' || pointer === 'release')
       pressedAt.current = undefined;
@@ -219,12 +228,7 @@ export function useSelection<Anchor>({
     const end = rangeEnd(at);
 
     if (pointer === 'press') {
-      if (
-        offset < 0 ||
-        offset >= shownRows ||
-        column < box.x ||
-        column >= box.x + bodyWidth
-      )
+      if (offset < 0 || offset >= shownRows || column >= box.x + bodyWidth)
         return false;
 
       pressedAt.current = end;

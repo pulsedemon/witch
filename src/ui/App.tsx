@@ -444,6 +444,7 @@ export function App({
         a.item === b.item && a.line === b.line && a.offset === b.offset,
     },
     identity: state.conversation?.id,
+    continueDragOnChange: true,
     width,
     bodyWidth,
     box: transcriptBox,
@@ -632,7 +633,7 @@ export function App({
     const root = recovery?.root ?? cwd;
 
     const explanation = conflict
-      ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nCommit that could not be published:\n`
+      ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nCommit that could not be published:`
       : '';
 
     const diff = diffCopyRows(
@@ -640,13 +641,7 @@ export function App({
     );
 
     return explanation
-      ? [
-          ...wrapSourceLines(
-            linkify(explanation.slice(0, -1), root),
-            bodyWidth,
-          ),
-          ...diff,
-        ]
+      ? [...wrapSourceLines(linkify(explanation, root), bodyWidth), ...diff]
       : diff;
   }, [recovery, conflict, cwd, bodyWidth]);
 

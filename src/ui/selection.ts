@@ -10,7 +10,7 @@ import { copiedDestination } from './link-destination.js';
 import { placeholder } from './transcript/images.js';
 import { colors } from './theme.js';
 
-/** a transcript row and a column in it. */
+/** a text row and a column in it. */
 export interface Point {
   row: number;
   column: number;

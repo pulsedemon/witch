@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, measureElement, useInput } from 'ink';
 import type { DOMElement } from 'ink';
 import { usePointer, useWheel } from './terminal/mouse.js';
 import { useSelection } from './useSelection.js';
@@ -43,7 +43,7 @@ export function ScrollPage({
 
   useLayoutEffect(() => {
     liveScroll.current = scroll;
-  }, [scroll]);
+  });
 
   const position = useMemo(() => pageRowOf(lines, scroll), [lines, scroll]);
   const last = Math.max(0, rows.length - height);
@@ -76,7 +76,8 @@ export function ScrollPage({
       height,
     }),
     scrollBy,
-    covers: () => false,
+    covers: ({ column }) =>
+      !!box.current && column < measureElement(box.current).x,
     copy,
   });
 
@@ -114,7 +115,9 @@ export function ScrollPage({
             const row = top + index;
             const text = rows.at(row)!;
 
-            return selection.ends
+            return selection.ends &&
+              row >= selection.ends[0].row &&
+              row <= selection.ends[1].row
               ? highlightRow(text, row, ...selection.ends, width)
               : text;
           },
