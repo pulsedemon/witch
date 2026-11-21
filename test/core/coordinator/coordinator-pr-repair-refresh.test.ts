@@ -8,6 +8,7 @@ import { git, unitCoordinationFixture } from '../../fixtures/coordination.js';
 import { until, within } from '../../fixtures/within.js';
 import { record as savedRecord } from '../../fixtures/copilot-reviews.js';
 import { head, repairPrefix, setup } from '../../fixtures/pr-repair.js';
+import { identity } from '../../fixtures/git.js';
 
 test('fresh resolution or an uncertain read skips the cached conflict without recording an attempt', async (t) => {
   const s = await setup(t);
@@ -164,10 +165,7 @@ for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
       await git(
         '-C',
         cwd,
-        '-c',
-        'user.name=t',
-        '-c',
-        'user.email=t@t',
+        ...identity,
         'commit',
         '--allow-empty',
         '-m',

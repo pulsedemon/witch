@@ -16,6 +16,7 @@ import { WorkTreeChanges } from '../../../src/core/repository/work-tree-changes.
 import { execute } from '../../../src/core/repository/work-tree-git.js';
 import type { GitRun } from '../../../src/core/repository/work-tree-git.js';
 import { scratch } from '../../fixtures/scratch.js';
+import { identity } from '../../fixtures/git.js';
 
 async function repository(
   files: Record<string, string>,
@@ -27,7 +28,7 @@ async function repository(
   await mkdir(work);
 
   const git = (...args: string[]) =>
-    run('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+    run('git', [...identity, ...args], {
       cwd: work,
       timeout: 10_000,
     });
@@ -614,7 +615,7 @@ for (const ignored of [false, true])
     await mkdir(join(work, 'a'));
 
     const inner = (...args: string[]) =>
-      execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      execute('git', [...identity, ...args], {
         cwd: join(work, 'a'),
         timeout: 10_000,
       });
@@ -874,16 +875,7 @@ for (const kind of ['file', 'repository'])
 
       await execute(
         'git',
-        [
-          '-c',
-          'user.name=t',
-          '-c',
-          'user.email=t@t',
-          'commit',
-          '--allow-empty',
-          '-qm',
-          'inner',
-        ],
+        [...identity, 'commit', '--allow-empty', '-qm', 'inner'],
         { cwd: target, timeout: 10_000 },
       );
     }
@@ -1001,7 +993,7 @@ test('an untracked repository first commit is discovered with unchanged director
   await mkdir(nested);
 
   const inner = (...args: string[]) =>
-    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+    execute('git', [...identity, ...args], {
       cwd: nested,
       timeout: 10_000,
     });
@@ -1217,7 +1209,7 @@ for (const ours of ['lf', 'crlf', 'absent'])
     await mkdir(nested);
 
     const inner = (...args: string[]) =>
-      execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      execute('git', [...identity, ...args], {
         cwd: nested,
         timeout: 10_000,
       });

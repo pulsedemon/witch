@@ -20,6 +20,7 @@ import {
   merged,
   pullRequest,
   write,
+  withGit,
 } from '../../fixtures/merged.js';
 import { git } from '../../fixtures/git.js';
 import { exists } from '../../fixtures/within.js';
@@ -709,58 +710,49 @@ test('of two cleanups in one checkout at once, one cleans up and the other does 
 test('a cleanup that fails before deleting the branch says which merge it was for', async () => {
   const { root, checkout, other, tip } = await merged();
   await merge(other, 'feat/x');
-  const bin = join(root, 'bin');
-  const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-  const previousPath = process.env.PATH;
-
-  await write(
-    join(bin, 'git'),
-    `#!${process.execPath}
-const { spawnSync } = require('node:child_process');
-const args = process.argv.slice(2);
-if (args.join(' ') === 'rev-parse --absolute-git-dir') {
-  process.stderr.write('injected lock lookup failure');
-  process.exit(23);
-}
-process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1);
-`,
-  );
-
-  await chmod(join(bin, 'git'), 0o755);
 
   for (const mode of ['lookup', 'open']) {
-    if (mode === 'lookup') process.env.PATH = `${bin}:${previousPath}`;
-    else await chmod(join(checkout, '.git'), 0o111);
+    if (mode === 'open') await chmod(join(checkout, '.git'), 0o111);
 
     try {
-      await assert.rejects(
-        cleanUpMerge(checkout, pullRequest(tip), idle),
-        (error: unknown) => {
-          assert.ok(error instanceof Error);
+      const reject = async () => {
+        await assert.rejects(
+          cleanUpMerge(checkout, pullRequest(tip), idle),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
 
-          assert.ok(
-            error.message.startsWith(
-              '#7 merged, but its cleanup failed while locking feat/x:',
-            ),
-          );
+            assert.ok(
+              error.message.startsWith(
+                '#7 merged, but its cleanup failed while locking feat/x:',
+              ),
+            );
 
-          assert.match(
-            error.message,
-            mode === 'lookup' ? /injected lock lookup failure/ : /EACCES/,
-          );
+            assert.match(
+              error.message,
+              mode === 'lookup' ? /injected lock lookup failure/ : /EACCES/,
+            );
 
-          assert.equal(
-            (error.cause as { code: unknown }).code,
-            mode === 'lookup' ? 23 : 'EACCES',
-          );
+            assert.equal(
+              (error.cause as { code: unknown }).code,
+              mode === 'lookup' ? 23 : 'EACCES',
+            );
 
-          return true;
-        },
-      );
+            return true;
+          },
+        );
+      };
+
+      if (mode === 'lookup')
+        await withGit(
+          root,
+          `if (args.join(' ') === 'rev-parse --absolute-git-dir') {
+  process.stderr.write('injected lock lookup failure');
+  process.exit(23);
+}`,
+          reject,
+        );
+      else await reject();
     } finally {
-      if (previousPath === undefined) delete process.env.PATH;
-      else process.env.PATH = previousPath;
-
       await chmod(join(checkout, '.git'), 0o755);
     }
 
@@ -786,9 +778,6 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
 });
 
 test('a cleanup failure after branch deletion reports the completed work', async () => {
-  const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-  const previousPath = process.env.PATH;
-
   for (const mode of ['plans', 'siblings']) {
     const { root, checkout, other, tip } = await merged();
     const before = await git(checkout, 'rev-parse', 'main');
@@ -804,69 +793,60 @@ test('a cleanup failure after branch deletion reports the completed work', async
       await chmod(unreadable, 0o000);
     }
 
-    const bin = join(root, 'bin');
-
-    await write(
-      join(bin, 'git'),
-      `#!${process.execPath}
-const { spawnSync } = require('node:child_process');
-const args = process.argv.slice(2);
-if (${JSON.stringify(mode)} === 'plans' ? args.join(' ') === 'rev-parse --show-toplevel' : args[0] === 'for-each-ref' && args.includes('--merged')) {
+    try {
+      await withGit(
+        root,
+        `if (${JSON.stringify(mode)} === 'plans' ? args.join(' ') === 'rev-parse --show-toplevel' : args[0] === 'for-each-ref' && args.includes('--merged')) {
   process.stderr.write('injected ${mode} failure');
   process.exit(23);
-}
-process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1);
-`,
-    );
+}`,
+        async () => {
+          await assert.rejects(
+            cleanUpMerge(checkout, pullRequest(tip), idle),
+            (error: unknown) => {
+              assert.ok(error instanceof Error);
+              assert.match(error.message, /injected .* failure/);
 
-    await chmod(join(bin, 'git'), 0o755);
-    process.env.PATH = `${bin}:${previousPath}`;
+              if (mode === 'plans') {
+                assert.ok(
+                  error.message.startsWith(
+                    '#7 merged: switched to main and deleted branch feat/x',
+                  ),
+                );
 
-    try {
-      await assert.rejects(
-        cleanUpMerge(checkout, pullRequest(tip), idle),
-        (error: unknown) => {
-          assert.ok(error instanceof Error);
-          assert.match(error.message, /injected .* failure/);
+                assert.match(
+                  error.message,
+                  /config section branch\.feat\/x stayed:/,
+                );
 
-          if (mode === 'plans') {
-            assert.ok(
-              error.message.startsWith(
-                '#7 merged: switched to main and deleted branch feat/x',
-              ),
-            );
+                assert.match(error.message, /but could not locate its plans:/);
+                assert.doesNotMatch(error.message, /and pulled/);
+              } else {
+                assert.ok(
+                  error.message.startsWith(
+                    '#7 merged: switched to main and pulled, deleted branch feat/x, and plan removed.md',
+                  ),
+                );
 
-            assert.match(
-              error.message,
-              /config section branch\.feat\/x stayed:/,
-            );
+                assert.match(
+                  error.message,
+                  /plan unreadable\.md stayed: EACCES/,
+                );
 
-            assert.match(error.message, /but could not locate its plans:/);
-            assert.doesNotMatch(error.message, /and pulled/);
-          } else {
-            assert.ok(
-              error.message.startsWith(
-                '#7 merged: switched to main and pulled, deleted branch feat/x, and plan removed.md',
-              ),
-            );
+                assert.match(
+                  error.message,
+                  /but could not list other merged branches:/,
+                );
+              }
 
-            assert.match(error.message, /plan unreadable\.md stayed: EACCES/);
+              assert.equal((error.cause as { code: unknown }).code, 23);
 
-            assert.match(
-              error.message,
-              /but could not list other merged branches:/,
-            );
-          }
-
-          assert.equal((error.cause as { code: unknown }).code, 23);
-
-          return true;
+              return true;
+            },
+          );
         },
       );
     } finally {
-      if (previousPath === undefined) delete process.env.PATH;
-      else process.env.PATH = previousPath;
-
       if (mode === 'siblings') await chmod(unreadable, 0o644);
     }
 
@@ -1199,35 +1179,21 @@ test("the cleanup fetches through the user's own ssh command, from git's config 
 test('an ssh command lookup that fails for a reason other than being unset stops the cleanup before it moves anything', async () => {
   const { root, checkout, other, tip } = await merged();
   await merge(other, 'feat/x');
-  const bin = join(root, 'bin');
-  const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
-  const previousPath = process.env.PATH;
 
-  // git exits 1 for an unset key, which reads as no ssh command; any other failure is not absence
-  await write(
-    join(bin, 'git'),
-    `#!${process.execPath}
-const { spawnSync } = require('node:child_process');
-const args = process.argv.slice(2);
-if (args.join(' ') === 'config core.sshCommand') {
+  // git exits 1 for an unset key; any other failure must stop cleanup
+  await withGit(
+    root,
+    `if (args.join(' ') === 'config core.sshCommand') {
   process.stderr.write('injected config failure');
   process.exit(3);
-}
-process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1);
-`,
+}`,
+    async () => {
+      await assert.rejects(cleanUpMerge(checkout, pullRequest(tip), idle), {
+        message:
+          /cleanup failed before deleting feat\/x: .*injected config failure/s,
+      });
+    },
   );
-
-  await chmod(join(bin, 'git'), 0o755);
-  process.env.PATH = `${bin}:${previousPath}`;
-
-  try {
-    await assert.rejects(cleanUpMerge(checkout, pullRequest(tip), idle), {
-      message:
-        /cleanup failed before deleting feat\/x: .*injected config failure/s,
-    });
-  } finally {
-    process.env.PATH = previousPath;
-  }
 
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
   assert.equal(await git(checkout, 'rev-parse', 'feat/x'), tip);

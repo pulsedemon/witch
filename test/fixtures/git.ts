@@ -8,21 +8,14 @@ import type {
 } from '../../src/memory/memory.js';
 
 const execute = promisify(execFile);
+export const identity = ['-c', 'user.name=t', '-c', 'user.email=t@t'] as const;
 
 /** git with a test identity, `main` for a new repository's branch, and its trimmed output. */
 export const git = async (cwd: string, ...args: string[]) =>
   (
     await execute(
       'git',
-      [
-        '-c',
-        'init.defaultBranch=main',
-        '-c',
-        'user.name=t',
-        '-c',
-        'user.email=t@t',
-        ...args,
-      ],
+      ['-c', 'init.defaultBranch=main', ...identity, ...args],
       { cwd },
     )
   ).stdout.trim();

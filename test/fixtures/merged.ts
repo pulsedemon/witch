@@ -133,7 +133,8 @@ export async function withGh<T>(
   try {
     return await body();
   } finally {
-    process.env.PATH = previousPath;
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
   }
 }
 
@@ -165,6 +166,7 @@ process.exit(run(args).status ?? 1);
   try {
     return await body();
   } finally {
-    process.env.PATH = previousPath;
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
   }
 }

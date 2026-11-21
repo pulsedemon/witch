@@ -14,7 +14,7 @@ import {
   readRecord,
   stranded,
 } from '../../fixtures/coordinator.js';
-import { passThrough } from '../../fixtures/git.js';
+import { passThrough, identity } from '../../fixtures/git.js';
 import { within } from '../../fixtures/within.js';
 import {
   assertMemoryBaseline,
@@ -557,11 +557,9 @@ test('opening a conversation aborts its stopped rebase before classifying it', a
     await target.files.close();
     await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
 
-    await promisify(execFile)(
-      'git',
-      ['-c', 'user.name=t', '-c', 'user.email=t@t', 'rebase', main],
-      { cwd: target.memory.root },
-    ).catch(() => {});
+    await promisify(execFile)('git', [...identity, 'rebase', main], {
+      cwd: target.memory.root,
+    }).catch(() => {});
 
     assert.equal(await target.memory.rebaseStopped(), true);
     await coordinator.selectConversation(target.id);

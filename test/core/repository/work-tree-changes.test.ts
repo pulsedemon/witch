@@ -20,6 +20,7 @@ import { WorkTreeChanges } from '../../../src/core/repository/work-tree-changes.
 import type { Changes } from '../../../src/core/repository/work-tree-changes.js';
 import { execute as executeGit } from '../../../src/core/repository/work-tree-git.js';
 import { scratch } from '../../fixtures/scratch.js';
+import { identity } from '../../fixtures/git.js';
 
 const execute = promisify(execFile);
 const past = '2020-01-01T00:00:00Z';
@@ -31,21 +32,14 @@ async function repository(files: Record<string, string> = { 'a.txt': 'a\n' }) {
   await mkdir(work);
 
   const git = async (...args: string[]) =>
-    (
-      await execute(
-        'git',
-        ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args],
-        { cwd: work },
-      )
-    ).stdout;
+    (await execute('git', [...identity, ...args], { cwd: work })).stdout;
 
   /** a commit dated before any baseline, as a branch someone else made would be. */
   const old = (...args: string[]) =>
-    execute(
-      'git',
-      ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', ...args],
-      { cwd: work, env: { ...process.env, GIT_COMMITTER_DATE: past } },
-    );
+    execute('git', [...identity, 'commit', '-q', ...args], {
+      cwd: work,
+      env: { ...process.env, GIT_COMMITTER_DATE: past },
+    });
 
   await git('init', '-q', '-b', 'main');
 
@@ -281,7 +275,7 @@ for (const name of ['ends in a space ', 'a:b"c\\d', 'line\nbreak'])
     await mkdir(work);
 
     const git = (...args: string[]) =>
-      execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      execute('git', [...identity, ...args], {
         cwd: work,
       });
 
@@ -438,18 +432,11 @@ test('an edit committed since the baseline shows, as does the first commit of an
   const fresh = new WorkTreeChanges(join(root, 'changes'));
   await fresh.watch(unborn);
   await writeFile(join(unborn, 'first.txt'), 'first\n');
+  await execute('git', [...identity, 'add', '-A'], { cwd: unborn });
 
-  await execute(
-    'git',
-    ['-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A'],
-    { cwd: unborn },
-  );
-
-  await execute(
-    'git',
-    ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first'],
-    { cwd: unborn },
-  );
+  await execute('git', [...identity, 'commit', '-qm', 'first'], {
+    cwd: unborn,
+  });
 
   assert.deepEqual(changed(unborn, await fresh.read(unborn)), [
     { path: 'first.txt', kind: 'add', lines: ['+first'] },
@@ -951,7 +938,7 @@ test("a file replaced by a directory, and a nested repository's new commit, leav
   await mkdir(nested);
 
   const inner = (...args: string[]) =>
-    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+    execute('git', [...identity, ...args], {
       cwd: nested,
     });
 
@@ -996,7 +983,7 @@ test('a nested repository the index tracks never runs its own filter, and shows 
   await mkdir(nested);
 
   const inner = (...args: string[]) =>
-    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+    execute('git', [...identity, ...args], {
       cwd: nested,
     });
 
