@@ -1,12 +1,7 @@
 import type { Coordinator } from '../../core/coordinator.js';
 import type { Snapshot } from '../../core/snapshot.js';
 import { useLiveState } from '../useLiveState.js';
-
-/** where ↑/↓ stand among earlier prompts, -1 being the draft, with the composer's text at each place they left. */
-export interface Browsing {
-  index: number;
-  texts: Map<number, string>;
-}
+import type { Browsing } from './usePromptHistory.js';
 
 /** each conversation's composer text, this process's or else the one saved with it, saved with it as it changes. */
 export function useDrafts(
