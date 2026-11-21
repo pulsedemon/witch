@@ -13,6 +13,7 @@ import type { Workspace } from '../memory/workspace.js';
 import { processReports } from '../persistence/process.js';
 import type { ConversationStore } from '../persistence/store.js';
 import { stoppedActivity } from './background-activity.js';
+import { interruptedFamiliarContext } from './handoff.js';
 import type { Coordinator } from './coordinator.js';
 import type { SessionCoordination } from './coordination/coordination.js';
 import type { JobWatch } from './jobs/jobs.js';
@@ -465,11 +466,24 @@ export class SessionLink {
     Snapshot,
     'native' | 'nativeRunning' | 'nativeCompacting' | 'usage'
   > {
-    for (const event of stoppedActivity(
-      this.host.snapshot(),
-      this.reviewers.owns,
-    ))
-      this.host.background(event);
+    const events = stoppedActivity(this.host.snapshot(), this.reviewers.owns);
+    const record = this.host.record();
+    const handoff = record?.handoff;
+
+    if (handoff && !handoff.activated && handoff.from === record?.agent) {
+      const context = interruptedFamiliarContext(
+        events.flatMap((event) =>
+          event.type === 'subagent' ? [event.subagent] : [],
+        ),
+      );
+
+      if (context)
+        handoff.summary = [handoff.summary, context]
+          .filter(Boolean)
+          .join('\n\n');
+    }
+
+    for (const event of events) this.host.background(event);
 
     return {
       native: undefined,
