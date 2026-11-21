@@ -49,7 +49,7 @@ import { linkify, oneLine, plain } from './links.js';
 import { useKeysReady } from './input/useKeysReady.js';
 import { useLiveState } from './useLiveState.js';
 import { useDrafts } from './input/useDrafts.js';
-import type { Browsing } from './input/useDrafts.js';
+import { usePromptHistory } from './input/usePromptHistory.js';
 import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell } from './terminal/mouse.js';
 import { transcriptViewport } from './transcript/viewport.js';
@@ -74,11 +74,6 @@ import type { RuntimeUpdates } from '../core/runtime/runtime-updates.js';
 import { useRuntimeUpdates } from './commands/updates.js';
 
 const unwatched = () => () => {};
-
-const unbrowsed = (): Browsing => ({
-  index: -1,
-  texts: new Map<number, string>(),
-});
 
 function queueMerges(
   snapshot: Pick<
@@ -223,9 +218,19 @@ export function App({
   const exit = useExitConfirm(onExit);
   const [copied, showCopied] = useFlash(1000);
   const composer = useRef<InputHandle>(null);
-  // this directory's prompts, newest first
-  const [prompts, history, setHistory] = useLiveState<string[]>([]);
-  const [browsing, recall, setRecall] = useLiveState(unbrowsed);
+
+  const run = (operation: Promise<unknown>) => {
+    void operation.catch((error: unknown) => coordinator.report(error));
+  };
+
+  const { browsing, recall, recalled, recalledLive, remember, browse, reset } =
+    usePromptHistory({
+      store,
+      cwd,
+      directory: state.conversation?.cwd,
+      composer,
+      run,
+    });
 
   const { drafts, draftOf, draftToAppend, merged, setDraft } = useDrafts(
     coordinator,
@@ -306,13 +311,6 @@ export function App({
     );
   };
 
-  /** whether the composer holds the prompt ↑/↓ last showed, as shown. */
-  const recalled = (
-    value: string,
-    { index, texts }: Browsing,
-    prompts: string[],
-  ) => index !== -1 && value === (texts.get(index) ?? prompts[index]);
-
   const listFor = (
     { value, cursor }: InputBuffer,
     focus: boolean,
@@ -355,7 +353,7 @@ export function App({
     buffer,
     toolFocus.focused,
     dismissed,
-    recalled(buffer.value, browsing, prompts),
+    recalled(buffer.value),
   );
 
   const listSelected = list ? selectedIn(list, listIndex) : 0;
@@ -366,7 +364,7 @@ export function App({
       buffer,
       toolFocus.focusedRef.current,
       dismissedRef.current,
-      recalled(buffer.value, recall.current, history.current),
+      recalledLive(buffer.value),
     );
 
   const selectedTool = toolFocus.selectedTool(transcript);
@@ -515,27 +513,6 @@ export function App({
 
   const busy = working || ['editing', 'closing'].includes(state.phase);
 
-  const run = (operation: Promise<unknown>) => {
-    void operation.catch((error: unknown) => coordinator.report(error));
-  };
-
-  /** keeps a submitted prompt for ↑, unless it is blank or repeats the newest. */
-  const remember = (text: string) => {
-    if (!text.trim() || text === history.current[0]) return;
-
-    setHistory([text, ...history.current]);
-    // the initial prompt can go out once browsing has begun, and every prompt browsed or kept is then a place further back
-    const back = (at: number) => (at === -1 ? at : at + 1);
-    const { index, texts } = recall.current;
-
-    setRecall({
-      index: back(index),
-      texts: new Map([...texts].map(([at, kept]) => [back(at), kept])),
-    });
-
-    if (store) run(store.addPrompt(cwd, text));
-  };
-
   /** `composer` marks a submission the composer clears once it returns. */
   const submit = (text: string, composer = false): boolean => {
     // Enter while tools are focused toggles a tool, and one the composer would refuse keeps the draft, even in the
@@ -579,7 +556,7 @@ export function App({
   const prepend = (text: string) => {
     const id = state.conversation?.id ?? '';
     const value = merged(text);
-    setRecall(unbrowsed());
+    reset();
 
     if (composer.current) composer.current.set({ value, cursor: text.length });
     else setDraft(id, value);
@@ -597,22 +574,6 @@ export function App({
     const text = snapshot.queue.join('\n');
     coordinator.unqueue(merged(text));
     prepend(text);
-
-    return true;
-  };
-
-  /** shows the next older or newer prompt, keeping the composer's text for when browsing comes back to its place. */
-  const browse = (direction: 'up' | 'down', current: InputBuffer) => {
-    const { index, texts } = recall.current;
-    const next = index + (direction === 'up' ? 1 : -1);
-    const value = texts.get(next) ?? history.current[next];
-
-    if (value === undefined) return false;
-
-    setRecall({ index: next, texts: new Map(texts).set(index, current.value) });
-    // ↑ lands at the end and ↓ at the start, so the next press walks a multiline prompt's lines first
-    const cursor = direction === 'up' ? value.length : 0;
-    composer.current?.set({ value, cursor });
 
     return true;
   };
@@ -704,7 +665,7 @@ export function App({
       true,
     );
 
-    if (accepted) setRecall(unbrowsed());
+    if (accepted) reset();
 
     return accepted;
   };
@@ -719,21 +680,9 @@ export function App({
 
       if (index !== -1) setDraft(id, texts.get(-1)!);
 
-      setRecall(unbrowsed());
+      reset();
     };
   }, [state.conversation?.id]);
-
-  // prompts sent before the read ends stay ahead of the ones it finds
-  useEffect(() => {
-    const directory = state.conversation?.cwd;
-
-    if (store && directory)
-      run(
-        store.prompts(directory).then((found) => {
-          setHistory([...history.current, ...found]);
-        }),
-      );
-  }, [state.conversation?.cwd]);
 
   useEffect(() => {
     const prompt = pendingPrompt.current;
