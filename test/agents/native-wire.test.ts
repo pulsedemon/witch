@@ -53,6 +53,31 @@ test('wire capture retains split JSON lines in both directions without consuming
   ]);
 });
 
+test('wire callbacks retain split UTF-8 and final non-newline frames once in capture order', async () => {
+  const child = spawn(
+    process.execPath,
+    ['-e', "process.stdin.on('data', (chunk) => process.stdout.write(chunk))"],
+    { stdio: 'pipe' },
+  );
+
+  const observed: unknown[] = [];
+  const capture = observeWire(child, (frame) => observed.push(frame));
+  const bytes = Buffer.from('{"text":"猫"}');
+  const split = bytes.indexOf(Buffer.from('猫')) + 1;
+  child.stdin.write(bytes.subarray(0, split));
+  child.stdin.write(bytes.subarray(split));
+  child.stdin.end();
+  await capture.finished();
+  await capture.finished();
+
+  assert.deepEqual(observed, [
+    { direction: 'client', message: { text: '猫' } },
+    { direction: 'server', message: { text: '猫' } },
+  ]);
+
+  assert.deepEqual(capture.frames, observed);
+});
+
 test('capture normalization removes account identity and encoded project paths without changing protocol values', () => {
   const input = [
     {
