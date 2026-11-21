@@ -1,3 +1,4 @@
+import { turns } from './claude-turns.mjs';
 import { peerAnswer } from './peer-answer.mjs';
 import { setInterval, clearInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
@@ -53,12 +54,16 @@ const stateCommands = [
 
 let initialization = 0;
 let model = 'claude-a';
-let lastPrompt = '';
+
+const run = {
+  lastPrompt: '',
+  /** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, `idle`, or `running` again. */
+  reporting: '',
+};
+
 let lastInput = '';
 /** the uuids of prompts sent during a steerable turn. */
 const steered = [];
-/** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, `idle`, or `running` again. */
-let reporting = '';
 /** the uuids of prompts the CLI holds unread for an interrupt receipt. */
 const held = [];
 
@@ -228,7 +233,7 @@ const result = (fields = {}) => {
       'background workflow',
       'reporting familiar',
       'dropped tasks',
-    ].includes(lastPrompt)
+    ].includes(run.lastPrompt)
   )
     task('commands_changed', {
       commands: [
@@ -254,7 +259,7 @@ const finish = () => {
   // with lifecycle acknowledgements, a result names the input it answers
   result(mode === 'spell-user' ? { user_message_uuids: [lastInput] } : {});
 
-  if (lastPrompt === 'wait for idle') {
+  if (run.lastPrompt === 'wait for idle') {
     const states = ['running', 'requires_action', 'idle'];
 
     const interval = setInterval(() => {
@@ -310,7 +315,7 @@ const finishPeerAnswer = () => {
     });
   }
 
-  const output = JSON.parse(peerAnswer(lastPrompt));
+  const output = JSON.parse(peerAnswer(run.lastPrompt));
 
   assistant('', [
     {
@@ -324,6 +329,28 @@ const finishPeerAnswer = () => {
   toolResult('answer-output', 'Valid output.');
   result({ structured_output: output });
   state('idle');
+};
+
+const context = {
+  readFileSync,
+  join,
+  process,
+  send,
+  run,
+  once,
+  finish,
+  assistant,
+  toolResult,
+  randomUUID,
+  session_id,
+  task,
+  level,
+  result,
+  state,
+  exitBeforeGrandchild,
+  spawn,
+  streamEvent,
+  stateCommands,
 };
 
 for await (const line of lines) {
@@ -639,19 +666,19 @@ for await (const line of lines) {
             state('idle');
           });
       } else if (
-        (mode === 'hold-initial' || lastPrompt === 'reporting familiar') &&
+        (mode === 'hold-initial' || run.lastPrompt === 'reporting familiar') &&
         held.length
       )
         response = {
           still_queued: mode === 'first-reply-read' ? held.slice(1) : held,
         };
-      else if (lastPrompt === 'still queued')
+      else if (run.lastPrompt === 'still queued')
         response = { still_queued: ['q-1'] };
       // the first steered prompt was folded in at a tool step, so the CLI still holds the rest
-      else if (lastPrompt === 'steerable' && steered.length > 1)
+      else if (run.lastPrompt === 'steerable' && steered.length > 1)
         response = { still_queued: steered.slice(1) };
       // after the reply Claude Code stops the familiar and idles, with no fresh result
-      else if (lastPrompt === 'background familiar') {
+      else if (run.lastPrompt === 'background familiar') {
         task('task_notification', {
           task_id: 'helper',
           status: 'stopped',
@@ -679,7 +706,7 @@ for await (const line of lines) {
     lastInput = message.uuid;
 
     if (mode === 'background') {
-      if (lastPrompt) {
+      if (run.lastPrompt) {
         held.push(message.uuid);
 
         continue;
@@ -708,7 +735,7 @@ for await (const line of lines) {
       continue;
     }
 
-    if (lastPrompt === 'reporting familiar' && reporting === 'before') {
+    if (run.lastPrompt === 'reporting familiar' && run.reporting === 'before') {
       held.push(message.uuid);
 
       appendFileSync(
@@ -720,8 +747,8 @@ for await (const line of lines) {
     }
 
     if (
-      lastPrompt === 'reporting familiar' &&
-      ['reported', 'running'].includes(reporting)
+      run.lastPrompt === 'reporting familiar' &&
+      ['reported', 'running'].includes(run.reporting)
     )
       appendFileSync(
         join(process.cwd(), 'early.jsonl'),
@@ -729,7 +756,9 @@ for await (const line of lines) {
       );
 
     // the CLI answers a prompt sent while it waits on a background familiar or workflow, then idles once it reports
-    if (['background familiar', 'background workflow'].includes(lastPrompt)) {
+    if (
+      ['background familiar', 'background workflow'].includes(run.lastPrompt)
+    ) {
       appendFileSync(
         join(process.cwd(), 'steered.jsonl'),
         `${JSON.stringify(message.message.content)}\n`,
@@ -739,7 +768,8 @@ for await (const line of lines) {
       result();
 
       task('task_notification', {
-        task_id: lastPrompt === 'background workflow' ? 'workflow' : 'helper',
+        task_id:
+          run.lastPrompt === 'background workflow' ? 'workflow' : 'helper',
         status: 'completed',
         output_file: '',
         summary: '',
@@ -753,7 +783,7 @@ for await (const line of lines) {
     }
 
     // the CLI folds a prompt sent during a turn into it, here until one says to wrap up
-    if (lastPrompt === 'steerable') {
+    if (run.lastPrompt === 'steerable') {
       steered.push(message.uuid);
 
       appendFileSync(
@@ -762,26 +792,26 @@ for await (const line of lines) {
       );
 
       if (message.message.content === 'wrap up') {
-        lastPrompt = '';
+        run.lastPrompt = '';
         finish();
       }
 
       continue;
     }
 
-    lastPrompt = message.message.content;
+    run.lastPrompt = message.message.content;
 
     writeFileSync(
       join(process.cwd(), 'content.json'),
-      JSON.stringify(lastPrompt),
+      JSON.stringify(run.lastPrompt),
     );
 
     if (
       mode === 'coordinator-reporting' &&
-      typeof lastPrompt === 'string' &&
-      lastPrompt.endsWith('User request:\nreporting familiar')
+      typeof run.lastPrompt === 'string' &&
+      run.lastPrompt.endsWith('User request:\nreporting familiar')
     )
-      lastPrompt = 'reporting familiar';
+      run.lastPrompt = 'reporting familiar';
 
     // Claude Code starts a pushed input before init advertises lifecycle acknowledgements
     if (mode === 'spell-user')
@@ -857,759 +887,9 @@ for await (const line of lines) {
       continue;
     }
 
-    if (lastPrompt === 'preview' || lastPrompt === 'preview-withdrawn') {
-      const { tool, input } = JSON.parse(
-        readFileSync(join(process.cwd(), 'preview.json'), 'utf8'),
-      );
-
-      send({
-        type: 'control_request',
-        request_id: 'preview-request',
-        request: {
-          subtype: 'can_use_tool',
-          tool_name: tool,
-          input,
-          tool_use_id: 'preview-tool',
-        },
-      });
-
-      if (lastPrompt === 'preview-withdrawn')
-        once('withdraw-preview', () => {
-          send({
-            type: 'control_cancel_request',
-            request_id: 'preview-request',
-          });
-
-          finish();
-        });
-
-      continue;
-    }
-
-    if (lastPrompt === 'approval')
-      send({
-        type: 'control_request',
-        request_id: 'permit-1',
-        request: {
-          subtype: 'can_use_tool',
-          tool_name: 'Write',
-          input: {
-            file_path: join(process.cwd(), 'approved.txt'),
-            content: 'accepted',
-          },
-          tool_use_id: 'tool-1',
-        },
-      });
-    else if (lastPrompt === 'question')
-      send({
-        type: 'control_request',
-        request_id: 'permit-1',
-        request: {
-          subtype: 'can_use_tool',
-          tool_name: 'AskUserQuestion',
-          input: {
-            questions: [
-              {
-                question: 'Colors?',
-                header: 'Colors',
-                multiSelect: true,
-                options: [
-                  { label: 'red' },
-                  { label: 'green' },
-                  { label: 'blue' },
-                ],
-              },
-            ],
-          },
-          tool_use_id: 'tool-1',
-        },
-      });
-    else if (lastPrompt === 'withdrawn') {
-      send({
-        type: 'control_request',
-        request_id: 'permit-2',
-        request: {
-          subtype: 'can_use_tool',
-          tool_name: 'Write',
-          input: { file_path: join(process.cwd(), 'withdrawn.txt') },
-          tool_use_id: 'tool-2',
-        },
-      });
-
-      send({ type: 'control_cancel_request', request_id: 'permit-2' });
-      finish();
-    } else if (lastPrompt === 'elicit')
-      send({
-        type: 'control_request',
-        request_id: 'elicit-1',
-        request: {
-          subtype: 'elicitation',
-          mcp_server_name: 'tracker',
-          message: 'Which project?',
-          requested_schema: {
-            type: 'object',
-            properties: { project: { type: 'string' } },
-          },
-        },
-      });
-    else if (lastPrompt === 'tools') {
-      assistant('', [
-        {
-          type: 'tool_use',
-          id: 'tool-1',
-          name: 'Bash',
-          input: { command: 'ls\nwc -l a.md', description: 'List notes' },
-        },
-      ]);
-
-      toolResult('tool-1', 'a.md');
-
-      assistant('', [
-        {
-          type: 'tool_use',
-          id: 'tool-s',
-          name: 'Skill',
-          input: { skill: 'handoff' },
-        },
-      ]);
-
-      toolResult('tool-s', 'Launching skill: handoff');
-
-      assistant('', [
-        {
-          type: 'tool_use',
-          id: 'tool-2',
-          name: 'Agent',
-          input: { description: 'Find notes', prompt: 'look' },
-        },
-      ]);
-
-      assistant('Subagent text.', undefined, 'tool-2');
-
-      assistant(
-        '',
-        [{ type: 'tool_use', id: 'sub-1', name: 'Read', input: {} }],
-        'tool-2',
-      );
-
-      toolResult('sub-1', 'inner', 'tool-2');
-
-      toolResult('tool-2', [
-        { type: 'text', text: 'Found a.md.' },
-        { type: 'text', text: 'Read one file.' },
-      ]);
-
-      assistant('', [
-        {
-          type: 'tool_use',
-          id: 'tool-3',
-          name: 'Read',
-          input: { file_path: join(process.cwd(), 'shot.png') },
-        },
-      ]);
-
-      toolResult('tool-3', [
-        {
-          type: 'image',
-          source: { type: 'base64', media_type: 'image/png', data: 'iVBORw==' },
-        },
-      ]);
-
-      assistant('Done.');
-      finish();
-    } else if (lastPrompt === 'edits' || lastPrompt === 'home-edits') {
-      const call = (id, name, input) =>
-        assistant('', [{ type: 'tool_use', id, name, input }]);
-
-      const a =
-        lastPrompt === 'home-edits'
-          ? '~/issue69-edit.txt'
-          : join(process.cwd(), 'a.txt');
-
-      call('edit-1', 'Edit', {
-        file_path: a,
-        old_string: 'bravo',
-        new_string: 'BRAVO',
-      });
-
-      toolResult(
-        'edit-1',
-        'The file a.txt has been updated successfully.',
-        null,
-        {
-          tool_use_result: {
-            filePath: a,
-            oldString: 'bravo',
-            newString: 'BRAVO',
-            originalFile: 'alpha\nbravo\ncharlie\n',
-            structuredPatch: [
-              {
-                oldStart: 1,
-                oldLines: 3,
-                newStart: 1,
-                newLines: 3,
-                lines: [' alpha', '-bravo', '+BRAVO', ' charlie'],
-              },
-            ],
-            userModified: false,
-            replaceAll: false,
-          },
-        },
-      );
-
-      const b = lastPrompt === 'home-edits' ? '~/issue69-write.txt' : 'b.txt';
-      call('write-1', 'Write', { file_path: b, content: 'one\ntwo' });
-
-      toolResult('write-1', `File created successfully at: ${b}`, null, {
-        tool_use_result: {
-          type: 'create',
-          filePath: b,
-          content: 'one\ntwo',
-          structuredPatch: [],
-          originalFile: null,
-          userModified: false,
-        },
-      });
-
-      const missing = 'Error: String to replace not found in file.';
-
-      call('edit-2', 'Edit', {
-        file_path: a,
-        old_string: 'zulu',
-        new_string: 'ZULU',
-      });
-
-      toolResult('edit-2', missing, null, { tool_use_result: missing });
-      const c = join(process.cwd(), 'c.txt');
-      call('write-2', 'Write', { file_path: c, content: 'same' });
-
-      toolResult(
-        'write-2',
-        'The file c.txt has been updated successfully.',
-        null,
-        {
-          tool_use_result: {
-            type: 'update',
-            filePath: c,
-            content: 'same',
-            structuredPatch: [],
-            originalFile: 'same',
-            userModified: false,
-          },
-        },
-      );
-
-      const settings = join(process.cwd(), '.claude', 'settings.json');
-      call('write-3', 'Write', { file_path: settings, content: '{}' });
-
-      toolResult('write-3', 'Staged for review.', null, {
-        tool_use_result: {
-          type: 'create',
-          filePath: settings,
-          content: '{}',
-          structuredPatch: [],
-          originalFile: null,
-          userModified: false,
-          staged: true,
-        },
-      });
-
-      assistant('Done.');
-      finish();
-    } else if (lastPrompt === 'created-edits') {
-      const content = Array.from({ length: 12 }, (_, index) => `l${index + 1}`);
-
-      const reports = [
-        {
-          id: 'create-edit',
-          filePath: 'created.txt',
-          oldString: '',
-          newString: content.join('\n') + '\n',
-          originalFile: '',
-          structuredPatch: [
-            {
-              oldStart: 0,
-              oldLines: 0,
-              newStart: 1,
-              newLines: 12,
-              lines: content.map((line) => `+${line}`),
-            },
-          ],
-        },
-        {
-          id: 'append-edit',
-          filePath: 'append.txt',
-          oldString: 'base\n',
-          newString: 'base\nnext\n',
-          originalFile: 'base\n',
-          structuredPatch: [
-            {
-              oldStart: 1,
-              oldLines: 1,
-              newStart: 1,
-              newLines: 2,
-              lines: [' base', '+next'],
-            },
-          ],
-        },
-        {
-          id: 'staged-edit',
-          filePath: '.claude/settings.json',
-          oldString: '',
-          newString: '{}\n',
-          originalFile: '',
-          structuredPatch: [
-            {
-              oldStart: 0,
-              oldLines: 0,
-              newStart: 1,
-              newLines: 1,
-              lines: ['+{}'],
-            },
-          ],
-          staged: true,
-        },
-      ];
-
-      for (const { id, ...report } of reports) {
-        assistant('', [
-          {
-            type: 'tool_use',
-            id,
-            name: 'Edit',
-            input: {
-              file_path: report.filePath,
-              old_string: report.oldString,
-              new_string: report.newString,
-            },
-          },
-        ]);
-
-        toolResult(
-          id,
-          report.staged ? 'Staged for review.' : 'Updated successfully.',
-          null,
-          {
-            tool_use_result: {
-              ...report,
-              userModified: false,
-              replaceAll: false,
-            },
-          },
-        );
-      }
-
-      assistant('Done.');
-      finish();
-    } else if (lastPrompt === 'familiar-work') {
-      send({
-        type: 'system',
-        subtype: 'task_started',
-        task_id: 'reader',
-        description: 'Read tests',
-        task_type: 'local_agent',
-        uuid: randomUUID(),
-        session_id,
-      });
-
-      const tool = (id, name, input) => ({ type: 'tool_use', id, name, input });
-      assistant('Reading the tests.', undefined, 'agent-tool', 'reader');
-
-      assistant(
-        '',
-        [tool('r-1', 'Read', { file_path: join(process.cwd(), 'a.test.ts') })],
-        'agent-tool',
-        'reader',
-      );
-
-      assistant(
-        '',
-        [
-          tool('r-2', 'Bash', {
-            command: 'pnpm test',
-            description: 'Run tests',
-          }),
-        ],
-        'agent-tool',
-        'reader',
-      );
-
-      assistant(
-        '',
-        [tool('r-3', 'Skill', { skill: 'tdd' })],
-        'agent-tool',
-        'reader',
-      );
-
-      const report = randomUUID();
-      assistant('All tests pass.', undefined, 'agent-tool', 'reader', report);
-      assistant('See a.test.ts.', undefined, 'agent-tool', 'reader', report);
-
-      // an agent Witch never listed, such as an ambient worker
-      assistant(
-        '',
-        [tool('g-1', 'Read', { file_path: 'x' })],
-        'other-tool',
-        'ghost',
-      );
-
-      send({
-        type: 'system',
-        subtype: 'task_notification',
-        task_id: 'reader',
-        status: 'completed',
-        output_file: '',
-        summary: 'Agent "Read tests" finished',
-        uuid: randomUUID(),
-        session_id,
-      });
-
-      finish();
-    } else if (lastPrompt === 'familiars') {
-      task('task_started', {
-        task_id: 'outer',
-        description: 'Map the code',
-        subagent_type: 'Explore',
-        task_type: 'local_agent',
-      });
-
-      task('task_started', {
-        task_id: 'inner',
-        description: 'Read tests',
-        parent_task_id: 'outer',
-        task_type: 'local_agent',
-      });
-
-      task('task_started', {
-        task_id: 'shell',
-        description: 'ls',
-        task_type: 'local_bash',
-      });
-
-      task('task_started', {
-        task_id: 'worker',
-        description: '/spell',
-        subagent_type: 'general-purpose',
-        task_type: 'local_agent',
-        skip_transcript: true,
-        ambient: true,
-      });
-
-      // run 1's start and notification arrive after run 2's start
-      for (const run_id of ['1', '2', '1'])
-        task('task_started', {
-          task_id: 'resumed',
-          run_id,
-          description: 'Fix lint',
-          task_type: 'local_agent',
-        });
-
-      for (const [run_id, status] of [
-        ['1', 'stopped'],
-        ['2', 'completed'],
-      ])
-        task('task_notification', {
-          task_id: 'resumed',
-          run_id,
-          status,
-          output_file: '',
-          summary: '',
-        });
-
-      for (const [task_id, status] of [
-        ['inner', 'completed'],
-        ['shell', 'completed'],
-        ['worker', 'completed'],
-        ['outer', 'failed'],
-      ])
-        task('task_notification', {
-          task_id,
-          status,
-          output_file: '',
-          summary: '',
-        });
-
-      finish();
-    } else if (lastPrompt === 'brews') {
-      const outer = {
-        task_id: 'outer',
-        task_type: 'local_agent',
-        description: 'Map the code',
-      };
-
-      const serve = {
-        task_id: 'serve',
-        task_type: 'local_bash',
-        description: 'Start the server',
-      };
-
-      const moved = {
-        task_id: 'moved',
-        task_type: 'local_bash',
-        description: 'Run tests',
-      };
-
-      const end = (task_id, status) =>
-        task('task_notification', {
-          task_id,
-          status,
-          output_file: '',
-          summary: '',
-        });
-
-      level([outer]);
-      task('task_started', outer);
-      level([outer, serve]);
-      task('task_started', { ...serve, is_backgrounded: true });
-
-      // a foreground shell gets task frames but never joins the live set
-      task('task_started', {
-        task_id: 'build',
-        task_type: 'local_bash',
-        description: 'Build',
-        is_backgrounded: false,
-      });
-
-      end('build', 'completed');
-      // a foreground shell moved to the background joins the live set before its update
-      task('task_started', { ...moved, is_backgrounded: false });
-      level([outer, serve, moved]);
-
-      task('task_updated', {
-        task_id: 'moved',
-        patch: { is_backgrounded: true },
-      });
-
-      task('task_updated', { task_id: 'serve', patch: { status: 'failed' } });
-      end('serve', 'failed');
-      level([outer, moved]);
-      end('moved', 'stopped');
-      level([outer]);
-      end('outer', 'completed');
-      level([]);
-      finish();
-    } else if (lastPrompt === 'reporting familiar') {
-      // reports and may start another familiar, then idles, then dies or runs again on its own and idles, each once the
-      // test allows it
-      task('task_started', {
-        task_id: 'helper',
-        description: 'Reporting helper',
-        task_type: 'local_agent',
-      });
-
-      assistant('Started.');
-      result();
-      reporting = 'before';
-
-      once('allow-report', () => {
-        reporting = 'reported';
-
-        task('task_notification', {
-          task_id: 'helper',
-          status: 'completed',
-          output_file: '',
-          summary: '',
-        });
-
-        assistant('Reported.');
-        result();
-
-        once('allow-second', () =>
-          task('task_started', {
-            task_id: 'second',
-            description: 'Second helper',
-            task_type: 'local_agent',
-          }),
-        );
-
-        once('allow-idle', () => {
-          reporting = 'idle';
-          state('idle');
-
-          task('commands_changed', {
-            commands: [
-              {
-                name: 'after-idle',
-                description: 'After idle',
-                argumentHint: '',
-              },
-            ],
-          });
-
-          once('allow-die', () => exitBeforeGrandchild(1));
-
-          // as Claude Code does when a brew ends
-          once('allow-run', () => {
-            reporting = 'running';
-            state('running');
-            assistant('Brewed.');
-            result();
-
-            once('allow-rest', () => {
-              reporting = 'idle';
-              state('idle');
-            });
-          });
-        });
-      });
-    } else if (lastPrompt === 'background familiar') {
-      task('task_started', {
-        task_id: 'helper',
-        description: 'Slow helper',
-        task_type: 'local_agent',
-      });
-
-      assistant('Started.');
-      // no idle until the familiar reports
-      result();
-    } else if (lastPrompt === 'background workflow') {
-      task('task_started', {
-        task_id: 'workflow',
-        description: 'Slow workflow',
-        task_type: 'local_workflow',
-      });
-
-      assistant('Started.');
-      // no idle until the workflow reports
-      result();
-    } else if (lastPrompt === 'dropped tasks') {
-      // the live set drops the background tasks with no notification, once the test allows it
-      const helper = {
-        task_id: 'helper',
-        task_type: 'local_agent',
-        description: 'Slow helper',
-      };
-
-      const workflow = {
-        task_id: 'workflow',
-        task_type: 'local_workflow',
-        description: 'Slow workflow',
-      };
-
-      const serve = {
-        task_id: 'serve',
-        task_type: 'local_bash',
-        description: 'Start the server',
-      };
-
-      task('task_started', {
-        task_id: 'fore',
-        task_type: 'local_agent',
-        description: 'Foreground helper',
-        is_backgrounded: false,
-      });
-
-      level([helper]);
-      task('task_started', { ...helper, is_backgrounded: true });
-      level([helper, workflow]);
-      task('task_started', workflow);
-      level([helper, workflow, serve]);
-
-      task('task_notification', {
-        task_id: 'fore',
-        status: 'completed',
-        output_file: '',
-        summary: '',
-      });
-
-      assistant('Started.');
-      result();
-
-      once('allow-drop', () => {
-        level([]);
-        once('allow-idle', () => state('idle'));
-      });
-    } else if (['wait', 'still queued', 'steerable'].includes(lastPrompt))
-      assistant('Working.');
-    else if (lastPrompt === 'crash') {
-      assistant('Working.');
-      exitBeforeGrandchild(1);
-    } else if (lastPrompt === 'die') {
-      assistant('Working.');
-      // holds stdout, so the SDK's read loop outlives the exit
-      spawn('/bin/sleep', ['1'], { stdio: ['ignore', 'inherit', 'ignore'] });
-      process.exit(1);
-    } else if (lastPrompt === 'text error') {
-      assistant('alpha draft', undefined, null, undefined, 'message-z');
-      assistant('bravo', undefined, null, undefined, 'message-a');
-
-      streamEvent(
-        {
-          type: 'content_block_delta',
-          index: 0,
-          delta: { type: 'text_delta', text: ' tail' },
-        },
-        null,
-      );
-
-      assistant('alpha final', undefined, null, undefined, 'message-z');
-      assistant('', [], null, undefined, 'message-a');
-
-      result({
-        subtype: 'error_during_execution',
-        is_error: true,
-        result: undefined,
-        errors: ['fixture failure'],
-      });
-
-      state('idle');
-    } else if (lastPrompt === 'execution error') {
-      result({
-        subtype: 'error_during_execution',
-        is_error: true,
-        result: undefined,
-        errors: ['tool crashed'],
-      });
-
-      state('idle');
-    } else if (lastPrompt === 'api error') {
-      result({ is_error: true, result: 'API Error: 500' });
-      state('idle');
-    } else if (lastPrompt === 'quit early')
-      process.stderr.write('quitting early\n', () => process.exit(0));
-    else if (lastPrompt === 'think') {
-      const thought = {
-        type: 'content_block_delta',
-        index: 0,
-        delta: { type: 'thinking_delta', thinking: 'secret plan' },
-      };
-
-      streamEvent(
-        {
-          type: 'content_block_start',
-          index: 0,
-          content_block: { type: 'thinking', thinking: '', signature: '' },
-        },
-        null,
-      );
-
-      streamEvent(thought, null);
-      streamEvent(thought, 'toolu_familiar');
-      assistant('done');
-      finish();
-    } else if (lastPrompt === 'add skill') {
-      send({
-        type: 'system',
-        subtype: 'commands_changed',
-        commands: [
-          {
-            name: 'clear',
-            description: 'Clear',
-            argumentHint: '',
-            builtin: true,
-          },
-          { name: 'clear', description: 'Shadowed', argumentHint: '' },
-          ...stateCommands,
-          { name: 'config', description: 'Shadowed', argumentHint: '' },
-          { name: 'rename', description: 'Shadowed', argumentHint: '' },
-          { name: 'later', description: 'Added later', argumentHint: '' },
-        ],
-        uuid: randomUUID(),
-        session_id,
-      });
-
-      finish();
-    } else finish();
+    if (Object.hasOwn(turns, run.lastPrompt))
+      turns[run.lastPrompt](context, message);
+    else finish();
   } else if (
     message.type === 'control_response' &&
     ['permit-1', 'elicit-1', 'preview-request'].includes(
@@ -1618,7 +898,7 @@ for await (const line of lines) {
   ) {
     const { response } = message.response;
 
-    if (lastPrompt !== 'approval')
+    if (run.lastPrompt !== 'approval')
       writeFileSync(
         join(process.cwd(), 'response.json'),
         JSON.stringify(response),

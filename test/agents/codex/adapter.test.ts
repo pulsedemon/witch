@@ -118,6 +118,20 @@ test('a request Codex resolves itself leaves the queue before the turn ends', as
   }
 });
 
+test('an inherited property prompt reaches the default approval scenario', async () => {
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'request')
+      session.respond(event.request.id, { decision: 'accept' });
+  });
+
+  try {
+    assert.equal((await session.send('toString')).status, 'completed');
+    assert.equal(await readFile(join(cwd, 'approved.txt'), 'utf8'), 'approved');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test('an accepted permissions request grants the requested permissions for the turn', async () => {
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'request')

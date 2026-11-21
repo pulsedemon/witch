@@ -1,3 +1,4 @@
+import { turns } from './codex-turns.mjs';
 import { peerAnswer } from './peer-answer.mjs';
 import { clearInterval, setInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
@@ -49,7 +50,7 @@ if (process.argv.includes('--ignore-term')) {
 
 let mainThreadId = 'native-thread';
 let threadStarts = 0;
-let model = 'model-a';
+const run = { model: 'model-a', skillAdded: false };
 let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
@@ -81,7 +82,7 @@ const record = (name, value) => {
 
 const session = () => ({
   thread: { id: answering ? 'answer-thread' : mainThreadId },
-  model,
+  model: run.model,
   cwd: process.cwd(),
   approvalPolicy: 'on-request',
   approvalsReviewer: 'user',
@@ -198,7 +199,6 @@ const spellTurn = (prompt, input, turnId) => {
 };
 
 let spellTurns = 0;
-let skillAdded = false;
 let lastPrompt = '';
 /** a `!` command of `hold` runs until an interrupt or the test's release. */
 let shellHeld = false;
@@ -344,6 +344,21 @@ const finishPeerAnswer = () => {
     });
 
   finish('completed');
+};
+
+const context = {
+  finish,
+  process,
+  run,
+  notify,
+  window,
+  join,
+  send,
+  limitTurns,
+  spawn,
+  writeFileSync,
+  file,
+  held,
 };
 
 for await (const line of lines) {
@@ -593,7 +608,7 @@ for await (const line of lines) {
             }),
             { ...skill('review', { description: 'duplicate' }), path: '/x' },
             skill('bare', { description: 'bare description' }),
-            ...(skillAdded
+            ...(run.skillAdded
               ? [skill('later', { description: 'added later' })]
               : []),
           ],
@@ -694,12 +709,12 @@ for await (const line of lines) {
     effort = request.params.config?.model_reasoning_effort ?? effort;
     record(answering ? 'answer-connect.json' : 'connect.json', request);
 
-    model =
+    run.model =
       request.params.model ??
       (request.method === 'thread/start' ? configuration().model : undefined) ??
       (request.method === 'thread/start' && existsSync(file('default-second'))
         ? 'model-b'
-        : model);
+        : run.model);
 
     reply(session());
   }
@@ -714,20 +729,22 @@ for await (const line of lines) {
 
     if (request.params.model === 'exit') process.exit(1);
 
-    const previous = `${model}/${effort}`;
-    model = request.params.model;
+    const previous = `${run.model}/${effort}`;
+    run.model = request.params.model;
     // the server can't clear effort, so an omitted one stays in force
     effort = request.params.effort ?? effort;
     reply({});
 
-    if (model === 'held') await held();
+    if (run.model === 'held') await held();
 
     // as Codex does, only a change is notified
-    if (`${model}/${effort}` !== previous)
+    if (`${run.model}/${effort}` !== previous)
       notify('thread/settings/updated', {
         threadId: 'native-thread',
         threadSettings:
-          model === 'bad-settings' ? { model: 5 } : { model, effort },
+          run.model === 'bad-settings'
+            ? { model: 5 }
+            : { model: run.model, effort },
       });
   }
 
@@ -740,7 +757,11 @@ for await (const line of lines) {
 
     if (request.params.threadId === mainThreadId) {
       reply({
-        thread: { ...session().thread, model, reasoningEffort: effort },
+        thread: {
+          ...session().thread,
+          model: run.model,
+          reasoningEffort: effort,
+        },
       });
 
       continue;
@@ -1088,644 +1109,8 @@ for await (const line of lines) {
     )
       continue;
 
-    if (prompt === 'exit when idle') {
-      finish('completed');
-      process.stdout.write('', () => process.exit(1));
-
-      continue;
-    }
-
-    if (prompt === 'add skill') {
-      skillAdded = true;
-      notify('skills/changed', {});
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'usage') {
-      const tokens = (threadId, totalTokens) =>
-        notify('thread/tokenUsage/updated', {
-          threadId,
-          turnId: 'turn-1',
-          tokenUsage: {
-            total: { totalTokens: 900000 },
-            last: { totalTokens },
-            modelContextWindow: 256000,
-          },
-        });
-
-      tokens('native-thread', 64000);
-      tokens('subagent-thread', 200000);
-
-      const diff = (body, turnId = 'turn-1', threadId = 'native-thread') =>
-        notify('turn/diff/updated', {
-          threadId,
-          turnId,
-          diff: body
-            ? `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n${body}`
-            : '',
-        });
-
-      const first = ' kept\n-old\n+one\n+++ added\n';
-
-      const second =
-        '+two\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+b\n';
-
-      diff('+one\n');
-      // the turn's diff grows, and a content line can start like a header
-      diff(first);
-      // a later turn adds to the total, its second file's headers do not, and another thread's turn does not
-      diff(second, 'turn-2');
-      diff('+three\n+four\n-five\n', 'subagent-turn', 'subagent-thread');
-      diff('+one\n');
-      diff('', 'turn-2');
-      diff('');
-      diff(first);
-      diff(second, 'turn-2');
-      diff(second, 'turn-2');
-
-      const limits = (limitId, primary) =>
-        notify('account/rateLimits/updated', {
-          rateLimits: { limitId, primary, secondary: null },
-        });
-
-      limits('codex', window(15, 300, 2000000100));
-      limits('other', window(99, 300, 2000000100));
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'familiar-work') {
-      const item = (method, threadId, fields) =>
-        notify(method, {
-          threadId,
-          turnId: `${threadId}-turn`,
-          item: fields,
-        });
-
-      notify('turn/started', {
-        threadId: 'worker-thread',
-        turn: { id: 'worker-thread-turn', status: 'inProgress' },
-      });
-
-      // its prompt and its thinking are no tool calls
-      item('item/started', 'worker-thread', {
-        type: 'userMessage',
-        id: 'w-0',
-        content: [],
-      });
-
-      const thinking = {
-        type: 'reasoning',
-        id: 'w-r',
-        summary: [],
-        content: [],
-      };
-
-      item('item/started', 'worker-thread', thinking);
-      item('item/completed', 'worker-thread', thinking);
-
-      const command = {
-        type: 'commandExecution',
-        id: 'w-1',
-        command: 'pnpm test',
-        cwd: process.cwd(),
-      };
-
-      item('item/started', 'worker-thread', command);
-
-      item('item/completed', 'worker-thread', {
-        ...command,
-        status: 'completed',
-      });
-
-      item('item/started', 'worker-thread', {
-        type: 'collabAgentToolCall',
-        id: 'w-c',
-        tool: 'spawnAgent',
-        senderThreadId: 'worker-thread',
-        receiverThreadIds: [],
-        prompt: 'Check the docs',
-        agentsStates: {},
-        status: 'inProgress',
-      });
-
-      item('item/started', 'worker-thread', {
-        type: 'imageView',
-        id: 'w-2',
-        path: join(process.cwd(), 'a.png'),
-      });
-
-      const message = { type: 'agentMessage', id: 'w-3', text: '' };
-      item('item/started', 'worker-thread', message);
-      item('item/completed', 'worker-thread', { ...message, text: 'Done.' });
-      // a thread that never started a turn here is no familiar
-      item('item/started', 'ghost-thread', { ...command, id: 'g-1' });
-
-      notify('turn/completed', {
-        threadId: 'worker-thread',
-        turn: { id: 'worker-thread-turn', status: 'completed' },
-      });
-
-      // the finished thread is sent more input
-      notify('turn/started', {
-        threadId: 'worker-thread',
-        turn: { id: 'worker-thread-turn-2', status: 'inProgress' },
-      });
-
-      // and starts again before that turn's last item and end arrive
-      notify('turn/started', {
-        threadId: 'worker-thread',
-        turn: { id: 'worker-thread-turn-3', status: 'inProgress' },
-      });
-
-      notify('item/started', {
-        threadId: 'worker-thread',
-        turnId: 'worker-thread-turn-2',
-        item: { ...command, id: 'w-4' },
-      });
-
-      notify('turn/completed', {
-        threadId: 'worker-thread',
-        turn: { id: 'worker-thread-turn-2', status: 'completed' },
-      });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'familiars') {
-      const turn = (method, threadId, status) =>
-        notify(method, { threadId, turn: { id: `${threadId}-turn`, status } });
-
-      send({
-        id: 95,
-        method: 'item/commandExecution/requestApproval',
-        params: {
-          threadId: 'child-thread',
-          turnId: 'child-thread-turn',
-          itemId: 'child-tool',
-          command: 'ls',
-          cwd: process.cwd(),
-        },
-      });
-
-      notify('serverRequest/resolved', {
-        threadId: 'child-thread',
-        requestId: 95,
-      });
-
-      turn('turn/started', 'child-thread', 'inProgress');
-
-      notify('item/agentMessage/delta', {
-        threadId: 'child-thread',
-        turnId: 'child-thread-turn',
-        itemId: 'child-message',
-        delta: 'Child text.',
-      });
-
-      notify('model/rerouted', {
-        threadId: 'child-thread',
-        turnId: 'child-thread-turn',
-        fromModel: model,
-        toModel: 'model-child',
-        reason: 'highRiskCyberActivity',
-      });
-
-      turn('turn/started', 'grandchild-thread', 'inProgress');
-      turn('turn/completed', 'grandchild-thread', 'interrupted');
-      turn('turn/started', 'failed-thread', 'inProgress');
-      turn('turn/completed', 'failed-thread', 'failed');
-      turn('turn/started', 'done-thread', 'inProgress');
-      turn('turn/completed', 'done-thread', 'completed');
-      turn('turn/completed', 'child-thread', 'completed');
-      // the finished child is sent more input
-      turn('turn/started', 'child-thread', 'inProgress');
-      notify('turn/completed', { threadId: 'stray-thread', turn: null });
-
-      notify('item/agentMessage/delta', {
-        threadId: 'native-thread',
-        itemId: 'message-1',
-        delta: 'Parent text.',
-      });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'familiar-restart') {
-      // the familiars, named by now, are sent more input
-      for (const threadId of ['child-thread', 'grandchild-thread'])
-        notify('turn/started', {
-          threadId,
-          turn: { id: `${threadId}-turn-2`, status: 'inProgress' },
-        });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'malformed') {
-      for (let count = 0; count < 2; count++)
-        notify('item/agentMessage/delta', { itemId: 7, delta: 'bad' });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'null-turn') {
-      notify('turn/completed', { threadId: 'native-thread', turn: null });
-
-      continue;
-    }
-
-    if (prompt === 'in-progress') {
-      finish('inProgress');
-
-      continue;
-    }
-
-    if (prompt === 'failed') {
-      finish('failed', { message: 'native failure' });
-
-      continue;
-    }
-
-    if (prompt in limitTurns) {
-      const [status, codexErrorInfo] = limitTurns[prompt];
-
-      finish(status, {
-        message: 'limit reached',
-        codexErrorInfo,
-        additionalDetails: null,
-      });
-
-      continue;
-    }
-
-    if (prompt === 'reroute') {
-      notify('model/rerouted', {
-        threadId: 'native-thread',
-        turnId: 'turn-1',
-        fromModel: model,
-        toModel: 'model-c',
-        reason: 'highRiskCyberActivity',
-      });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'turn text') {
-      for (const [itemId, delta] of [
-        ['message-z', 'alpha draft'],
-        ['message-a', 'bravo'],
-        ['message-a', ' tail'],
-      ])
-        notify('item/agentMessage/delta', { itemId, delta });
-
-      notify('item/completed', {
-        item: { type: 'agentMessage', id: 'message-z', text: 'alpha final' },
-      });
-
-      notify('item/agentMessage/delta', {
-        itemId: 'message-m',
-        delta: 'discard',
-      });
-
-      notify('item/completed', {
-        item: { type: 'agentMessage', id: 'message-m', text: '' },
-      });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'error') {
-      const error = (message) => ({
-        message,
-        codexErrorInfo: null,
-        additionalDetails: null,
-      });
-
-      for (const [willRetry, message] of [
-        [true, 'retrying'],
-        [false, 'native error'],
-      ])
-        notify('error', {
-          threadId: 'native-thread',
-          turnId: 'turn-1',
-          willRetry,
-          error: error(message),
-        });
-
-      finish('failed', error('native error'));
-
-      continue;
-    }
-
-    if (prompt === 'tool') {
-      const item = {
-        type: 'commandExecution',
-        id: 'cmd-1',
-        command: 'ls',
-        cwd: '/elsewhere',
-      };
-
-      notify('item/started', {
-        item: { type: 'userMessage', id: 'user-1', content: [] },
-      });
-
-      const reasoning = {
-        type: 'reasoning',
-        id: 'reasoning-1',
-        summary: [],
-        content: [],
-      };
-
-      notify('item/started', { item: reasoning });
-      notify('item/completed', { item: reasoning });
-
-      notify('item/started', {
-        threadId: 'native-thread',
-        turnId: 'turn-1',
-        item: { ...item, status: 'inProgress', aggregatedOutput: null },
-      });
-
-      notify('item/commandExecution/outputDelta', {
-        threadId: 'native-thread',
-        turnId: 'turn-1',
-        itemId: 'cmd-1',
-        delta: 'a.md\n',
-      });
-
-      notify('item/completed', {
-        threadId: 'native-thread',
-        turnId: 'turn-1',
-        item: { ...item, status: 'completed', aggregatedOutput: 'a.md\n' },
-      });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'tool-items') {
-      for (const item of [
-        {
-          type: 'fileChange',
-          id: 'patch-1',
-          changes: [
-            {
-              path: join(process.cwd(), 'a.md'),
-              kind: { type: 'update' },
-              diff: '',
-            },
-            { path: 'b.md', kind: { type: 'add' }, diff: '' },
-          ],
-          status: 'completed',
-        },
-        {
-          type: 'mcpToolCall',
-          id: 'mcp-1',
-          server: 'browser',
-          tool: 'screenshot',
-          arguments: { url: 'https://example.com' },
-          extra: 'tool metadata',
-          result: {
-            content: [
-              { type: 'text', text: 'Captured.' },
-              {
-                type: 'image',
-                data: 'iVBORw==',
-                mimeType: 'image/png',
-                extra: 'image metadata',
-              },
-              // deliberately invalid image data must remain visible in the tool text
-              { type: 'image', data: 42, mimeType: 'image/png' },
-              { type: 'text', text: 'Other.', data: 'literal' },
-              null,
-              [false, 3, 'nested'],
-            ],
-          },
-        },
-        {
-          type: 'mcpToolCall',
-          id: 'mcp-2',
-          server: 'files',
-          tool: 'read',
-          arguments: { path: join(process.cwd(), 'c.txt') },
-        },
-        {
-          type: 'dynamicToolCall',
-          id: 'dynamic-1',
-          tool: 'read',
-          arguments: { path: join(process.cwd(), 'd.txt') },
-          status: 'completed',
-        },
-        { type: 'imageView', id: 'view-1', path: '/shots/a.png' },
-        {
-          type: 'collabAgentToolCall',
-          id: 'collab-1',
-          tool: 'spawnAgent',
-          senderThreadId: 'thread-1',
-          receiverThreadIds: ['worker-thread'],
-          prompt: 'Review the diff\nthen report',
-          agentsStates: {},
-          status: 'completed',
-        },
-        {
-          type: 'collabAgentToolCall',
-          id: 'collab-2',
-          tool: 'closeAgent',
-          senderThreadId: 'thread-1',
-          receiverThreadIds: ['worker-thread'],
-          prompt: null,
-          agentsStates: {},
-          status: 'completed',
-        },
-        {
-          type: 'subAgentActivity',
-          id: 'activity-1',
-          agentThreadId: 'worker-thread',
-          agentPath: '/root/worker',
-          kind: 'started',
-        },
-      ])
-        notify('item/completed', { item });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'file-changes') {
-      const at = (name) => join(process.cwd(), name);
-
-      const patch = {
-        type: 'fileChange',
-        id: 'patch-1',
-        changes: [
-          {
-            path: at('a.txt'),
-            kind: { type: 'update', move_path: null },
-            diff: '@@ -3,3 +3,3 @@\n gamma\n-delta\n+DELTA\n epsilon\n',
-          },
-          {
-            path: at('b.txt'),
-            kind: { type: 'add' },
-            diff: 'new one\nnew two\n',
-          },
-          {
-            path: at('c.txt'),
-            kind: { type: 'delete' },
-            diff: 'remove me\nsecond line\n',
-          },
-          {
-            path: at('d.txt'),
-            kind: { type: 'update', move_path: at('e.txt') },
-            diff: `@@ -1 +1 @@\n-x\n+y\n\n\nMoved to: ${at('e.txt')}`,
-          },
-        ],
-      };
-
-      notify('item/started', { item: { ...patch, status: 'inProgress' } });
-      notify('item/completed', { item: { ...patch, status: 'completed' } });
-
-      notify('item/completed', {
-        item: {
-          type: 'fileChange',
-          id: 'patch-2',
-          changes: [{ path: at('f.txt'), kind: { type: 'add' }, diff: 'f\n' }],
-          status: 'declined',
-        },
-      });
-
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'unknown-request') {
-      send({ id: 92, method: 'item/unknown/request', params: {} });
-
-      continue;
-    }
-
-    if (prompt === 'bad-request') {
-      send({
-        id: 90,
-        method: 'item/tool/requestUserInput',
-        params: { questions: 'not a list' },
-      });
-
-      continue;
-    }
-
-    if (prompt === 'grandchild') {
-      const grandchild = spawn('/bin/sleep', ['3'], {
-        stdio: ['ignore', 'inherit', 'inherit'],
-      });
-
-      writeFileSync(file('grandchild.pid'), String(grandchild.pid));
-      process.exit(1);
-    }
-
-    if (prompt === 'question') {
-      send({
-        id: 88,
-        method: 'item/tool/requestUserInput',
-        params: {
-          questions: [
-            {
-              id: 'value',
-              header: 'Value',
-              question: 'Private value?',
-              isOther: false,
-              isSecret: true,
-              options: null,
-            },
-          ],
-        },
-      });
-
-      continue;
-    }
-
-    if (prompt === 'withdrawn') {
-      send({
-        id: 93,
-        method: 'item/commandExecution/requestApproval',
-        params: {
-          threadId: 'native-thread',
-          turnId: 'turn-1',
-          itemId: 'tool-1',
-          command: 'write withdrawn.txt',
-          cwd: process.cwd(),
-        },
-      });
-
-      notify('serverRequest/resolved', {
-        threadId: 'native-thread',
-        requestId: 93,
-      });
-
-      await held();
-      finish('completed');
-
-      continue;
-    }
-
-    if (prompt === 'permissions') {
-      send({
-        id: 91,
-        method: 'item/permissions/requestApproval',
-        params: {
-          threadId: 'native-thread',
-          turnId: 'turn-1',
-          itemId: 'tool-1',
-          permissions: { network: { enabled: true }, fileSystem: null },
-        },
-      });
-
-      continue;
-    }
-
-    if (prompt === 'file change') {
-      send({
-        id: 94,
-        method: 'item/fileChange/requestApproval',
-        params: {
-          threadId: 'native-thread',
-          turnId: 'turn-1',
-          itemId: 'patch-1',
-          reason: 'write a.md',
-        },
-      });
-
-      continue;
-    }
-
-    if (prompt === 'elicitation') {
-      send({
-        id: 89,
-        method: 'mcpServer/elicitation/request',
-        params: {
-          message: 'Provide a label',
-          requestedSchema: {
-            type: 'object',
-            properties: { label: { type: 'string' } },
-          },
-        },
-      });
+    if (Object.hasOwn(turns, prompt)) {
+      await turns[prompt](context, request, prompt);
 
       continue;
     }
