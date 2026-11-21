@@ -351,7 +351,7 @@ test('a closed conversation store rejects writes and leaves its files unchanged'
   );
 
   await assert.rejects(
-    files.save({ ...conversation('closed'), title: 'changed' }),
+    files.save({ ...record('closed'), title: 'changed' }),
     /no longer open/,
   );
 
