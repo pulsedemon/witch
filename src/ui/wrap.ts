@@ -6,6 +6,8 @@ export interface WrappedRow {
   text: string;
   /** negative offsets locate a diff prefix before its source text. */
   offset: number;
+  /** a diff row copies independently, even when it wraps from the same source line. */
+  copyBreak?: boolean;
 }
 
 export type WrappedLines = readonly (readonly WrappedRow[])[];

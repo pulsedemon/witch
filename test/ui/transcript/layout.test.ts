@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import stripAnsi from 'strip-ansi';
 import stringWidth from 'string-width';
-import { selectedText } from '../../../src/ui/transcript/selection.js';
+import { selectedText } from '../../../src/ui/selection.js';
 import { TranscriptLayout } from '../../../src/ui/transcript/transcript-layout.js';
 import type { FileDiff } from '../../../src/agents/types.js';
 import type { DisplayItem } from '../../../src/core/state.js';

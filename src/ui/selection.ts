@@ -1,4 +1,4 @@
-import type { ScrollAnchor } from './transcript-layout.js';
+import stripAnsi from 'strip-ansi';
 import {
   styledCharsFromTokens,
   styledCharsToString,
@@ -6,24 +6,27 @@ import {
 } from '@alcalzone/ansi-tokenize';
 import type { StyledChar } from '@alcalzone/ansi-tokenize';
 import stringWidth from 'string-width';
-import { copiedDestination } from '../link-destination.js';
-import { placeholder } from './images.js';
-import { colors } from '../theme.js';
+import { copiedDestination } from './link-destination.js';
+import { placeholder } from './transcript/images.js';
+import { colors } from './theme.js';
 
-/** a transcript row and a column in it. */
+/** a text row and a column in it. */
 export interface Point {
   row: number;
   column: number;
 }
 
-/** one end of a drag in the transcript: the row it is on, by its text, and the column. */
-export interface RangeEnd {
-  anchor: ScrollAnchor;
-  column: number;
-  /** the width it was measured at; a width change drops the range, since a column from a wider one can lie past the edge. */
-  width: number;
-  /** its row as measured; output growing into the row, or its tool expanding or collapsing, changes it. */
-  text: string;
+export interface SelectionSource<Anchor> {
+  lines: Pick<readonly string[], 'at' | 'length'>;
+  anchorAt(row: number): Anchor | undefined;
+
+  rowOf(anchor: Anchor): number | undefined;
+
+  sameAnchor(a: Anchor, b: Anchor): boolean;
+
+  lineAt(row: number): { first: number; last: number };
+
+  joinBefore(row: number): string;
 }
 
 // Ink draws neither invisible characters nor controls, so they take no cell and are never copied
@@ -379,4 +382,18 @@ export function drawsIn(
   }
 
   return false;
+}
+
+/** restores only the spaces trimmed by a soft wrap; negative offsets have no source spacing. */
+export function wrapJoin(
+  previousText: string,
+  previousOffset: number,
+  currentOffset: number,
+): string {
+  if (currentOffset < 0 || previousOffset < 0) return ' ';
+
+  const trimmed =
+    currentOffset - previousOffset - stripAnsi(previousText).length;
+
+  return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
 }

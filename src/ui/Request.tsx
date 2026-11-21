@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, flushSync, useInput } from 'ink';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { fullFormats } from 'ajv-formats/dist/formats.js';
@@ -31,6 +31,10 @@ interface Props {
   width: number;
   height: number;
   cwd: string;
+  copy?(text: string): void;
+
+  current?(): boolean;
+
   respond(response: UserResponse): void;
 }
 
@@ -47,6 +51,8 @@ export function Request({
   height,
   cwd,
   respond,
+  copy,
+  current,
   active = true,
 }: Props) {
   const [selection, selectionRef, setSelection] = useLiveState(0);
@@ -195,8 +201,10 @@ export function Request({
     if (!active || key.eventType === 'release') return;
 
     if (key.ctrl && input === 'o' && expandable) {
-      setFull((previous) => !previous);
-      setScroll(pageStart);
+      flushSync(() => {
+        setFull((previous) => !previous);
+        setScroll(pageStart);
+      });
 
       return;
     }
@@ -332,6 +340,12 @@ export function Request({
         request={request.id}
       />
       <ScrollPage
+        width={width}
+        identity={question ?? request}
+        copy={copy}
+        current={() =>
+          (current?.() ?? true) && questionIndexRef.current === questionIndex
+        }
         lines={lines}
         active={active}
         height={bodyHeight}

@@ -5,7 +5,7 @@ import {
   markdown,
   markdownAppend,
 } from '../../../src/ui/transcript/markdown.js';
-import { tabbed, uncopied } from '../../../src/ui/transcript/selection.js';
+import { tabbed, uncopied } from '../../../src/ui/selection.js';
 
 test('nested lists and task lists render indented with each checkbox inline', () => {
   for (const [input, expected] of [

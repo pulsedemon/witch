@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
-import { placeholder } from '../../../src/ui/transcript/images.js';
-import { hyperlink } from '../../../src/ui/links.js';
+import { placeholder } from '../../src/ui/transcript/images.js';
+import { hyperlink } from '../../src/ui/links.js';
 import {
   highlight,
   selectedText,
@@ -12,7 +12,7 @@ import {
   textEnds,
   uncopied,
   wordAt,
-} from '../../../src/ui/transcript/selection.js';
+} from '../../src/ui/selection.js';
 
 const red = (text: string) => `\u001b[31m${text}\u001b[39m`;
 const inverse = (text: string) => `\u001b[7m${text}\u001b[27m`;

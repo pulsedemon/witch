@@ -1071,13 +1071,16 @@ test(
           session?.usage.lines?.added === 4,
       );
 
+      // require a new idle reading before advancing time; the held values are already rendered.
+      const idleReport = report(true);
+      idleReport.rate_limits!.seven_day!.utilization = 73;
       vi.advanceTimersByTime(60_000);
-      id = await helper.reply(report(true), id);
+      id = await helper.reply(idleReport, id);
 
       await until('changed idle limits', () => {
         vi.advanceTimersByTime(40);
 
-        return /5H 0% 2h0m\s+7D 72% 2d1h/.test(ui!.text());
+        return /5H 0% 2h0m\s+7D 73% 2d1h/.test(ui!.text());
       });
 
       assert.equal(coordinator.snapshot.phase, 'idle');

@@ -7,7 +7,7 @@ import { hyperlink, oneLine, plain } from '../links.js';
 import type { Span } from './syntax.js';
 import { languageOf, syntaxSpans } from './syntax.js';
 import { normalizeText, wrapLines, wrapSourceLines } from '../wrap.js';
-import type { WrappedRow } from '../wrap.js';
+import type { WrappedLines, WrappedRow } from '../wrap.js';
 import {
   colors,
   diffAdded,
@@ -383,8 +383,15 @@ export function prepareDiff(
   const prepared = files.map((file) => prepareFile(file, cwd, full));
 
   return (width) =>
-    prepared.flatMap((render, index) => [
-      ...(index ? [[{ text: '', offset: 0 }]] : []),
-      ...render(width),
-    ]);
+    diffCopyRows(
+      prepared.flatMap((render, index) => [
+        ...(index ? [[{ text: '', offset: 0 }]] : []),
+        ...render(width),
+      ]),
+    );
+}
+
+/** keeps every drawn diff row separate when copied or selected as a line. */
+export function diffCopyRows(lines: WrappedLines): WrappedRow[][] {
+  return lines.map((rows) => rows.map((row) => ({ ...row, copyBreak: true })));
 }

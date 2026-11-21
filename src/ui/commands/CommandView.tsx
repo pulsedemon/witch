@@ -467,6 +467,8 @@ export function CommandView({
   coordination,
   updates,
   agents,
+  copy,
+  current,
 }: {
   views: ReturnType<typeof useCommandViews>;
   width: number;
@@ -475,6 +477,9 @@ export function CommandView({
   coordination: CoordinationSnapshot | undefined;
   updates: RuntimeUpdateSnapshot;
   agents: Snapshot['agents'];
+  copy?(text: string): void;
+
+  current?(): boolean;
 }) {
   const {
     view,
@@ -507,6 +512,10 @@ export function CommandView({
 
   const page = (
     <ScrollPage
+      width={bodyWidth}
+      identity={view}
+      copy={copy}
+      current={() => (current?.() ?? true) && views.viewRef.current === view}
       lines={pageLines}
       height={pageRows}
       scroll={pageScroll}

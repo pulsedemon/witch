@@ -28,7 +28,11 @@ import { usePreview } from './usePreview.js';
 import { previewLayout } from './preview-layout.js';
 import { Recovery } from './Recovery.js';
 import { pageStart } from './scroll-page-layout.js';
-import { canExpandDiff, diffExpansionHint } from './transcript/diff.js';
+import {
+  canExpandDiff,
+  diffExpansionHint,
+  diffCopyRows,
+} from './transcript/diff.js';
 import type { Graphics } from './transcript/images.js';
 import { TranscriptLayout } from './transcript/transcript-layout.js';
 import type { ScrollAnchor } from './transcript/transcript-layout.js';
@@ -42,7 +46,7 @@ import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell } from './terminal/mouse.js';
 import { transcriptViewport } from './transcript/viewport.js';
 import { visibleRows } from './transcript/visible-rows.js';
-import { useSelection } from './transcript/useSelection.js';
+import { useSelection } from './useSelection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
 import { useCasting } from './status/cast.js';
@@ -107,7 +111,7 @@ export function App({
   /** replaces Witch with a fresh one on this conversation; /restart does nothing without it. */
   onRestart?(): void;
 
-  /** puts text on the clipboard, where Cmd+C sends the transcript's selection, and calls `copied` once the clipboard holds it. */
+  /** puts text on the clipboard, where Cmd+C sends the visible text selection, and calls `copied` once the clipboard holds it. */
   copy?(text: string, copied: () => void): void;
   /** sent once loading and cleanup end idle with nothing reported and tools unfocused, or ahead of a prompt submitted while waiting; otherwise left as the draft. */
   initialPrompt?: string;
@@ -414,18 +418,53 @@ export function App({
     return pressedNewMessages.current;
   };
 
+  const markerAt = (anchor: ScrollAnchor, column: number) => {
+    const item = transcript.items.find(({ id }) => id === anchor.item);
+
+    return item?.kind === 'tool' &&
+      column < 3 &&
+      transcript.rowOf(anchor) === transcript.starts.get(item.id)
+      ? item
+      : undefined;
+  };
+
+  const currentConversation = () =>
+    coordinator.snapshot.conversation?.id === state.conversation?.id;
+
+  const copySelection = (text: string) => copy?.(text, showCopied);
+
   const selection = useSelection({
-    transcript,
+    source: {
+      ...transcript,
+      rowOf: (anchor: ScrollAnchor) =>
+        transcript.starts.has(anchor.item)
+          ? transcript.rowOf(anchor)
+          : undefined,
+      sameAnchor: (a: ScrollAnchor, b: ScrollAnchor) =>
+        a.item === b.item && a.line === b.line && a.offset === b.offset,
+    },
+    identity: state.conversation?.id,
+    continueDragOnChange: true,
     width,
     bodyWidth,
     box: transcriptBox,
-    shown: chat,
-    pinned,
-    viewport: () => viewport(topRef.current, seenRef.current),
+    shown: () =>
+      currentConversation() &&
+      viewRef.current.kind === 'chat' &&
+      !coordinator.snapshot.requests.length &&
+      coordinator.snapshot.phase !== 'recovery',
+    viewport: () => {
+      const current = viewport(topRef.current, seenRef.current);
+
+      return {
+        ...current,
+        originShift: Number(current.pinned) - Number(pinned),
+      };
+    },
     scrollBy,
     covers: pressedOnNewMessages,
-    copy,
-    copied: showCopied,
+    copy: copySelection,
+    markerAt: (anchor, column) => !!markerAt(anchor, column),
   });
 
   const busy = working || ['editing', 'closing'].includes(state.phase);
@@ -591,14 +630,19 @@ export function App({
   const conflict = recovery?.kind === 'conflict';
 
   const pageLines = useMemo(() => {
-    const text = linkify(
-      conflict
-        ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nCommit that could not be published:\n${recovery.diff}`
-        : (recovery?.diff ?? ''),
-      recovery?.root ?? cwd,
+    const root = recovery?.root ?? cwd;
+
+    const explanation = conflict
+      ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nCommit that could not be published:`
+      : '';
+
+    const diff = diffCopyRows(
+      wrapSourceLines(linkify(recovery?.diff ?? '', root), bodyWidth),
     );
 
-    return wrapSourceLines(text, bodyWidth);
+    return explanation
+      ? [...wrapSourceLines(linkify(explanation, root), bodyWidth), ...diff]
+      : diff;
   }, [recovery, conflict, cwd, bodyWidth]);
 
   usePointer((pointer, cell, presses) => {
@@ -618,7 +662,8 @@ export function App({
       setTop(null);
     }
 
-    const tool = selection.pressedTool();
+    const pressed = selection.pressed();
+    const tool = pressed && markerAt(pressed.anchor, pressed.column);
 
     if (tool) toolFocus.toggle(tool, transcript.members(tool.id));
   });
@@ -722,6 +767,11 @@ export function App({
       <Request
         key={request.id}
         request={request}
+        copy={copySelection}
+        current={() =>
+          currentConversation() &&
+          coordinator.snapshot.requests[0]?.id === request.id
+        }
         preview={coordinator.coordination?.preview}
         width={bodyWidth}
         height={bodyHeight}
@@ -732,6 +782,14 @@ export function App({
   else if (state.phase === 'recovery') {
     body = (
       <Recovery
+        identity={recovery}
+        copy={copySelection}
+        current={() =>
+          currentConversation() &&
+          !coordinator.snapshot.requests.length &&
+          coordinator.snapshot.phase === 'recovery' &&
+          coordinator.snapshot.recovery === recovery
+        }
         conflict={conflict}
         lines={pageLines}
         height={bodyHeight}
@@ -744,6 +802,12 @@ export function App({
     body = (
       <CommandView
         views={commandViews}
+        copy={copySelection}
+        current={() =>
+          currentConversation() &&
+          !coordinator.snapshot.requests.length &&
+          coordinator.snapshot.phase !== 'recovery'
+        }
         width={bodyWidth}
         height={bodyHeight}
         cwd={cwd}
