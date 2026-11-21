@@ -21,19 +21,25 @@ export function wrapSourceLines(
 ): WrappedRow[][] {
   return normalizeText(text)
     .split('\n')
-    .map((line) => {
-      const source = stripAnsi(line);
-      let offset = 0;
-      const rows = trim ? wrapLines(line, width, true) : wrapBody(line, width);
+    .map((line) => wrapSourceLine(line, width, trim));
+}
 
-      return rows.map((text) => {
-        const plain = stripAnsi(text);
-        const start = source.indexOf(plain, offset);
-        offset = start + plain.length;
+export function wrapSourceLine(
+  line: string,
+  width: number,
+  trim = false,
+): WrappedRow[] {
+  const source = stripAnsi(normalizeText(line));
+  let offset = 0;
+  const rows = trim ? wrapLines(line, width, true) : wrapBody(line, width);
 
-        return { text, offset: start };
-      });
-    });
+  return rows.map((text) => {
+    const plain = stripAnsi(text);
+    const start = source.indexOf(plain, offset);
+    offset = start + plain.length;
+
+    return { text, offset: start };
+  });
 }
 
 /** rows after a line's first text drop the spaces they broke at; indentation before that text stays. */

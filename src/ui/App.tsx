@@ -53,7 +53,7 @@ import { useDrafts } from './input/useDrafts.js';
 import type { Browsing } from './input/useDrafts.js';
 import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell } from './terminal/mouse.js';
-import { highlight } from './transcript/selection.js';
+import { highlightRow } from './transcript/selection.js';
 import { useSelection } from './transcript/useSelection.js';
 import { Activity } from './status/Activity.js';
 import { agentActivity } from './status/agent-activity.js';
@@ -1018,10 +1018,12 @@ export function App({
         row <= Math.min(end.row, scrollTop + visible.length - 1);
         row++
       )
-        visible[row - scrollTop] = highlight(
+        visible[row - scrollTop] = highlightRow(
           visible[row - scrollTop]!,
-          row === start.row ? start.column : 0,
-          row === end.row ? end.column + 1 : bodyWidth,
+          row,
+          start,
+          end,
+          bodyWidth,
         );
     }
 
