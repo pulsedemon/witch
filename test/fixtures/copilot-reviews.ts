@@ -13,10 +13,7 @@ import { reviewSource } from './github-reviews.js';
 import { scratch } from './scratch.js';
 import { until } from './within.js';
 import { repositoryRead } from './repository.js';
-
-type Fixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;
-
-type Client = Awaited<ReturnType<Fixture['start']>>;
+import type { Fixture, Client } from './coordinator-peer-requests.js';
 
 export async function record(f: Fixture, client: Client) {
   return conversationRecordSchema.parse(

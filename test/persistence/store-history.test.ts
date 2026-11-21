@@ -28,7 +28,7 @@ import type {
 } from '../../src/core/state.js';
 import { scratch } from '../fixtures/scratch.js';
 import { within } from '../fixtures/within.js';
-import { conversation } from '../fixtures/store.js';
+import { record } from '../fixtures/store.js';
 
 async function recordedHistory(directory: string): Promise<DisplayUpdate[]> {
   const content = await readFile(join(directory, 'history.jsonl'), 'utf8');
@@ -41,7 +41,7 @@ async function recordedHistory(directory: string): Promise<DisplayUpdate[]> {
 
 test('display history keeps streamed deltas without duplicating final messages', async () => {
   const store = await StateStore.open(await scratch('witch-history-'));
-  const files = await store.create(conversation('streamed'));
+  const files = await store.create(record('streamed'));
 
   try {
     await files.append({
@@ -80,7 +80,7 @@ test('display history keeps streamed deltas without duplicating final messages',
 
 test('a retraction right behind a streamed append removes the row from saved history', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-'));
-  const held = await store.create(conversation('retracted'));
+  const held = await store.create(record('retracted'));
   t.onTestFinished(() => held.close());
 
   const refused = {
@@ -103,7 +103,7 @@ test('a retraction right behind a streamed append removes the row from saved his
 
 test('a history burst writes one replacement and settles its appends', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-burst-'));
-  const held = await store.create(conversation('burst'));
+  const held = await store.create(record('burst'));
   t.onTestFinished(() => held.close());
   const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
 
@@ -124,7 +124,7 @@ test(
   { timeout: 5000 },
   async (t) => {
     const store = await StateStore.open(await scratch('witch-history-timer-'));
-    const held = await store.create(conversation('timer'));
+    const held = await store.create(record('timer'));
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
     t.onTestFinished(async () => {
@@ -168,7 +168,7 @@ test(
 
 test('history batches preserve first appearance order across returning ids', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-order-'));
-  const held = await store.create(conversation('order'));
+  const held = await store.create(record('order'));
   t.onTestFinished(() => held.close());
   const update = { kind: 'assistant', cwd: '/project' } as const;
 
@@ -197,7 +197,7 @@ test('history batches preserve first appearance order across returning ids', asy
 
 test('history batches snapshot metadata and retain it across appends and replacements', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-metadata-'));
-  const held = await store.create(conversation('metadata'));
+  const held = await store.create(record('metadata'));
   t.onTestFinished(() => held.close());
   const images = ['first.png'];
 
@@ -285,7 +285,7 @@ for (const boundary of [
         await scratch('witch-history-boundary-'),
       );
 
-      const held = await store.create(conversation('boundary'));
+      const held = await store.create(record('boundary'));
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
       t.onTestFinished(async () => {
@@ -330,7 +330,7 @@ for (const boundary of [
 
 test('close waits for in-flight history and drains the next batch once', async () => {
   const store = await StateStore.open(await scratch('witch-history-flight-'));
-  const held = await store.create(conversation('flight'));
+  const held = await store.create(record('flight'));
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const opening = files.open;
@@ -400,7 +400,7 @@ test('close waits for in-flight history and drains the next batch once', async (
 
 test('a timer write rejects its batch and later operations while releasing locks', async () => {
   const store = await StateStore.open(await scratch('witch-history-failure-'));
-  const held = await store.create(conversation('failure'));
+  const held = await store.create(record('failure'));
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
   await chmod(held.directory, 0o500);
@@ -433,7 +433,7 @@ test('a timer write rejects its batch and later operations while releasing locks
 for (const kind of ['assistant', 'tool'] as const) {
   test(`a crashed writer retains timer-written ${kind} text`, async (t) => {
     const store = await StateStore.open(await scratch('witch-history-crash-'));
-    await (await store.create(conversation('crash'))).close();
+    await (await store.create(record('crash'))).close();
 
     const child = spawn(
       process.execPath,
@@ -488,7 +488,7 @@ for (const kind of ['assistant', 'tool'] as const) {
 test('a truncated final record cannot corrupt history written after restart', async () => {
   const root = await scratch('witch-partial-');
   const store = await StateStore.open(root);
-  let files = await store.create(conversation('c'));
+  let files = await store.create(record('c'));
 
   await files.append({
     id: 'first',
@@ -537,7 +537,7 @@ for (const [name, complete, partial, expectedRead] of [
 ] as const) {
   test(`history append inspects only the required tail: ${name}`, async () => {
     const store = await StateStore.open(await scratch('witch-history-tail-'));
-    await (await store.create(conversation('tail'))).close();
+    await (await store.create(record('tail'))).close();
     const path = join(store.root, 'conversations', 'tail', 'history.jsonl');
 
     const prefix = complete
@@ -712,7 +712,7 @@ test("listing keeps this directory's conversations with history, newest history 
     ['elsewhere', '/other', true],
     ['empty', '/project', false],
   ] as const) {
-    const files = await store.create(conversation(id, cwd));
+    const files = await store.create(record(id, cwd));
 
     if (history) await files.append({ id: 'n', kind: 'notice', text: id, cwd });
 
@@ -756,7 +756,7 @@ test("listing keeps a conversation with a saved draft or queue but no history, p
   ];
 
   for (const [id, saved] of conversations) {
-    const files = await store.create(conversation(id, '/project'));
+    const files = await store.create(record(id, '/project'));
 
     if (saved) await files.save({ ...files.record, ...saved });
     else

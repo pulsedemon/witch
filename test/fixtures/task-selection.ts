@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict';
 import { callControl } from '../../src/persistence/control.js';
 import { TurnGate } from './agent.js';
-import type { coordinationFixture } from './coordination.js';
 import { within } from './within.js';
 import type { RegisterCleanup } from './cleanup.js';
-
-type Client = Awaited<
-  ReturnType<Awaited<ReturnType<typeof coordinationFixture>>['start']>
->;
+import type { Client } from './coordinator-peer-requests.js';
 
 export async function selectionTurn(register: RegisterCleanup, client: Client) {
   const gate = new TurnGate();

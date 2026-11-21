@@ -8,7 +8,7 @@ import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { openLocked, lockedFiles } from '../../src/persistence/lock.js';
 import { LockedElsewhere, StateStore } from '../../src/persistence/store.js';
-import { record } from '../fixtures/coordinator.js';
+import { record } from '../fixtures/store.js';
 import { scratch } from '../fixtures/scratch.js';
 import { within } from '../fixtures/within.js';
 import { orderedCleanup } from '../fixtures/cleanup.js';

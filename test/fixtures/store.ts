@@ -1,11 +1,15 @@
 import type { Conversation } from '../../src/core/state.js';
 
-export function conversation(id: string, cwd = '/project'): Conversation {
+export function record(
+  id: string,
+  cwd = '/project',
+  agent = 'a',
+): Conversation {
   return {
     id,
-    title: id,
+    title: `Title ${id}`,
     cwd,
-    agent: 'codex',
+    agent,
     sessions: {},
     createdAt: new Date().toISOString(),
   };

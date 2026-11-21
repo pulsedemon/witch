@@ -12,7 +12,7 @@ import { identifyProcess } from '../../src/persistence/process.js';
 import { LockedElsewhere, StateStore } from '../../src/persistence/store.js';
 import { scratch } from '../fixtures/scratch.js';
 import { appears, settled, until, within } from '../fixtures/within.js';
-import { conversation } from '../fixtures/store.js';
+import { record } from '../fixtures/store.js';
 
 /** a detached shell like a `!` command's, and the pid of the sleep it runs in the background. both ignore SIGTERM, as a command can. */
 async function detachedShell(seconds: string) {
@@ -30,7 +30,7 @@ async function detachedShell(seconds: string) {
 test('a real holder stays exclusive until close or crash', async (t) => {
   const root = await scratch('witch-lock-');
   const store = await StateStore.open(root);
-  await (await store.create(conversation('held'))).close();
+  await (await store.create(record('held'))).close();
 
   for (const exit of ['close', 'crash']) {
     const child = spawn(
@@ -74,10 +74,10 @@ test('conversation locks carry a registration lock that a lost race releases', a
     await scratch('witch-conversation-batch-'),
   );
 
-  const held = await store.create(conversation('current'));
-  await (await store.create(conversation('closed'))).close();
+  const held = await store.create(record('current'));
+  await (await store.create(record('closed'))).close();
   await writeFile(join(store.root, 'conversations', '.DS_Store'), 'finder');
-  await (await store.create(conversation('older'))).close();
+  await (await store.create(record('older'))).close();
 
   // an older Witch takes only `lock`
   const older = await openLocked(
@@ -115,10 +115,10 @@ test('conversation locks carry a registration lock that a lost race releases', a
 
 test('selected records exclude unreadable conversations and an empty selection reads nothing', async () => {
   const store = await StateStore.open(await scratch('witch-selected-records-'));
-  const created = await store.create(conversation('selected', '/selected'));
+  const created = await store.create(record('selected', '/selected'));
   const selected = created.record;
   await created.close();
-  await (await store.create(conversation('damaged', '/damaged'))).close();
+  await (await store.create(record('damaged', '/damaged'))).close();
   const damaged = join(store.root, 'conversations', 'damaged', 'state.json');
   await writeFile(damaged, '{broken');
   const reading = vi.spyOn(files, 'readFile');
@@ -152,7 +152,7 @@ test('selected records exclude unreadable conversations and an empty selection r
 
 test("a legacy holder stays unregistered during a current owner's failed claim", async (t) => {
   const store = await StateStore.open(await scratch('witch-legacy-race-'));
-  await (await store.create(conversation('older'))).close();
+  await (await store.create(record('older'))).close();
   const path = join(store.root, 'conversations', 'older', 'lock');
 
   const legacy = await openLocked(
@@ -197,7 +197,7 @@ test("a legacy holder stays unregistered during a current owner's failed claim",
 test('closing after a lock observation never turns a current owner into a legacy owner', async () => {
   const root = await scratch('witch-close-probe-');
   const store = await StateStore.open(root);
-  const held = await store.create(conversation('current'));
+  const held = await store.create(record('current'));
 
   await writeFile(
     join(root, 'PauseLock.pm'),
@@ -264,8 +264,8 @@ BEGIN {
 
 test('a second claim of a conversation is refused while another conversation claims fine', async () => {
   const store = await StateStore.open(await scratch('witch-claims-'));
-  const first = await store.create(conversation('first'));
-  await (await store.create(conversation('second'))).close();
+  const first = await store.create(record('first'));
+  await (await store.create(record('second'))).close();
 
   try {
     await assert.rejects(
@@ -284,7 +284,7 @@ test('a second claim of a conversation is refused while another conversation cla
 test('observing conversation ownership leaves its native process and stored data untouched', async () => {
   const root = await scratch('witch-observation-');
   const store = await StateStore.open(root);
-  const files = await store.create(conversation('observed'));
+  const files = await store.create(record('observed'));
   const child = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
   const ended = once(child, 'exit');
 
@@ -339,7 +339,7 @@ test('observing conversation ownership leaves its native process and stored data
 test('a closed conversation store rejects writes and leaves its files unchanged', async () => {
   const root = await scratch('witch-closed-');
   const store = await StateStore.open(root);
-  const files = await store.create(conversation('closed'));
+  const files = await store.create(record('closed'));
   await files.append({ id: 'n', kind: 'notice', text: 'kept', cwd: '/p' });
   await files.close();
   const directory = join(root, 'conversations', 'closed');
@@ -373,7 +373,7 @@ test('a closed conversation store rejects writes and leaves its files unchanged'
 test("a saved image is a new private file in the conversation's images directory", async () => {
   const root = await scratch('witch-images-');
   const store = await StateStore.open(root);
-  const pictures = await store.create(conversation('pictures'));
+  const pictures = await store.create(record('pictures'));
 
   try {
     const first = await pictures.saveImage(Buffer.from('first'), 'png');
@@ -400,7 +400,7 @@ test("a saved image is a new private file in the conversation's images directory
 test('closing a conversation waits for an image save it accepted and refuses saves after it', async (t) => {
   const root = await scratch('witch-image-close-');
   const store = await StateStore.open(root);
-  const pictures = await store.create(conversation('pictures'));
+  const pictures = await store.create(record('pictures'));
   const held = Promise.withResolvers<void>();
   const write = files.writeFile;
 
@@ -436,7 +436,7 @@ test('closing a conversation waits for an image save it accepted and refuses sav
 test('a failed write fails every later write and the close', async () => {
   const root = await scratch('witch-failed-write-');
   const store = await StateStore.open(root);
-  const files = await store.create(conversation('failed'));
+  const files = await store.create(record('failed'));
   const directory = join(root, 'conversations', 'failed');
   await chmod(directory, 0o500);
 
@@ -459,7 +459,7 @@ test('a failed write fails every later write and the close', async () => {
 
 test('a failed history close still releases both ownership locks', async () => {
   const store = await StateStore.open(await scratch('witch-history-close-'));
-  const held = await store.create(conversation('current'));
+  const held = await store.create(record('current'));
   const failure = new Error('history close failed');
   const opening = files.open;
 
@@ -508,7 +508,7 @@ test('a claim that cannot stop the recorded process still kills the recorded she
 
   try {
     await once(agent.stdout, 'data');
-    const files = await store.create(conversation('orphan'));
+    const files = await store.create(record('orphan'));
 
     await files.save({
       ...files.record,
@@ -544,7 +544,7 @@ for (const field of ['usageProcess', 'answerProcess'] as const) {
       );
 
       try {
-        const files = await store.create(conversation('usage'));
+        const files = await store.create(record('usage'));
 
         await files.save({
           ...files.record,
@@ -582,7 +582,7 @@ for (const field of ['usageProcess', 'answerProcess'] as const) {
     const child = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
 
     try {
-      const files = await store.create(conversation('reused-usage'));
+      const files = await store.create(record('reused-usage'));
 
       await files.save({
         ...files.record,
@@ -619,7 +619,7 @@ test('a failed main stop retains the recovery lock until the usage helper stop s
 
   try {
     await once(helper.stdout, 'data');
-    const files = await store.create(conversation('usage-stop'));
+    const files = await store.create(record('usage-stop'));
 
     await files.save({
       ...files.record,
@@ -662,7 +662,7 @@ test('a claim succeeds when the recorded process exits before its signal', async
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
 
   try {
-    const files = await store.create(conversation('exited'));
+    const files = await store.create(record('exited'));
 
     await files.save({
       ...files.record,
@@ -691,7 +691,7 @@ test('a claim stops the recorded process after a time zone and locale change', a
   try {
     process.env.TZ = 'Asia/Tokyo';
     process.env.LC_ALL = 'de_DE.UTF-8';
-    const files = await store.create(conversation('moved'));
+    const files = await store.create(record('moved'));
 
     await files.save({
       ...files.record,
@@ -721,7 +721,7 @@ test("a claim leaves running a process that reuses the recorded process's pid, a
   const { child: shell } = await detachedShell('20.312');
 
   try {
-    const files = await store.create(conversation('reused'));
+    const files = await store.create(record('reused'));
 
     await files.save({
       ...files.record,
@@ -750,7 +750,7 @@ test("a claim kills a recorded shell's whole group, a member its first signal mi
   const kill = process.kill.bind(process);
 
   try {
-    const files = await store.create(conversation('shell'));
+    const files = await store.create(record('shell'));
 
     await files.save({
       ...files.record,
@@ -800,7 +800,7 @@ test("a claim kills a recorded shell's whole group, a member its first signal mi
 
 test('serialized saves of one record keep the latest after restart', async () => {
   const store = await StateStore.open(await scratch('witch-state-'));
-  const files = await store.create(conversation('saved'));
+  const files = await store.create(record('saved'));
 
   await Promise.all([
     files.save({ ...files.record, title: 'first' }),
@@ -815,10 +815,10 @@ test('serialized saves of one record keep the latest after restart', async () =>
 
 test('a save writes the record as it was when called', async () => {
   const store = await StateStore.open(await scratch('witch-state-'));
-  const files = await store.create(conversation('snapshot'));
-  const record = { ...files.record, title: 'saved' };
-  const saving = files.save(record);
-  record.title = 'changed';
+  const files = await store.create(record('snapshot'));
+  const savedRecord = { ...files.record, title: 'saved' };
+  const saving = files.save(savedRecord);
+  savedRecord.title = 'changed';
   await saving;
   await files.close();
   const reopened = await store.claim('snapshot');

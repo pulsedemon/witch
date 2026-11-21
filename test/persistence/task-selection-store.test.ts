@@ -16,7 +16,7 @@ import {
 } from '../../src/persistence/coordination.js';
 import { identifyProcess } from '../../src/persistence/process.js';
 import { StateStore } from '../../src/persistence/store.js';
-import { record } from '../fixtures/coordinator.js';
+import { record } from '../fixtures/store.js';
 import { scratch } from '../fixtures/scratch.js';
 import { within } from '../fixtures/within.js';
 import { orderedCleanup } from '../fixtures/cleanup.js';

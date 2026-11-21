@@ -23,7 +23,7 @@ import {
   git,
   holdLedger,
 } from '../../fixtures/coordination.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { countProbes } from '../../fixtures/probes.js';
 import { until } from '../../fixtures/within.js';
 

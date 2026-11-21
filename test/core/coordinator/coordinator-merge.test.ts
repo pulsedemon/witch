@@ -20,9 +20,9 @@ import {
   activity,
   fixture,
   notices,
-  record,
   turns,
 } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { until, within } from '../../fixtures/within.js';
 import type { RegisterCleanup } from '../../fixtures/cleanup.js';
 import { git } from '../../fixtures/git.js';

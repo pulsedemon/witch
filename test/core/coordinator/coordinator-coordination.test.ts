@@ -24,7 +24,7 @@ import {
   unitCoordinationFixture,
 } from '../../fixtures/coordination.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { appears, until, within } from '../../fixtures/within.js';
 
 test('a peer joining and leaving updates ongoing work without adding user input', async (t) => {

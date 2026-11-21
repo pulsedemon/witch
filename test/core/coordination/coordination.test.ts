@@ -11,7 +11,7 @@ import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import { callControl } from '../../../src/persistence/control.js';
 import { unitCoordinationFixture } from '../../fixtures/coordination.js';
 import { watching } from '../../fixtures/control-host.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { selectionTurn } from '../../fixtures/task-selection.js';
 import { until, within } from '../../fixtures/within.js';
 import { countProbes } from '../../fixtures/probes.js';

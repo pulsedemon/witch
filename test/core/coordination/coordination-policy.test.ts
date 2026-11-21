@@ -12,7 +12,7 @@ import {
   pauseDiscovery,
 } from '../../fixtures/coordination.js';
 import { orderedCleanup } from '../../fixtures/cleanup.js';
-import { record } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 import { selectionTurn } from '../../fixtures/task-selection.js';
 import { until } from '../../fixtures/within.js';
 

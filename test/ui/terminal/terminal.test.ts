@@ -8,10 +8,8 @@ import type { UserRequest } from '../../../src/agents/types.js';
 import type { CoordinationSnapshot } from '../../../src/core/coordination/coordination-state.js';
 import type { Snapshot } from '../../../src/core/snapshot.js';
 import { watchTerminal } from '../../../src/ui/terminal/terminal.js';
-import {
-  record,
-  unitFixture as coordinatorFixture,
-} from '../../fixtures/coordinator.js';
+import { unitFixture as coordinatorFixture } from '../../fixtures/coordinator.js';
+import { record } from '../../fixtures/store.js';
 
 function source<T>(snapshot: T) {
   const listeners = new Set<() => void>();

@@ -9,7 +9,8 @@ import type { Snapshot } from '../../src/core/snapshot.js';
 import { App } from '../../src/ui/App.js';
 import { show, fake } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
-import { unitFixture, record } from '../fixtures/coordinator.js';
+import { unitFixture } from '../fixtures/coordinator.js';
+import { record } from '../fixtures/store.js';
 
 test('startup reports missing conversation directories without blocking the initial prompt', async () => {
   const f = await unitFixture();
