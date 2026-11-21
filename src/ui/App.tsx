@@ -7,8 +7,6 @@ import {
 } from 'react';
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
-import { textCommands } from '../agents/claude/spells.js';
-import type { CompletionList } from './input/completion.js';
 import type { Coordinator } from '../core/coordinator.js';
 import type { Snapshot } from '../core/snapshot.js';
 import type { JobWatch } from '../core/jobs/jobs.js';
@@ -16,12 +14,7 @@ import type { RepositoryWatch } from '../core/repository/repository.js';
 import { agentWorking, contextStart } from '../core/state.js';
 import { modelKey } from '../core/runtime/models.js';
 import type { StateStore } from '../persistence/store.js';
-import {
-  commands,
-  claimedCommands,
-  parseCommands,
-  safeQueueMerge,
-} from './commands/commands.js';
+import { parseCommands, safeQueueMerge } from './commands/commands.js';
 import { CommandView, useCommandViews } from './commands/CommandView.js';
 import { CommandWindow } from './commands/CommandWindow.js';
 import { chatLayout, toolHintLines } from './chat-layout.js';
@@ -29,12 +22,6 @@ import { Input } from './input/Input.js';
 import { inputRows } from './input/input-layout.js';
 import type { InputHandle } from './input/Input.js';
 import type { InputBuffer } from './input/input-buffer.js';
-import {
-  activeToken,
-  rankCommands,
-  rankFiles,
-  tokenKey,
-} from './input/completion.js';
 import { Request } from './Request.js';
 import { Preview } from './Preview.js';
 import { usePreview } from './usePreview.js';
@@ -50,6 +37,7 @@ import { useKeysReady } from './input/useKeysReady.js';
 import { useLiveState } from './useLiveState.js';
 import { useDrafts } from './input/useDrafts.js';
 import { usePromptHistory } from './input/usePromptHistory.js';
+import { useCompletion } from './input/useCompletion.js';
 import { useClick, usePointer, useWheel } from './terminal/mouse.js';
 import type { Cell } from './terminal/mouse.js';
 import { transcriptViewport } from './transcript/viewport.js';
@@ -242,13 +230,6 @@ export function App({
     cursor: 0,
   });
 
-  const [listIndex, listIndexRef, setListIndex] = useLiveState(0);
-
-  const [dismissed, dismissedRef, setDismissed] = useLiveState<
-    string | undefined
-  >(undefined);
-
-  const [files, setFiles] = useState<string[]>([]);
   const pendingPrompt = useRef(initialPrompt);
   const [layout] = useState(() => new TranscriptLayout(graphics));
 
@@ -287,86 +268,22 @@ export function App({
   const working = agentWorking(state.phase);
   const agent = agentActivity(state);
 
-  const commandEntries = commands.map(({ id, label, aliases }) => ({
-    name: id,
-    description: label,
-    aliases: aliases?.slice(),
-  }));
-
-  const spellEntries = state.skills.filter(
-    ({ name, builtin }) => !builtin && !claimedCommands.has(name),
-  );
-
-  /** a native command the list doesn't offer, which must send as typed rather than as a spell it matches. */
-  const unlistedNative = (query: string) => {
-    const name = query.toLowerCase();
-
-    return (
-      !claimedCommands.has(name) &&
-      ((liveAgent === 'claude' && textCommands.has(name)) ||
-        state.skills.some(
-          ({ builtin, name: native, aliases = [] }) =>
-            builtin && [native, ...aliases].includes(name),
-        ))
-    );
-  };
-
-  const listFor = (
-    { value, cursor }: InputBuffer,
-    focus: boolean,
-    dismissedToken: string | undefined,
-    isRecalled: boolean,
-  ): CompletionList | undefined => {
-    if (
-      view.kind !== 'chat' ||
-      !composerPhase ||
-      focus ||
-      // a file would go into the command as `@path`
-      value.startsWith('!') ||
-      dismissedToken === tokenKey(value, cursor) ||
-      // a list would take ↑/↓ from browsing, even once the cursor moves into a recalled `@path`
-      isRecalled
-    )
-      return;
-
-    const token = activeToken(value, cursor);
-
-    if (token?.kind === 'command') {
-      if (unlistedNative(token.query)) return;
-
-      const items = rankCommands(token.query, commandEntries, spellEntries);
-
-      return items.length ? { kind: 'command', items } : undefined;
-    }
-
-    if (token?.kind === 'file') {
-      const items = rankFiles(token.query, files);
-
-      return items.length ? { ...token, items } : undefined;
-    }
-  };
-
-  const selectedIn = (open: CompletionList, index: number) =>
-    Math.min(index, open.items.length - 1);
-
-  const list = listFor(
+  const completion = useCompletion({
+    open: view.kind === 'chat' && composerPhase,
+    focused: toolFocus.focused,
+    focusedRef: toolFocus.focusedRef,
+    liveAgent,
+    skills: state.skills,
     buffer,
-    toolFocus.focused,
-    dismissed,
-    recalled(buffer.value),
-  );
+    bufferRef,
+    recalled,
+    recalledLive,
+    composer,
+    projectFiles: () => coordinator.projectFiles(),
+    run,
+  });
 
-  const listSelected = list ? selectedIn(list, listIndex) : 0;
-
-  /** keys in one read need the latest completion state before React renders it. */
-  const liveListFor = (buffer: InputBuffer) =>
-    listFor(
-      buffer,
-      toolFocus.focusedRef.current,
-      dismissedRef.current,
-      recalledLive(buffer.value),
-    );
-
+  const { list, listSelected } = completion;
   const selectedTool = toolFocus.selectedTool(transcript);
 
   const diffHint =
@@ -578,65 +495,19 @@ export function App({
     return true;
   };
 
-  /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces its token and a space already after it. a path `/review` would misread goes in double quotes. */
-  const complete = (open: CompletionList) => {
-    const index = selectedIn(open, listIndexRef.current);
-    const { value } = bufferRef.current;
-
-    if (open.kind === 'command') {
-      const text = `/${open.items[index]!.name} `;
-      composer.current?.set({ value: text, cursor: text.length });
-    } else {
-      const path = open.items[index]!;
-      // bare, /review ends the name at a space or a quote and drops a backslash; inside quotes only `"` needs writing as `"\""`
-      const text = `@${/[\s"'\\]/.test(path) ? `"${path.replaceAll('"', '"\\""')}"` : path} `;
-      const rest = value.slice(open.end).replace(/^ /, '');
-
-      composer.current?.set({
-        value: value.slice(0, open.start) + text + rest,
-        cursor: open.start + text.length,
-      });
-    }
-  };
-
   const changeComposer = (value: string, cursor: number) => {
     const previous = bufferRef.current;
+    const next = { value, cursor };
     setDraft(state.conversation?.id ?? '', value);
-    setBuffer({ value, cursor });
-
-    if (tokenKey(value, cursor) !== tokenKey(previous.value, previous.cursor)) {
-      setListIndex(0);
-      setDismissed(undefined);
-    }
-
-    if (
-      activeToken(value, cursor)?.kind === 'file' &&
-      activeToken(previous.value, previous.cursor)?.kind !== 'file'
-    )
-      run(coordinator.projectFiles().then(setFiles));
-  };
-
-  const moveInList = (direction: 'up' | 'down', current: InputBuffer) => {
-    const open = liveListFor(current);
-
-    if (!open) return false;
-
-    const index = selectedIn(open, listIndexRef.current);
-
-    setListIndex(
-      direction === 'up'
-        ? Math.max(0, index - 1)
-        : Math.min(open.items.length - 1, index + 1),
-    );
-
-    return true;
+    setBuffer(next);
+    completion.changed(previous, next);
   };
 
   /** ↑ on the first line takes the queue back, or else shows an older prompt; ↓ on the last line shows a newer one. */
   const arrow = (direction: 'up' | 'down', current: InputBuffer) =>
     // arrows while tools are focused move through tools, even in the same read as Tab
     toolFocus.focusedRef.current ||
-    moveInList(direction, current) ||
+    completion.move(direction, current) ||
     (direction === 'up'
       ? !current.value.slice(0, current.cursor).includes('\n') &&
         (coordinator.snapshot.queue.length
@@ -650,18 +521,16 @@ export function App({
     // the Enter that follows a picker choice in one read was typed before the chosen command's view could open
     if (commandViews.chosenInRead.current) return false;
 
-    const open = liveListFor(bufferRef.current);
+    const open = completion.liveList(bufferRef.current);
 
     if (open?.kind === 'file') {
-      complete(open);
+      completion.complete(open);
 
       return false;
     }
 
     const accepted = submit(
-      open
-        ? `/${open.items[selectedIn(open, listIndexRef.current)]!.name}`
-        : text,
+      open ? `/${open.items[completion.selectedIndex(open)]!.name}` : text,
       true,
     );
 
@@ -804,14 +673,11 @@ export function App({
       return;
     }
 
-    const open = liveListFor(bufferRef.current);
+    const open = completion.liveList(bufferRef.current);
 
     if (open && (key.tab || key.escape)) {
-      if (key.tab) complete(open);
-      else
-        setDismissed(
-          tokenKey(bufferRef.current.value, bufferRef.current.cursor),
-        );
+      if (key.tab) completion.complete(open);
+      else completion.dismiss();
 
       return;
     }
