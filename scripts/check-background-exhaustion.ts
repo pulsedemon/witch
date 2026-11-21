@@ -204,12 +204,10 @@ export async function checkCapacity(
 ): Promise<void> {
   const discovery = agents.map(async ({ adapter, executable }) => {
     const settings = { executable: executable!, cwd: project, signal };
-
-    const [models, account, latest] = await Promise.all([
-      adapter.models(settings),
-      adapter.accountUsage(settings, { limits: [] }),
-      adapter.latest?.(settings) ?? {},
-    ]);
+    // serialize probes while Codex initializes a fresh home.
+    const models = await adapter.models(settings);
+    const account = await adapter.accountUsage(settings, { limits: [] });
+    const latest = (await adapter.latest?.(settings)) ?? {};
 
     return {
       runtime: adapter.id,

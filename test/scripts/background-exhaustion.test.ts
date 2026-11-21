@@ -46,6 +46,48 @@ const expected: Expectation = {
   withBrew: false,
 };
 
+function capacityFixture() {
+  const source = new FixtureAgent('claude');
+  const destination = new FixtureAgent('codex');
+
+  source.catalog.splice(
+    0,
+    Infinity,
+    ...['haiku', 'fable'].map((id) => ({ id, label: id, efforts: [] })),
+  );
+
+  source.latest = async () => ({
+    haiku: 'claude-haiku-5-5',
+    fable: 'claude-fable-5-2',
+  });
+
+  source.accountReading = {
+    limits: [{ window: '7D', percent: 25, observedAt: Date.now() }],
+    modelLimits: [
+      { window: '7D', model: 'Fable', percent: 100, observedAt: Date.now() },
+    ],
+  };
+
+  destination.catalog.splice(0, Infinity, {
+    id: 'gpt-6-astra',
+    label: 'Astra',
+    efforts: [],
+  });
+
+  destination.accountReading = {
+    limits: [{ window: '7D', percent: 40, observedAt: Date.now() }],
+  };
+
+  return {
+    source,
+    destination,
+    agents: [
+      { adapter: source, executable: 'fixture-claude' },
+      { adapter: destination, executable: 'fixture-codex' },
+    ],
+  };
+}
+
 function timeline(withBrew = false): Observation[] {
   const entries: Observation[] = [];
 
@@ -914,16 +956,9 @@ test('missing consent exits before native discovery and preserves an existing ou
 
 test('capacity admission accepts concrete Claude alias targets absent from the picker list', async () => {
   const directory = await scratch('witch-exhaustion-catalog-');
-  const source = new FixtureAgent('claude');
-  const destination = new FixtureAgent('codex');
+  const { source, agents } = capacityFixture();
   const signal = AbortSignal.timeout(1000);
   let aliasDirectory: string | undefined;
-
-  source.catalog.splice(
-    0,
-    Infinity,
-    ...['haiku', 'fable'].map((id) => ({ id, label: id, efforts: [] })),
-  );
 
   source.latest = async ({ cwd }) => {
     aliasDirectory = cwd;
@@ -931,30 +966,10 @@ test('capacity admission accepts concrete Claude alias targets absent from the p
     return { haiku: 'claude-haiku-5-5', fable: 'claude-fable-5-2' };
   };
 
-  source.accountReading = {
-    limits: [{ window: '7D', percent: 25, observedAt: Date.now() }],
-    modelLimits: [
-      { window: '7D', model: 'Fable', percent: 100, observedAt: Date.now() },
-    ],
-  };
-
-  destination.catalog.splice(0, Infinity, {
-    id: 'gpt-6-astra',
-    label: 'Astra',
-    efforts: [],
-  });
-
-  destination.accountReading = {
-    limits: [{ window: '7D', percent: 40, observedAt: Date.now() }],
-  };
-
   const journal = new EvidenceJournal();
 
   await checkCapacity(
-    [
-      { adapter: source, executable: 'fixture-claude' },
-      { adapter: destination, executable: 'fixture-codex' },
-    ],
+    agents,
     {
       sourceModel: 'claude-haiku-5-5',
       refusalModel: 'claude-fable-5-2',
@@ -969,6 +984,49 @@ test('capacity admission accepts concrete Claude alias targets absent from the p
   assert.equal(source.discoveries[0]!.cwd, directory);
   assert.equal(source.accountReads[0]!.executable, 'fixture-claude');
   assert.equal(source.accountReads[0]!.signal, signal);
+});
+
+test('capacity discovery finishes cold profile initialization before the next probe starts', async () => {
+  const directory = await scratch('witch-exhaustion-cold-profile-');
+  const { destination, agents } = capacityFixture();
+  const started = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<void>();
+  const models = destination.models.bind(destination);
+  let initialized = false;
+
+  destination.models = async (options) => {
+    started.resolve();
+    await ready.promise;
+    const result = await models(options);
+    initialized = true;
+
+    return result;
+  };
+
+  destination.accountRead = async () => {
+    assert.ok(initialized, 'the new native home is still initializing');
+
+    return destination.accountReading;
+  };
+
+  const journal = new EvidenceJournal();
+
+  const checking = checkCapacity(
+    agents,
+    {
+      sourceModel: 'claude-haiku-5-5',
+      refusalModel: 'claude-fable-5-2',
+      signal: AbortSignal.timeout(5000),
+    },
+    directory,
+    journal,
+  );
+
+  void checking.catch(() => {});
+  await started.promise;
+  ready.resolve();
+  await checking;
+  assert.equal(journal.facts('destination-model')[0]!.value, 'gpt-6-astra');
 });
 
 test('a routed child uses its configured Codex home instead of inheriting the source home', async () => {
