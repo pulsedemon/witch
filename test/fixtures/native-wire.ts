@@ -4,7 +4,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 
-interface WireFrame {
+export interface WireFrame {
   direction: 'client' | 'server';
   message: unknown;
 }
@@ -139,12 +139,21 @@ export function replayWire(
   };
 }
 
-export function observeWire(child: ChildProcessWithoutNullStreams): {
+export function observeWire(
+  child: ChildProcessWithoutNullStreams,
+  onFrame?: (frame: WireFrame) => void,
+): {
   frames: WireFrame[];
   finished(): Promise<void>;
 } {
   const frames: WireFrame[] = [];
   let failure: unknown;
+
+  const append = (direction: WireFrame['direction'], line: string) => {
+    const frame = { direction, message: JSON.parse(line) as unknown };
+    frames.push(frame);
+    onFrame?.(frame);
+  };
 
   const readers = new Map<
     WireFrame['direction'],
@@ -172,7 +181,7 @@ export function observeWire(child: ChildProcessWithoutNullStreams): {
       if (!line.trim()) continue;
 
       try {
-        frames.push({ direction, message: JSON.parse(line) });
+        append(direction, line);
       } catch (error) {
         failure ??= error;
       }
@@ -207,7 +216,7 @@ export function observeWire(child: ChildProcessWithoutNullStreams): {
       for (const [direction, reader] of readers) {
         const tail = reader.pending + reader.decoder.end();
 
-        if (tail.trim()) frames.push({ direction, message: JSON.parse(tail) });
+        if (tail.trim()) append(direction, tail);
 
         reader.pending = '';
       }

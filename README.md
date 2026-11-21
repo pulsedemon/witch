@@ -90,6 +90,19 @@ Confirm before running `pnpm test:integration`: it runs real turns with your nat
 
 `pnpm test:integration:codex-brews` checks native child brews with the installed Codex and a localhost model fixture, without account usage, and retains its evidence under `TMPDIR`.
 
+`pnpm test:integration:background-exhaustion` runs the real background-exhaustion acceptance check for [#882](https://github.com/pulsedemon/witch/issues/882). Confirm its account usage before running it with `--allow-account-usage`. Select concrete model IDs from the current catalog: setup needs a healthy Claude model, a separately refusable Claude model, and an eligible Codex destination. The command does not change account settings or exhaust healthy allowance. A native permission request or refused model change blocks staging.
+
+```sh
+capture_root=$(mktemp -d -p "$TMPDIR" background-exhaustion-XXXXXX)
+pnpm test:integration:background-exhaustion \
+  --out "$capture_root/run" \
+  --source-model "$healthy_claude_model" \
+  --refusal-model "$refusable_claude_model" \
+  --allow-account-usage
+```
+
+Without the flag, the command records a blocked result before starting a native process. It refuses an existing output directory. Exit 0 means both native cases passed with verified cleanup; exit 2 means staging was blocked; exit 1 means failed or incomplete verification. The first case that cannot pass stops the run and names the unrun case. `result.json` contains the sanitized verdict and metadata, and each case retains a correlated private `events.jsonl` plus normalized wire captures. Those captures still need inspection before publication. Blocked output and offline regression tests do not establish [#435's live acceptance](https://github.com/pulsedemon/witch/issues/435).
+
 For native macOS verification, run `pnpm check` locally to exercise Darwin locks, boot/process identity and real `sips` conversion. Linux uses a fixture at the `sips` command boundary. The desktop CLI test uses command fixtures for link opening and clipboard writes on both platforms; actual desktop operations remain manual checks.
 
 Then run both scratch-lifetime checks below. They use fixture agents and private tmux sessions with no account usage, and verify scratch retention, reclamation and uncertainty after exit and repeated `/restart`. They require Python 3, tmux and a writable `TMPDIR` short enough for a tmux socket, and wait through a maintenance interval. Use `--case` to select a scenario. Evidence is retained under `TMPDIR`; inspect it and the recorded processes before removing it.
