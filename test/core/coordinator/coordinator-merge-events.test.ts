@@ -15,7 +15,11 @@ import type { Repository } from '../../../src/core/repository/repository.js';
 import type { PullRequest } from '../../../src/core/repository/pull-requests.js';
 import { CoordinationStore } from '../../../src/persistence/coordination.js';
 import { TurnGate } from '../../fixtures/agent.js';
-import { coordinationFixture, git } from '../../fixtures/coordination.js';
+import {
+  coordinationFixture,
+  git,
+  pauseDiscovery,
+} from '../../fixtures/coordination.js';
 import { until, within } from '../../fixtures/within.js';
 import { repositoryRead } from '../../fixtures/repository.js';
 
@@ -472,6 +476,7 @@ for (const name of ['codex', 'claude'] as const) {
 }
 
 test('failed publication retries the captured observation after the source leaves its branch', async (t) => {
+  const ticks = pauseDiscovery(vi.spyOn);
   const f = await coordinationFixture(t.onTestFinished);
   const source = await f.start('A');
   const recipient = await f.start('B');
@@ -504,13 +509,25 @@ test('failed publication retries the captured observation after the source leave
   });
 
   const late = await f.start('A');
+  const project = await projectOf(source);
+  ticks[0]!();
 
   await until(
     'retried publication',
-    () => notices(recipient.coordinator).length === 1,
+    async () =>
+      (
+        await f.registry.mergeEvents(
+          project,
+          recipient.coordinator.snapshot.conversation!.id,
+        )
+      ).length === 1,
   );
 
+  await recipient.coordination.context();
+  assert.equal(notices(recipient.coordinator).length, 1);
+  await late.coordinator.send('read after recovered observation');
   assert.deepEqual(notices(late.coordinator), []);
+  assert.deepEqual(events(late.a.inputs.at(-1)!.context!), []);
   await recipient.coordinator.send('read recovered observation');
 
   assert.deepEqual(
