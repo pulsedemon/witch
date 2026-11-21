@@ -251,6 +251,72 @@ test('the fixed instructions treat issue and pull request text from other accoun
   }
 });
 
+test('the fixed instructions keep authorized pr maintenance through its completion condition', async () => {
+  const f = await unitFixture();
+
+  try {
+    await f.coordinator.send('Maintain this pr stack through integration');
+
+    const rules = f.a.inputs
+      .at(-1)!
+      .context!.split('\n\n')
+      .filter((text) =>
+        text.startsWith(
+          'When opening or continuing work on an open pull request',
+        ),
+      );
+
+    assert.equal(rules.length, 1);
+    const rule = rules[0]!;
+    assert.match(rule, /When the task authorizes ongoing PR maintenance/);
+    assert.match(rule, /record its completion condition and remaining PRs/);
+    assert.match(rule, /in the existing task plan or ledger/);
+
+    assert.match(
+      rule,
+      /retain their claims until that condition is met or the user explicitly stops, releases or hands off that work/,
+    );
+
+    assert.match(
+      rule,
+      /Publication, passing checks, the end of your reply and a child PR's merge do not complete maintenance through integration/,
+    );
+
+    assert.match(
+      rule,
+      /responsibility for the remaining parent continues until the authorized stack reaches its intended destination/,
+    );
+
+    assert.match(rule, /verify the actual checkout and claim/);
+    assert.match(rule, /retain its claim and report the concrete blocker/);
+
+    assert.match(
+      rule,
+      /Do not silently reclaim explicitly released or transferred work/,
+    );
+
+    assert.match(rule, /override a user stop or ownership conflict/);
+    assert.match(rule, /or treat maintenance as merge authorization/);
+
+    assert.match(
+      rule,
+      /Once your authorized PR work, including any ongoing maintenance, and its delegated work have finished/,
+    );
+
+    assert.match(
+      rule,
+      /release its claim before returning to unrelated work or handing it off/,
+    );
+
+    assert.match(
+      rule,
+      /An open PR or having authored it is not a reason to retain ownership/,
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test("the fixed instructions keep the checkout on an open pull request's branch", async () => {
   const f = await unitFixture();
 
