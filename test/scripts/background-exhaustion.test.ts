@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { EvidenceJournal, field } from '../../scripts/background-exhaustion.js';
 import type { Expectation } from '../../scripts/background-exhaustion.js';
 import {
@@ -18,6 +18,7 @@ import {
 } from '../../scripts/check-background-exhaustion.js';
 import { ClaudeAdapter } from '../../src/agents/claude/adapter.js';
 import { CodexAdapter } from '../../src/agents/codex/adapter.js';
+import * as nativeProfile from '../../src/agents/updates/native-verification-profile.js';
 import { FixtureAgent } from '../fixtures/agent.js';
 import { initialSnapshot } from '../../src/core/snapshot.js';
 import { createConversation } from '../../src/core/state.js';
@@ -954,24 +955,15 @@ test('missing consent exits before native discovery and preserves an existing ou
   assert.equal(await readFile(join(out, 'keep.txt'), 'utf8'), 'retain this');
 });
 
-test('capacity admission accepts concrete Claude alias targets absent from the picker list', async () => {
+test('capacity discovery passes native settings to its probes and resolves the destination', async () => {
   const directory = await scratch('witch-exhaustion-catalog-');
   const { source, agents } = capacityFixture();
   const signal = AbortSignal.timeout(1000);
-  let aliasDirectory: string | undefined;
-
-  source.latest = async ({ cwd }) => {
-    aliasDirectory = cwd;
-
-    return { haiku: 'claude-haiku-5-5', fable: 'claude-fable-5-2' };
-  };
-
   const journal = new EvidenceJournal();
 
   await checkCapacity(
     agents,
     {
-      sourceModel: 'claude-haiku-5-5',
       refusalModel: 'claude-fable-5-2',
       signal,
     },
@@ -980,7 +972,6 @@ test('capacity admission accepts concrete Claude alias targets absent from the p
   );
 
   assert.equal(journal.facts('destination-model')[0]!.value, 'gpt-6-astra');
-  assert.equal(aliasDirectory, directory);
   assert.equal(source.discoveries[0]!.cwd, directory);
   assert.equal(source.accountReads[0]!.executable, 'fixture-claude');
   assert.equal(source.accountReads[0]!.signal, signal);
@@ -1014,7 +1005,6 @@ test('capacity discovery finishes cold profile initialization before the next pr
   const checking = checkCapacity(
     agents,
     {
-      sourceModel: 'claude-haiku-5-5',
       refusalModel: 'claude-fable-5-2',
       signal: AbortSignal.timeout(5000),
     },
@@ -1028,6 +1018,87 @@ test('capacity discovery finishes cold profile initialization before the next pr
   await checking;
   assert.equal(journal.facts('destination-model')[0]!.value, 'gpt-6-astra');
 });
+
+for (const condition of [
+  'an unresolved Claude alias',
+  'a full source meter',
+  'a new job report directory',
+])
+  test(`${condition} reaches native startup with working job marking`, async () => {
+    const directory = await scratch('witch-exhaustion-startup-');
+    const { source, destination, agents } = capacityFixture();
+    const controller = new AbortController();
+    let reported: string | undefined;
+
+    if (condition === 'an unresolved Claude alias')
+      source.latest = async () => ({ haiku: 'claude-haiku-5-5' });
+
+    if (condition === 'a full source meter') {
+      source.accountReading.limits[0]!.percent = 100;
+
+      source.accountReading.creditAccess = {
+        state: 'unavailable',
+        observedAt: Date.now(),
+      };
+    }
+
+    source.beforeConnect = async ({ mark }) => {
+      assert.ok(mark?.script);
+
+      const { stdout } = await execute('/bin/sh', [
+        '-c',
+        '. "$1"; printf "%s" "$WITCH_JOBS"',
+        'job-check',
+        mark.script,
+      ]);
+
+      reported = stdout;
+      assert.equal(mark.environment.WITCH_JOBS, reported);
+      controller.abort(new Error('Native job marking verified'));
+      controller.signal.throwIfAborted();
+    };
+
+    const profile = vi
+      .spyOn(nativeProfile, 'verificationAdapter')
+      .mockImplementation(async (runtime) =>
+        runtime === 'claude' ? source : destination,
+      );
+
+    try {
+      const result = await runCase(
+        {
+          directory,
+          sourceModel: 'claude-haiku-5-5',
+          refusalModel: 'claude-fable-5-2',
+          withBrew: false,
+          signal: controller.signal,
+        },
+        agents,
+        () => {
+          throw new Error('Unexpected native process');
+        },
+      );
+
+      assert.equal(reported, join(directory, 'jobs'));
+      assert.equal(result.status, 'incomplete');
+      assert.equal(result.cleanup, 'verified');
+
+      const entries = (await readFile(join(directory, 'events.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line): unknown => JSON.parse(line));
+
+      assert.equal(
+        field(
+          entries.find((entry) => field(entry, 'name') === 'destination-model'),
+          'value',
+        ),
+        'gpt-6-astra',
+      );
+    } finally {
+      profile.mockRestore();
+    }
+  });
 
 test('a routed child uses its configured Codex home instead of inheriting the source home', async () => {
   const directory = await scratch('witch-exhaustion-familiar-home-');
