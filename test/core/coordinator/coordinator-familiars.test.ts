@@ -1,6 +1,235 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
+import { ConversationStore } from '../../../src/persistence/store.js';
+import { TurnGate } from '../../fixtures/agent.js';
 import { unitFixture } from '../../fixtures/coordinator.js';
+import {
+  continuation,
+  exhaustion,
+} from '../../fixtures/coordinator-exhaustion.js';
+import { within } from '../../fixtures/within.js';
+
+test('an exhausted source retains stopped familiar identities outside the transcript budget', async () => {
+  const { coordinator, claude, codex, store } = await exhaustion();
+  const gate = new TurnGate();
+  codex.gate = gate;
+
+  claude.exhaust = () => {
+    const emit = claude.sessions.at(-1)!.options.onEvent;
+
+    for (const id of ['schema', 'callers'])
+      emit({
+        type: 'subagent',
+        subagent: {
+          id,
+          run: `${id}-run`,
+          name: `${id} review`,
+          runtime: 'codex',
+          model: 'gpt-6.1-sol',
+          kind: '',
+          status: 'running',
+          report: 'Unverified partial output.',
+        },
+      });
+
+    const completed = { id: 'accepted', name: 'accepted review', kind: '' };
+    emit({ type: 'subagent', subagent: { ...completed, status: 'running' } });
+
+    emit({
+      type: 'subagent',
+      subagent: {
+        ...completed,
+        status: 'completed',
+        report: `Keep the unique index. ${'x'.repeat(70_000)}`,
+      },
+    });
+
+    return true;
+  };
+
+  const sending = coordinator.send('Finish the schema and caller reviews.');
+
+  try {
+    await within(gate.entered, 5000, 'destination continuation');
+    const id = coordinator.snapshot.conversation!.id;
+    const saved = (await store.records([id])).records[0]!;
+    const context = codex.inputs[0]!.context!;
+    assert.match(context, /Keep the unique index/);
+    assert.match(context, /\[truncated\]/);
+    assert.match(context, /results are incomplete/);
+
+    for (const id of ['schema', 'callers']) {
+      assert.ok(context.includes(`id: ${id} | run: ${id}-run`));
+      assert.ok(saved.handoff!.summary!.includes(`run: ${id}-run`));
+
+      assert.ok(
+        coordinator.snapshot.items.some((item) =>
+          item.title?.startsWith(`Familiar stopped  ${id} review`),
+        ),
+      );
+    }
+
+    assert.match(
+      context,
+      /Familiar stopped {2}schema review[^\n]*\nUnverified partial output/,
+    );
+
+    assert.doesNotMatch(context, /id: accepted/);
+    assert.equal(saved.lastTurn?.status, 'failed');
+    assert.equal(saved.handoff?.activated, true);
+    await coordinator.send('Queued separately');
+    gate.open();
+    await sending;
+
+    assert.deepEqual(
+      codex.inputs.map(({ prompt }) => prompt),
+      [continuation, 'Queued separately'],
+    );
+
+    assert.equal(claude.inputs.length, 1);
+    assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
+
+    assert.doesNotMatch(
+      codex.inputs[1]!.context ?? '',
+      /schema-run|callers-run/,
+    );
+  } finally {
+    gate.open();
+    await sending;
+    await coordinator.close();
+  }
+});
+
+test('a report accepted during handoff preparation reaches the destination as completed', async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  const emit = claude.sessions.at(-1)!.options.onEvent;
+
+  claude.exhaust = () => {
+    for (const id of ['late', 'unfinished'])
+      emit({
+        type: 'subagent',
+        subagent: {
+          id,
+          run: `${id}-run`,
+          name: `${id} review`,
+          kind: '',
+          status: 'running',
+        },
+      });
+
+    return true;
+  };
+
+  let reported = false;
+  const save = ConversationStore.prototype.save;
+
+  vi.spyOn(ConversationStore.prototype, 'save').mockImplementation(
+    async function (this: ConversationStore, ...args: Parameters<typeof save>) {
+      if (!reported && this.record.handoff && !this.record.handoff.activated) {
+        reported = true;
+
+        emit({
+          type: 'subagent',
+          subagent: {
+            id: 'late',
+            run: 'late-run',
+            name: 'late review',
+            kind: '',
+            status: 'completed',
+            report: 'Keep the foreign key.',
+          },
+        });
+      }
+
+      return save.apply(this, args);
+    },
+  );
+
+  try {
+    await coordinator.send('Finish both reviews.');
+    assert.equal(reported, true);
+    const context = codex.inputs[0]!.context!;
+    assert.match(context, /Familiar completed {2}late review/);
+    assert.match(context, /Keep the foreign key/);
+    assert.match(context, /id: unfinished \| run: unfinished-run/);
+    assert.doesNotMatch(context, /id: late/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a destination connection failure retains the stopped familiar in the saved transcript', async () => {
+  const { coordinator, claude, codex, store, reopen } = await exhaustion();
+  codex.failConnect = true;
+
+  claude.exhaust = () => {
+    claude.sessions.at(-1)!.options.onEvent({
+      type: 'subagent',
+      subagent: {
+        id: 'interrupted',
+        run: 'interrupted-run',
+        name: 'unfinished review',
+        kind: '',
+        status: 'running',
+      },
+    });
+
+    return true;
+  };
+
+  try {
+    await coordinator.send('Finish the unfinished review.');
+    assert.equal(codex.inputs.length, 0);
+    assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
+    const id = coordinator.snapshot.conversation!.id;
+    assert.equal((await store.records([id])).records[0]!.handoff, undefined);
+    await coordinator.close();
+    const resumed = await reopen();
+
+    try {
+      assert.ok(
+        resumed.snapshot.items.some(({ title }) =>
+          title?.startsWith('Familiar stopped  unfinished review'),
+        ),
+      );
+
+      assert.equal(resumed.snapshot.conversation!.agent, 'claude');
+    } finally {
+      await resumed.close();
+    }
+  } finally {
+    await coordinator.close();
+  }
+});
+
+for (const pending of ['none', 'activated', 'other-source'] as const) {
+  test(`closing with ${pending} handoff state does not append interruption context`, async () => {
+    const { coordinator, a, store } = await unitFixture();
+    await coordinator.send('Seed the source.');
+    const conversation = coordinator.snapshot.conversation!;
+
+    if (pending !== 'none')
+      conversation.handoff = {
+        from: pending === 'activated' ? conversation.agent : 'other',
+        to: 'b',
+        summary: 'Existing context',
+        activated: pending === 'activated',
+      };
+
+    a.sessions.at(-1)!.options.onEvent({
+      type: 'subagent',
+      subagent: { id: 'review', name: 'review', kind: '', status: 'running' },
+    });
+
+    await coordinator.close();
+    const saved = (await store.records([conversation.id])).records[0]!;
+
+    assert.equal(
+      saved.handoff?.summary,
+      pending === 'none' ? undefined : 'Existing context',
+    );
+  });
+}
 
 test('a reported familiar replaces its brew and retitles observed identity without duplicating reports', async () => {
   const { coordinator, a } = await unitFixture();

@@ -1,4 +1,5 @@
-import type { AgentSession } from '../agents/types.js';
+import type { AgentSession, Subagent } from '../agents/types.js';
+import { familiarIdentity } from './familiars.js';
 import type { ModelSelection } from './runtime/models.js';
 import type { SwitchHost } from './runtime-switch.js';
 import { contextStart } from './state.js';
@@ -60,6 +61,7 @@ export async function handoff(
 
   try {
     let summary = '';
+    let fallback = false;
     const { items } = host.snapshot();
     const context = items.slice(contextStart(items));
 
@@ -77,7 +79,7 @@ export async function handoff(
         !result ||
         (result.status === 'failed' && !conversation.activity)
       )
-        summary = transcriptContext(context);
+        fallback = true;
       else throw new Error(result.error ?? 'Handoff was interrupted');
     }
 
@@ -100,6 +102,17 @@ export async function handoff(
       return;
     }
 
+    if (fallback) {
+      const { items } = host.snapshot();
+
+      conversation.handoff.summary = [
+        transcriptContext(items.slice(contextStart(items))),
+        conversation.handoff.summary,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+    }
+
     const selected = await host.select(session, selection);
 
     if (host.cancelled()) throw new Error('Handoff was interrupted');
@@ -111,15 +124,16 @@ export async function handoff(
     activated = true;
     host.publish({ conversation, native: host.session()?.info });
     host.activated?.();
+    const finalSummary = conversation.handoff.summary;
 
-    if (summary && unfinished)
+    if (finalSummary && unfinished)
       await host.send(
         'Continue the task described by the handoff context. Check the working files before relying on statements about their state.',
         'turn',
         // the context carries the unfinished request as text, so its images go with the continuation
         conversation.lastTurn?.images,
       );
-    else if (!summary) delete conversation.handoff;
+    else if (!finalSummary) delete conversation.handoff;
 
     await host.save();
   } catch (error) {
@@ -155,6 +169,26 @@ export async function handoff(
 
     throw error;
   }
+}
+
+export function interruptedFamiliarContext(
+  familiars: readonly Subagent[],
+): string | undefined {
+  if (!familiars.length) return;
+
+  return [
+    'These familiars were interrupted when Witch switched runtimes. Their results are incomplete. Recover or rerun their work before relying on it.',
+    ...familiars.map((familiar) =>
+      [
+        familiar.name,
+        familiarIdentity(familiar),
+        `id: ${familiar.id}`,
+        familiar.run && `run: ${familiar.run}`,
+      ]
+        .filter(Boolean)
+        .join(' | '),
+    ),
+  ].join('\n');
 }
 
 /** handoff context rebuilt from the transcript when the source can't summarize. unread prompts are left out, since the queue sends them again. */
