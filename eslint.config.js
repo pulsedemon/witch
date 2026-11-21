@@ -135,8 +135,16 @@ export default defineConfig(
     rules: {
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
-      'max-lines': ['error', 1500],
     },
+  },
+  {
+    files: [
+      'src/**/*.{ts,tsx}',
+      'test/**/*.{ts,tsx,mts,mjs}',
+      'scripts/**/*.{ts,mjs}',
+      'vitest.config.ts',
+    ],
+    rules: { 'max-lines': ['error', 1500] },
   },
   {
     files: ['src/ui/**/*.tsx'],
