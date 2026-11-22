@@ -30,10 +30,11 @@ test('a spell event shows one cast row, which reopening keeps', async () => {
     const rows = casts(coordinator);
 
     assert.deepEqual(
-      rows.map(({ id, kind, cast, text, cwd }) => ({
+      rows.map(({ id, kind, cast, spell, text, cwd }) => ({
         id,
         kind,
         cast,
+        spell,
         text,
         cwd,
       })),
@@ -42,6 +43,7 @@ test('a spell event shows one cast row, which reopening keeps', async () => {
           id: 'spell/s1',
           kind: 'notice',
           cast: true,
+          spell: 'tdd',
           text: 'Cast `tdd`',
           cwd: project,
         },

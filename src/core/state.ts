@@ -147,6 +147,8 @@ export const displayUpdateSchema = z.object({
   contextCleared: z.literal(true).optional(),
   // a spell cast, animated while new
   cast: z.literal(true).optional(),
+  // the cast spell's name; rows cast before Witch recorded it have none
+  spell: z.string().optional(),
   // a prompt the agent never read, which the queue sends again
   unread: z.literal(true).optional(),
   // when Witch received the update; history from before it was recorded has none

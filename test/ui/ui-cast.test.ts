@@ -8,12 +8,9 @@ import stripAnsi from 'strip-ansi';
 import { test, vi } from 'vitest';
 import type { DisplayItem } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
-import {
-  castFrames,
-  castRows,
-  castTitle,
-  useCasting,
-} from '../../src/ui/status/cast.js';
+import { castTitle, useCasting } from '../../src/ui/status/cast.js';
+import { fireCast } from '../../src/ui/status/cast-fire.js';
+import { kaomojiCast } from '../../src/ui/status/cast-kaomoji.js';
 import { tickMs } from '../../src/ui/useTick.js';
 import { drag, fake, show } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
@@ -24,12 +21,19 @@ import {
   wheelUp,
 } from '../fixtures/ui-transcript.js';
 
+const castFrames = kaomojiCast.frames;
 const castMs = castFrames * tickMs;
 
-const cast = (id: string, at: number): DisplayItem => ({
+/** a ticker cast by default; `null` leaves the spell's name out, as on rows from before it was recorded. */
+const cast = (
+  id: string,
+  at: number,
+  spell: string | null = 'brainstorming',
+): DisplayItem => ({
   id,
   kind: 'notice',
   cast: true,
+  ...(spell === null ? {} : { spell }),
   text: `Cast \`${id}\``,
   cwd: '/work',
   at: new Date(at).toISOString(),
@@ -100,7 +104,7 @@ const frame = (
   width = 120,
   seed = 'spell/demo-1',
   lift = false,
-) => castRows(step, width, seed, lift);
+) => kaomojiCast.rows(step, width, seed, lift);
 
 test('live overlays fit their terminal cells without changing the anchored heading', () => {
   for (const seed of ['spell/0', 'spell/review', 'spell/demo-1'])
@@ -268,6 +272,53 @@ test('glitch and sparkle highlights stay in the violet palette with or without r
         }
 });
 
+/** the fire sweep at one of its 20 steps, each of which lasts two ticks. */
+const sweep = (step: number, width = 48) =>
+  fireCast.rows(2 * step, width, 'spell/demo-1', false).heading;
+
+test('every live fire frame fills the available width with the title anchored on one row', () => {
+  for (const width of [7, 28, 78, 120]) {
+    for (let step = 0; step < 20; step++) {
+      const line = sweep(step, width);
+      assert.ok(stripAnsi(line).startsWith('✦ Spell'));
+      assert.equal(stringWidth(line), width);
+      assert.ok(!line.includes('\n'));
+    }
+
+    if (width > 7) {
+      assert.equal(stripAnsi(sweep(0, width)).lastIndexOf('*'), width - 1);
+      assert.equal(stripAnsi(sweep(12, width)).lastIndexOf('*'), width - 1);
+    }
+  }
+});
+
+test('sparks gather, ignite, travel outward and thin into embers before the static title returns', () => {
+  const plain = (step: number) => stripAnsi(sweep(step));
+  assert.equal(plain(0).indexOf('*'), 47);
+  assert.equal(plain(3).indexOf('*'), 8);
+  assert.ok(sweep(4).includes('\u001b[48;2;154;52;18m'));
+  assert.equal(plain(4).slice(8, 13), '*:+:*');
+  assert.equal(plain(6).indexOf('*'), 8);
+  assert.equal(plain(9).indexOf('*'), 37);
+  assert.equal(plain(12).indexOf('*'), 47);
+  assert.ok(!sweep(13).includes('\u001b[48;'));
+  assert.equal(plain(19).slice(8).trim(), '.          .          .          .');
+  assert.ok(sweep(19).includes('\u001b[38;2;91;33;182m'));
+});
+
+test('each fire step holds for two ticks without a lift row', () => {
+  for (let step = 0; step < 20; step++) {
+    const first = fireCast.rows(2 * step, 78, 'spell/demo-1', true);
+
+    assert.deepEqual(
+      fireCast.rows(2 * step + 1, 78, 'spell/demo-1', true),
+      first,
+    );
+
+    assert.equal(first.above, undefined);
+  }
+});
+
 test('a new cast animates its title, then settles on the final title and stays', async () => {
   freeze();
   const { ui } = render([cast('review', Date.now())]);
@@ -299,7 +350,7 @@ test('a cast from history shows final and unanimated, at mount and when publishe
     mounted.ui.unmount();
   }
 
-  const live = cast('tdd', Date.now());
+  const live = cast('tdd', Date.now(), null);
   const published = render([live]);
 
   try {
@@ -425,34 +476,44 @@ function Casting({ items }: { items: DisplayItem[] }) {
   return createElement(Text, null, active.size ? 'casting' : 'settled');
 }
 
-test('a spell remains live for the approved 3.6 seconds', async () => {
-  freeze();
-  const items = [cast('duration', Date.now())];
+test('each animation stays live for its approved lifetime', async () => {
+  for (const [spell, lifetime] of [
+    ['brainstorming', 3600],
+    ['commit-message', 2000],
+  ] as const) {
+    freeze();
+    const items = [cast('duration', Date.now(), spell)];
 
-  function Duration() {
-    const active = useCasting(items);
+    function Duration() {
+      const active = useCasting(items);
 
-    return createElement(
-      Text,
-      null,
-      `${active.size ? 'casting' : 'settled'} at ${Date.now()}`,
-    );
-  }
+      return createElement(
+        Text,
+        null,
+        `${active.size ? 'casting' : 'settled'} at ${Date.now()}`,
+      );
+    }
 
-  const ui = show(createElement(Duration));
+    const ui = show(createElement(Duration));
 
-  try {
-    await until('cast begins', () => ui.text() === 'casting at 100000');
-    vi.advanceTimersByTime(3550);
-    await until('cast remains live', () => ui.text() === 'casting at 103550');
-    vi.advanceTimersByTime(50);
+    try {
+      await until('cast begins', () => ui.text() === 'casting at 100000');
+      vi.advanceTimersByTime(lifetime - 50);
 
-    await until(
-      'cast expires at 3600 ms',
-      () => ui.text() === 'settled at 103600',
-    );
-  } finally {
-    ui.unmount();
+      await until(
+        `${spell} remains live`,
+        () => ui.text() === `casting at ${100_000 + lifetime - 50}`,
+      );
+
+      vi.advanceTimersByTime(50);
+
+      await until(
+        `${spell} expires at ${lifetime} ms`,
+        () => ui.text() === `settled at ${100_000 + lifetime}`,
+      );
+    } finally {
+      ui.unmount();
+    }
   }
 });
 
@@ -547,6 +608,35 @@ test('simultaneous casts render the chains belonging to their own ids', async ()
         stripAnsi(frame(0, 98, id).heading).trim(),
       ),
     );
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('casts of different animations draw and settle by their own choice', async () => {
+  freeze();
+
+  const { ui } = render([
+    cast('ship', Date.now(), 'commit-message'),
+    cast('write', Date.now(), 'brainstorming'),
+  ]);
+
+  try {
+    await until('both casts', () => titles(ui).length === 2);
+
+    assert.deepEqual(
+      titles(ui).map((line) => stripAnsi(line).trim()),
+      [
+        fireCast.rows(0, 98, 'ship', false).heading,
+        kaomojiCast.rows(0, 98, 'write', false).heading,
+      ].map((line) => stripAnsi(line).trim()),
+    );
+
+    vi.advanceTimersByTime(2000);
+    await until('the fire cast to settle', () => final(titles(ui)[0]!));
+    assert.ok(!final(titles(ui)[1]!));
+    vi.advanceTimersByTime(1600);
+    await until('both casts to settle', () => settled(ui));
   } finally {
     ui.unmount();
   }

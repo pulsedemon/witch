@@ -12,6 +12,7 @@ export function castRow(
     id: `spell/${cast.id}`,
     kind: 'notice',
     cast: true,
+    spell: cast.name,
     text: familiar ? `Familiar ${familiar} cast ${name}` : `Cast ${name}`,
     cwd,
   };
