@@ -1,6 +1,6 @@
 import stringWidth from 'string-width';
 import { accent, colors } from '../theme.js';
-import { picks, spellTitle } from './cast-animation.js';
+import { blend, picks, spellTitle } from './cast-animation.js';
 import type { CastAnimation } from './cast-animation.js';
 import { kaomoji } from './kaomoji.js';
 import { castHop, eased } from './cast-motion.js';
@@ -36,20 +36,6 @@ const faces = kaomoji.map((text) => ({
   clusters: clusters(text).reverse(),
   width: stringWidth(text),
 }));
-
-/** a color `share` of the way from one hex color to another. */
-function blend(from: string, to: string, share: number): string {
-  const channel = (start: number) => {
-    const low = parseInt(from.slice(start, start + 2), 16);
-    const high = parseInt(to.slice(start, start + 2), 16);
-
-    return Math.round(low + (high - low) * share)
-      .toString(16)
-      .padStart(2, '0');
-  };
-
-  return `#${channel(1)}${channel(3)}${channel(5)}`;
-}
 
 /**
  * the cells right of the heading and of the row above. kaomoji chained with sparkles pour out of the title like a
