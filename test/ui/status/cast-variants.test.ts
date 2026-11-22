@@ -10,6 +10,7 @@ import {
   hellfireCast,
   hellfireVariants,
 } from '../../../src/ui/status/cast-hellfire.js';
+import { sigilCast, sigilVariants } from '../../../src/ui/status/cast-sigil.js';
 import { brightest, isFinal } from '../../fixtures/cast.js';
 
 interface Family {
@@ -32,6 +33,14 @@ const families: Family[] = [
         .hellfireVariants,
     end: '#5a1a1a',
     above: ['blaze', 'firewall', 'brimstone'],
+  },
+  {
+    cast: sigilCast,
+    variants: sigilVariants,
+    load: async () =>
+      (await import('../../../src/ui/status/cast-sigil.js')).sigilVariants,
+    end: '#120004',
+    above: ['seal', 'collapse'],
   },
 ];
 
@@ -177,4 +186,16 @@ test('the blaze lights out of the title and burns across the row', () => {
       [...Array(21).keys()].some((step) => blaze(20 + step)[column] !== ' '),
       String(column),
     );
+});
+
+test('a seal closes and flares at any width, with or without the row above', () => {
+  for (const width of [28, 200])
+    for (const lift of [true, false])
+      for (let frame = 41; frame <= 45; frame++)
+        assert.ok(
+          stripAnsi(
+            sigilVariants.seal(frame, width, seed, lift).heading,
+          ).includes('═'),
+          `${width} ${lift} ${frame}`,
+        );
 });

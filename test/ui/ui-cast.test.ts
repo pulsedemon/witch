@@ -16,6 +16,7 @@ import {
 import type { CastAnimation } from '../../src/ui/status/cast-animation.js';
 import { fireCast } from '../../src/ui/status/cast-fire.js';
 import { hellfireCast } from '../../src/ui/status/cast-hellfire.js';
+import { sigilCast } from '../../src/ui/status/cast-sigil.js';
 import { kaomojiCast } from '../../src/ui/status/cast-kaomoji.js';
 import { tickMs } from '../../src/ui/useTick.js';
 import { foreground, isFinal } from '../fixtures/cast.js';
@@ -31,7 +32,7 @@ import {
 const castFrames = kaomojiCast.frames;
 const castMs = castFrames * tickMs;
 
-/** a ticker cast by default; `null` leaves the spell's name out, as on rows from before it was recorded. */
+/** a brainstorming cast by default; `null` leaves the spell's name out, as on rows from before it was recorded. */
 const cast = (
   id: string,
   at: number,
@@ -56,6 +57,9 @@ function idFor(
     if (castAnimation({ id: `${prefix}-${n}`, spell }) === animation)
       return `${prefix}-${n}`;
 }
+
+/** a brainstorming cast id that plays the kaomoji ticker. */
+const ticker = (prefix: string) => idFor(kaomojiCast, 'brainstorming', prefix);
 
 type View = ReturnType<typeof show>;
 
@@ -406,7 +410,8 @@ test('selecting a live heading shows and copies its canonical text through settl
 
 test('resizing a live cast preserves its rows and original expiry', async () => {
   freeze();
-  const { ui } = render([cast('review', Date.now())]);
+  const id = ticker('review');
+  const { ui } = render([cast(id, Date.now())]);
 
   const bodyRow = () =>
     ui
@@ -419,7 +424,7 @@ test('resizing a live cast preserves its rows and original expiry', async () => 
 
     assert.equal(
       stripAnsi(titles(ui)[0]!).trim(),
-      stripAnsi(frame(0, 98, 'review').heading).trim(),
+      stripAnsi(frame(0, 98, id).heading).trim(),
     );
 
     const original = bodyRow();
@@ -430,7 +435,7 @@ test('resizing a live cast preserves its rows and original expiry', async () => 
       'the narrow frame',
       () =>
         stripAnsi(titles(ui)[0] ?? '').trim() ===
-        stripAnsi(frame(20, 28, 'review').heading).trim(),
+        stripAnsi(frame(20, 28, id).heading).trim(),
     );
 
     assert.ok(animating(ui));
@@ -441,7 +446,7 @@ test('resizing a live cast preserves its rows and original expiry', async () => 
       'the full-width frame again',
       () =>
         stripAnsi(titles(ui)[0] ?? '').trim() ===
-        stripAnsi(frame(20, 98, 'review').heading).trim(),
+        stripAnsi(frame(20, 98, id).heading).trim(),
     );
 
     assert.ok(animating(ui));
@@ -458,7 +463,11 @@ test('staggered casts settle by their own timestamps', async () => {
   freeze();
   const now = Date.now();
   const half = castMs / 2;
-  const { ui } = render([cast('first', now - half), cast('second', now)]);
+
+  const { ui } = render([
+    cast(ticker('first'), now - half),
+    cast(ticker('second'), now),
+  ]);
 
   try {
     await until(
@@ -491,6 +500,7 @@ test('each animation stays live for its approved lifetime', async () => {
     [kaomojiCast, 'brainstorming', 3600],
     [fireCast, 'commit-message', 2000],
     [hellfireCast, 'commit-message', 3200],
+    [sigilCast, 'brainstorming', 3200],
   ] as const) {
     freeze();
 
@@ -607,20 +617,15 @@ test('typing and scrolling take effect while a cast animates', async () => {
 
 test('simultaneous casts render the chains belonging to their own ids', async () => {
   freeze();
-
-  const { ui } = render([
-    cast('first', Date.now()),
-    cast('second', Date.now()),
-  ]);
+  const ids = [ticker('first'), ticker('second')];
+  const { ui } = render(ids.map((id) => cast(id, Date.now())));
 
   try {
     await until('both casts', () => titles(ui).length === 2);
 
     assert.deepEqual(
       titles(ui).map((line) => stripAnsi(line).trim()),
-      ['first', 'second'].map((id) =>
-        stripAnsi(frame(0, 98, id).heading).trim(),
-      ),
+      ids.map((id) => stripAnsi(frame(0, 98, id).heading).trim()),
     );
   } finally {
     ui.unmount();
@@ -630,10 +635,11 @@ test('simultaneous casts render the chains belonging to their own ids', async ()
 test('casts of different animations draw and settle by their own choice', async () => {
   freeze();
   const ship = idFor(fireCast, 'commit-message', 'ship');
+  const write = ticker('write');
 
   const { ui } = render([
     cast(ship, Date.now(), 'commit-message'),
-    cast('write', Date.now(), 'brainstorming'),
+    cast(write, Date.now(), 'brainstorming'),
   ]);
 
   try {
@@ -643,7 +649,7 @@ test('casts of different animations draw and settle by their own choice', async 
       titles(ui).map((line) => stripAnsi(line).trim()),
       [
         fireCast.rows(0, 98, ship, false).heading,
-        kaomojiCast.rows(0, 98, 'write', false).heading,
+        kaomojiCast.rows(0, 98, write, false).heading,
       ].map((line) => stripAnsi(line).trim()),
     );
 
@@ -667,7 +673,11 @@ test('selecting the upper blank row suppresses hops without hiding the heading a
     cwd: '/work',
   };
 
-  const { ui } = render([before, cast('spell/demo-1', Date.now())], 100, 24);
+  const { ui } = render(
+    [before, cast(ticker('spell/demo-1'), Date.now())],
+    100,
+    24,
+  );
 
   try {
     await until('the cast', () => animating(ui));
@@ -710,7 +720,9 @@ test('a cast between clock boundaries stays live until its actual expiry', async
   freeze(100_023);
 
   const ui = show(
-    createElement(Casting, { items: [cast('boundary', Date.now())] }),
+    createElement(Casting, {
+      items: [cast(ticker('boundary'), Date.now())],
+    }),
   );
 
   try {

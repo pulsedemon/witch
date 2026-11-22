@@ -8,6 +8,7 @@ import {
   hellfireVariants,
 } from '../../../src/ui/status/cast-hellfire.js';
 import { kaomojiCast } from '../../../src/ui/status/cast-kaomoji.js';
+import { sigilCast, sigilVariants } from '../../../src/ui/status/cast-sigil.js';
 
 const ids = (count: number) =>
   Array.from({ length: count }, (_, index) => `spell/${index}`);
@@ -28,8 +29,11 @@ test('a spell with a purpose plays only that purpose’s animations', () => {
 
   assert.deepEqual(shipped, new Set([fireCast, hellfireCast]));
 
-  for (const id of ids(20))
-    assert.equal(castAnimation({ id, spell: 'brainstorming' }), kaomojiCast);
+  const created = new Set(
+    ids(40).map((id) => castAnimation({ id, spell: 'brainstorming' })),
+  );
+
+  assert.deepEqual(created, new Set([kaomojiCast, sigilCast]));
 });
 
 test('varied keeps one variant per seed and reaches every variant', () => {
@@ -51,7 +55,10 @@ test('varied keeps one variant per seed and reaches every variant', () => {
 });
 
 test('every animation with variants reaches each of them across casts', () => {
-  for (const [cast, variants] of [[hellfireCast, hellfireVariants]] as const) {
+  for (const [cast, variants] of [
+    [hellfireCast, hellfireVariants],
+    [sigilCast, sigilVariants],
+  ] as const) {
     const reached = new Set(
       ids(40).map((id) => {
         const drawn = cast.rows(10, 100, id, true);

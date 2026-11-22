@@ -7,11 +7,13 @@ import type { CastAnimation, CastPurpose } from './cast-animation.js';
 import { fireCast } from './cast-fire.js';
 import { hellfireCast } from './cast-hellfire.js';
 import { kaomojiCast } from './cast-kaomoji.js';
+import { sigilCast } from './cast-sigil.js';
 
 const castAnimations: readonly CastAnimation[] = [
   kaomojiCast,
   fireCast,
   hellfireCast,
+  sigilCast,
 ];
 
 /** in priority order, so a name with words from both takes the first. */
