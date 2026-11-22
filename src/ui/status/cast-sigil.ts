@@ -1,5 +1,12 @@
 import { accent, colors } from '../theme.js';
-import { blend, picks, spellTitle, varied } from './cast-animation.js';
+import {
+  blankLine,
+  blend,
+  castLines,
+  picks,
+  spellTitle,
+  varied,
+} from './cast-animation.js';
 import type { CastAnimation, CastRows } from './cast-animation.js';
 
 const frames = 64;
@@ -7,30 +14,6 @@ const frames = 64;
 const glyphs = ['†', '☿', '♄', '♃', '♂', '♆', 'ᛟ', 'ᛉ', 'ᚦ', '⛧'];
 const spacing = 8;
 const scar = '#120004';
-
-interface Paint {
-  glyph: string;
-  color: string;
-  bg?: string;
-  bold?: boolean;
-}
-
-/** a row of cells, blank until painted. */
-const blank = (reach: number): (Paint | undefined)[] =>
-  Array<Paint | undefined>(reach).fill(undefined);
-
-const draw = (cells: readonly (Paint | undefined)[]) =>
-  cells
-    .map((cell) => {
-      if (!cell) return ' ';
-
-      const ink = cell.bg
-        ? colors.hex(cell.color).bgHex(cell.bg)
-        : colors.hex(cell.color);
-
-      return cell.bold ? ink.bold(cell.glyph) : ink(cell.glyph);
-    })
-    .join('');
 
 /** this cast's sigils, in order, and the columns they sit at: as many as fit, at most seven. */
 function sigils(reach: number, seed: string) {
@@ -47,17 +30,6 @@ function sigils(reach: number, seed: string) {
   return pool
     .slice(0, count)
     .map((glyph, index) => ({ glyph, at: 4 + index * spacing }));
-}
-
-function rows(
-  title: string,
-  heading: readonly (Paint | undefined)[],
-  above: readonly (Paint | undefined)[] | undefined,
-) {
-  return {
-    heading: `${title} ${draw(heading)}`,
-    above: above && `${' '.repeat(spellTitle.length + 1)}${draw(above)}`,
-  };
 }
 
 /** a burning trace draws a seal around the row, lighting each sigil as it passes, then flares and fades. */
@@ -86,8 +58,8 @@ const seal: CastRows = (frame, width, seed, lift) => {
 
   const marks = sigils(reach, seed);
   const right = marks.length ? marks.at(-1)!.at + 4 : reach - 1;
-  const heading = blank(reach);
-  const above = lift ? blank(reach) : undefined;
+  const heading = blankLine(reach);
+  const above = lift ? blankLine(reach) : undefined;
   const path: [number, number][] = [];
 
   for (let x = 0; x <= right; x++) path.push([1, x]);
@@ -134,7 +106,7 @@ const seal: CastRows = (frame, width, seed, lift) => {
       : { glyph: edge(row, x), color, bold: behind < 1 || flaring };
   });
 
-  return rows(title, heading, above);
+  return castLines(title, heading, above);
 };
 
 /** sigils are scratched in one by one, then pulled into a pentagram that pulses and burns out. */
@@ -160,8 +132,8 @@ const collapse: CastRows = (frame, width, seed, lift) => {
   if (reach <= 0) return { heading: title };
 
   const marks = sigils(reach, seed);
-  const heading = blank(reach);
-  const above = lift ? blank(reach) : undefined;
+  const heading = blankLine(reach);
+  const above = lift ? blankLine(reach) : undefined;
   const center = marks[Math.floor((marks.length - 1) / 2)]?.at ?? 0;
 
   if (frame < merged) {
@@ -203,10 +175,10 @@ const collapse: CastRows = (frame, width, seed, lift) => {
       }
     });
 
-    return rows(title, heading, above);
+    return castLines(title, heading, above);
   }
 
-  if (fade >= 1) return rows(title, heading, above);
+  if (fade >= 1) return castLines(title, heading, above);
 
   heading[center] = {
     glyph: '⛧',
@@ -218,7 +190,7 @@ const collapse: CastRows = (frame, width, seed, lift) => {
     bold: true,
   };
 
-  if (fade > 0) return rows(title, heading, above);
+  if (fade > 0) return castLines(title, heading, above);
 
   for (let ray = 1; ray <= Math.min(6, frame - merged + 1); ray++) {
     const color = blend('#ff4030', '#3a0008', ray / 6);
@@ -238,7 +210,7 @@ const collapse: CastRows = (frame, width, seed, lift) => {
       if (x >= 0 && x < reach) above[x] = { glyph: '˙', color: '#c02020' };
   }
 
-  return rows(title, heading, above);
+  return castLines(title, heading, above);
 };
 
 export const sigilVariants = { seal, collapse } satisfies Record<

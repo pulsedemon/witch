@@ -1,37 +1,20 @@
 import { accent, colors } from '../theme.js';
-import { blend, lattice, picks, spellTitle, varied } from './cast-animation.js';
-import type { CastAnimation, CastRows } from './cast-animation.js';
+import {
+  blankLine,
+  blend,
+  castLines,
+  lattice,
+  picks,
+  spellTitle,
+  varied,
+} from './cast-animation.js';
+import type { CastAnimation, CastLine, CastRows } from './cast-animation.js';
 import { chants, short } from './chants.js';
 
 const frames = 76;
 /** what a fresh letter flickers through before it settles. no `⸸`: Ghostty draws it as `◆`. */
 const runes = ['ᚱ', 'ᛉ', 'ᚦ', '†', 'ᛟ', 'ᚾ'];
 const ember = '#1a0004';
-
-interface Letter {
-  glyph: string;
-  color: string;
-  bg?: string;
-  bold?: boolean;
-}
-
-type Line = (Letter | undefined)[];
-
-const blank = (reach: number): Line =>
-  Array<Letter | undefined>(reach).fill(undefined);
-
-const draw = (line: Line) =>
-  line
-    .map((letter) => {
-      if (!letter) return ' ';
-
-      const ink = letter.bg
-        ? colors.hex(letter.color).bgHex(letter.bg)
-        : colors.hex(letter.color);
-
-      return letter.bold ? ink.bold(letter.glyph) : ink(letter.glyph);
-    })
-    .join('');
 
 const rune = (salt: number, at: number, frame: number) =>
   runes[Math.floor(lattice(salt, at, frame) * runes.length)]!;
@@ -82,7 +65,7 @@ function chant(
     reach: number,
     salt: number,
     lift: boolean,
-  ) => [Line, Line?],
+  ) => [CastLine, CastLine?],
 ): Style {
   return (text) => (frame, width, seed, lift) => {
     const reach = width - spellTitle.length - 1;
@@ -92,12 +75,11 @@ function chant(
     const salt = Math.floor(picks(`${seed}/runes`)() * 2 ** 32);
     const [heading, above] = paint(text, frame, reach, salt, lift);
 
-    return {
-      heading: `${title(frame)} ${draw(heading)}`,
-      above: lift
-        ? `${' '.repeat(spellTitle.length + 1)}${draw(above ?? blank(reach))}`
-        : undefined,
-    };
+    return castLines(
+      title(frame),
+      heading,
+      lift ? (above ?? blankLine(reach)) : undefined,
+    );
   };
 }
 
@@ -106,8 +88,8 @@ const ticker = chant((text, frame, reach, salt, lift) => {
   const cut = 64;
   const stream = [...`${text} · ${text} · ${text} · `];
   const after = frame - cut;
-  const heading = blank(reach);
-  const above = blank(reach);
+  const heading = blankLine(reach);
+  const above = blankLine(reach);
 
   if (after >= 8) return [heading];
 
@@ -162,8 +144,8 @@ const crescendo = chant((text, frame, reach, salt, lift) => {
     ? letters.length
     : Math.min(letters.length, Math.floor(said * 1.6) + 1);
 
-  const heading = blank(reach);
-  const above = blank(reach);
+  const heading = blankLine(reach);
+  const above = blankLine(reach);
 
   for (let at = 0; at < shown; at++) {
     const fresh = !done && shown - at < 3;
@@ -199,8 +181,8 @@ const crescendo = chant((text, frame, reach, salt, lift) => {
 /** one Fraktur word tolled every 11 frames, each rising into the row above as it fades. */
 const toll = chant((text, frame, reach, _salt, lift) => {
   const [every, shown, settle] = [11, 20, 6];
-  const heading = blank(reach);
-  const above = blank(reach);
+  const heading = blankLine(reach);
+  const above = blankLine(reach);
   let start = 0;
 
   fraktur(text)
@@ -242,7 +224,7 @@ const whisper = chant((text, frame, reach, salt) => {
   const span = Math.min(whole, reach - 1);
   const front = Math.min(stream.length, Math.floor(frame * 0.9) + 1);
   const gone = Math.max(0, (frame - 60) / 12);
-  const heading = blank(reach);
+  const heading = blankLine(reach);
   const first = Math.max(0, front - span);
 
   for (let index = first; index < front; index++) {

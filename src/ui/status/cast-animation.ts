@@ -1,3 +1,5 @@
+import { colors } from '../theme.js';
+
 export type CastPurpose = 'ship' | 'create';
 
 export const spellTitle = '✦ Spell';
@@ -70,3 +72,39 @@ export function lattice(salt: number, i: number, j: number): number {
 
   return ((h ^ (h >>> 13)) >>> 0) / 2 ** 32;
 }
+
+/** one drawn cell of a cast's row; an empty cell shows the terminal's background. */
+export interface CastCell {
+  glyph: string;
+  color: string;
+  bg?: string;
+  bold?: boolean;
+}
+
+export type CastLine = (CastCell | undefined)[];
+
+export const blankLine = (reach: number): CastLine =>
+  Array<CastCell | undefined>(reach).fill(undefined);
+
+const drawLine = (line: CastLine) =>
+  line
+    .map((cell) => {
+      if (!cell) return ' ';
+
+      const ink = cell.bg
+        ? colors.hex(cell.color).bgHex(cell.bg)
+        : colors.hex(cell.color);
+
+      return cell.bold ? ink.bold(cell.glyph) : ink(cell.glyph);
+    })
+    .join('');
+
+/** a cast's rows from its lines: the heading after the title, the row above under the same indent. */
+export const castLines = (
+  title: string,
+  heading: CastLine,
+  above: CastLine | undefined,
+) => ({
+  heading: `${title} ${drawLine(heading)}`,
+  above: above && `${' '.repeat(spellTitle.length + 1)}${drawLine(above)}`,
+});
