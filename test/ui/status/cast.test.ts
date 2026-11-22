@@ -37,19 +37,29 @@ test('a spell with a purpose plays only that purpose’s animations', () => {
   assert.deepEqual(created, new Set([kaomojiCast, sigilCast]));
 });
 
-test('varied keeps one variant per seed and reaches every variant', () => {
+test('varied keeps one variant per seed, reaches every variant and passes its arguments on', () => {
   const names = ['a', 'b', 'c', 'd'];
-  const rows = varied(names.map((name) => () => ({ heading: name })));
+
+  const rows = varied(
+    names.map((name) => (frame, width, seed, lift) => ({
+      heading: [name, frame, width, seed, lift].join(' '),
+    })),
+  );
+
+  const variant = (...args: Parameters<typeof rows>) =>
+    rows(...args).heading.split(' ');
+
   const reached = new Set<string>();
 
   for (const [id, other] of ids(40).map((id, index) => [id, `other/${index}`]))
     for (const frame of [0, 30, 63])
       for (const width of [9, 60, 120])
         for (const lift of [true, false]) {
-          const { heading } = rows(frame, width, id!, lift);
-          rows(frame, width, other!, lift);
-          assert.equal(heading, rows(0, 9, id!, false).heading);
-          reached.add(heading);
+          const [name, ...args] = variant(frame, width, id!, lift);
+          variant(frame, width, other!, lift);
+          assert.deepEqual(args, [`${frame}`, `${width}`, id, `${lift}`]);
+          assert.equal(name, variant(0, 9, id!, false)[0]);
+          reached.add(name!);
         }
 
   assert.deepEqual(reached, new Set(names));

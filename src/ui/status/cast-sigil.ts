@@ -10,7 +10,7 @@ import {
 import type { CastAnimation, CastRows } from './cast-animation.js';
 
 const frames = 64;
-/** one cell each in Ghostty. `⸸` is not: it draws as `◆`. */
+/** one cell each in Ghostty. no `⸸`: Ghostty draws it as `◆`. */
 const glyphs = ['†', '☿', '♄', '♃', '♂', '♆', 'ᛟ', 'ᛉ', 'ᚦ', '⛧'];
 const spacing = 8;
 const scar = '#120004';
@@ -147,8 +147,8 @@ const collapse: CastRows = (frame, width, seed, lift) => {
       const next = marks[index + 1];
 
       if (pulled === 0 && next && frame >= (index + 1) * 5)
-        for (let x = at + 1; x < next.at; x++)
-          heading[x] = { glyph: '·', color: '#5a0010' };
+        for (let dot = at + 1; dot < next.at; dot++)
+          heading[dot] = { glyph: '·', color: '#5a0010' };
 
       const x = Math.round(at + (center - at) * pulled ** 2);
 

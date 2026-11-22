@@ -75,11 +75,7 @@ function chant(
     const salt = Math.floor(picks(`${seed}/runes`)() * 2 ** 32);
     const [heading, above] = paint(text, frame, reach, salt, lift);
 
-    return castLines(
-      title(frame),
-      heading,
-      lift ? (above ?? blankLine(reach)) : undefined,
-    );
+    return castLines(title(frame), heading, lift ? above : undefined);
   };
 }
 
