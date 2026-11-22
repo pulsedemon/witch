@@ -6,7 +6,7 @@ export interface CastAnimation {
   /** shared 50 ms ticks the cast stays live. */
   frames: number;
   purpose: CastPurpose;
-  /** a live cast's heading row, and with `lift` the row above it. neither changes the cached rows. */
+  /** a live cast's heading row, and the row above it when `lift` allows one. neither changes the cached rows. */
   rows(
     frame: number,
     width: number,
