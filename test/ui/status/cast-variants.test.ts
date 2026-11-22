@@ -12,7 +12,7 @@ import {
   chantTexts,
   chantVariants,
 } from '../../../src/ui/status/cast-chant.js';
-import { short } from '../../../src/ui/status/chants.js';
+import { chants, short } from '../../../src/ui/status/chants.js';
 import {
   hellfireCast,
   hellfireVariants,
@@ -341,8 +341,25 @@ test('each crescendo round says the whole chant before the next starts', () => {
 });
 
 test('crescendo and toll say only the short texts', () => {
-  assert.equal(chantTexts('crescendo'), short);
-  assert.equal(chantTexts('toll'), short);
+  const moments = [...Array(chantCast.frames).keys()].filter(
+    (frame) => frame % 3 === 0,
+  );
+
+  const draw = (rows: CastRows, id: string) =>
+    JSON.stringify(moments.map((frame) => rows(frame, 200, id, true)));
+
+  for (const style of ['crescendo', 'toll'] as const)
+    for (const id of [...Array(40).keys()].map((index) => `spell/${index}`)) {
+      const drawn = draw(chantVariants[style], id);
+
+      const said = chants.filter(
+        (text) => draw(chantStyles[style](text), id) === drawn,
+      );
+
+      assert.equal(said.length, 1, `${style} ${id}`);
+      assert.ok(short.includes(said[0]!), `${style} ${id} ${said[0]}`);
+    }
+
   assert.equal(short.length, 13);
 
   for (const long of [
