@@ -139,6 +139,45 @@ test('controlled Claude launches keep hooks and user MCP out while preserving is
   }
 });
 
+test('Claude allow rules travel in flag settings beside disabled hooks', async () => {
+  const f = await runtimeUpdateFixture();
+  let observed: string[] | undefined;
+
+  const adapter = await verificationAdapter('claude', f.directory, {
+    allow: ["Bash('/bin/node' '/project/helper.mjs':*)"],
+    start: (_command, args) => {
+      observed = args;
+
+      throw new Error('Launch observed');
+    },
+  });
+
+  try {
+    await assert.rejects(
+      adapter.connect({
+        cwd: f.directory,
+        executable: '/native/claude',
+        memoryDirectories: [],
+        onEvent: () => {},
+        onProcess: async () => {},
+      }),
+      /Launch observed/,
+    );
+
+    assert.ok(observed);
+
+    assert.deepEqual(
+      JSON.parse(observed[observed.indexOf('--settings') + 1]!),
+      {
+        disableAllHooks: true,
+        permissions: { allow: ["Bash('/bin/node' '/project/helper.mjs':*)"] },
+      },
+    );
+  } finally {
+    f.updates.close();
+  }
+});
+
 test('a failed control turn reports its native diagnostic without waiting for a nonexistent tool', async () => {
   const f = await runtimeUpdateFixture();
   const adapter = new FixtureAgent('codex');

@@ -49,10 +49,13 @@ export async function verificationAdapter(
     start = launch,
     mcp,
     ordinarySettings = false,
+    allow = [],
   }: {
     start?: VerificationLaunch;
     mcp?: { command: string; args: string[] };
     ordinarySettings?: boolean;
+    /** Claude permission rules; flag settings apply where untrusted project settings are ignored. */
+    allow?: readonly string[];
   } = {},
 ): Promise<AgentAdapter> {
   const config = join(directory, 'config');
@@ -155,7 +158,10 @@ export async function verificationAdapter(
             '--strict-mcp-config',
             '--permission-mode=default',
             '--settings',
-            '{"disableAllHooks":true}',
+            JSON.stringify({
+              disableAllHooks: true,
+              ...(allow.length ? { permissions: { allow } } : {}),
+            }),
           ],
           options.cwd!,
           { ...env, ...options.env, ...controls },

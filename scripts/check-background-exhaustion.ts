@@ -261,6 +261,12 @@ export async function runCase(
   const project = join(directory, 'project');
   await mkdir(project, { recursive: true, mode: 0o700 });
 
+  const helper = [process.execPath, join(project, 'helper.mjs')]
+    .map(quote)
+    .join(' ');
+
+  const command = (name: string) => `${helper} ${quote(name)}`;
+
   const journal = new EvidenceJournal((row) =>
     appendFileSync(
       join(directory, 'events.jsonl'),
@@ -389,6 +395,7 @@ export async function runCase(
       await mkdir(profile, { mode: 0o700 });
 
       const adapter = await verificationAdapter(runtime, profile, {
+        allow: [`Bash(${helper}:*)`],
         start: (command, args, cwd, env, launchSignal) => {
           if (runtime === 'codex') codexOptions = args.slice(2);
 
@@ -626,16 +633,8 @@ export async function runCase(
     for (const [index, placement] of route.routes.entries()) {
       const name = `familiar-${index}`;
       const report = join(project, name + '.report.txt');
-
-      const command = [process.execPath, join(project, 'helper.mjs'), name]
-        .map(quote)
-        .join(' ');
-
       const tokenHelper = `token-${index}`;
-
-      const gate = [process.execPath, join(project, 'helper.mjs'), tokenHelper]
-        .map(quote)
-        .join(' ');
+      const gate = command(tokenHelper);
 
       const args =
         placement.runtime === 'codex'
@@ -679,13 +678,8 @@ export async function runCase(
         prompt: `Run exactly this authorized synthetic command once and wait for it to finish: ${gate}\nOn Codex use exec_command with sandbox_permissions require_escalated because its identity check uses /bin/ps. Its stdout is an independently generated token. Reply only with that token. Do not delegate, edit files, release gates or do other work.`,
       });
 
-      familiars.push({ name, report, command, tokenHelper });
+      familiars.push({ name, report, command: command(name), tokenHelper });
     }
-
-    const command = (name: string) =>
-      [process.execPath, join(project, 'helper.mjs'), name]
-        .map(quote)
-        .join(' ');
 
     const commands = [
       ...familiars.map((familiar) => familiar.command),
