@@ -70,15 +70,13 @@ const titles = (ui: View) =>
     .split('\n')
     .filter((line) => stripAnsi(line).trim().startsWith('✦ Spell'));
 
-const final = isFinal;
-
 const settled = (ui: View) => {
   const shown = titles(ui);
 
-  return shown.length > 0 && shown.every(final);
+  return shown.length > 0 && shown.every(isFinal);
 };
 
-const animating = (ui: View) => titles(ui).some((line) => !final(line));
+const animating = (ui: View) => titles(ui).some((line) => !isFinal(line));
 
 const render = (items: DisplayItem[], columns = 100, rows = 40) => {
   const { app, coordinator } = fake({ items });
@@ -473,14 +471,15 @@ test('staggered casts settle by their own timestamps', async () => {
   try {
     await until(
       'both casts',
-      () => titles(ui).length === 2 && titles(ui).every((line) => !final(line)),
+      () =>
+        titles(ui).length === 2 && titles(ui).every((line) => !isFinal(line)),
     );
 
     vi.advanceTimersByTime(half);
 
     await until(
       'only the second cast animates',
-      () => final(titles(ui)[0]!) && !final(titles(ui)[1]!),
+      () => isFinal(titles(ui)[0]!) && !isFinal(titles(ui)[1]!),
     );
 
     vi.advanceTimersByTime(half);
@@ -656,8 +655,8 @@ test('casts of different animations draw and settle by their own choice', async 
     );
 
     vi.advanceTimersByTime(2000);
-    await until('the fire cast to settle', () => final(titles(ui)[0]!));
-    assert.ok(!final(titles(ui)[1]!));
+    await until('the fire cast to settle', () => isFinal(titles(ui)[0]!));
+    assert.ok(!isFinal(titles(ui)[1]!));
     vi.advanceTimersByTime(1600);
     await until('both casts to settle', () => settled(ui));
   } finally {

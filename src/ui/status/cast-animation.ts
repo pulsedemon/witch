@@ -74,7 +74,7 @@ export function lattice(salt: number, i: number, j: number): number {
 }
 
 /** one drawn cell of a cast's row; an empty cell shows the terminal's background. */
-export interface CastCell {
+interface CastCell {
   glyph: string;
   color: string;
   bg?: string;

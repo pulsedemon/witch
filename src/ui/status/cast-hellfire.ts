@@ -1,6 +1,13 @@
 import { accent, colors } from '../theme.js';
-import { blend, lattice, picks, spellTitle, varied } from './cast-animation.js';
-import type { CastAnimation, CastRows } from './cast-animation.js';
+import {
+  blend,
+  castLines,
+  lattice,
+  picks,
+  spellTitle,
+  varied,
+} from './cast-animation.js';
+import type { CastAnimation, CastLine, CastRows } from './cast-animation.js';
 
 const frames = 64;
 /** pixel rows: two half blocks per terminal row, the line above first. */
@@ -51,7 +58,7 @@ const smoke = '#3a1a4a';
 
 interface Fire {
   palette: readonly string[];
-  /** flame height in pixels at full heat. */
+  /** multiplies the flame's height: at full heat it is 1.2 to 4 times this, in pixels. */
   scale: number;
   /** columns a frame the tongues lean by. */
   wind: number;
@@ -206,17 +213,6 @@ function sparks(
     }
 }
 
-/** two pixels stacked in one cell. */
-function cell(top: string | undefined, bottom: string | undefined): string {
-  if (top && bottom) return colors.hex(top).bgHex(bottom)('▀');
-
-  if (top) return colors.hex(top)('▀');
-
-  if (bottom) return colors.hex(bottom)('▄');
-
-  return ' ';
-}
-
 function burn(fire: Fire): CastRows {
   return (frame, width, seed, lift) => {
     const out = Math.max(...[0, 0.5, 1].map((share) => fire.span(share, 1)[1]));
@@ -243,13 +239,17 @@ function burn(fire: Fire): CastRows {
 
     const grid = canvas(fire, frame, reach, seed);
 
-    const row = (top: number) =>
-      grid[top]!.map((color, x) => cell(color, grid[top + 1]![x])).join('');
+    // two pixels stacked in each cell
+    const line = (top: number): CastLine =>
+      grid[top]!.map((color, x) => {
+        const below = grid[top + 1]![x];
 
-    return {
-      heading: `${title} ${row(2)}`,
-      above: lift ? `${' '.repeat(spellTitle.length + 1)}${row(0)}` : undefined,
-    };
+        if (color) return { glyph: '▀', color, bg: below };
+
+        return below ? { glyph: '▄', color: below } : undefined;
+      });
+
+    return castLines(title, line(2), lift ? line(0) : undefined);
   };
 }
 

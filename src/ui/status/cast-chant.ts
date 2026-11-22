@@ -83,7 +83,7 @@ function chant(
   };
 }
 
-/** pours out of the title a letter a frame, the words running backward above, cut off mid-word. */
+/** pours out of the title a letter a frame, the words running backward above, until it runs out or is cut off at frame 64. */
 const ticker = chant((text, frame, reach, salt, lift) => {
   const cut = 64;
   const stream = [...`${text} · ${text} · ${text} · `];
@@ -95,7 +95,7 @@ const ticker = chant((text, frame, reach, salt, lift) => {
 
   const shown = stream.slice(0, Math.min(frame + 1, cut));
   const line = shown.slice(-reach);
-  // after the cut, only the word being said smolders on
+  // after the cut, only a word cut off mid-way smolders on
   const word = line.length - 1 - line.lastIndexOf(' ');
 
   line.forEach((char, at) => {
@@ -139,10 +139,12 @@ const crescendo = chant((text, frame, reach, salt, lift) => {
   const done = frame >= per * 3;
   const loud = round / 2;
   const offset = Math.max(0, Math.floor((reach - letters.length) / 2));
+  // a long chant speeds up so each round says all of it with a few frames to spare
+  const pace = Math.max(1.6, (letters.length - 1) / (per - 4));
 
   const shown = done
     ? letters.length
-    : Math.min(letters.length, Math.floor(said * 1.6) + 1);
+    : Math.min(letters.length, Math.floor(said * pace) + 1);
 
   const heading = blankLine(reach);
   const above = blankLine(reach);

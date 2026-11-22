@@ -25,7 +25,7 @@ interface Family {
   variants: Readonly<Record<string, CastRows>>;
   /** a fresh instance of the family's module, for checking that rows keep no state between calls. */
   load: () => Promise<Readonly<Record<string, CastRows>>>;
-  /** the darkest color every cell has faded to by the last frame. */
+  /** the brightest color any cell may still show on the last frame. */
   end: string;
   /** the variants that draw in the blank row above. */
   above: readonly string[];
@@ -117,31 +117,34 @@ test('every variant starts live and ends dark', () => {
     for (const lift of [true, false])
       assert.ok(!isFinal(rows(0, 100, seed, lift).heading), name);
 
-    for (const width of [28, 200]) {
-      const { heading, above } = rows(
-        family.cast.frames - 1,
-        width,
-        seed,
-        true,
-      );
-
-      for (const row of [heading, above ?? ''])
-        assert.ok(
-          brightest(row, 8) <= sum(family.end),
-          `${name} ${width}: ${brightest(row, 8)}`,
+    for (const width of [28, 200])
+      for (const lift of [true, false]) {
+        const { heading, above } = rows(
+          family.cast.frames - 1,
+          width,
+          seed,
+          lift,
         );
-    }
+
+        for (const row of [heading, above ?? ''])
+          assert.ok(
+            brightest(row, 8) <= sum(family.end),
+            `${name} ${width} ${lift}: ${brightest(row, 8)}`,
+          );
+      }
   }
 });
 
 test('every variant animates the heading without a row above', () => {
-  for (const { family, name, rows } of variants)
-    assert.ok(
-      frames(family).some((frame) =>
-        reach(rows(frame, 100, seed, false).heading),
-      ),
-      name,
+  for (const { family, name, rows } of variants) {
+    const drawn = new Set(
+      frames(family)
+        .map((frame) => reach(rows(frame, 100, seed, false).heading))
+        .filter(Boolean),
     );
+
+    assert.ok(drawn.size > 1, `${name}: ${drawn.size}`);
+  }
 });
 
 test('variants listed as drawing above do so', () => {
@@ -198,21 +201,36 @@ test('the blaze lights out of the title and burns across the row', () => {
 
   for (let column = 8; column < 100; column++)
     assert.ok(
-      [...Array(21).keys()].some((step) => blaze(20 + step)[column] !== ' '),
+      [...Array(21).keys()].some((step) => blaze(20 + step)[column]?.trim()),
       String(column),
     );
 });
 
 test('a seal closes and flares at any width, with or without the row above', () => {
-  for (const width of [28, 200])
+  for (const width of [28, 200]) {
+    const seal = (frame: number, lift: boolean) => {
+      const { heading, above } = sigilVariants.seal(frame, width, seed, lift);
+
+      return { heading: stripAnsi(heading), above: stripAnsi(above ?? '') };
+    };
+
+    // the trace ends on the top-left corner, so it closes only when that is drawn
+    assert.ok(!seal(20, true).above.includes('╭'), String(width));
+    assert.ok(seal(40, true).above.includes('╭'), String(width));
+
+    assert.ok(
+      reach(seal(10, false).heading).length <
+        reach(seal(40, false).heading).length,
+      String(width),
+    );
+
     for (const lift of [true, false])
       for (let frame = 41; frame <= 45; frame++)
         assert.ok(
-          stripAnsi(
-            sigilVariants.seal(frame, width, seed, lift).heading,
-          ).includes('═'),
+          seal(frame, lift).heading.includes('═'),
           `${width} ${lift} ${frame}`,
         );
+  }
 });
 
 const styles = Object.keys(chantStyles) as (keyof typeof chantStyles)[];
@@ -300,6 +318,26 @@ test('a chant keeps its text across a resize', () => {
 
         assert.ok(compared >= 3, `${style} ${id} ${lift}: ${compared}`);
       }
+});
+
+test('each crescendo round says the whole chant before the next starts', () => {
+  for (const text of short) {
+    const letters = [...text].filter((char) => char !== ' ').length;
+
+    for (const round of [0, 1, 2])
+      assert.ok(
+        [...Array(22).keys()].some(
+          (said) =>
+            stripAnsi(
+              chantStyles.crescendo(text)(round * 22 + said, 120, seed, false)
+                .heading,
+            )
+              .slice(8)
+              .replaceAll(' ', '').length >= letters,
+        ),
+        `${text} ${round}`,
+      );
+  }
 });
 
 test('crescendo and toll say only the short texts', () => {
