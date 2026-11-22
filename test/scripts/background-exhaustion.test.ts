@@ -1100,6 +1100,44 @@ for (const condition of [
     }
   });
 
+test('the source Claude profile pre-authorizes exactly the synthetic helper', async () => {
+  const directory = await scratch('witch-exhaustion-allow-');
+  const { agents } = capacityFixture();
+  const allowed: (readonly string[] | undefined)[] = [];
+
+  const profile = vi
+    .spyOn(nativeProfile, 'verificationAdapter')
+    .mockImplementation(async (_runtime, _directory, options) => {
+      allowed.push(options?.allow);
+
+      throw new Error('Profile observed');
+    });
+
+  try {
+    const result = await runCase(
+      {
+        directory,
+        sourceModel: 'claude-haiku-5-5',
+        refusalModel: 'claude-fable-5-2',
+        withBrew: false,
+        signal: AbortSignal.timeout(5000),
+      },
+      agents,
+      () => {
+        throw new Error('Unexpected native process');
+      },
+    );
+
+    assert.equal(result.status, 'incomplete');
+
+    assert.deepEqual(allowed, [
+      [`Bash('${process.execPath}' '${directory}/project/helper.mjs':*)`],
+    ]);
+  } finally {
+    profile.mockRestore();
+  }
+});
+
 test('a routed child uses its configured Codex home instead of inheriting the source home', async () => {
   const directory = await scratch('witch-exhaustion-familiar-home-');
   const source = join(directory, 'claude-home');
