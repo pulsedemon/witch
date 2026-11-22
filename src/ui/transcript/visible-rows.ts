@@ -1,5 +1,6 @@
 import stringWidth from 'string-width';
-import { castRows, castTitle } from '../status/cast.js';
+import { castTitle } from '../status/cast.js';
+import type { Casting } from '../status/cast.js';
 import { colors } from '../theme.js';
 import { highlightRow } from '../selection.js';
 import type { Point } from '../selection.js';
@@ -8,7 +9,7 @@ import type { TranscriptLayout } from './transcript-layout.js';
 interface VisibleRowsOptions {
   top: number;
   height: number;
-  casting: ReadonlyMap<string, number>;
+  casting: Casting;
   starts: ReturnType<TranscriptLayout['render']>['starts'];
   selectedRow: number | undefined;
   ends: [Point, Point] | undefined;
@@ -35,13 +36,13 @@ export function visibleRows(
     row - top < visible.length &&
     !(ends && row >= ends[0].row && row <= ends[1].row);
 
-  for (const [id, frame] of casting) {
+  for (const [id, { frame, animation }] of casting) {
     const row = starts.get(id);
 
     if (row === undefined || !overlays(row) || width < stringWidth(castTitle()))
       continue;
 
-    const { heading, above } = castRows(
+    const { heading, above } = animation.rows(
       frame,
       width,
       id,
