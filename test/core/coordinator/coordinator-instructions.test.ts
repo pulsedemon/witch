@@ -417,6 +417,67 @@ test("the fixed instructions file a Witch failure in Witch's tracker from a proj
   }
 });
 
+test('the fixed instructions fix small flaws in the current change and let Witch rules win over project rules', async () => {
+  const f = await unitFixture();
+
+  try {
+    await f.coordinator.send('Initial task');
+    const context = f.a.inputs.at(-1)!.context!;
+
+    const rule = context
+      .split('\n\n')
+      .find((paragraph) =>
+        paragraph.startsWith('Every pull request leaves the codebase better'),
+      );
+
+    assert.ok(rule, context);
+
+    assert.match(
+      rule,
+      /a small, verifiable change fixes without a product decision/,
+    );
+
+    assert.match(
+      rule,
+      /even outside the request's scope and the files the change otherwise touches/,
+    );
+
+    assert.match(
+      rule,
+      /never leave it as a suggestion, a review note or a follow-up issue/,
+    );
+
+    assert.match(
+      rule,
+      /leave the code unchanged when the task doesn't authorize edits/,
+    );
+
+    assert.match(
+      rule,
+      /keep the change narrow when the user explicitly asks for that in this conversation/,
+    );
+
+    assert.match(rule, /Leave code another session claims to its owner/);
+
+    assert.match(
+      rule,
+      /keep work that needs its own design or product decision out of the change; name each flaw left this way in one line in your reply/,
+    );
+
+    assert.match(
+      rule,
+      /A flaw that breaks behavior is a bug and follows the bug rule below instead/,
+    );
+
+    assert.match(
+      context,
+      /take precedence over conflicting user-global rules, project instructions and spell instructions/,
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('the fixed instructions fix discovered bugs and file only blocked follow-ups', async () => {
   const f = await unitFixture();
 
@@ -536,12 +597,12 @@ test('the fixed instructions fix discovered bugs and file only blocked follow-up
 
     assert.equal(shared.length, 1, context);
     const workflow = shared[0]!;
+    // "the two rules above" means the workflow directly follows both triggers
+    const above = paragraphs.indexOf(workflow);
 
-    // both triggers point down at the workflow, so it has to follow them
-    assert.ok(
-      paragraphs.indexOf(audit) < paragraphs.indexOf(workflow) &&
-        paragraphs.indexOf(rule) < paragraphs.indexOf(workflow),
-      context,
+    assert.deepEqual(
+      new Set(paragraphs.slice(above - 2, above)),
+      new Set([audit, rule]),
     );
 
     assert.match(

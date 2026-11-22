@@ -36,6 +36,8 @@ Other Witch sessions and exclusive task claims are described under [session coor
 
 Agents delegate work through the [familiar reporting path](docs/rules.md#native-adapters-and-execution) on either runtime, with native identity, activity and a saved report. `/delegation` configures work placement, model families and the coordinator reserve threshold.
 
+Using Witch means accepting that its agents fix small flaws they find in the same pull request, even outside the request's scope. [nativePrompt](src/core/prompts.ts) owns that rule and the precedence of Witch's rules over conflicting ones.
+
 `/updates` shows native CLI versions and available releases; `/updates check` refreshes them. `/updates claude` or `/updates codex` opens confirmation for an update, a recovery or qualifying the installed version. [Native runtime updates](docs/rules.md#native-runtime-updates) defines supported installations, live-check consent and recovery.
 
 Witch repairs a directory moved on the same volume on its own the next time it starts there or anywhere else: its conversations, prompt history, spawned worktrees' Git links and shared-memory paths. For a move it can't prove, such as a copy to another volume, its startup notice gives the `--recover-directory` command to run from the new location.
