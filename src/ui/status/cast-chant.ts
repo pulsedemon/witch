@@ -150,7 +150,11 @@ const crescendo = chant((text, frame, reach, salt, lift) => {
   const above = blankLine(reach);
 
   for (let at = 0; at < shown; at++) {
-    const fresh = !done && shown - at < 3;
+    // the last letters settle a frame after the whole chant is out
+    const fresh =
+      !done &&
+      shown - at < 3 &&
+      Math.floor((said - 1) * pace) + 1 < letters.length;
 
     const color = done
       ? blend('#ff3030', ember, (frame - per * 3) / 9)
@@ -234,7 +238,7 @@ const whisper = chant((text, frame, reach, salt) => {
     // measured against the full whisper, so a narrow row shows its newest part dissolving the same way
     const fade = age / whole;
 
-    // the newest letters hold until the whole whisper goes
+    // the newest letter holds until the whole whisper goes
     if (
       (age > 0 || gone > 0) &&
       lattice(salt, index, frame >> 1) < fade * 0.7 + gone
@@ -262,18 +266,18 @@ export const chantTexts = (style: keyof typeof chantStyles) =>
   style === 'crescendo' || style === 'toll' ? short : chants;
 
 export const chantVariants = Object.fromEntries(
-  Object.entries(chantStyles).map(([style, paint]) => {
-    const texts = chantTexts(style as keyof typeof chantStyles);
+  Object.entries(chantStyles).map(([name, style]) => {
+    const texts = chantTexts(name as keyof typeof chantStyles);
 
     const rows: CastRows = (frame, width, seed, lift) =>
-      paint(texts[Math.floor(picks(`${seed}/chant`)() * texts.length)]!)(
+      style(texts[Math.floor(picks(`${seed}/chant`)() * texts.length)]!)(
         frame,
         width,
         seed,
         lift,
       );
 
-    return [style, rows];
+    return [name, rows];
   }),
 ) as Record<keyof typeof chantStyles, CastRows>;
 

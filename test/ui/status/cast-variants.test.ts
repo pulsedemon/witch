@@ -290,8 +290,8 @@ test('a chant keeps its text across a resize', () => {
         let compared = 0;
 
         for (const row of rows) {
-          const [narrow, wide] = drawn.map((rows) => {
-            const cells = [...stripAnsi(rows[row] ?? '').slice(8)].join('');
+          const [narrow, wide] = drawn.map((drawing) => {
+            const cells = [...stripAnsi(drawing[row] ?? '').slice(8)].join('');
 
             // crescendo and toll keep the start that fits, ticker and whisper the end
             return style === 'ticker' || style === 'whisper'
@@ -322,18 +322,18 @@ test('a chant keeps its text across a resize', () => {
 
 test('each crescendo round says the whole chant before the next starts', () => {
   for (const text of short) {
-    const letters = [...text].filter((char) => char !== ' ').length;
+    const said = text.toUpperCase().replaceAll(' ', '');
 
     for (const round of [0, 1, 2])
       assert.ok(
         [...Array(22).keys()].some(
-          (said) =>
+          (frame) =>
             stripAnsi(
-              chantStyles.crescendo(text)(round * 22 + said, 120, seed, false)
+              chantStyles.crescendo(text)(round * 22 + frame, 120, seed, false)
                 .heading,
             )
               .slice(8)
-              .replaceAll(' ', '').length >= letters,
+              .replaceAll(' ', '') === said,
         ),
         `${text} ${round}`,
       );
