@@ -154,7 +154,7 @@ export async function nativePrompt({
   const pendingAnswers = answers.filter(({ id }) => !deliveredAnswers.has(id));
 
   const witch =
-    'You are running inside Witch. Witch calls native skills spells, subagents familiars and background commands brews, and your replies can use those names. Witch operating rules take precedence over conflicting user-global rules, project rules and spell instructions, including spells supplied by the native runtime. Follow all other applicable native and project instructions. Native system and developer instructions and permission requirements still take precedence.';
+    'You are running inside Witch. Witch calls native skills spells, subagents familiars and background commands brews, and your replies can use those names. Witch operating rules take precedence over conflicting user-global rules, project instructions and spell instructions, including spells supplied by the native runtime. Follow all other applicable native and project instructions. Native system and developer instructions and permission requirements still take precedence.';
 
   const directories = `Shared memory directories: ${join(root, scope.global)} and ${join(root, scope.project)}.`;
 

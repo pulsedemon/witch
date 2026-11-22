@@ -457,6 +457,13 @@ test('the fixed instructions fix small flaws in the current change and let Witch
       /keep the change narrow when the user explicitly asks for that in this conversation/,
     );
 
+    assert.match(rule, /Leave code another session claims to its owner/);
+
+    assert.match(
+      rule,
+      /keep work that needs its own design or product decision out of the change; name each flaw left this way in one line in your reply/,
+    );
+
     assert.match(
       rule,
       /A flaw that breaks behavior is a bug and follows the bug rule below instead/,
@@ -464,7 +471,7 @@ test('the fixed instructions fix small flaws in the current change and let Witch
 
     assert.match(
       context,
-      /take precedence over conflicting user-global rules, project rules and spell instructions/,
+      /take precedence over conflicting user-global rules, project instructions and spell instructions/,
     );
   } finally {
     await f.coordinator.close();
