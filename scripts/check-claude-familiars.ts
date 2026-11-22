@@ -558,7 +558,7 @@ async function completed(check: Check) {
 
   assert.equal(row.model, check.model);
   const report = await readFile(check.report, 'utf8');
-  assert.equal(report, row.report);
+  assert.ok(row.report?.includes(report), `${check.name} answer in its report`);
   assert.ok(report.includes(check.name.toUpperCase() + ' CHECK PASSED'));
 
   if (check.runtime === 'claude') {

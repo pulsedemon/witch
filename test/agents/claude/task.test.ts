@@ -92,6 +92,38 @@ test('native permission denials remain in the final report even when the review 
     review.closed(0, null).report,
     'Reviewed.\n\nPermission denied: Write  ./forbidden.txt',
   );
+
+  assert.equal(review.answer, 'Reviewed.');
+});
+
+test('the answer joins every result in order and leaves out native errors and unfinished text', () => {
+  const review = new ClaudeTask('/work', () => {});
+  review.message(init);
+  review.message({ ...success, result: 'First.' });
+
+  review.message({
+    ...success,
+    subtype: 'error_during_execution',
+    result: undefined,
+    errors: ['Native error.'],
+  });
+
+  review.message({ ...success, result: 'Second.' });
+
+  review.message({
+    ...read,
+    message: {
+      model: 'native-model',
+      content: [{ type: 'text', text: 'Still searching.' }],
+    },
+  });
+
+  assert.equal(
+    review.closed(0, null).report,
+    'First.\n\nNative error.\n\nSecond.\n\nStill searching.',
+  );
+
+  assert.equal(review.answer, 'First.\n\nSecond.');
 });
 
 const skill = (id: string, name: string, nested = {}) => ({

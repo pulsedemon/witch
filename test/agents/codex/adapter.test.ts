@@ -192,6 +192,7 @@ for (const decision of ['accept', 'decline'] as const) {
       assert.deepEqual(await session.send('do the task'), {
         status: 'completed',
         text: 'Finished.',
+        final: 'Finished.',
       });
 
       const prompt = JSON.parse(
@@ -514,6 +515,7 @@ test('Codex turn text keeps message order and empty replacements', async () => {
     assert.deepEqual(await session.send('turn text'), {
       status: 'completed',
       text: 'alpha final\n\nbravo tail\n\n',
+      final: 'bravo tail',
     });
 
     assert.deepEqual(await session.send('error'), {

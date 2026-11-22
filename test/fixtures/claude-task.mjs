@@ -51,7 +51,16 @@ emit({
   session_id,
   is_error: false,
   result: 'Full review.\n'.repeat(7000),
-  permission_denials: [],
+  permission_denials:
+    mode === 'denied'
+      ? [
+          {
+            tool_name: 'Write',
+            tool_use_id: 'denied-write',
+            tool_input: { file_path: join(process.cwd(), 'forbidden.txt') },
+          },
+        ]
+      : [],
 });
 
 writeFileSync('result-sent', 'yes');

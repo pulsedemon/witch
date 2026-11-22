@@ -157,7 +157,7 @@ async function fixture(
   };
 }
 
-test('the wrapper retries a lost marker, preserves native inputs and saves every turn in a full report only after child exit', async () => {
+test("the wrapper retries a lost marker, preserves native inputs and saves every turn's result only after child exit", async () => {
   let registrations = 0;
 
   const f = await fixture('later-turn', async (request) => ({
@@ -233,6 +233,37 @@ test('the wrapper retries a lost marker, preserves native inputs and saves every
 
     assert.equal(f.output().stderr, 'native stderr\n');
     assert.equal(await identifyProcess(launch.pid), undefined);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a completed familiar saves only its answer while its denials stay in stdout and its final report', async () => {
+  const f = await fixture('denied');
+
+  try {
+    assert.equal(
+      await within(f.closed, 5000, 'denied completion'),
+      0,
+      f.output().stderr,
+    );
+
+    const answer = 'Full review.\n'.repeat(7000);
+    const report = `${answer}\n\nPermission denied: Write  ./forbidden.txt`;
+    const final = f.updates().at(-1)!.progress;
+    assert.equal(final.status, 'completed');
+    assert.equal(final.report, report);
+    assert.equal(await readFile(join(f.root, 'report.txt'), 'utf8'), answer);
+
+    const markers = f
+      .output()
+      .stdout.split('\n')
+      .filter((line) => line.startsWith('WITCH_FAMILIAR '));
+
+    assert.equal(
+      f.output().stdout,
+      `${markers.join('\n')}\n${report}\n\nSaved report: ${join(f.root, 'report.txt')}\n`,
+    );
   } finally {
     await f.close();
   }
