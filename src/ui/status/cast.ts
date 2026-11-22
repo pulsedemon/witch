@@ -4,6 +4,7 @@ import { accent, colors } from '../theme.js';
 import { tickMs, useTick } from '../useTick.js';
 import { picks, spellTitle } from './cast-animation.js';
 import type { CastAnimation, CastPurpose } from './cast-animation.js';
+import { chantCast } from './cast-chant.js';
 import { fireCast } from './cast-fire.js';
 import { hellfireCast } from './cast-hellfire.js';
 import { kaomojiCast } from './cast-kaomoji.js';
@@ -14,6 +15,7 @@ const castAnimations: readonly CastAnimation[] = [
   fireCast,
   hellfireCast,
   sigilCast,
+  chantCast,
 ];
 
 /** in priority order, so a name with words from both takes the first. */

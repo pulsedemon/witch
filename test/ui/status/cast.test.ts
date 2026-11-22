@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { castAnimation, castPurpose } from '../../../src/ui/status/cast.js';
 import { varied } from '../../../src/ui/status/cast-animation.js';
+import { chantCast, chantVariants } from '../../../src/ui/status/cast-chant.js';
 import { fireCast } from '../../../src/ui/status/cast-fire.js';
 import {
   hellfireCast,
@@ -58,6 +59,7 @@ test('every animation with variants reaches each of them across casts', () => {
   for (const [cast, variants] of [
     [hellfireCast, hellfireVariants],
     [sigilCast, sigilVariants],
+    [chantCast, chantVariants],
   ] as const) {
     const reached = new Set(
       ids(40).map((id) => {
@@ -76,12 +78,15 @@ test('every animation with variants reaches each of them across casts', () => {
 
 test('a spell without a purpose, or a row without a name, picks any animation the same way each time', () => {
   for (const spell of [undefined, 'simplify-changes']) {
-    const picked = ids(40).map((id) => castAnimation({ id, spell }));
-    assert.ok(picked.includes(fireCast));
-    assert.ok(picked.includes(kaomojiCast));
+    const picked = ids(80).map((id) => castAnimation({ id, spell }));
 
     assert.deepEqual(
-      ids(40).map((id) => castAnimation({ id, spell })),
+      new Set(picked),
+      new Set([kaomojiCast, fireCast, hellfireCast, sigilCast, chantCast]),
+    );
+
+    assert.deepEqual(
+      ids(80).map((id) => castAnimation({ id, spell })),
       picked,
     );
   }

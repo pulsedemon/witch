@@ -14,6 +14,7 @@ import {
   useCasting,
 } from '../../src/ui/status/cast.js';
 import type { CastAnimation } from '../../src/ui/status/cast-animation.js';
+import { chantCast } from '../../src/ui/status/cast-chant.js';
 import { fireCast } from '../../src/ui/status/cast-fire.js';
 import { hellfireCast } from '../../src/ui/status/cast-hellfire.js';
 import { sigilCast } from '../../src/ui/status/cast-sigil.js';
@@ -501,6 +502,7 @@ test('each animation stays live for its approved lifetime', async () => {
     [fireCast, 'commit-message', 2000],
     [hellfireCast, 'commit-message', 3200],
     [sigilCast, 'brainstorming', 3200],
+    [chantCast, 'code-review', 3800],
   ] as const) {
     freeze();
 

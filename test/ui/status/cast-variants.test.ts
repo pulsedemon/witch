@@ -7,6 +7,13 @@ import type {
   CastRows,
 } from '../../../src/ui/status/cast-animation.js';
 import {
+  chantCast,
+  chantStyles,
+  chantTexts,
+  chantVariants,
+} from '../../../src/ui/status/cast-chant.js';
+import { short } from '../../../src/ui/status/chants.js';
+import {
   hellfireCast,
   hellfireVariants,
 } from '../../../src/ui/status/cast-hellfire.js';
@@ -41,6 +48,14 @@ const families: Family[] = [
       (await import('../../../src/ui/status/cast-sigil.js')).sigilVariants,
     end: '#120004',
     above: ['seal', 'collapse'],
+  },
+  {
+    cast: chantCast,
+    variants: chantVariants,
+    load: async () =>
+      (await import('../../../src/ui/status/cast-chant.js')).chantVariants,
+    end: '#4a0010',
+    above: ['ticker', 'crescendo', 'toll'],
   },
 ];
 
@@ -198,4 +213,104 @@ test('a seal closes and flares at any width, with or without the row above', () 
           ).includes('═'),
           `${width} ${lift} ${frame}`,
         );
+});
+
+const styles = Object.keys(chantStyles) as (keyof typeof chantStyles)[];
+
+test('every approved text draws in single cells and fades out in every style it fits', () => {
+  for (const style of styles)
+    for (const text of chantTexts(style)) {
+      const rows = chantStyles[style](text);
+
+      for (const width of [30, 120])
+        for (let frame = 0; frame < chantCast.frames; frame++)
+          for (const lift of [true, false]) {
+            const { heading, above } = rows(frame, width, seed, lift);
+
+            for (const row of [heading, above ?? ''])
+              for (const { segment } of graphemes.segment(stripAnsi(row)))
+                assert.equal(
+                  stringWidth(segment),
+                  1,
+                  `${style} ${text} ${segment}`,
+                );
+          }
+
+      for (const width of [30, 200]) {
+        const { heading, above } = rows(
+          chantCast.frames - 1,
+          width,
+          seed,
+          true,
+        );
+
+        for (const row of [heading, above ?? ''])
+          assert.ok(
+            brightest(row, 8) <= sum('#4a0010'),
+            `${style} ${text} ${width}`,
+          );
+      }
+    }
+});
+
+test('a chant keeps its text across a resize', () => {
+  const runes = new Set(['ᚱ', 'ᛉ', 'ᚦ', '†', 'ᛟ', 'ᚾ']);
+  const moment = { ticker: 30, crescendo: 10, toll: 14, whisper: 30 };
+
+  for (const style of styles)
+    for (const id of [...Array(20).keys()].map((index) => `spell/${index}`))
+      for (const lift of [true, false]) {
+        const drawn = [20, 200].map((width) =>
+          chantVariants[style](moment[style], width, id, lift),
+        );
+
+        // the ticker's row above runs backward, so only its heading is compared
+        const rows = (['heading', 'above'] as const).filter(
+          (row) => row === 'heading' || (lift && style !== 'ticker'),
+        );
+
+        let compared = 0;
+
+        for (const row of rows) {
+          const [narrow, wide] = drawn.map((rows) => {
+            const cells = [...stripAnsi(rows[row] ?? '').slice(8)].join('');
+
+            // crescendo and toll keep the start that fits, ticker and whisper the end
+            return style === 'ticker' || style === 'whisper'
+              ? [...cells.trimEnd()].reverse()
+              : [...cells.trimStart()];
+          });
+
+          narrow!.forEach((cell, index) => {
+            const other = wide![index];
+
+            if (
+              cell === ' ' ||
+              !other ||
+              other === ' ' ||
+              runes.has(cell) ||
+              runes.has(other)
+            )
+              return;
+
+            assert.equal(cell, other, `${style} ${id} ${lift} ${row}`);
+            compared++;
+          });
+        }
+
+        assert.ok(compared >= 3, `${style} ${id} ${lift}: ${compared}`);
+      }
+});
+
+test('crescendo and toll say only the short texts', () => {
+  assert.equal(chantTexts('crescendo'), short);
+  assert.equal(chantTexts('toll'), short);
+  assert.equal(short.length, 13);
+
+  for (const long of [
+    'In nomine Dei nostri Satanas Luciferi excelsi',
+    'Ad maiorem Satanae gloriam',
+    'Flectere si nequeo superos, Acheronta movebo',
+  ])
+    assert.ok(!short.includes(long));
 });

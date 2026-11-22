@@ -1,5 +1,5 @@
 import { accent, colors } from '../theme.js';
-import { blend, picks, spellTitle, varied } from './cast-animation.js';
+import { blend, lattice, picks, spellTitle, varied } from './cast-animation.js';
 import type { CastAnimation, CastRows } from './cast-animation.js';
 
 const frames = 64;
@@ -58,18 +58,6 @@ interface Fire {
   smoke: boolean;
   /** the frame a column catches and the frame it goes out, for `x` of `reach`. */
   span(x: number, reach: number): [number, number];
-}
-
-/** a fixed hash of a lattice point to [0, 1). */
-function lattice(salt: number, i: number, j: number): number {
-  let h = Math.imul(
-    salt ^ Math.imul(i, 0x27d4eb2d) ^ Math.imul(j, 0x165667b1),
-    0x9e3779b1,
-  );
-
-  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
-
-  return ((h ^ (h >>> 13)) >>> 0) / 2 ** 32;
 }
 
 /** value noise in [0, 1), smooth between lattice points. */

@@ -5,7 +5,8 @@ export const spellTitle = '✦ Spell';
 export interface CastAnimation {
   /** shared 50 ms ticks the cast stays live. */
   frames: number;
-  purpose: CastPurpose;
+  /** without one, plays only for spells with no purpose. */
+  purpose?: CastPurpose;
   /** a live cast's heading row, and the row above it when `lift` allows one. neither changes the cached rows. */
   rows(
     frame: number,
@@ -56,4 +57,16 @@ export function varied(variants: readonly CastRows[]): CastRows {
       seed,
       lift,
     );
+}
+
+/** a fixed hash of a lattice point to [0, 1). */
+export function lattice(salt: number, i: number, j: number): number {
+  let h = Math.imul(
+    salt ^ Math.imul(i, 0x27d4eb2d) ^ Math.imul(j, 0x165667b1),
+    0x9e3779b1,
+  );
+
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+
+  return ((h ^ (h >>> 13)) >>> 0) / 2 ** 32;
 }
