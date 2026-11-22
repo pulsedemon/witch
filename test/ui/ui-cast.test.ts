@@ -8,10 +8,17 @@ import stripAnsi from 'strip-ansi';
 import { test, vi } from 'vitest';
 import type { DisplayItem } from '../../src/core/state.js';
 import { App } from '../../src/ui/App.js';
-import { castTitle, useCasting } from '../../src/ui/status/cast.js';
+import {
+  castAnimation,
+  castTitle,
+  useCasting,
+} from '../../src/ui/status/cast.js';
+import type { CastAnimation } from '../../src/ui/status/cast-animation.js';
 import { fireCast } from '../../src/ui/status/cast-fire.js';
+import { hellfireCast } from '../../src/ui/status/cast-hellfire.js';
 import { kaomojiCast } from '../../src/ui/status/cast-kaomoji.js';
 import { tickMs } from '../../src/ui/useTick.js';
+import { foreground, isFinal } from '../fixtures/cast.js';
 import { drag, fake, show } from '../fixtures/ui.js';
 import { until } from '../fixtures/within.js';
 import {
@@ -39,6 +46,17 @@ const cast = (
   at: new Date(at).toISOString(),
 });
 
+/** the first `${prefix}-n` id whose cast of `spell` plays `animation`, since a purpose can choose among several. */
+function idFor(
+  animation: CastAnimation,
+  spell: string | undefined,
+  prefix: string,
+): string {
+  for (let n = 0; ; n++)
+    if (castAnimation({ id: `${prefix}-${n}`, spell }) === animation)
+      return `${prefix}-${n}`;
+}
+
 type View = ReturnType<typeof show>;
 
 const titles = (ui: View) =>
@@ -47,8 +65,7 @@ const titles = (ui: View) =>
     .split('\n')
     .filter((line) => stripAnsi(line).trim().startsWith('✦ Spell'));
 
-const final = (line: string) =>
-  stripAnsi(line).trim() === '✦ Spell' && line.includes(castTitle());
+const final = isFinal;
 
 const settled = (ui: View) => {
   const shown = titles(ui);
@@ -176,13 +193,6 @@ test('a local glitch restores the same moving chain after its burst', () => {
     baseline.slice(12, 110 - later),
   );
 });
-
-function foreground(code: string): number[] | undefined {
-  const prefix = '\u001b[38;2;';
-
-  if (code.startsWith(prefix) && code.endsWith('m'))
-    return code.slice(prefix.length, -1).split(';').map(Number);
-}
 
 function light(row: string, at: number): number {
   let column = 0;
@@ -477,12 +487,16 @@ function Casting({ items }: { items: DisplayItem[] }) {
 }
 
 test('each animation stays live for its approved lifetime', async () => {
-  for (const [spell, lifetime] of [
-    ['brainstorming', 3600],
-    ['commit-message', 2000],
+  for (const [animation, spell, lifetime] of [
+    [kaomojiCast, 'brainstorming', 3600],
+    [fireCast, 'commit-message', 2000],
+    [hellfireCast, 'commit-message', 3200],
   ] as const) {
     freeze();
-    const items = [cast('duration', Date.now(), spell)];
+
+    const items = [
+      cast(idFor(animation, spell, 'duration'), Date.now(), spell),
+    ];
 
     function Duration() {
       const active = useCasting(items);
@@ -615,9 +629,10 @@ test('simultaneous casts render the chains belonging to their own ids', async ()
 
 test('casts of different animations draw and settle by their own choice', async () => {
   freeze();
+  const ship = idFor(fireCast, 'commit-message', 'ship');
 
   const { ui } = render([
-    cast('ship', Date.now(), 'commit-message'),
+    cast(ship, Date.now(), 'commit-message'),
     cast('write', Date.now(), 'brainstorming'),
   ]);
 
@@ -627,7 +642,7 @@ test('casts of different animations draw and settle by their own choice', async 
     assert.deepEqual(
       titles(ui).map((line) => stripAnsi(line).trim()),
       [
-        fireCast.rows(0, 98, 'ship', false).heading,
+        fireCast.rows(0, 98, ship, false).heading,
         kaomojiCast.rows(0, 98, 'write', false).heading,
       ].map((line) => stripAnsi(line).trim()),
     );

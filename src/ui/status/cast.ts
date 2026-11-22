@@ -5,9 +5,14 @@ import { tickMs, useTick } from '../useTick.js';
 import { picks, spellTitle } from './cast-animation.js';
 import type { CastAnimation, CastPurpose } from './cast-animation.js';
 import { fireCast } from './cast-fire.js';
+import { hellfireCast } from './cast-hellfire.js';
 import { kaomojiCast } from './cast-kaomoji.js';
 
-const castAnimations: readonly CastAnimation[] = [kaomojiCast, fireCast];
+const castAnimations: readonly CastAnimation[] = [
+  kaomojiCast,
+  fireCast,
+  hellfireCast,
+];
 
 /** in priority order, so a name with words from both takes the first. */
 const purposeWords: [CastPurpose, string[]][] = [
@@ -64,7 +69,7 @@ export function castPurpose(spell: string): CastPurpose | undefined {
   )?.[0];
 }
 
-/** the purpose's animation, else any, picked the same way for every frame of one cast. */
+/** a seeded pick among the purpose's animations, else among all, the same for every frame of one cast. */
 export function castAnimation(
   item: Pick<DisplayItem, 'id' | 'spell'>,
 ): CastAnimation {

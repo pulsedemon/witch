@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { castAnimation, castPurpose } from '../../../src/ui/status/cast.js';
+import { varied } from '../../../src/ui/status/cast-animation.js';
 import { fireCast } from '../../../src/ui/status/cast-fire.js';
+import {
+  hellfireCast,
+  hellfireVariants,
+} from '../../../src/ui/status/cast-hellfire.js';
 import { kaomojiCast } from '../../../src/ui/status/cast-kaomoji.js';
 
 const ids = (count: number) =>
@@ -16,10 +21,49 @@ test('a spell name reads as the purpose its own words name first', () => {
   assert.equal(castPurpose('feature-dev:code-reviewer'), undefined);
 });
 
-test('a spell with a purpose always plays that purpose’s animation', () => {
-  for (const id of ids(20)) {
-    assert.equal(castAnimation({ id, spell: 'commit-message' }), fireCast);
+test('a spell with a purpose plays only that purpose’s animations', () => {
+  const shipped = new Set(
+    ids(40).map((id) => castAnimation({ id, spell: 'commit-message' })),
+  );
+
+  assert.deepEqual(shipped, new Set([fireCast, hellfireCast]));
+
+  for (const id of ids(20))
     assert.equal(castAnimation({ id, spell: 'brainstorming' }), kaomojiCast);
+});
+
+test('varied keeps one variant per seed and reaches every variant', () => {
+  const names = ['a', 'b', 'c', 'd'];
+  const rows = varied(names.map((name) => () => ({ heading: name })));
+  const reached = new Set<string>();
+
+  for (const [id, other] of ids(40).map((id, index) => [id, `other/${index}`]))
+    for (const frame of [0, 30, 63])
+      for (const width of [9, 60, 120])
+        for (const lift of [true, false]) {
+          const { heading } = rows(frame, width, id!, lift);
+          rows(frame, width, other!, lift);
+          assert.equal(heading, rows(0, 9, id!, false).heading);
+          reached.add(heading);
+        }
+
+  assert.deepEqual(reached, new Set(names));
+});
+
+test('every animation with variants reaches each of them across casts', () => {
+  for (const [cast, variants] of [[hellfireCast, hellfireVariants]] as const) {
+    const reached = new Set(
+      ids(40).map((id) => {
+        const drawn = cast.rows(10, 100, id, true);
+
+        return Object.entries(variants).find(
+          ([, rows]) =>
+            JSON.stringify(rows(10, 100, id, true)) === JSON.stringify(drawn),
+        )?.[0];
+      }),
+    );
+
+    assert.deepEqual(reached, new Set(Object.keys(variants)));
   }
 });
 
