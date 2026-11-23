@@ -54,10 +54,11 @@ Agent control (use the prefix supplied in the current Witch context):
   --json              print the control result as JSON
 
 Delegated tasks (use the familiar prefix supplied in the current Witch context):
-  --familiar-claude <name> --report-file <file> -- <native Claude arguments>
+  --familiar-claude <name> --report-file <file> [--lean] -- <native Claude arguments>
                       report a native Claude task as a familiar
-  --familiar-codex <name> --report-file <file> [--without-mcp] -- <native app-server options>
-                      report a Codex task as a familiar; read its prompt from stdin; --without-mcp starts it with no MCP server
+  --familiar-codex <name> --report-file <file> [--lean] -- <native app-server options>
+                      report a Codex task as a familiar; read its prompt from stdin
+                      --lean starts either familiar without MCP servers or the spell catalog, and on Claude without hooks
 
 Every word that starts with - is read as an option, so quote a prompt that
 contains one, and put -- before a prompt that starts with -.
@@ -105,18 +106,11 @@ const { values, control, familiar, spawn } = command;
 
 if (familiar) {
   try {
-    const { binding, name, reportFile, args } = familiar;
+    const { binding, name, reportFile, args, lean } = familiar;
 
-    process.exitCode =
-      familiar.runtime === 'codex'
-        ? await runCodexFamiliar(
-            binding,
-            name,
-            reportFile,
-            args,
-            familiar.withoutMcp,
-          )
-        : await runClaudeFamiliar(binding, name, reportFile, args);
+    process.exitCode = await (
+      familiar.runtime === 'codex' ? runCodexFamiliar : runClaudeFamiliar
+    )(binding, name, reportFile, args, lean);
   } catch (error) {
     process.stderr.write(`witch: ${errorMessage(error)}\n`);
     process.exitCode = 1;

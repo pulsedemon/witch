@@ -365,6 +365,7 @@ test("reviewerCommand builds each wrapper's command", () => {
     'review-1a2b3c4d-1-claude-0',
     '--report-file',
     '/s/review dir/claude.md',
+    '--lean',
     '--',
     '--model',
     'claude-opus-5-5',
@@ -380,7 +381,6 @@ test("reviewerCommand builds each wrapper's command", () => {
     'none',
     '--permission-mode',
     'dontAsk',
-    '--strict-mcp-config',
   ]);
 
   assert.equal(claude.rest.trim(), "< '/s/review dir/brief.md'");
@@ -400,7 +400,7 @@ test("reviewerCommand builds each wrapper's command", () => {
     'n',
     '--report-file',
     '/s/codex.md',
-    '--without-mcp',
+    '--lean',
     '--',
     '-c',
     'model="gpt-6.1-astra"',

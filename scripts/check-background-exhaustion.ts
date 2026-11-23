@@ -639,7 +639,7 @@ export async function runCase(
       const args =
         placement.runtime === 'codex'
           ? [
-              '--without-mcp',
+              '--lean',
               '--',
               ...codexOptions,
               '-c',

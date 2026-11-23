@@ -73,13 +73,7 @@ function familiarMode(
   const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
   const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
   const label = runtime === 'codex' ? 'Codex' : 'Claude';
-
-  const allowed = new Set([
-    ...bindingOptions,
-    option,
-    'report-file',
-    ...(runtime === 'codex' ? ['without-mcp'] : []),
-  ]);
+  const allowed = new Set([...bindingOptions, option, 'report-file', 'lean']);
 
   if (
     Object.keys(values).some((key) => !allowed.has(key)) ||
@@ -104,7 +98,7 @@ function familiarMode(
     name: values[option].trim(),
     reportFile: resolve(values['report-file']),
     args: positionals,
-    withoutMcp: values['without-mcp'] === true,
+    lean: values.lean === true,
   };
 }
 
@@ -212,7 +206,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     values['familiar-claude'] !== undefined ||
     values['familiar-codex'] !== undefined ||
     values['report-file'] !== undefined ||
-    values['without-mcp'] !== undefined;
+    values.lean !== undefined;
 
   if (reporting) {
     return {

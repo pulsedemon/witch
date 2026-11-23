@@ -62,9 +62,12 @@ export async function runCodexFamiliar(
   name: string,
   reportFile: string,
   args: readonly string[],
-  withoutMcp = false,
+  lean: boolean,
 ): Promise<number> {
-  const argv = codexArguments(args);
+  const argv = codexArguments(
+    lean ? ['-c', 'skills.include_instructions=false', ...args] : args,
+  );
+
   const file = await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
   const abort = new AbortController();
@@ -298,7 +301,7 @@ export async function runCodexFamiliar(
       executable: 'codex',
       cwd: process.cwd(),
       memoryDirectories: [],
-      withoutMcp,
+      withoutMcp: lean,
       signal: abort.signal,
       onEvent: receive,
       onProcess: async () => {},

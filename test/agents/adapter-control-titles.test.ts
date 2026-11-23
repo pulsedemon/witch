@@ -120,7 +120,7 @@ test('Claude Bash results retain bound titles and multiline commands after repla
   );
 
   const familiar = `${prefixes.familiar} --familiar-codex review --report-file /report -- -c model='gpt-6-astra' <<'PROMPT'\nReview this.\nPROMPT`;
-  const isolated = `${prefixes.familiar} --familiar-codex review --report-file /report --without-mcp -- -c model='gpt-6-astra'`;
+  const isolated = `${prefixes.familiar} --familiar-codex review --report-file /report --lean -- -c model='gpt-6-astra'`;
 
   try {
     const turn = session.send('initial');

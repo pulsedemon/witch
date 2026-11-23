@@ -299,7 +299,7 @@ export function brief({
   ].join('\n');
 }
 
-/** the familiar wrapper command for one routed reviewer, read-only and without MCP servers on either runtime. */
+/** the familiar wrapper command for one routed reviewer, read-only and lean: no MCP server or spell catalog, and no hooks on Claude. */
 export function reviewerCommand({
   prefix,
   route,
@@ -330,7 +330,6 @@ export function reviewerCommand({
           'none',
           '--permission-mode',
           'dontAsk',
-          '--strict-mcp-config',
         ]
       : [
           '-c',
@@ -347,7 +346,7 @@ export function reviewerCommand({
     quote(name),
     '--report-file',
     quote(reportFile),
-    ...(route.runtime === 'codex' ? ['--without-mcp'] : []),
+    '--lean',
     '--',
     ...native.map(quote),
     '<',

@@ -37,7 +37,7 @@ async function fixture(
     waitForResponse?: boolean;
     reject?: boolean;
     existing?: boolean;
-    withoutMcp?: boolean;
+    lean?: boolean;
     config?: Record<string, unknown>;
     tools?: unknown[];
   } = {},
@@ -168,7 +168,7 @@ syncBuiltinESMExports();
       'implementation',
       '--report-file',
       report,
-      ...(options.withoutMcp ? ['--without-mcp'] : []),
+      ...(options.lean ? ['--lean'] : []),
       '--',
       '-c',
       'model="requested-alias"',
@@ -804,15 +804,10 @@ test('Codex familiar arguments keep configuration but reject a different transpo
     parseCommand([...args, '--familiar-claude', 'other', '--']),
   );
 
-  const claude = args.map((arg) =>
-    arg === '--familiar-codex' ? '--familiar-claude' : arg,
-  );
-
-  assert.throws(() => parseCommand([...claude, '--without-mcp', '--']));
-  assert.throws(() => parseCommand(['--without-mcp']));
+  assert.throws(() => parseCommand(['--lean']));
 });
 
-test('a Codex familiar started --without-mcp disables every MCP source and refuses one Codex still exposes', async () => {
+test('a lean Codex familiar hides the spell catalog, disables every MCP source and refuses one Codex still exposes', async () => {
   const connect = async (root: string) =>
     (
       JSON.parse(await readFile(join(root, 'connect.json'), 'utf8')) as {
@@ -832,7 +827,7 @@ test('a Codex familiar started --without-mcp disables every MCP source and refus
   ];
 
   const isolated = await fixture({
-    withoutMcp: true,
+    lean: true,
     config: {
       mcp_servers: { unreal: { url: 'http://x' }, node_repl: { command: 'n' } },
     },
@@ -856,6 +851,17 @@ test('a Codex familiar started --without-mcp disables every MCP source and refus
     });
 
     assert.equal(config['features.hooks'], undefined);
+
+    assert.deepEqual((await isolated.launch()).argv, [
+      'app-server',
+      '--stdio',
+      '-c',
+      'skills.include_instructions=false',
+      '-c',
+      'model="requested-alias"',
+      '-c',
+      'approval_policy="on-request"',
+    ]);
   } finally {
     await isolated.close();
   }
@@ -877,7 +883,7 @@ test('a Codex familiar started --without-mcp disables every MCP source and refus
     await ordinary.close();
   }
 
-  const exposed = await fixture({ withoutMcp: true, tools: connected });
+  const exposed = await fixture({ lean: true, tools: connected });
 
   try {
     assert.equal(await within(exposed.closed, 8000, 'refused start'), 1);

@@ -15,20 +15,26 @@ import {
 } from './familiar-run.js';
 import type { ControlBinding } from '../persistence/control.js';
 
-/** outranks user, project and local settings, so the routed model runs as named and an overload doesn't switch it. */
-const settings = JSON.stringify({
-  env: {
-    CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP: '1',
-    CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
-  },
-});
+/** outranks user, project and local settings, so the routed model runs as named and an overload doesn't switch it; lean also turns hooks off. */
+function settings(lean: boolean) {
+  return JSON.stringify({
+    env: {
+      CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP: '1',
+      CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
+    },
+    ...(lean && { disableAllHooks: true }),
+  });
+}
 
 /** the report file keeps only the latest result, and native output can't tell an acknowledgement from an answer. */
 export const repeatAnswerInstruction =
   'Your last reply is saved as your final answer. If a background task notification starts a turn after you have answered, end that turn by repeating your complete answer exactly, with nothing else.';
 
 /** the wrapper owns the stream protocol and model settings; the native model and permissions remain caller arguments. */
-export function claudeArguments(args: readonly string[]): string[] {
+export function claudeArguments(
+  args: readonly string[],
+  lean = false,
+): string[] {
   const conflicting = new Set([
     '--settings',
     // a second one replaces the wrapper's instead of adding to it
@@ -63,9 +69,10 @@ export function claudeArguments(args: readonly string[]): string[] {
     '--output-format',
     'stream-json',
     '--settings',
-    settings,
+    settings(lean),
     '--append-system-prompt',
     repeatAnswerInstruction,
+    ...(lean ? ['--strict-mcp-config', '--disable-slash-commands'] : []),
     ...args,
   ];
 }
@@ -75,8 +82,9 @@ export async function runClaudeFamiliar(
   name: string,
   reportFile: string,
   args: readonly string[],
+  lean: boolean,
 ): Promise<number> {
-  const argv = claudeArguments(args);
+  const argv = claudeArguments(args, lean);
   const file = await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
   let stopped: NodeJS.Signals | undefined;
