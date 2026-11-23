@@ -666,6 +666,7 @@ test("a familiar's own report after its stopped command replaces the stop mark o
 
   const stops = f.familiars().length;
   assert.equal(f.familiars().at(-1)!.status, 'stopped');
+  now.mockReturnValue(clock + 9_999);
   assert.deepEqual(await f.update(0), { kind: 'familiar-updated' });
   assert.equal(f.familiars().length, stops);
   now.mockReturnValue(clock + 10_001);
@@ -697,7 +698,8 @@ test("a familiar's own report after its stopped command replaces the stop mark o
 
   assert.equal(f.familiars().at(-1)!.status, 'stopped');
   assert.equal(f.familiars().at(-1)!.report, 'Claude task stopped (SIGTERM).');
-  await assert.rejects(f.update(2), /already ended/);
+  await assert.rejects(f.update(2, 'completed'), /already ended/);
+  assert.equal(f.familiars().at(-1)!.report, 'Claude task stopped (SIGTERM).');
   now.mockRestore();
   await f.owner.close();
 });
