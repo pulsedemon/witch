@@ -225,6 +225,8 @@ test('only a supporting session receives familiar instructions and the exact use
     /--route <review\|planning\|implementation\|investigation> --json/,
   );
 
+  assert.match(input.context!, /--tier <strong\|standard\|cheap>/);
+
   assert.match(
     input.context!,
     /--familiar-claude <task-name> --report-file <new-file-under-task-scratch> -- --model <model>/,
