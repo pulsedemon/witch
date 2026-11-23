@@ -318,12 +318,18 @@ test('the wheel scrolls a cropped chat preview over its frame and the transcript
     // 25 transcript rows put the title on row 26 and the frame on rows 27 to 49
     f.ui.stdin.write(wheel(64, 30));
     await until('up at once', () => range(f.ui) === 'rows 25–47 of 48');
+
+    const reading = () =>
+      f.ui.text().split('\n')[0]!.includes('READING EARLIER OUTPUT');
+
+    assert.ok(!reading());
     f.ui.stdin.write(wheel(64, 5).repeat(3));
-
-    await until('transcript scrolled', () =>
-      f.ui.text().split('\n')[0]!.includes('READING EARLIER OUTPUT'),
-    );
-
+    await until('transcript scrolled', reading);
+    assert.equal(range(f.ui), 'rows 25–47 of 48');
+    const top = () => /history (\d+)/u.exec(f.ui.text())?.[1];
+    const above = top();
+    f.ui.stdin.write(wheel(64, 26));
+    await until('title row scrolls the transcript', () => top() !== above);
     assert.equal(range(f.ui), 'rows 25–47 of 48');
     f.owner.show(tall(30));
 
@@ -338,7 +344,6 @@ test('the wheel scrolls a cropped chat preview over its frame and the transcript
     });
 
     await until('uncropped', () => f.ui.text().includes('short 2'));
-    const top = () => /history (\d+)/u.exec(f.ui.text())?.[1];
     const before = top();
     // 45 transcript rows put the short preview's frame on rows 47 to 49
     f.ui.stdin.write(wheel(64, 48));
