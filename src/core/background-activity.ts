@@ -57,8 +57,8 @@ export function updateBackgroundActivity(
           text,
           cwd,
         })),
-        ...update.rows.map(({ id, title, text, failed }) =>
-          taskRow(cwd, id, title, text, failed),
+        ...update.rows.map(({ id, title, text, failed, replace }) =>
+          taskRow(cwd, id, title, text, failed, replace),
         ),
       ],
     };
@@ -113,6 +113,7 @@ function taskRow(
   title: string[],
   text = '',
   failed = false,
+  replace = false,
 ): DisplayUpdate {
   return {
     id,
@@ -121,6 +122,7 @@ function taskRow(
     text,
     done: true,
     ...(failed ? { failed: true } : {}),
+    ...(replace ? { replace: true } : {}),
     cwd,
   };
 }

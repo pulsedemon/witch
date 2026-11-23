@@ -363,6 +363,57 @@ test('a reported familiar replaces its brew and retitles observed identity witho
   }
 });
 
+test("a familiar's report after its command ended replaces its end row's text and failure", async () => {
+  for (const ended of ['stopped', 'failed'] as const) {
+    const { coordinator, a } = await unitFixture();
+    const emit = a.sessions[0]!.options.onEvent;
+
+    const worker = {
+      id: 'late',
+      name: 'late review',
+      kind: '',
+      runtime: 'claude',
+      run: 'one',
+    };
+
+    try {
+      emit({
+        type: 'subagent',
+        subagent: { ...worker, status: 'running', report: 'Draft report.' },
+      });
+
+      emit({
+        type: 'subagent',
+        subagent: { ...worker, status: ended, report: 'Draft report.' },
+      });
+
+      const end = coordinator.snapshot.subagents[0]!.rows.end;
+
+      emit({
+        type: 'subagent',
+        subagent: { ...worker, status: 'stopped', report: 'Final report.' },
+      });
+
+      assert.equal(coordinator.snapshot.subagents[0]!.rows.end, end);
+      const rows = coordinator.snapshot.items.filter((item) => item.id === end);
+
+      assert.deepEqual(
+        rows.map(({ title, text, failed }) => ({ title, text, failed })),
+        [
+          {
+            title: 'Familiar stopped  late review  claude',
+            text: 'Final report.',
+            failed: undefined,
+          },
+        ],
+        ended,
+      );
+    } finally {
+      await coordinator.close();
+    }
+  }
+});
+
 test('each familiar notice posts once, before its end row', async () => {
   const { coordinator, a } = await unitFixture();
   const emit = a.sessions[0]!.options.onEvent;

@@ -315,6 +315,9 @@ function merge(
       }
     : update;
 
+  // a replace is a full snapshot, so a failure it doesn't repeat is cleared
+  if (replace && !update.failed) delete item.failed;
+
   if (item.kind === 'tool' || item.kind === 'assistant') {
     const before = previous && !replace ? appends.get(previous) : undefined;
 
