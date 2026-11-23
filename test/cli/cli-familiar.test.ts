@@ -15,7 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
 import { parseCommand } from '../../src/cli/cli-control.js';
-import { answerInstruction } from '../../src/cli/cli-familiar.js';
+import { repeatAnswerInstruction } from '../../src/cli/cli-familiar.js';
 import {
   FamiliarReports,
   watchSuspension,
@@ -193,7 +193,7 @@ test("the wrapper retries a lost marker, preserves native inputs and saves the l
         },
       }),
       '--append-system-prompt',
-      answerInstruction,
+      repeatAnswerInstruction,
       '--model',
       'requested-alias',
       '--permission-prompts',
@@ -665,8 +665,18 @@ test('familiar CLI arguments reject mixed actions and conflicting native stream 
       'opus',
       '--permission-mode',
       'manual',
+      // the documented way to add instructions beside Witch's appended prompt
+      '--append-system-prompt-file',
+      'extra.md',
     ]).familiar?.args,
-    ['--model', 'opus', '--permission-mode', 'manual'],
+    [
+      '--model',
+      'opus',
+      '--permission-mode',
+      'manual',
+      '--append-system-prompt-file',
+      'extra.md',
+    ],
   );
 });
 

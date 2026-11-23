@@ -24,7 +24,7 @@ const settings = JSON.stringify({
 });
 
 /** the report file keeps only the latest result, and native output can't tell an acknowledgement from an answer. */
-export const answerInstruction =
+export const repeatAnswerInstruction =
   'Your last reply is saved as your final answer. If a background task notification starts a turn after you have answered, end that turn by repeating your complete answer exactly, with nothing else.';
 
 /** the wrapper owns the stream protocol and model settings; the native model and permissions remain caller arguments. */
@@ -65,7 +65,7 @@ export function claudeArguments(args: readonly string[]): string[] {
     '--settings',
     settings,
     '--append-system-prompt',
-    answerInstruction,
+    repeatAnswerInstruction,
     ...args,
   ];
 }
