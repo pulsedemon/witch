@@ -57,8 +57,9 @@ const result = z.object({
 });
 
 /**
- * every native result adds to the report and the answer, since a finished background task can start a turn after the
- * answer; only the child's exit can finish the task. the answer leaves out denials, native errors and unfinished text.
+ * every native result adds to the report; the answer is the latest successful non-empty one, since a finished
+ * background task can start a turn after the answer and the wrapper tells the familiar to repeat it there. only the
+ * child's exit can finish the task.
  */
 export class ClaudeTask {
   private identity?: z.infer<typeof init>;
@@ -66,7 +67,7 @@ export class ClaudeTask {
   private spells?: Cast[];
   private activity?: string;
   private readonly reports: string[] = [];
-  private readonly answers: string[] = [];
+  private final = '';
   /** the current turn's latest text, its report if the turn ends without a result. */
   private draft = '';
   private success = false;
@@ -170,7 +171,7 @@ export class ClaudeTask {
           ...denials,
         );
 
-        if (finished.result !== undefined) this.answers.push(finished.result);
+        if (this.success && finished.result) this.final = finished.result;
 
         this.draft = '';
       }
@@ -180,7 +181,7 @@ export class ClaudeTask {
   }
 
   get answer(): string {
-    return this.answers.join('\n\n');
+    return this.final;
   }
 
   failed(message: string): void {

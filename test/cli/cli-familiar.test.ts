@@ -15,6 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
 import { parseCommand } from '../../src/cli/cli-control.js';
+import { answerInstruction } from '../../src/cli/cli-familiar.js';
 import {
   FamiliarReports,
   watchSuspension,
@@ -157,7 +158,7 @@ async function fixture(
   };
 }
 
-test("the wrapper retries a lost marker, preserves native inputs and saves every turn's result only after child exit", async () => {
+test("the wrapper retries a lost marker, preserves native inputs and saves the latest turn's result only after child exit", async () => {
   let registrations = 0;
 
   const f = await fixture('later-turn', async (request) => ({
@@ -191,6 +192,8 @@ test("the wrapper retries a lost marker, preserves native inputs and saves every
           CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
         },
       }),
+      '--append-system-prompt',
+      answerInstruction,
       '--model',
       'requested-alias',
       '--permission-prompts',
@@ -214,8 +217,9 @@ test("the wrapper retries a lost marker, preserves native inputs and saves every
     assert.equal(f.updates().at(-1)!.progress.model, 'claude-response');
     assert.equal(f.updates().at(-1)!.progress.tools, 2);
     assert.equal(f.updates().at(-1)!.progress.status, 'completed');
-    const expected = `${'Full review.\n'.repeat(7000)}\n\nStopped the background search.`;
-    assert.equal(await readFile(join(f.root, 'report.txt'), 'utf8'), expected);
+    const answer = '{"verdict":"final"}';
+    const report = `${'Full review.\n'.repeat(7000)}\n\n${answer}`;
+    assert.equal(await readFile(join(f.root, 'report.txt'), 'utf8'), answer);
     assert.equal((await stat(join(f.root, 'report.txt'))).mode & 0o777, 0o600);
 
     const markers = f
@@ -228,11 +232,28 @@ test("the wrapper retries a lost marker, preserves native inputs and saves every
 
     assert.equal(
       f.output().stdout,
-      `${markers.join('\n')}\n${expected}\n\nSaved report: ${join(f.root, 'report.txt')}\n`,
+      `${markers.join('\n')}\n${report}\n\nSaved report: ${join(f.root, 'report.txt')}\n`,
     );
 
     assert.equal(f.output().stderr, 'native stderr\n');
     assert.equal(await identifyProcess(launch.pid), undefined);
+  } finally {
+    await f.close();
+  }
+});
+
+test('an answer the familiar repeats after a background turn is saved once', async () => {
+  const f = await fixture('repeat-turn');
+
+  try {
+    await f.ready();
+    await writeFile(join(f.root, 'exit'), 'yes');
+    assert.equal(await f.closed, 0, f.output().stderr);
+
+    assert.equal(
+      await readFile(join(f.root, 'report.txt'), 'utf8'),
+      '{"verdict":"final"}',
+    );
   } finally {
     await f.close();
   }
@@ -630,6 +651,8 @@ test('familiar CLI arguments reject mixed actions and conflicting native stream 
     ['--', '--remote-control'],
     // Witch's own settings keep the routed model from being remapped or swapped
     ['--', '--settings', '{}'],
+    // a second appended system prompt replaces Witch's answer instruction
+    ['--', '--append-system-prompt', 'x'],
     [],
   ])
     assert.throws(() => parseCommand([...args, ...extra]));

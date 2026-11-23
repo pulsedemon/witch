@@ -23,10 +23,16 @@ const settings = JSON.stringify({
   },
 });
 
+/** the report file keeps only the latest result, and native output can't tell an acknowledgement from an answer. */
+export const answerInstruction =
+  'Your last reply is saved as your final answer. If a background task notification starts a turn after you have answered, end that turn by repeating your complete answer exactly, with nothing else.';
+
 /** the wrapper owns the stream protocol and model settings; the native model and permissions remain caller arguments. */
 export function claudeArguments(args: readonly string[]): string[] {
   const conflicting = new Set([
     '--settings',
+    // a second one replaces the wrapper's instead of adding to it
+    '--append-system-prompt',
     '-p',
     '--print',
     '--verbose',
@@ -47,7 +53,7 @@ export function claudeArguments(args: readonly string[]): string[] {
 
     if (conflicting.has(arg.split('=')[0]!))
       throw new Error(
-        `Claude familiar mode cannot include ${arg}; it supplies its own print/stream protocol and settings.`,
+        `Claude familiar mode cannot include ${arg}; it supplies its own print/stream protocol, settings and appended system prompt.`,
       );
   }
 
@@ -58,6 +64,8 @@ export function claudeArguments(args: readonly string[]): string[] {
     'stream-json',
     '--settings',
     settings,
+    '--append-system-prompt',
+    answerInstruction,
     ...args,
   ];
 }
