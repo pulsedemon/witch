@@ -183,6 +183,7 @@ function controlAction(
         work: values.route,
         of: choice(values.of),
         named: choice(values.named),
+        tier: values.tier,
       };
 
     default:
@@ -258,6 +259,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     'to',
     'of',
     'named',
+    'tier',
     'json',
   ] as const;
 
@@ -285,9 +287,16 @@ export function parseCommand(args = process.argv.slice(2)) {
 
   if (
     values.route === undefined &&
-    (values.of !== undefined || values.named !== undefined)
+    (values.of !== undefined ||
+      values.named !== undefined ||
+      values.tier !== undefined)
   )
-    throw new Error('--of and --named require --route.');
+    throw new Error('--of, --named and --tier require --route.');
+
+  if (values.tier !== undefined && values.named !== undefined)
+    throw new Error(
+      "--tier and --named can't be combined; a named model sets its own tier.",
+    );
 
   if (
     positionals.length ||

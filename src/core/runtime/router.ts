@@ -105,8 +105,12 @@ export function router(
 
     if ('refused' in decision) return refuse(decision.refused);
 
+    const work = action.tier
+      ? `${action.work} at the ${action.tier} tier`
+      : action.work;
+
     for (const { runtime, model, reason, from } of decision.routes) {
-      const text = `Routed ${action.work} to ${agentLabel(snapshot.agents, runtime)} · ${model}`;
+      const text = `Routed ${work} to ${agentLabel(snapshot.agents, runtime)} · ${model}`;
 
       if (from)
         coordinator.notice(
@@ -118,7 +122,7 @@ export function router(
 
     for (const { runtime, model, reason, from } of decision.folded ?? [])
       coordinator.notice(
-        `Passed over ${agentLabel(snapshot.agents, from!)} for ${action.work} for capacity; ${agentLabel(snapshot.agents, runtime)} · ${model} already has it: ${reason}`,
+        `Passed over ${agentLabel(snapshot.agents, from!)} for ${work} for capacity; ${agentLabel(snapshot.agents, runtime)} · ${model} already has it: ${reason}`,
         { warning: true },
       );
 

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { previewDocumentSchema } from '../preview.js';
-import { work } from '../runtime/routing.js';
+import { tier, work } from '../runtime/routing.js';
 import type { Snapshot } from '../snapshot.js';
 import {
   agentWorking,
@@ -120,6 +120,7 @@ export const coordinationActionSchema = z.discriminatedUnion('kind', [
     work,
     of: choiceSchema.optional(),
     named: choiceSchema.optional(),
+    tier: tier.optional(),
   }),
 ]);
 

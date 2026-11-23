@@ -157,6 +157,36 @@ test('automatic placement favors remaining allowance and refreshes stale reading
   );
 });
 
+test('a route at a tier names it in the transcript, and a runtime with no family at that tier says it ran its policy family', async (t) => {
+  const f = await start(t.onTestFinished);
+  const reply = await f.route({ work: 'review', tier: 'cheap' });
+  assert.equal(reply.kind, 'route');
+
+  if (reply.kind !== 'route') return;
+
+  assert.deepEqual(
+    reply.routes.map(({ runtime, model }) => `${runtime} ${model}`),
+    ['a a-2-model', 'b b-3-model'],
+  );
+
+  for (const { runtime, model, reason } of reply.routes) {
+    assert.match(
+      reason,
+      new RegExp(`; ${runtime} has no cheap family; using its policy family$`),
+    );
+
+    assert.ok(
+      f.coordinator.snapshot.items.some(
+        (item) =>
+          item.kind === 'notice' &&
+          item.text ===
+            `Routed review at the cheap tier to ${runtime} · ${model}: ${reason}`,
+      ),
+      runtime,
+    );
+  }
+});
+
 test('a review that loses a runtime to usage routes once and says on its own line which runtime it passed over', async (t) => {
   const f = await start(t.onTestFinished);
   f.coordinator.accountUsage.report('a', { limits: [window(95)] });
@@ -328,7 +358,7 @@ test('a read slower than the wait still gets a reply, routed on what is current'
   }
 });
 
-test('--route takes the kind of work, the producer and a named model', () => {
+test('--route takes the kind of work, the producer, a named model and a tier', () => {
   const prefix = [
     '--control-dir',
     '/task/control',
@@ -353,12 +383,55 @@ test('--route takes the kind of work, the producer and a named model', () => {
       work: 'review',
       of: { runtime: 'codex', model: 'gpt-6.1-sol' },
       named: { runtime: 'claude', model: 'claude-opus-4-1' },
+      tier: undefined,
     },
   );
 
-  assert.throws(() => parseCommand([...prefix, '--peers', '--of', 'a:b']), {
-    message: '--of and --named require --route.',
+  assert.deepEqual(
+    parseCommand([...prefix, '--route', 'review', '--tier', 'cheap']).control
+      ?.action,
+    {
+      kind: 'route',
+      work: 'review',
+      of: undefined,
+      named: undefined,
+      tier: 'cheap',
+    },
+  );
+
+  for (const option of [
+    ['--of', 'a:b'],
+    ['--tier', 'cheap'],
+  ])
+    assert.throws(() => parseCommand([...prefix, '--peers', ...option]), {
+      message: '--of, --named and --tier require --route.',
+    });
+
+  // without the binding options, only --tier itself marks this as a control command rather than a prompt
+  assert.throws(() => parseCommand(['--tier', 'cheap']), {
+    message: /^Choose exactly one control action/,
   });
+
+  assert.throws(
+    () =>
+      parseCommand([
+        ...prefix,
+        '--route',
+        'review',
+        '--tier',
+        'cheap',
+        '--named',
+        'claude:haiku',
+      ]),
+    {
+      message:
+        "--tier and --named can't be combined; a named model sets its own tier.",
+    },
+  );
+
+  assert.throws(() =>
+    parseCommand([...prefix, '--route', 'review', '--tier', 'cheapest']),
+  );
 
   assert.throws(
     () => parseCommand([...prefix, '--route', 'review', '--of', 'codex']),

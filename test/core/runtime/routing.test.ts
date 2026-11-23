@@ -5,6 +5,7 @@ import type {
   Catalog,
   Policy,
   Route,
+  Tier,
   Work,
 } from '../../../src/core/runtime/routing.js';
 import {
@@ -83,6 +84,7 @@ function ask(
     caller?: string;
     of?: { runtime: string; model: string };
     named?: { runtime: string; model: string };
+    tier?: Tier;
     policy?: Partial<Policy>;
     limits?: Record<string, Limit[]>;
     accounts?: Record<string, AccountReading>;
@@ -96,6 +98,7 @@ function ask(
       caller: fields.caller ?? 'claude',
       of: fields.of,
       named: fields.named,
+      tier: fields.tier,
       policy: { ...defaultPolicy, ...fields.policy },
       installed: fields.installed ?? installed,
       catalog: fields.catalog ?? catalog,
@@ -959,6 +962,183 @@ test('a named model runs as named with its own weekly window in the reason', () 
       model: 'claude-fable-5-1',
       reason:
         'named explicitly; claude (7D 61%, 7D Fable 100%, extra off: USD 0.00 spent / USD 100.00 cap)',
+    },
+  );
+});
+
+/** the test catalog with every codex model of a family removed. */
+const without = (family: string): Catalog => ({
+  ...catalog,
+  models: catalog.models.filter(
+    ({ agent, id }) => agent !== 'codex' || !id.endsWith(`-${family}`),
+  ),
+});
+
+test("a tier picks each runtime's family at that tier, on every placement path", () => {
+  const of = { runtime: 'claude', model: 'claude-opus-5-5' };
+  const reason = 'review of claude work requests a familiar on each runtime';
+
+  assert.deepEqual(ask({ work: 'review', of, tier: 'cheap' }), [
+    {
+      runtime: 'claude',
+      model: 'claude-haiku-5-5',
+      reason: `${reason}; claude (5H 20%, 7D 61%); claude workload unknown`,
+    },
+    {
+      runtime: 'codex',
+      model: 'gpt-6-luna',
+      reason: `${reason}; codex (7D 49%); codex workload unknown`,
+    },
+  ]);
+
+  assert.deepEqual(ask({ work: 'planning', caller: 'codex', tier: 'strong' }), {
+    runtime: 'codex',
+    model: 'gpt-6-astra',
+    reason:
+      'planning stays on codex; codex (7D 49%); codex workload unknown; comparative workload is unknown; retaining the caller',
+  });
+
+  const shifted = ask({
+    tier: 'cheap',
+    limits: { claude: [window('7D', 100)], codex: [window('7D', 49)] },
+  });
+
+  assert.ok(!('refused' in shifted) && !Array.isArray(shifted));
+
+  assert.deepEqual(
+    { runtime: shifted.runtime, model: shifted.model, from: shifted.from },
+    { runtime: 'codex', model: 'gpt-6-luna', from: 'claude' },
+  );
+});
+
+test("a tier keeps the user's family when it is in that tier, and tries the tier's other families before falling back", () => {
+  const model = (fields: Parameters<typeof ask>[0]) => {
+    const routed = ask(fields);
+    assert.ok(!('refused' in routed) && !Array.isArray(routed));
+
+    return routed.model;
+  };
+
+  assert.equal(
+    model({
+      caller: 'codex',
+      tier: 'standard',
+      policy: { families: { claude: 'opus', codex: 'terra' } },
+    }),
+    'gpt-6.1-terra',
+  );
+
+  assert.equal(
+    model({
+      tier: 'strong',
+      policy: { families: { claude: 'fable', codex: 'sol' } },
+    }),
+    'claude-fable-5-1',
+  );
+
+  assert.equal(
+    model({
+      caller: 'codex',
+      tier: 'standard',
+      catalog: without('sol'),
+      policy: { families: { claude: 'opus', codex: 'astra' } },
+    }),
+    'gpt-6.1-terra',
+  );
+});
+
+test('a runtime with no runnable family at the tier runs its policy family, and only its own placements say so', () => {
+  const note =
+    'codex has no cheap family it can run: codex lists no luna model to run; using its policy family';
+
+  assert.deepEqual(
+    route({
+      work: 'review',
+      caller: 'claude',
+      tier: 'cheap',
+      policy: defaultPolicy,
+      installed,
+      catalog: without('luna'),
+      accounts: {
+        claude: { limits: [window('7D', 100)] },
+        codex: { limits: [window('7D', 49)] },
+      },
+      now,
+    }),
+    {
+      routes: [
+        {
+          runtime: 'codex',
+          model: 'gpt-6.1-sol',
+          reason: `review requests a familiar on each runtime; codex (7D 49%); codex workload unknown; ${note}`,
+        },
+      ],
+      folded: [
+        {
+          runtime: 'codex',
+          model: 'gpt-6.1-sol',
+          from: 'claude',
+          reason: `review prefers claude; claude (7D 100%); claude workload unknown; codex (7D 49%); codex workload unknown; claude has a full applicable usage window; codex has included usage left; ${note}`,
+        },
+      ],
+    },
+  );
+
+  // a placement that leaves codex for claude carries no codex note
+  const moved = route({
+    work: 'review',
+    caller: 'claude',
+    tier: 'cheap',
+    policy: defaultPolicy,
+    installed,
+    catalog: without('luna'),
+    accounts: {
+      claude: { limits: [window('7D', 49)] },
+      codex: { limits: [window('7D', 100)] },
+    },
+    now,
+  });
+
+  assert.ok(!('refused' in moved));
+
+  assert.deepEqual(
+    [...moved.routes, ...(moved.folded ?? [])].map(
+      ({ runtime, model, from, reason }) => ({
+        runtime,
+        model,
+        from,
+        noted: reason.includes('has no cheap family'),
+      }),
+    ),
+    [
+      {
+        runtime: 'claude',
+        model: 'claude-haiku-5-5',
+        from: undefined,
+        noted: false,
+      },
+      {
+        runtime: 'claude',
+        model: 'claude-haiku-5-5',
+        from: 'codex',
+        noted: false,
+      },
+    ],
+  );
+});
+
+test('a rule that pins a model keeps it under a tier, and says the tier did not apply', () => {
+  assert.deepEqual(
+    ask({
+      work: 'review',
+      tier: 'cheap',
+      policy: { work: { review: 'claude:opus' } },
+    }),
+    {
+      runtime: 'claude',
+      model: 'claude-opus-5-5',
+      reason:
+        'the policy sends review to claude:opus; claude (5H 20%, 7D 61%); claude workload unknown; the policy pins opus; the cheap tier does not apply',
     },
   );
 });

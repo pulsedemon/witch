@@ -20,13 +20,17 @@ export const work = z.enum([
 
 export type Work = z.infer<typeof work>;
 
+export const tier = z.enum(['strong', 'standard', 'cheap']);
+
+export type Tier = z.infer<typeof tier>;
+
 /** `auto` balances single-runtime work; `same` and `other` use a review's producer when supplied, or the caller otherwise. `both` targets each installed runtime; `<runtime>[:<model-or-family>]` selects a placement. */
 const target = z.string().regex(/^[a-z][\w-]*(:.+)?$/);
 
 export const policySchema = z.object({
   /** reserve included allowance for active coordinators at this usage percent; `null` disables automatic movement. */
   shiftAt: z.number().int().min(1).max(100).nullable(),
-  /** each runtime's family for work that names no model. */
+  /** each runtime's family for work that names no model or tier. */
   families: z.record(z.string(), z.string()),
   work: z.partialRecord(work, target),
 });
@@ -63,12 +67,14 @@ export function ruleFor(policy: Policy, kind: Work): string {
   return policy.work[kind] ?? (kind === 'review' ? 'both' : 'auto');
 }
 
-/** families of comparable capability, per each catalog's own descriptions; a shift lands on a runtime's first listed family. */
-const tiers: readonly Readonly<Record<string, readonly string[]>>[] = [
-  { claude: ['opus', 'fable'], codex: ['astra'] },
-  { claude: ['sonnet'], codex: ['sol', 'terra'] },
-  { claude: ['haiku'], codex: ['luna'] },
-];
+/** families of comparable capability, per each catalog's own descriptions; a shift lands on a runtime's first listed family, and `--tier` tries a row in order. */
+const tiers: Readonly<
+  Record<Tier, Readonly<Record<string, readonly string[]>>>
+> = {
+  strong: { claude: ['opus', 'fable'], codex: ['astra'] },
+  standard: { claude: ['sonnet'], codex: ['sol', 'terra'] },
+  cheap: { claude: ['haiku'], codex: ['luna'] },
+};
 
 /** the family on `to` comparable to a model or family on `from`, matched by a name segment such as `astra` in `gpt-6-astra`. */
 export function comparable(
@@ -78,8 +84,8 @@ export function comparable(
 ): string | undefined {
   const segments = name.split('-');
 
-  return tiers.find((tier) =>
-    tier[from]?.some((family) => segments.includes(family)),
+  return Object.values(tiers).find((row) =>
+    row[from]?.some((family) => segments.includes(family)),
   )?.[to]?.[0];
 }
 
@@ -217,6 +223,7 @@ export function route({
   caller,
   of,
   named,
+  tier,
   policy,
   installed,
   catalog,
@@ -231,6 +238,8 @@ export function route({
   of?: Choice;
   /** a model the user or the agent named, which runs as named, or a family, at its newest. */
   named?: Choice;
+  /** the capability tier for work that names no model; a pinned rule keeps its model. */
+  tier?: Tier;
   policy: Policy;
   installed: readonly string[];
   catalog: Catalog;
@@ -297,19 +306,57 @@ export function route({
             : `${runtime ?? kind} is not installed`,
       };
 
-    const choose = (id: string) => {
-      if (!pinned)
-        return policy.families[id]
-          ? family(id, policy.families[id], catalog)
-          : { refused: `no family is set for ${id}` };
+    /** the model for `id`, with a note on how the tier applied, which only that runtime's reason carries. */
+    const choose = (
+      id: string,
+    ): { model: string; note?: string } | { refused: string } => {
+      if (pinned) {
+        const match = id === runtime ? pinned : comparable(runtime, pinned, id);
 
-      if (id === runtime) return resolve(id, pinned, catalog);
+        if (!match)
+          return { refused: `${id} has no model comparable to ${pinned}` };
 
-      const match = comparable(runtime, pinned, id);
+        const resolved = resolve(id, match, catalog);
 
-      return match
-        ? resolve(id, match, catalog)
-        : { refused: `${id} has no model comparable to ${pinned}` };
+        return tier && 'model' in resolved
+          ? {
+              ...resolved,
+              note: `the policy pins ${pinned}; the ${tier} tier does not apply`,
+            }
+          : resolved;
+      }
+
+      const policyFamily = policy.families[id];
+      let note: string | undefined;
+
+      if (tier) {
+        const row = tiers[tier][id];
+
+        if (row) {
+          const ordered =
+            policyFamily && row.includes(policyFamily)
+              ? [policyFamily, ...row.filter((name) => name !== policyFamily)]
+              : row;
+
+          let refusal = '';
+
+          for (const name of ordered) {
+            const resolved = family(id, name, catalog);
+
+            if ('model' in resolved) return resolved;
+
+            refusal ||= resolved.refused;
+          }
+
+          note = `${id} has no ${tier} family it can run: ${refusal}; using its policy family`;
+        } else note = `${id} has no ${tier} family; using its policy family`;
+      }
+
+      if (!policyFamily) return { refused: `no family is set for ${id}` };
+
+      const resolved = family(id, policyFamily, catalog);
+
+      return note && 'model' in resolved ? { ...resolved, note } : resolved;
     };
 
     const chosen = choose(runtime);
@@ -333,14 +380,20 @@ export function route({
     const keep = (reason: string): Routed => ({
       runtime,
       model: chosen.model,
-      reason: `${why}; ${describe(runtime, chosen.model)}${reason ? `; ${reason}` : ''}`,
+      reason: [why, describe(runtime, chosen.model), reason, chosen.note]
+        .filter(Boolean)
+        .join('; '),
     });
 
     if (shiftAt === null) return keep('automatic movement is off');
 
-    const candidate = (id: string, model: string) => ({
+    const candidate = (
+      id: string,
+      { model, note }: { model: string; note?: string },
+    ) => ({
       runtime: id,
       model,
+      note,
       capacity: capacity(
         id,
         limitsFor(accounts[id], model),
@@ -351,7 +404,7 @@ export function route({
       ),
     });
 
-    const own = candidate(runtime, chosen.model);
+    const own = candidate(runtime, chosen);
     const state = own.capacity;
 
     if (state.high && state.credits)
@@ -394,7 +447,7 @@ export function route({
         continue;
       }
 
-      const next = candidate(id, shifted.model);
+      const next = candidate(id, shifted);
       const { priority } = next.capacity;
 
       if (
@@ -447,6 +500,7 @@ export function route({
       ...(pinned && selected.runtime !== runtime
         ? [`${selected.model} is comparable to ${pinned}`]
         : []),
+      ...(selected.note ? [selected.note] : []),
     ];
 
     return {

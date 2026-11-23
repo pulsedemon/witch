@@ -31,6 +31,7 @@ export const cliOptions = {
   route: { type: 'string' },
   of: { type: 'string' },
   named: { type: 'string' },
+  tier: { type: 'string' },
   json: { type: 'boolean' },
   'familiar-claude': { type: 'string' },
   'familiar-codex': { type: 'string' },
