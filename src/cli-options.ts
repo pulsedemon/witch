@@ -35,7 +35,7 @@ export const cliOptions = {
   'familiar-claude': { type: 'string' },
   'familiar-codex': { type: 'string' },
   'report-file': { type: 'string' },
-  'without-mcp': { type: 'boolean' },
+  lean: { type: 'boolean' },
   spawn: { type: 'string' },
 } as const;
 

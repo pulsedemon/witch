@@ -409,7 +409,7 @@ async function command(
   const args =
     runtime === 'codex'
       ? [
-          '--without-mcp',
+          '--lean',
           '--',
           '-c',
           quote(`model=${JSON.stringify(route.model)}`),

@@ -239,6 +239,11 @@ test('only a supporting session receives familiar instructions and the exact use
 
   assert.match(
     input.context!,
+    /Add --lean before -- on either runtime for a read-only review or investigation/,
+  );
+
+  assert.match(
+    input.context!,
     /native exec_command with sandbox_permissions "require_escalated"/,
   );
 

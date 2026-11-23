@@ -34,6 +34,7 @@ async function fixture(
   mode = 'success',
   handle?: (request: ControlRequest) => Promise<ControlOutcome>,
   existing?: string,
+  wrapper: readonly string[] = [],
 ) {
   const root = await scratch('witch-review-');
   await mkdir(join(root, 'bin'));
@@ -87,6 +88,7 @@ async function fixture(
       'plan review',
       '--report-file',
       join(root, 'report.txt'),
+      ...wrapper,
       '--',
       '--model',
       'requested-alias',
@@ -254,6 +256,41 @@ test('an answer the familiar repeats after a background turn is saved once', asy
       await readFile(join(f.root, 'report.txt'), 'utf8'),
       '{"verdict":"final"}',
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test('a lean familiar starts Claude with hooks, MCP servers and slash commands off', async () => {
+  const f = await fixture('repeat-turn', undefined, undefined, ['--lean']);
+
+  try {
+    await f.ready();
+    await writeFile(join(f.root, 'exit'), 'yes');
+    assert.equal(await f.closed, 0, f.output().stderr);
+
+    assert.deepEqual((await f.launch()).argv, [
+      '--print',
+      '--verbose',
+      '--output-format',
+      'stream-json',
+      '--settings',
+      JSON.stringify({
+        env: {
+          CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP: '1',
+          CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
+        },
+        disableAllHooks: true,
+      }),
+      '--append-system-prompt',
+      repeatAnswerInstruction,
+      '--strict-mcp-config',
+      '--disable-slash-commands',
+      '--model',
+      'requested-alias',
+      '--permission-prompts',
+      'none',
+    ]);
   } finally {
     await f.close();
   }
