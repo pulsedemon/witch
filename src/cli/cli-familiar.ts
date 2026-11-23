@@ -82,7 +82,7 @@ export async function runClaudeFamiliar(
   name: string,
   reportFile: string,
   args: readonly string[],
-  lean = false,
+  lean: boolean,
 ): Promise<number> {
   const argv = claudeArguments(args, lean);
   const file = await open(reportFile, 'wx', 0o600);

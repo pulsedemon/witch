@@ -62,7 +62,7 @@ export async function runCodexFamiliar(
   name: string,
   reportFile: string,
   args: readonly string[],
-  lean = false,
+  lean: boolean,
 ): Promise<number> {
   const argv = codexArguments(
     lean ? ['-c', 'skills.include_instructions=false', ...args] : args,
