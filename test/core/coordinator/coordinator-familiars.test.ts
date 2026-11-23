@@ -364,7 +364,11 @@ test('a reported familiar replaces its brew and retitles observed identity witho
 });
 
 test("a familiar's report after its command ended replaces its end row's text and failure", async () => {
-  for (const ended of ['stopped', 'failed'] as const) {
+  for (const [ended, amended] of [
+    ['stopped', 'stopped'],
+    ['failed', 'stopped'],
+    ['failed', 'failed'],
+  ] as const) {
     const { coordinator, a } = await unitFixture();
     const emit = a.sessions[0]!.options.onEvent;
 
@@ -391,7 +395,7 @@ test("a familiar's report after its command ended replaces its end row's text an
 
       emit({
         type: 'subagent',
-        subagent: { ...worker, status: 'stopped', report: 'Final report.' },
+        subagent: { ...worker, status: amended, report: 'Final report.' },
       });
 
       assert.equal(coordinator.snapshot.subagents[0]!.rows.end, end);
@@ -401,12 +405,12 @@ test("a familiar's report after its command ended replaces its end row's text an
         rows.map(({ title, text, failed }) => ({ title, text, failed })),
         [
           {
-            title: 'Familiar stopped  late review  claude',
+            title: `Familiar ${amended}  late review  claude`,
             text: 'Final report.',
-            failed: undefined,
+            failed: amended === 'failed' || undefined,
           },
         ],
-        ended,
+        `${ended} to ${amended}`,
       );
     } finally {
       await coordinator.close();
