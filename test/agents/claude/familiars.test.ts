@@ -638,6 +638,72 @@ test('native completion without a final report fails the familiar while live-set
   }
 });
 
+test("a familiar's own report after its stopped command replaces the stop mark once, and progress past the grace is refused", async () => {
+  const f = commands();
+  const clock = performance.now();
+  const now = vi.spyOn(performance, 'now').mockReturnValue(clock);
+
+  f.emit({
+    subtype: 'background_tasks_changed',
+    tasks: [
+      {
+        task_id: 'review',
+        run_id: '2',
+        task_type: 'local_bash',
+        description: 'review',
+      },
+    ],
+  });
+
+  await f.register();
+
+  f.emit({
+    subtype: 'task_notification',
+    task_id: 'review',
+    run_id: '2',
+    status: 'stopped',
+  });
+
+  const stops = f.familiars().length;
+  assert.equal(f.familiars().at(-1)!.status, 'stopped');
+  now.mockReturnValue(clock + 9_999);
+  assert.deepEqual(await f.update(0), { kind: 'familiar-updated' });
+  assert.equal(f.familiars().length, stops);
+  now.mockReturnValue(clock + 10_001);
+  await assert.rejects(f.update(1), /already ended/);
+
+  assert.deepEqual(
+    await f.owner.report(
+      { kind: 'familiar-request-resolved', run: f.run, id: 'question' },
+      Date.now() + 5000,
+    ),
+    { kind: 'familiar-updated' },
+  );
+
+  assert.deepEqual(
+    await f.owner.report(
+      {
+        kind: 'familiar-update',
+        run: f.run,
+        sequence: 1,
+        progress: {
+          status: 'stopped',
+          report: 'Claude task stopped (SIGTERM).',
+        },
+      },
+      Date.now() + 5000,
+    ),
+    { kind: 'familiar-updated' },
+  );
+
+  assert.equal(f.familiars().at(-1)!.status, 'stopped');
+  assert.equal(f.familiars().at(-1)!.report, 'Claude task stopped (SIGTERM).');
+  await assert.rejects(f.update(2, 'completed'), /already ended/);
+  assert.equal(f.familiars().at(-1)!.report, 'Claude task stopped (SIGTERM).');
+  now.mockRestore();
+  await f.owner.close();
+});
+
 test("a Claude session's Claude familiar registers under its own runtime", async () => {
   const f = commands();
   f.start();

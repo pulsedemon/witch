@@ -7,8 +7,9 @@ export function familiarIdentity(subagent: Subagent): string {
 }
 
 /**
- * late native identity updates retitle the existing rows without losing the report. every report repeats the
- * familiar's notices, so only those past the previous count are new.
+ * late native identity updates retitle the existing rows without losing the report, and a report or status that
+ * changes after the end replaces the end row's text. every report repeats the familiar's notices, so only those past
+ * the previous count are new.
  */
 export function updateFamiliar(
   previous: TimedSubagent | undefined,
@@ -16,7 +17,13 @@ export function updateFamiliar(
 ):
   | {
       entry: TimedSubagent;
-      rows: { id: string; title: string[]; text?: string; failed?: boolean }[];
+      rows: {
+        id: string;
+        title: string[];
+        text?: string;
+        failed?: boolean;
+        replace?: boolean;
+      }[];
       notices: string[];
     }
   | undefined {
@@ -29,6 +36,12 @@ export function updateFamiliar(
     (previous?.status !== 'running' || previous.run !== subagent.run);
 
   const ended = !running && previous?.status === 'running';
+
+  const amended =
+    !running &&
+    !ended &&
+    (subagent.status !== previous!.status ||
+      subagent.report !== previous!.report);
 
   const rows = started
     ? { start: randomUUID() }
@@ -60,7 +73,7 @@ export function updateFamiliar(
             },
           ]
         : []),
-      ...(rows.end && (ended || renamed)
+      ...(rows.end && (ended || amended || renamed)
         ? [
             {
               id: rows.end,
@@ -72,8 +85,9 @@ export function updateFamiliar(
                   ? `${subagent.tools} tool${subagent.tools === 1 ? '' : 's'}`
                   : '',
               ],
-              text: ended ? (subagent.report ?? '') : '',
+              text: ended || amended ? (subagent.report ?? '') : '',
               failed: subagent.status === 'failed',
+              replace: amended,
             },
           ]
         : []),

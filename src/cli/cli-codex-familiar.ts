@@ -365,7 +365,15 @@ export async function runCodexFamiliar(
       );
     }
 
-    report = [report, failure, suspension()].filter(Boolean).join('\n\n');
+    report = [
+      report,
+      failure,
+      stopped && 'Codex familiar stopped.',
+      suspension(),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
     await saveReport(file, status === 'completed' ? answer : report);
 
     if (registered) {

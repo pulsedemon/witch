@@ -642,14 +642,12 @@ test('a silent Codex task stops on interruption or loss of its reporting connect
       );
 
       assert.equal(await identifyProcess(launch.pid), undefined);
+      const report = await readFile(f.report, 'utf8');
 
-      if (cause === 'signal')
+      if (cause === 'signal') {
         assert.equal(f.updates().at(-1)!.status, 'stopped');
-      else
-        assert.match(
-          await readFile(f.report, 'utf8'),
-          /Native connection closed/,
-        );
+        assert.equal(report, 'Codex familiar stopped.');
+      } else assert.match(report, /Native connection closed/);
     } finally {
       await f.close();
     }
