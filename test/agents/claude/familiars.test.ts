@@ -638,8 +638,10 @@ test('native completion without a final report fails the familiar while live-set
   }
 });
 
-test("a familiar's own report after its stopped command replaces the stop mark once", async () => {
+test("a familiar's own report after its stopped command replaces the stop mark once, and progress past the grace is refused", async () => {
   const f = commands();
+  const clock = performance.now();
+  const now = vi.spyOn(performance, 'now').mockReturnValue(clock);
 
   f.emit({
     subtype: 'background_tasks_changed',
@@ -666,6 +668,8 @@ test("a familiar's own report after its stopped command replaces the stop mark o
   assert.equal(f.familiars().at(-1)!.status, 'stopped');
   assert.deepEqual(await f.update(0), { kind: 'familiar-updated' });
   assert.equal(f.familiars().length, stops);
+  now.mockReturnValue(clock + 10_001);
+  await assert.rejects(f.update(1), /already ended/);
 
   assert.deepEqual(
     await f.owner.report(
@@ -694,6 +698,7 @@ test("a familiar's own report after its stopped command replaces the stop mark o
   assert.equal(f.familiars().at(-1)!.status, 'stopped');
   assert.equal(f.familiars().at(-1)!.report, 'Claude task stopped (SIGTERM).');
   await assert.rejects(f.update(2), /already ended/);
+  now.mockRestore();
   await f.owner.close();
 });
 

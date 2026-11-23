@@ -1,5 +1,9 @@
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
+import { terminateGraceMs } from './shutdown.js';
 import type { AgentEvent, Subagent, UserResponse } from './types.js';
+
+/** how long a wrapper stopping with its command may still send progress; past it a refusal makes a survivor stop itself. */
+const lateProgressMs = 5 * terminateGraceMs;
 
 interface Request {
   id: string;
@@ -91,7 +95,8 @@ export class FamiliarRun {
   subagent: Subagent;
   readonly requests: FamiliarRequests;
   private sequence = -1;
-  private ended = false;
+  /** when the carrying command ended. */
+  private endedAt?: number;
   /** set by the familiar's own terminal update, which may arrive after its command ended. */
   private reported = false;
 
@@ -128,13 +133,19 @@ export class FamiliarRun {
     // the wrapper retries an update under its sequence, so an older or repeated one changes nothing
     if (action.sequence <= this.sequence) return { kind: 'familiar-updated' };
 
-    if (this.reported) throw new Error('The familiar run has already ended.');
+    // progress sent before the wrapper saw its command end can't revive the row
+    const late =
+      this.endedAt !== undefined && action.progress.status === 'running';
+
+    if (
+      this.reported ||
+      (late && performance.now() - this.endedAt! > lateProgressMs)
+    )
+      throw new Error('The familiar run has already ended.');
 
     this.sequence = action.sequence;
 
-    // progress sent before the wrapper saw its command end can't revive the row
-    if (this.ended && action.progress.status === 'running')
-      return { kind: 'familiar-updated' };
+    if (late) return { kind: 'familiar-updated' };
 
     this.subagent = { ...this.subagent, ...action.progress };
 
@@ -150,7 +161,7 @@ export class FamiliarRun {
 
   /** ends the run with the command that carried it, marking a familiar that hasn't reported its own end; a later terminal report replaces that mark. */
   end(status: 'stopped' | 'failed'): void {
-    this.ended = true;
+    this.endedAt ??= performance.now();
     this.requests.resolveAll();
 
     if (this.subagent.status !== 'running') return;
@@ -160,7 +171,7 @@ export class FamiliarRun {
   }
 
   private checkRunning(): void {
-    if (this.ended || this.subagent.status !== 'running')
+    if (this.endedAt !== undefined || this.subagent.status !== 'running')
       throw new Error('The familiar run has already ended.');
   }
 }
