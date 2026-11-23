@@ -543,7 +543,8 @@ for (const when of ['after', 'during'] as const)
       const final = f.updates().at(-1)!;
       assert.equal(final.status, 'completed');
       assert.match(final.report!, /Which target\?[\s]+Implemented preview\./);
-      assert.equal(await readFile(f.report, 'utf8'), final.report);
+      assert.equal(await readFile(f.report, 'utf8'), 'Implemented preview.');
+      assert.ok(f.output().stdout.includes(final.report!));
 
       assert.equal(
         f.requests.filter(

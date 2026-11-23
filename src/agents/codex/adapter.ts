@@ -1315,6 +1315,9 @@ class CodexSession implements AgentSession {
         : this.options.answer
           ? turn.messages.last
           : turn.messages.text,
+      ...(!turn.compaction && turn.messages.final
+        ? { final: turn.messages.final }
+        : {}),
       ...(error ? { error } : {}),
       ...(exhausted && status === 'failed' ? { exhausted } : {}),
     });

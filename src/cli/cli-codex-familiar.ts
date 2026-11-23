@@ -242,6 +242,8 @@ export async function runCodexFamiliar(
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   let report = '';
+  /** the last turn's final message: a follow-up turn only carries the reply to the familiar's own question. */
+  let answer = '';
   let status: FamiliarProgress['status'] = 'failed';
   let registered = false;
   const save = () => saveReport(file, report);
@@ -311,7 +313,9 @@ export async function runCodexFamiliar(
     for (;;) {
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
+      answer = result.final ?? '';
       status = result.status === 'interrupted' ? 'stopped' : result.status;
+      // a checkpoint: the familiar can still await a question's reply or run another turn
       await save();
 
       if (result.status !== 'completed') break;
@@ -370,7 +374,7 @@ export async function runCodexFamiliar(
       .filter(Boolean)
       .join('\n\n');
 
-    await save();
+    await saveReport(file, status === 'completed' ? answer : report);
 
     if (registered) {
       try {

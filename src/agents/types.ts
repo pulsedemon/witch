@@ -287,6 +287,8 @@ export type AgentEvent =
 export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';
   text: string;
+  /** Codex only: the turn's last non-empty agent message, apart from the progress messages `text` also joins. */
+  final?: string;
   error?: string;
   /** steered prompts the agent will never read, reported on interruption or a failed turn. */
   unread?: string[];
