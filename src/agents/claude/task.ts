@@ -57,8 +57,8 @@ const result = z.object({
 });
 
 /**
- * every native result adds to the report, since a finished background task can start a turn after the answer; only
- * the child's exit can finish the task.
+ * every native result adds to the report and the answer, since a finished background task can start a turn after the
+ * answer; only the child's exit can finish the task. the answer leaves out denials, native errors and unfinished text.
  */
 export class ClaudeTask {
   private identity?: z.infer<typeof init>;
@@ -66,6 +66,7 @@ export class ClaudeTask {
   private spells?: Cast[];
   private activity?: string;
   private readonly reports: string[] = [];
+  private readonly answers: string[] = [];
   /** the current turn's latest text, its report if the turn ends without a result. */
   private draft = '';
   private success = false;
@@ -169,11 +170,17 @@ export class ClaudeTask {
           ...denials,
         );
 
+        if (finished.result !== undefined) this.answers.push(finished.result);
+
         this.draft = '';
       }
     } catch (error) {
       this.failed(`Invalid Claude task stream: ${errorMessage(error)}`);
     }
+  }
+
+  get answer(): string {
+    return this.answers.join('\n\n');
   }
 
   failed(message: string): void {

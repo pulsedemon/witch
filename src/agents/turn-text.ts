@@ -20,4 +20,8 @@ export class TurnText {
   get last(): string {
     return [...this.messages.values()].at(-1) ?? '';
   }
+
+  get final(): string {
+    return [...this.messages.values()].findLast(Boolean) ?? '';
+  }
 }

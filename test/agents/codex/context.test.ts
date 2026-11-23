@@ -30,6 +30,7 @@ test('Codex inserts complete context before the exact user request', async () =>
     assert.deepEqual(await within(sending, 5000, 'contextual turn'), {
       status: 'completed',
       text: 'Finished.',
+      final: 'Finished.',
     });
 
     const injection = JSON.parse(

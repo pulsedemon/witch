@@ -169,7 +169,13 @@ export async function runClaudeFamiliar(
     };
 
     let terminal = closed(stopped ?? (reports.error ? null : signal));
-    const save = () => saveReport(file, terminal.report ?? '');
+
+    const save = () =>
+      saveReport(
+        file,
+        terminal.status === 'completed' ? task.answer : (terminal.report ?? ''),
+      );
+
     await save();
 
     try {
