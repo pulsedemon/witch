@@ -26,8 +26,9 @@ const question = {
   ],
 };
 
-function fixture() {
-  const f = fake({
+function fixture(
+  rows = 30,
+  snapshot: Parameters<typeof fake>[0] = {
     items: [
       {
         id: 'text',
@@ -36,8 +37,9 @@ function fixture() {
         cwd: '/work',
       },
     ],
-  });
-
+  },
+) {
+  const f = fake(snapshot);
   const owner = new PreviewOwner();
 
   Object.assign(f.coordinator, {
@@ -51,11 +53,35 @@ function fixture() {
   const ui = show(
     createElement(App, { coordinator: f.app, onExit() {} }),
     80,
-    30,
+    rows,
   );
 
   return { ...f, owner, ui };
 }
+
+const reply = {
+  id: 'reply',
+  kind: 'assistant' as const,
+  text: 'Reply opens here\nQ1 does it look right?\nQ2 is it readable?\nQ3 should I continue?',
+  cwd: '/work',
+};
+
+function tall(rows: number) {
+  return {
+    title: 'Tall',
+    frames: [Array.from({ length: rows }, (_, i) => `frame row ${i}`)],
+  };
+}
+
+const placed = (owner: PreviewOwner) =>
+  owner.snapshot?.status.placement?.rows ?? 0;
+
+const range = (ui: { text(): string }) =>
+  /rows \d+–\d+ of \d+/u.exec(ui.text())?.[0];
+
+/** a one-based SGR wheel report at column 5 of a zero-based screen row. */
+const wheel = (button: 64 | 65, row: number) =>
+  `\u001b[<${button};5;${row + 1}M`;
 
 test('a tall preview preserves question text, options and typed answers, and tracks request placement', async () => {
   const f = fixture();
@@ -206,6 +232,150 @@ test('a long question keeps its existing scrollable viewport before a preview', 
   }
 });
 
+// idle chat rows: one phase row, a two-row footer, then from the body a bordered
+// one-row composer (3), the tool window (4) and the gap (1); half of the rest goes to the transcript
+for (const [rows, shared] of [
+  [24, 24 - 1 - 2 - 3 - 4 - 1],
+  [60, 60 - 1 - 2 - 3 - 4 - 1],
+] as const)
+  test(`a tall chat preview leaves the reply readable at ${rows} rows`, async () => {
+    const f = fixture(rows, { items: [reply] });
+
+    try {
+      f.owner.show(tall(rows * 2));
+      // the preview keeps floor(shared / 2) rows, one of them its title
+      const expected = Math.floor(shared / 2) - 1;
+      await until('placement', () => placed(f.owner) === expected);
+
+      for (const text of [
+        'Reply opens here',
+        'Q1 does it look right?',
+        'Q2 is it readable?',
+        'Q3 should I continue?',
+        'frame row 0',
+        `rows 1–${expected} of ${rows * 2} · Tall`,
+      ])
+        assert.ok(f.ui.text().includes(text), f.ui.text());
+    } finally {
+      f.ui.unmount();
+    }
+  });
+
+test('queued prompts come out of the rows a preview leaves before the transcript takes half', async () => {
+  const f = fixture(24, {
+    phase: 'running',
+    queue: ['queued 0', 'queued 1', 'queued 2', 'queued 3'],
+    items: [{ ...reply, text: 'Short reply' }],
+  });
+
+  try {
+    f.owner.show(tall(48));
+    // 24 rows less the phase row, footer (2), composer (3), working row, tools (4), gap and message row leave 11;
+    // the queue takes 4, the transcript ceil(7 / 2) = 4, and the preview 3 with its title
+    await until('placement', () => placed(f.owner) === 2);
+
+    for (const text of ['Short reply', 'queued 0', 'queued 3', 'frame row 1'])
+      assert.ok(f.ui.text().includes(text), f.ui.text());
+  } finally {
+    f.ui.unmount();
+  }
+});
+
+test('the wheel scrolls a cropped chat preview over its frame and the transcript elsewhere', async () => {
+  const f = fixture(24, {
+    items: [
+      {
+        id: 'history',
+        kind: 'assistant',
+        text: Array.from({ length: 60 }, (_, i) => `history ${i}`).join('\n'),
+        cwd: '/work',
+      },
+      reply,
+    ],
+  });
+
+  try {
+    f.owner.show(tall(48));
+    await until('placement', () => placed(f.owner) === 5);
+    // 7 transcript rows below the phase row put the title on row 8 and the frame on rows 9 to 13
+    f.ui.stdin.write(wheel(65, 10));
+    await until('one step', () => range(f.ui) === 'rows 2–6 of 48');
+    assert.equal(f.ui.text().split('\n')[9]?.trim(), 'frame row 1');
+    f.ui.stdin.write(wheel(65, 10).repeat(2));
+
+    await until(
+      'two steps in one read',
+      () => range(f.ui) === 'rows 4–8 of 48',
+    );
+
+    f.ui.stdin.write(wheel(65, 10).repeat(60));
+    await until('end', () => range(f.ui) === 'rows 44–48 of 48');
+    assert.ok(f.ui.text().includes('frame row 47'));
+    assert.ok(f.ui.text().includes('Q3 should I continue?'));
+    f.ui.resize(80, 60);
+    // 49 shared rows at 60 give the preview 23 frame rows, so the offset clamps to 48 - 23
+    await until('clamped on resize', () => range(f.ui) === 'rows 26–48 of 48');
+    // 25 transcript rows put the title on row 26 and the frame on rows 27 to 49
+    f.ui.stdin.write(wheel(64, 30));
+    await until('up at once', () => range(f.ui) === 'rows 25–47 of 48');
+
+    const reading = () =>
+      f.ui.text().split('\n')[0]!.includes('READING EARLIER OUTPUT');
+
+    assert.ok(!reading());
+    f.ui.stdin.write(wheel(64, 5).repeat(3));
+    await until('transcript scrolled', reading);
+    assert.equal(range(f.ui), 'rows 25–47 of 48');
+    const top = () => /history (\d+)/u.exec(f.ui.text())?.[1];
+    const above = top();
+    f.ui.stdin.write(wheel(64, 26));
+    await until('title row scrolls the transcript', () => top() !== above);
+    assert.equal(range(f.ui), 'rows 25–47 of 48');
+    f.owner.show(tall(30));
+
+    await until(
+      'replacement at its top',
+      () => range(f.ui) === 'rows 1–23 of 30',
+    );
+
+    f.owner.show({
+      title: 'Short',
+      frames: [['short 0', 'short 1', 'short 2']],
+    });
+
+    await until('uncropped', () => f.ui.text().includes('short 2'));
+    const before = top();
+    // 45 transcript rows put the short preview's frame on rows 47 to 49
+    f.ui.stdin.write(wheel(64, 48));
+
+    await until(
+      'transcript moves under an uncropped preview',
+      () => top() !== before,
+    );
+
+    assert.ok(!f.ui.text().includes('rows 1–'));
+  } finally {
+    f.ui.unmount();
+  }
+});
+
+test('a cropped preview keeps its range ahead of a long title', async () => {
+  const owner = new PreviewOwner();
+  owner.show({ title: 'T'.repeat(200), frames: [['a', 'b', 'c', 'd', 'e']] });
+
+  const ui = show(
+    createElement(Preview, { owner, width: 80, height: 3 }),
+    80,
+    3,
+  );
+
+  try {
+    await until('range', () => ui.text().startsWith('rows 1–2 of 5 · TTT'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('preview loops reuse clipped frames and update them on resize or replacement', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   vi.setSystemTime(100_000);
@@ -238,18 +408,42 @@ test('preview loops reuse clipped frames and update them on resize or replacemen
   const ui = show(createElement(View));
 
   try {
-    await until('first clipped frame', () => ui.text() === 'Loop\nFIRST FR');
+    await until(
+      'first clipped frame',
+      () => ui.text() === 'rows 1–1 of 2 · Loop\nFIRST FR',
+    );
+
     vi.advanceTimersByTime(50);
-    await until('second clipped frame', () => ui.text() === 'Loop\nSECOND F');
+
+    await until(
+      'second clipped frame',
+      () => ui.text() === 'rows 1–1 of 2 · Loop\nSECOND F',
+    );
+
     const calls = clipped();
     assert.ok(calls > 0);
     vi.advanceTimersByTime(50);
-    await until('first frame again', () => ui.text() === 'Loop\nFIRST FR');
+
+    await until(
+      'first frame again',
+      () => ui.text() === 'rows 1–1 of 2 · Loop\nFIRST FR',
+    );
+
     vi.advanceTimersByTime(50);
-    await until('second frame again', () => ui.text() === 'Loop\nSECOND F');
+
+    await until(
+      'second frame again',
+      () => ui.text() === 'rows 1–1 of 2 · Loop\nSECOND F',
+    );
+
     assert.equal(clipped(), calls);
     resize([4, 2]);
-    await until('narrow frame', () => ui.text() === 'Loop\nSECO');
+
+    await until(
+      'narrow frame',
+      () => ui.text() === 'rows 1–1 of 2 · Loop\nSECO',
+    );
+
     resize([8, 3]);
     await until('taller frame', () => ui.text() === 'Loop\nSECOND F\nTAIL TWO');
     owner.show({ title: 'New', frames: [['REPLACED'], ['LATEST']] });

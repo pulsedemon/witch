@@ -24,6 +24,7 @@ import type { InputHandle } from './input/Input.js';
 import type { InputBuffer } from './input/input-buffer.js';
 import { Request } from './Request.js';
 import { Preview } from './Preview.js';
+import type { PreviewHandle } from './Preview.js';
 import { usePreview } from './usePreview.js';
 import { previewLayout } from './preview-layout.js';
 import { Recovery } from './Recovery.js';
@@ -210,6 +211,7 @@ export function App({
   const exit = useExitConfirm(onExit);
   const [copied, showCopied] = useFlash(1000);
   const composer = useRef<InputHandle>(null);
+  const previewHandle = useRef<PreviewHandle>(null);
 
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => coordinator.report(error));
@@ -344,10 +346,15 @@ export function App({
   );
 
   const composerRows = Math.min(fitted.composer, wrappedInputRows);
+  const previewHeight = fitted.content - composerRows;
 
+  // the transcript keeps at least half, so the reply a preview is shown for stays readable
   const previewSpace = previewLayout(
-    fitted.content - composerRows,
-    minimumTranscriptRows + state.queue.length,
+    previewHeight,
+    Math.max(
+      minimumTranscriptRows,
+      Math.ceil((previewHeight - state.queue.length) / 2),
+    ) + state.queue.length,
     chat ? preview?.status : undefined,
   );
 
@@ -669,7 +676,7 @@ export function App({
   });
 
   useWheel((rows, cell) => {
-    if (!request && !recovering && view.kind === 'chat') {
+    if (chat && !previewHandle.current?.wheel(rows, cell)) {
       if (scrollBy(rows)) selection.point('wheel', cell);
     }
   });
@@ -846,6 +853,7 @@ export function App({
           </Text>
         </Box>
         <Preview
+          ref={previewHandle}
           owner={coordinator.coordination?.preview}
           width={bodyWidth}
           height={previewSpace.preview}
