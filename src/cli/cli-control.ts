@@ -451,7 +451,7 @@ function describe(outcome: ControlOutcome): string {
           ? ['Preview close refused: the ID is not current.']
           : []),
         outcome.preview
-          ? `Preview ${outcome.preview.id}: ${oneLine(outcome.preview.title)} | ${outcome.preview.placement ? `${outcome.preview.placement.rows} rows placed` : 'not placed'}`
+          ? `Preview ${outcome.preview.id}: ${oneLine(outcome.preview.title)} | ${outcome.preview.placement ? `${outcome.preview.placement.rows} of ${outcome.preview.rows} rows placed` : 'not placed'}`
           : 'No preview is open.',
       ].join('\n');
 

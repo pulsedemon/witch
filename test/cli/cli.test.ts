@@ -603,7 +603,12 @@ test('preview CLI reads a quoted file locally and sends validated frame data thr
   );
 
   const file = join(directory, "frame ' with spaces.json");
-  const document = { title: 'Preview', frames: [['(・∀・)'], ['new frame']] };
+
+  const document = {
+    title: 'Preview',
+    frames: [['(・∀・)', ' (^_^) ', '(・ω・)'], ['new frame']],
+  };
+
   const prefix = controlPrefix(binding, await compiledCli());
 
   try {
@@ -659,7 +664,7 @@ test('preview CLI reads a quoted file locally and sends validated frame data thr
     assert.match(unplaced.stdout, /not placed/);
     owner.placed(id, { columns: 70, rows: 0 });
     const hidden = await run(`${prefix} --preview-status`);
-    assert.match(hidden.stdout, /0 rows placed/);
+    assert.match(hidden.stdout, /0 of 3 rows placed/);
     const stale = await run(`${prefix} --preview-close ${randomUUID()}`);
     assert.match(stale.stdout, /close refused: the ID is not current/);
     assert.equal(owner.snapshot?.status.id, id);
