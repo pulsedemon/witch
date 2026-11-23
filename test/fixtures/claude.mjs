@@ -244,17 +244,19 @@ const result = (fields = {}) => {
     });
 };
 
-/** exits once a grandchild sharing stderr is running; it writes a line about 65 ms later. */
+/** exits beside a grandchild sharing stderr, which writes a line once this process is reaped and so after its `exit` event. */
 const exitBeforeGrandchild = (code) => {
-  const grandchild = spawn(
+  spawn(
     '/bin/sh',
-    ['-c', 'printf r >&4; cat <&3; sleep 0.05; echo grandchild line >&2'],
-    { stdio: ['ignore', 'ignore', 'inherit', 'pipe', 'pipe'] },
+    [
+      '-c',
+      'while kill -0 "$0" 2>/dev/null; do :; done; echo grandchild line >&2',
+      String(process.pid),
+    ],
+    { stdio: ['ignore', 'ignore', 'inherit'] },
   );
 
-  grandchild.stdio[4].once('data', () =>
-    process.stderr.write('fixture stderr text\n', () => process.exit(code)),
-  );
+  process.stderr.write('fixture stderr text\n', () => process.exit(code));
 };
 
 const finish = () => {
