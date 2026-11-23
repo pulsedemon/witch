@@ -92,6 +92,8 @@ export class FamiliarRun {
   readonly requests: FamiliarRequests;
   private sequence = -1;
   private ended = false;
+  /** set by the familiar's own terminal update, which may arrive after its command ended. */
+  private reported = false;
 
   constructor(
     action: Extract<FamiliarAction, { kind: 'familiar-register' }>,
@@ -117,7 +119,8 @@ export class FamiliarRun {
     action: Exclude<FamiliarAction, { kind: 'familiar-register' }>,
   ): FamiliarOutcome {
     if (action.kind !== 'familiar-update') {
-      this.checkRunning();
+      // resolving is idempotent, so the wrapper's cleanup after its command ended isn't refused
+      if (action.kind !== 'familiar-request-resolved') this.checkRunning();
 
       return this.requests.report(action);
     }
@@ -125,18 +128,27 @@ export class FamiliarRun {
     // the wrapper retries an update under its sequence, so an older or repeated one changes nothing
     if (action.sequence <= this.sequence) return { kind: 'familiar-updated' };
 
-    this.checkRunning();
+    if (this.reported) throw new Error('The familiar run has already ended.');
+
     this.sequence = action.sequence;
+
+    // progress sent before the wrapper saw its command end can't revive the row
+    if (this.ended && action.progress.status === 'running')
+      return { kind: 'familiar-updated' };
+
     this.subagent = { ...this.subagent, ...action.progress };
 
-    if (this.subagent.status !== 'running') this.requests.resolveAll();
+    if (this.subagent.status !== 'running') {
+      this.reported = true;
+      this.requests.resolveAll();
+    }
 
     this.emit({ type: 'subagent', subagent: this.subagent });
 
     return { kind: 'familiar-updated' };
   }
 
-  /** ends the run with the command that carried it, marking a familiar that never reported its own end. */
+  /** ends the run with the command that carried it, marking a familiar that hasn't reported its own end; a later terminal report replaces that mark. */
   end(status: 'stopped' | 'failed'): void {
     this.ended = true;
     this.requests.resolveAll();
