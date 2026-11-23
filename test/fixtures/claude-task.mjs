@@ -44,13 +44,14 @@ for (const id of ['read-a', 'read-a', 'read-b'])
   });
 
 process.stderr.write('native stderr\n');
+const answer = '{"verdict":"final"}';
 
 emit({
   type: 'result',
   subtype: 'success',
   session_id,
   is_error: false,
-  result: 'Full review.\n'.repeat(7000),
+  result: mode === 'repeat-turn' ? answer : 'Full review.\n'.repeat(7000),
   permission_denials:
     mode === 'denied'
       ? [
@@ -73,21 +74,23 @@ else if (mode === 'held-pipe') {
 
   writeFileSync('descendant.pid', String(child.pid));
   child.unref();
-} else if (['gated', 'ignore-term', 'later-turn'].includes(mode)) {
+} else if (
+  ['gated', 'ignore-term', 'later-turn', 'repeat-turn'].includes(mode)
+) {
   // exits once stdout drains: on macOS pipe writes are async, so process.exit would drop an unread result
   const timer = setInterval(() => {
     if (!existsSync('exit')) return;
 
     clearInterval(timer);
 
-    // as Claude Code does when a background task ends after the answer
-    if (mode === 'later-turn')
+    // a finished background task starts a turn after the first result
+    if (mode === 'later-turn' || mode === 'repeat-turn')
       emit({
         type: 'result',
         subtype: 'success',
         session_id,
         is_error: false,
-        result: 'Stopped the background search.',
+        result: answer,
         permission_denials: [],
       });
   }, 10);

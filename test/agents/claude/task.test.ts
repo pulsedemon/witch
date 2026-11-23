@@ -96,7 +96,7 @@ test('native permission denials remain in the final report even when the review 
   assert.equal(review.answer, 'Reviewed.');
 });
 
-test('the answer joins every result in order and leaves out native errors and unfinished text', () => {
+test('the answer is the latest successful non-empty result and leaves out native errors and unfinished text', () => {
   const review = new ClaudeTask('/work', () => {});
   review.message(init);
   review.message({ ...success, result: 'First.' });
@@ -109,6 +109,8 @@ test('the answer joins every result in order and leaves out native errors and un
   });
 
   review.message({ ...success, result: 'Second.' });
+  review.message({ ...success, is_error: true, result: 'Native failure.' });
+  review.message({ ...success, result: '' });
 
   review.message({
     ...read,
@@ -118,12 +120,15 @@ test('the answer joins every result in order and leaves out native errors and un
     },
   });
 
+  const closed = review.closed(0, null);
+  assert.equal(closed.status, 'completed');
+
   assert.equal(
-    review.closed(0, null).report,
-    'First.\n\nNative error.\n\nSecond.\n\nStill searching.',
+    closed.report,
+    'First.\n\nNative error.\n\nSecond.\n\nNative failure.\n\nStill searching.',
   );
 
-  assert.equal(review.answer, 'First.\n\nSecond.');
+  assert.equal(review.answer, 'Second.');
 });
 
 const skill = (id: string, name: string, nested = {}) => ({
