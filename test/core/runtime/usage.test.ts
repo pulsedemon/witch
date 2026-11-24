@@ -737,6 +737,44 @@ test('a refusal ends at its limit reset, and one for a model label blocks only t
   assert.equal(refused(latest(), undefined, at()), false);
 });
 
+test("a model-label refusal waits for room in that model's own window, not only the shared one", () => {
+  const { usage, latest, tick, at } = exhaustion();
+  usage.exhausted('b', { window: '7D', model: 'Fable' });
+  tick();
+
+  const fable = (percent: number): AccountReading => ({
+    limits: [window('7D', 40, { observedAt: at() })],
+    modelLimits: [
+      { ...window('7D', percent, { observedAt: at() }), model: 'Fable' },
+    ],
+  });
+
+  usage.report('b', fable(100));
+  assert.equal(refused(latest(), 'claude-fable-5-2', at()), true);
+  usage.report('b', fable(30));
+  assert.equal(latest().exhausted, undefined);
+});
+
+test('unlimited credits observed after a refusal let the runtime back', () => {
+  const { usage, latest, tick, at } = exhaustion();
+  usage.exhausted('b');
+  tick();
+
+  usage.report('b', {
+    limits: [window('7D', 100, { observedAt: at() })],
+    funding: {
+      kind: 'credits',
+      balance: null,
+      unlimited: true,
+      available: true,
+      observedAt: at(),
+    },
+    creditAccess: { state: 'available', observedAt: at() },
+  });
+
+  assert.equal(latest().exhausted, undefined);
+});
+
 test('a refusal survives the account first identifying itself and ends with another account', () => {
   const { usage, latest, at } = exhaustion();
   usage.exhausted('b');
