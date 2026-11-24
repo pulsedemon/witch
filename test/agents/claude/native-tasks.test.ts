@@ -57,6 +57,7 @@ test('native familiar model-only frames preserve task state', async () => {
       subtype: 'init',
       model: 'parent-model',
       permissionMode: 'default',
+      skills: [],
     });
 
     await emit({

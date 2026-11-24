@@ -15,13 +15,15 @@ export interface Model {
   contextWindows?: { default: number; maximum: number };
 }
 
-/** a discovered skill or command; the composer offers it after `/` unless it is `builtin`. */
+/** a discovered skill or command; the composer offers it after `/` unless it is `builtin` and not `bundled`. */
 export interface Skill {
   name: string;
   description: string;
   argumentHint?: string;
-  /** Claude Code's own command, which the composer doesn't offer. */
+  /** Claude Code's own command. */
   builtin?: true;
+  /** a built-in Claude Code lists as a skill. */
+  bundled?: true;
   /** other names Claude Code runs a built-in under, such as `cost` for `usage`. */
   aliases?: string[];
   /** keeps a native command and its aliases as text to preserve Witch's state ownership. */

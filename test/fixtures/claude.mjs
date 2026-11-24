@@ -841,7 +841,7 @@ for await (const line of lines) {
       apiKeySource: 'none',
       output_style: 'default',
       agents: [],
-      skills: [],
+      skills: mode === 'init-skills' ? ['autocompact'] : [],
       plugins: [],
       uuid: randomUUID(),
       claude_code_version: nativeVersion,
