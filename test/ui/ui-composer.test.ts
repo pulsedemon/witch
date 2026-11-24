@@ -479,11 +479,17 @@ test("a skill named like a Witch command's alias is left out too", async () => {
   }
 });
 
-test("the composer's list leaves out built-in commands", async () => {
+test("the composer's list offers bundled built-ins and leaves out other built-ins", async () => {
   // a shared prefix, since `/` alone lists Witch's commands first and the list shows eight rows
   const { ui } = await launched({
     skills: [
       { name: 'x-context', description: 'Context usage', builtin: true },
+      {
+        name: 'x-simplify',
+        description: 'Simplify changes',
+        builtin: true,
+        bundled: true,
+      },
       { name: 'x-review', description: 'Review changes' },
     ],
   });
@@ -491,7 +497,12 @@ test("the composer's list leaves out built-in commands", async () => {
   try {
     ui.stdin.write('/x');
     await until('the list', () => ui.text().includes('/x-review Review'));
+    assert.ok(ui.text().includes('/x-simplify Simplify'));
     assert.ok(!ui.text().includes('x-context'));
+    // a built-in's full name would close the list, but a bundled one keeps its row
+    ui.stdin.write('-simplify');
+    await until('the narrowed list', () => !ui.text().includes('x-review'));
+    assert.ok(ui.text().includes('/x-simplify Simplify changes'));
   } finally {
     ui.unmount();
   }
@@ -615,9 +626,10 @@ test('a native name the list leaves out sends as typed rather than as a spell ho
   }
 });
 
-for (const [name, native] of [
-  ['cost', 'usage'],
-  ['settings', 'config'],
+for (const [name, native, bundled] of [
+  ['cost', 'usage', false],
+  ['settings', 'config', false],
+  ['audit', 'simplify', true],
 ] as const)
   test(`an exact ${name} spell is offered ahead of the ${native} built-in alias`, async () => {
     const { ui, calls } = await launched({
@@ -629,6 +641,7 @@ for (const [name, native] of [
           builtin: true,
           aliases: [name],
           ...(native === 'config' ? { sendAsText: true as const } : {}),
+          ...(bundled ? { bundled: true as const } : {}),
         },
         { name, description: 'Project spell' },
       ],

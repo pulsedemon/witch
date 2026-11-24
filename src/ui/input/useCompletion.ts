@@ -14,6 +14,9 @@ import {
   tokenKey,
 } from './completion.js';
 
+/** a Claude built-in other than a bundled skill, which the list leaves out. */
+const unlisted = (skill?: Skill) => !!skill?.builtin && !skill.bundled;
+
 export function useCompletion({
   open,
   focused,
@@ -59,7 +62,7 @@ export function useCompletion({
   }));
 
   const spellEntries = skills.filter(
-    ({ name, builtin }) => !builtin && !claimedCommands.has(name),
+    (skill) => !unlisted(skill) && !claimedCommands.has(skill.name),
   );
 
   /** a native command the list doesn't offer, which must send as typed rather than as a spell it matches. */
@@ -69,7 +72,7 @@ export function useCompletion({
     return (
       !claimedCommands.has(name) &&
       ((liveAgent === 'claude' && textCommands.has(name)) ||
-        skillNamed(name, skills)?.builtin)
+        unlisted(skillNamed(name, skills)))
     );
   };
 
