@@ -246,7 +246,7 @@ test('a review leaves out a runtime that ran out with nowhere to shift, and says
   const f = await start(t.onTestFinished);
   f.coordinator.accountUsage.report('a', { limits: [window(40)] });
   f.coordinator.accountUsage.report('b', { limits: [window(100)] });
-  f.coordinator.accountUsage.exhausted('a');
+  f.coordinator.accountUsage.exhausted('a', '/w');
 
   const reply = await f.route({
     work: 'review',

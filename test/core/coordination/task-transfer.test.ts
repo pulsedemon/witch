@@ -623,7 +623,7 @@ test('credits on a runtime that refused for usage cannot veto automatic transfer
     creditAccess: { state: 'available', observedAt: Date.now() },
   });
 
-  usage.exhausted('codex');
+  usage.exhausted('codex', '/w');
   assert.equal((await f.attempt()).kind, 'claimed');
 
   assert.equal(

@@ -695,7 +695,7 @@ test('a refused runtime stays out while later readings keep its balance, and a t
   const { usage, reading, latest, tick, at } = exhaustion();
   usage.report('b', reading('70.67'));
   tick();
-  usage.exhausted('b');
+  usage.exhausted('b', '/w');
   tick();
   // the bucket Witch reads still says credits are usable after the refusal
   usage.report('b', reading('20.58'));
@@ -717,7 +717,7 @@ test('room observed after a refusal lets the runtime back, and room observed bef
   const { usage, reading, latest, tick, at } = exhaustion();
   const before = reading('0', 40);
   tick();
-  usage.exhausted('b');
+  usage.exhausted('b', '/w');
   tick();
   usage.report('b', before);
   assert.equal(refused(latest(), 'model', at()), true);
@@ -727,11 +727,11 @@ test('room observed after a refusal lets the runtime back, and room observed bef
 
 test('a refusal ends at its limit reset, and one for a model label blocks only that model', () => {
   const { usage, latest, tick, at } = exhaustion();
-  usage.exhausted('b', { window: '7D', resetsAt: at() / 1000 + 1 });
+  usage.exhausted('b', '/w', { window: '7D', resetsAt: at() / 1000 + 1 });
   assert.equal(refused(latest(), 'model', at()), true);
   tick();
   assert.equal(refused(latest(), 'model', at()), false);
-  usage.exhausted('b', { window: '7D', model: 'Fable' });
+  usage.exhausted('b', '/w', { window: '7D', model: 'Fable' });
   assert.equal(refused(latest(), 'claude-fable-5-2', at()), true);
   assert.equal(refused(latest(), 'claude-opus-5-5', at()), false);
   assert.equal(refused(latest(), undefined, at()), false);
@@ -739,7 +739,7 @@ test('a refusal ends at its limit reset, and one for a model label blocks only t
 
 test("a model-label refusal waits for room in that model's own window, not only the shared one", () => {
   const { usage, latest, tick, at } = exhaustion();
-  usage.exhausted('b', { window: '7D', model: 'Fable' });
+  usage.exhausted('b', '/w', { window: '7D', model: 'Fable' });
   tick();
 
   const fable = (percent: number): AccountReading => ({
@@ -757,7 +757,7 @@ test("a model-label refusal waits for room in that model's own window, not only 
 
 test('unlimited credits observed after a refusal let the runtime back', () => {
   const { usage, latest, tick, at } = exhaustion();
-  usage.exhausted('b');
+  usage.exhausted('b', '/w');
   tick();
 
   usage.report('b', {
@@ -777,7 +777,7 @@ test('unlimited credits observed after a refusal let the runtime back', () => {
 
 test('a refusal survives the account first identifying itself and ends with another account', () => {
   const { usage, latest, at } = exhaustion();
-  usage.exhausted('b');
+  usage.exhausted('b', '/w');
   usage.report('b', { identity: 'first', limits: [] });
   assert.equal(refused(latest(), 'model', at()), true);
   usage.report('b', { identity: 'second', limits: [] });
@@ -786,7 +786,6 @@ test('a refusal survives the account first identifying itself and ends with anot
 
 test('a probe that started before a refusal does not restore the earlier mark', async () => {
   const { b, usage, latest, tick } = exhaustion();
-  usage.exhausted('b');
   const read = Promise.withResolvers<AccountReading>();
   let started: AccountReading | undefined;
 
@@ -796,11 +795,31 @@ test('a probe that started before a refusal does not restore the earlier mark', 
     return read.promise;
   };
 
-  const probing = usage.refresh('b', '/w');
+  usage.exhausted('b', '/w');
+  const earlier = latest().exhausted;
   tick();
-  usage.exhausted('b');
+  usage.exhausted('b', '/w');
   const mark = latest().exhausted;
+  assert.equal(started!.exhausted, earlier);
+  assert.notEqual(mark, earlier);
   read.resolve({ ...started!, limits: [] });
-  await probing;
+  await usage.refresh('b', '/w');
   assert.equal(latest().exhausted, mark);
+});
+
+test('a refusal rereads its runtime past the throttle, so a top-up before the next read lets it back', async () => {
+  const { b, usage, reading, latest, tick } = exhaustion();
+  b.accountReading = reading('20.58');
+  await usage.refresh('b', '/w');
+  const read = Promise.withResolvers<AccountReading>();
+  b.accountRead = () => read.promise;
+  tick();
+  usage.exhausted('b', '/w');
+  tick();
+  read.resolve(reading('20.58'));
+  await usage.refresh('b', '/w');
+  assert.equal(latest().exhausted!.balance, '20.58');
+  tick();
+  usage.report('b', reading('30'));
+  assert.equal(latest().exhausted, undefined);
 });

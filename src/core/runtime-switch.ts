@@ -215,7 +215,10 @@ export class RuntimeSwitch {
     };
 
     this.pending = request;
-    this.host.usage().exhausted(request.conversation.agent, limit);
+
+    this.host
+      .usage()
+      .exhausted(request.conversation.agent, request.conversation.cwd, limit);
 
     return request;
   }
@@ -297,8 +300,10 @@ export class RuntimeSwitch {
             .finally(() => (this.continuing = false));
 
           // a `/model` summary can exhaust its source too, and returning there needs later evidence
-          if (result.status === 'failed' && result.exhausted)
-            host.usage().exhausted(host.conversation().agent, result.limit);
+          if (result.status === 'failed' && result.exhausted) {
+            const { agent, cwd } = host.conversation();
+            host.usage().exhausted(agent, cwd, result.limit);
+          }
 
           if (continuing) this.continuation = result;
 

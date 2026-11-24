@@ -376,10 +376,16 @@ export class AccountUsage {
   }
 
   /** records a confirmed usage refusal; the first credit balance observed after it is the floor recovery must beat. */
-  exhausted(agent: string, limit?: ExhaustedLimit): void {
+  exhausted(agent: string, cwd: string, limit?: ExhaustedLimit): void {
     this.store(agent, {
       ...(this.accounts[agent] ?? { limits: [] }),
       exhausted: { at: Date.now(), ...(limit && { limit }), balance: null },
+    });
+
+    // a top-up before the next throttled read would otherwise become the floor
+    void this.refresh(agent, cwd, {
+      force: true,
+      after: this.accounts[agent]?.exhausted?.at,
     });
   }
 
