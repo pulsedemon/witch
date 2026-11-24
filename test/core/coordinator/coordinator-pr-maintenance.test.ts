@@ -147,10 +147,13 @@ async function stack(t: TestContext) {
           }),
         });
 
-        await until('child cleanup', () =>
-          notices(c).includes(
-            '#8 merged: switched to feat/parent and pulled, deleted branch feat/child.',
-          ),
+        await until(
+          'child cleanup',
+          () =>
+            notices(c).includes(
+              '#8 merged: switched to feat/parent and pulled, deleted branch feat/child.',
+            ),
+          500,
         ).catch((error: unknown) => {
           throw new Error(
             JSON.stringify({
