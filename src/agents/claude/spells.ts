@@ -31,8 +31,14 @@ export const textCommands = new Set([
   'rename',
 ]);
 
-/** one entry per name, a built-in's own row for a name it shadows, since `/name` runs the built-in. */
-export function skillsOf(commands: SlashCommand[]): Skill[] {
+/**
+ * one entry per name, a built-in's own row for a name it shadows, since `/name` runs the built-in.
+ * `bundled` names the skills the latest turn's init lists.
+ */
+export function skillsOf(
+  commands: SlashCommand[],
+  bundled: ReadonlySet<string>,
+): Skill[] {
   const builtins = new Map(
     commands
       .filter((command) => command.builtin)
@@ -54,6 +60,7 @@ export function skillsOf(commands: SlashCommand[]): Skill[] {
       description,
       ...(argumentHint ? { argumentHint } : {}),
       ...(builtin ? { builtin: true as const } : {}),
+      ...(builtin && bundled.has(name) ? { bundled: true as const } : {}),
       ...(builtin && aliases?.length ? { aliases } : {}),
       ...(builtin && textCommands.has(name)
         ? { sendAsText: true as const }

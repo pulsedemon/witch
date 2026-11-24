@@ -56,7 +56,7 @@ const items = [
 
 const names = (ranked: { name: string }[]) => ranked.map(({ name }) => name);
 
-test('commands rank an exact name or alias first, then name prefixes, in input order', () => {
+test('commands rank an exact name, then an exact alias, then name prefixes, in input order', () => {
   assert.deepEqual(names(rankCommands('model', items, [])), [
     'model',
     'models',
@@ -66,6 +66,17 @@ test('commands rank an exact name or alias first, then name prefixes, in input o
     'quit',
     'exit-plan',
   ]);
+
+  assert.deepEqual(
+    names(
+      rankCommands(
+        'x-audit',
+        [],
+        [{ name: 'x-simplify', aliases: ['x-audit'] }, { name: 'x-audit' }],
+      ),
+    ),
+    ['x-audit', 'x-simplify'],
+  );
 
   // a Witch command never matches inside its name or by its initials
   assert.deepEqual(rankCommands('odel', items, []), []);

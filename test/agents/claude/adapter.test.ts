@@ -9,6 +9,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { skillCall } from '../../../src/core/prompts.js';
 import type {
   AgentEvent,
+  Skill,
   Usage,
   UserRequest,
 } from '../../../src/agents/types.js';
@@ -131,6 +132,84 @@ test('skills preserve built-in precedence, aliases and text routing before and a
           ],
         },
       ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+test("a built-in the turn's init lists as a skill is marked bundled through a native change", async () => {
+  const events: AgentEvent[] = [];
+
+  const { session } = await fixture(
+    (event) => events.push(event),
+    'init-skills',
+  );
+
+  const named = (skills: Skill[], name: string) =>
+    skills.find((skill) => skill.name === name);
+
+  const listed = () =>
+    events.flatMap((event) => (event.type === 'skills' ? [event.skills] : []));
+
+  try {
+    assert.equal(
+      named(await session.skills(), 'autocompact')?.bundled,
+      undefined,
+    );
+
+    assert.equal((await session.send('hello')).status, 'completed');
+    await until('the bundled skills', () => listed().length > 0);
+
+    assert.deepEqual(named(listed()[0]!, 'autocompact'), {
+      name: 'autocompact',
+      description: 'Native command',
+      builtin: true,
+      bundled: true,
+    });
+
+    assert.equal(named(listed()[0]!, 'compact')?.bundled, undefined);
+    // the second init names the same skills, so only the native change relists them
+    assert.equal((await session.send('add skill')).status, 'completed');
+    await until('the native change', () => listed().length > 1);
+    assert.equal(listed().length, 2);
+    assert.ok(named(listed()[1]!, 'later'));
+    assert.equal(named(listed()[1]!, 'autocompact')?.bundled, true);
+    // as many names as before, but different ones
+    assert.equal((await session.send('swap skills')).status, 'completed');
+    await until('the swapped skills', () => listed().length > 2);
+    assert.equal(named(listed()[2]!, 'advisor')?.bundled, true);
+    assert.equal(named(listed()[2]!, 'autocompact')?.bundled, undefined);
+    // a repeated name doesn't make the same set look new
+    assert.equal((await session.send('repeat skills')).status, 'completed');
+    assert.equal((await session.send('hello')).status, 'completed');
+    await until('the restored skills', () => listed().length > 3);
+    assert.equal(listed().length, 4);
+  } finally {
+    await session.close();
+  }
+});
+
+test('an init that relists skills after close emits nothing', async () => {
+  const events: AgentEvent[] = [];
+  let closing: Promise<void> | undefined;
+
+  const { session } = await fixture((event) => {
+    events.push(event);
+
+    // close() marks the session closed before the relisting settles
+    if (event.type === 'info') closing ??= session.close();
+  }, 'init-skills');
+
+  try {
+    await session.send('hello').catch(() => {});
+    await closing;
+    const info = events.findIndex((event) => event.type === 'info');
+    assert.ok(info !== -1);
+
+    assert.deepEqual(
+      events.slice(info).filter((event) => event.type === 'skills'),
+      [],
     );
   } finally {
     await session.close();

@@ -58,8 +58,9 @@ function abbreviates(query: string, name: string): boolean {
 type Ranked = { name: string; aliases?: string[] };
 
 /**
- * an exact name or alias first, then names that start with the query, then spell names that contain
- * it or that it abbreviates. Witch's commands skip the last two, so a stray word can't run `/restart`.
+ * an exact name first, then an exact alias, then names that start with the query, then spell names
+ * that contain it or that it abbreviates. Witch's commands skip the last two, so a stray word can't
+ * run `/restart`.
  */
 export function rankCommands<C extends Ranked, S extends Ranked>(
   query: string,
@@ -72,8 +73,9 @@ export function rankCommands<C extends Ranked, S extends Ranked>(
   return tiered<C | S>(
     [...commands, ...spells],
     [
-      ({ name, aliases = [] }) =>
-        [name, ...aliases].some((each) => each.toLowerCase() === typed),
+      ({ name }) => name.toLowerCase() === typed,
+      ({ aliases = [] }) =>
+        aliases.some((each) => each.toLowerCase() === typed),
       ({ name }) => name.toLowerCase().startsWith(typed),
       (item) => spell.has(item) && item.name.toLowerCase().includes(typed),
       (item) => spell.has(item) && abbreviates(typed, item.name.toLowerCase()),

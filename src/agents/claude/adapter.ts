@@ -179,6 +179,7 @@ class ClaudeSession implements AgentSession {
   private child?: ChildExit;
   private process?: ChildProcessWithoutNullStreams;
   private closeTask?: Promise<void>;
+  private bundled: ReadonlySet<string> = new Set();
   private interrupting?: Promise<void>;
   private terminating?: Promise<boolean>;
   private stopUntil?: number;
@@ -372,7 +373,7 @@ class ClaudeSession implements AgentSession {
 
   /** the SDK keeps this cache current from the CLI's `commands_changed` pushes, so reading it sends nothing. */
   async skills(): Promise<Skill[]> {
-    return skillsOf(await this.query.supportedCommands());
+    return skillsOf(await this.query.supportedCommands(), this.bundled);
   }
 
   get backgroundActive(): boolean {
@@ -964,7 +965,7 @@ class ClaudeSession implements AgentSession {
       } else if (message.subtype === 'commands_changed') {
         this.options.onEvent({
           type: 'skills',
-          skills: skillsOf(message.commands),
+          skills: skillsOf(message.commands, this.bundled),
         });
       } else if (message.subtype === 'session_state_changed')
         this.sessionState(message);
@@ -1028,6 +1029,25 @@ class ClaudeSession implements AgentSession {
 
     this.options.onEvent({ type: 'info', info: this.info });
     this.mcp.refresh();
+    this.bundledSkills(message.skills);
+  }
+
+  /** relists skills when a turn's init names a different set, since only it tells bundled skills apart. */
+  private bundledSkills(names: string[]): void {
+    const bundled = new Set(names);
+
+    if (
+      bundled.size === this.bundled.size &&
+      [...bundled].every((name) => this.bundled.has(name))
+    )
+      return;
+
+    this.bundled = bundled;
+
+    // the SDK answers from its cache once initialize has resolved, so this can't reject
+    void this.skills().then((skills) => {
+      if (!this.closed) this.options.onEvent({ type: 'skills', skills });
+    });
   }
 
   private fellBack(message: SDKModelRefusalFallbackMessage): void {
