@@ -113,8 +113,8 @@ export function due(account: AccountReading | undefined, now: number): boolean {
 }
 
 /**
- * the refused limit reset, or a reading observed after the refusal shows room or a balance above the lowest seen
- * since: Codex has reported usable credits in the bucket Witch reads while refusing for usage.
+ * the refused limit reset, or a reading observed after the refusal shows room, unlimited credits or a balance above
+ * the lowest seen since: Codex has reported usable credits in the bucket Witch reads while refusing for usage.
  */
 function recovered(
   { exhausted, limits, modelLimits, funding, creditAccess }: AccountReading,
