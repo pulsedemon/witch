@@ -246,23 +246,6 @@ test('a split registration marker and a live native handle are both required bef
       },
     });
 
-    await until(
-      'targeted cleanup',
-      async () =>
-        (
-          await readFile(join(f.cwd, 'terminated.jsonl'), 'utf8').catch(
-            () => '',
-          )
-        ).length > 0,
-    );
-
-    assert.deepEqual(
-      JSON.parse(
-        (await readFile(join(f.cwd, 'terminated.jsonl'), 'utf8')).trim(),
-      ),
-      { threadId: 'native-thread', processId: '42' },
-    );
-
     assert.equal(f.familiarEvents().at(-1)!.report, 'Verified review.');
     assert.equal(f.familiarEvents().length, 3);
   } finally {
@@ -607,58 +590,56 @@ test('closing a native connection reports stopped even when command completion a
     });
 
     assert.equal(f.familiarEvents().at(-1)!.status, 'stopped');
+    await writeFile(join(f.cwd, 'release-termination'), 'yes');
+    await closing;
+    assert.equal((await terminateRequests(f.cwd)).length, 1);
   } finally {
     await writeFile(join(f.cwd, 'release-termination'), 'yes');
     await (closing ?? f.session.close());
   }
 });
 
-test('a familiar command that exited 0 leaves no cleanup notice when Codex already reaped its terminal', async () => {
-  const f = await reportedFixture();
+for (const [status, exitCode] of [
+  ['completed', 0],
+  ['failed', 1],
+] as const)
+  test(`a familiar command that exited ${exitCode} leaves its native terminal for the parent to read`, async () => {
+    const f = await reportedFixture();
 
-  try {
-    await f.emit(
-      { method: 'item/started', params: { ...f.params, item: f.item } },
-      f.output(f.marker),
-    );
+    try {
+      await f.emit(
+        { method: 'item/started', params: { ...f.params, item: f.item } },
+        f.output(f.marker),
+      );
 
-    assert.equal((await f.register()).kind, 'familiar-registered');
+      assert.equal((await f.register()).kind, 'familiar-registered');
 
-    await f.session.familiar!.report(
-      {
-        kind: 'familiar-update',
-        run: f.run,
-        sequence: 0,
-        progress: { status: 'completed' },
-      },
-      Date.now() + 5000,
-    );
+      if (status === 'completed')
+        await f.session.familiar!.report(
+          {
+            kind: 'familiar-update',
+            run: f.run,
+            sequence: 0,
+            progress: { status },
+          },
+          Date.now() + 5000,
+        );
 
-    await writeFile(join(f.cwd, 'terminal-gone'), '');
+      await f.emit({
+        method: 'item/completed',
+        params: { ...f.params, item: { ...f.item, status, exitCode } },
+      });
 
-    await f.emit({
-      method: 'item/completed',
-      params: {
-        ...f.params,
-        item: { ...f.item, status: 'completed', exitCode: 0 },
-      },
-    });
-
-    await until(
-      'cleanup request',
-      async () => (await terminateRequests(f.cwd)).length > 0,
-    );
-
-    await f.emit();
-    assert.deepEqual(cleanupNotices(f.events), []);
-
-    assert.deepEqual(await terminateRequests(f.cwd), [
-      { threadId: 'native-thread', processId: '42' },
-    ]);
-  } finally {
-    await f.session.close();
-  }
-});
+      // a model read follows any terminate the completion sent, so the fixture has recorded it
+      await f.session.models();
+      assert.deepEqual(await terminateRequests(f.cwd), []);
+      assert.equal(f.familiarEvents().at(-1)!.status, status);
+      await f.session.close();
+      assert.deepEqual(await terminateRequests(f.cwd), []);
+    } finally {
+      await f.session.close();
+    }
+  });
 
 test('a familiar command that ended without a clean exit keeps the cleanup notice', async () => {
   const f = await reportedFixture();
@@ -672,7 +653,7 @@ test('a familiar command that ended without a clean exit keeps the cleanup notic
     assert.equal((await f.register()).kind, 'familiar-registered');
     await writeFile(join(f.cwd, 'terminal-gone'), '');
 
-    // an evicted terminal whose exit Codex never saw ends this way
+    // Codex reports -1 when it never observed the exit, as on its exec-server failure path
     await f.emit({
       method: 'item/completed',
       params: {
