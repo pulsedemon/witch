@@ -209,7 +209,8 @@ function report(): Promise<string> {
     const { stdout } = await execute(
       process.execPath,
       ['--import', import.meta.resolve('tsx'), script, '--since', '2026-11-10'],
-      { env: { ...process.env, HOME: root } },
+      // days and `--since` are local; UTC keeps the fixture's hours on one day
+      { env: { ...process.env, HOME: root, TZ: 'UTC' } },
     );
 
     return stdout;
@@ -329,4 +330,28 @@ test('Claude USD comes from the whole session estimate', async () => {
 test('Codex rollouts without per-response records are counted as skipped, not as zero', async () => {
   assert.match(await report(), /\n1 Codex rollouts from before September 2026/);
   assert.equal((await byRole()).get('codex familiar')?.[0], '1');
+});
+
+test('per-day totals bucket each request by its own day and leave out earlier ones', async () => {
+  const days = await table('per local day');
+
+  // requests, uncached, cache write, cache read, output, thinking, hit
+  assert.deepEqual(
+    [...days],
+    [
+      ['2026-11-20 claude', ['3', '1K', '100', '1K', '580', '34%', '48%']],
+      ['2026-11-20 codex', ['4', '2.1K', '0', '2.6K', '117', '34%', '55%']],
+    ],
+  );
+});
+
+test("first-request input covers a session's first request only when it falls in the window", async () => {
+  const firsts = await table(
+    'first-request input, including instructions, memory and the task',
+  );
+
+  // sessions, median, p90; the Codex main's first request predates `--since`
+  assert.deepEqual(firsts.get('claude main'), ['1', '1.1K', '1.1K']);
+  assert.equal(firsts.has('codex main'), false);
+  assert.deepEqual(firsts.get('codex familiar'), ['1', '600', '600']);
 });
