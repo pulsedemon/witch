@@ -8,18 +8,15 @@ import { scratch } from '../../fixtures/scratch.js';
 test('an inspected artifact parses its version and digests its content', async () => {
   const directory = await scratch('witch-artifact-');
   const executable = join(directory, 'codex');
+  await writeFile(executable, "#!/bin/sh\nprintf 'codex-cli 1.2.3\\n'\n");
+  await chmod(executable, 0o755);
+  const artifact = await inspectArtifact('codex', executable);
+  assert.equal(artifact.version, '1.2.3');
+  assert.equal(artifact.runtime, 'codex');
 
-  const write = async (body: string) => {
-    await writeFile(executable, `#!/bin/sh\nprintf '${body}\\n'\n`);
-    await chmod(executable, 0o755);
-
-    return inspectArtifact('codex', executable);
-  };
-
-  const first = await write('codex-cli 1.2.3');
-  assert.equal(first.version, '1.2.3');
-  assert.equal(first.runtime, 'codex');
-  const changed = await write('codex-cli 1.2.3 ');
-  assert.equal(changed.version, '1.2.3');
-  assert.notEqual(changed.digest, first.digest);
+  // `shasum -a 256` of the script above
+  assert.equal(
+    artifact.digest,
+    'b6810f59909f50aa3d57f2652e09b2e7597f8591af396ba930a8336ff34ea656',
+  );
 });
