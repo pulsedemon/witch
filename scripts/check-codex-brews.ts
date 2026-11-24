@@ -14,7 +14,8 @@ import { z } from 'zod';
 import { CodexAdapter } from '../src/agents/codex/adapter.js';
 import { readContextCatalog } from '../src/agents/codex/compaction-policy.js';
 import type { RpcMessage } from '../src/agents/codex/json-rpc.js';
-import { streamResponse } from '../src/agents/updates/native-sandbox-check.js';
+import { nativeLaunch } from '../src/agents/native-launch.js';
+import { streamResponse } from '../src/agents/native-check/native-sandbox-check.js';
 import { installedAgents } from '../src/agents/registry.js';
 import type { AgentEvent, SessionOptions } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
@@ -588,7 +589,7 @@ const poll = setInterval(() => {
 
     assert.ok(
       registration?.executable,
-      'Install Codex before running this check',
+      'Run pnpm install first: the pinned Codex is missing',
     );
 
     nativeVersion = (
@@ -642,12 +643,14 @@ supports_websockets = false
 
     const adapter = new CodexAdapter(
       (executable, project, signal) => {
-        child = spawn(executable, ['app-server'], {
-          cwd: project,
-          signal,
-          stdio: 'pipe',
-          env: environment,
-        });
+        child = nativeLaunch(executable, (command) =>
+          spawn(command, ['app-server'], {
+            cwd: project,
+            signal,
+            stdio: 'pipe',
+            env: environment,
+          }),
+        );
 
         childClosed = new Promise((resolve) => child!.once('close', resolve));
         child.on('error', fail);

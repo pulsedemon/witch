@@ -51,7 +51,6 @@ export const phaseSchema = z.enum([
   'recovery',
   'editing',
   'cleaning',
-  'updating',
   'closing',
   'error',
 ]);
@@ -59,13 +58,7 @@ export const phaseSchema = z.enum([
 export type Phase = z.infer<typeof phaseSchema>;
 
 export function agentWorking(phase: Phase): boolean {
-  return [
-    'starting',
-    'running',
-    'switching',
-    'compacting',
-    'updating',
-  ].includes(phase);
+  return ['starting', 'running', 'switching', 'compacting'].includes(phase);
 }
 
 export const conversationRecordSchema = conversationSchema.extend({

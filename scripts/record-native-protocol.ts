@@ -7,9 +7,11 @@ import { homedir } from 'node:os';
 import {
   verificationAdapter,
   verificationHome,
-} from '../src/agents/updates/native-verification-profile.js';
+} from '../src/agents/native-check/native-verification-profile.js';
+import { nativeExecutable } from '../src/agents/executable.js';
+import { nativeLaunch } from '../src/agents/native-launch.js';
 import { observeWire, normalizeWire } from '../test/fixtures/native-wire.js';
-import { nativeScenario } from '../src/agents/updates/native-scenario.js';
+import { nativeScenario } from '../src/agents/native-check/native-scenario.js';
 
 const { values } = parseArgs({
   options: {
@@ -27,6 +29,7 @@ assert.ok(
 );
 
 assert.ok(values.out && values.model, '--out and --model are required');
+const { runtime } = values;
 
 assert.ok(
   values.scenario === 'basic' ||
@@ -75,22 +78,30 @@ const start = (
   env = process.env,
   signal?: AbortSignal,
 ) => {
-  const child = spawn(command, args, {
-    cwd: directory,
-    env,
-    signal,
-    stdio: 'pipe',
-  });
+  const child = nativeLaunch(command, (resolved) =>
+    spawn(resolved, args, {
+      cwd: directory,
+      env,
+      signal,
+      stdio: 'pipe',
+    }),
+  );
 
-  launches.push({ command, args });
+  launches.push({ command: runtime, args });
   captures.push(observeWire(child));
   child.stderr.on('data', (chunk) => process.stderr.write(chunk));
 
   return child;
 };
 
-const executable = values.executable ?? values.runtime;
-const adapter = await verificationAdapter(values.runtime, root, { start });
+const executable = values.executable ?? nativeExecutable(runtime);
+
+assert.ok(
+  executable,
+  'Run pnpm install first: the pinned native CLI is missing',
+);
+
+const adapter = await verificationAdapter(runtime, root, { start });
 let passed = false;
 const abort = new AbortController();
 
@@ -126,7 +137,7 @@ try {
       .flatMap((capture) => capture.frames)
       .map((frame) => frame.message) as Record<string, unknown>[];
 
-    if (values.runtime === 'codex') {
+    if (runtime === 'codex') {
       const request = frames.find(
         (frame) => frame.method === 'thread/backgroundTerminals/terminate',
       );
@@ -178,7 +189,7 @@ try {
     join(root, 'capture.json'),
     JSON.stringify(
       {
-        runtime: values.runtime,
+        runtime: runtime,
         version: execFileSync(executable, ['--version'], {
           encoding: 'utf8',
         }).trim(),

@@ -1,10 +1,9 @@
 import { execFile } from 'node:child_process';
-import { readFile, readlink } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { signalGroup } from '../agents/shutdown.js';
 import type { ConversationRecord, ProcessIdentity } from '../core/state.js';
-import { unlessGone } from './json.js';
 import type { ConversationStore } from './store.js';
 
 const execute = promisify(execFile);
@@ -31,30 +30,6 @@ for my $pid (@ARGV) {
   print join("\\0", $pid, $count, @args[0 .. $count - 1]), "\\0";
 }
 `;
-
-/** a process's working directory, undefined once it has exited. */
-export async function processDirectory(
-  pid: number,
-): Promise<string | undefined> {
-  if (process.platform === 'linux')
-    return unlessGone(readlink(`/proc/${pid}/cwd`));
-
-  const { stdout } = await execute(
-    '/usr/sbin/lsof',
-    ['-a', '-p', String(pid), '-d', 'cwd', '-Fpn0'],
-    { timeout: 5000 },
-  );
-
-  return stdout
-    .split('\0')
-    .map((field) => field.replace(/^\n/, ''))
-    .find((field) => field.startsWith('n'))
-    ?.slice(1);
-}
-
-/** Linux only: a process's executable, undefined once it has exited. macOS callers take ps's command instead. */
-export const processExecutable = (pid: number) =>
-  unlessGone(readlink(`/proc/${pid}/exe`));
 
 /** preserves argv boundaries; exited or inaccessible processes are omitted. */
 export async function processArguments(

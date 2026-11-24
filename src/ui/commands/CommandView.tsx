@@ -5,11 +5,7 @@ import { dirname, join } from 'node:path';
 import type { Coordinator } from '../../core/coordinator.js';
 import type { JobWatch } from '../../core/jobs/jobs.js';
 import { modelKey } from '../../core/runtime/models.js';
-import type {
-  RuntimeUpdates,
-  RuntimeUpdateSnapshot,
-} from '../../core/runtime/runtime-updates.js';
-import { agentLabel, type Snapshot } from '../../core/snapshot.js';
+import { agentLabel } from '../../core/snapshot.js';
 import type { CoordinationSnapshot } from '../../core/coordination/coordination-state.js';
 import { errorMessage } from '../../errors.js';
 import { CommandBatches } from './command-batches.js';
@@ -30,25 +26,20 @@ import { ScrollPage } from '../ScrollPage.js';
 import { pageStart } from '../scroll-page-layout.js';
 import type { PagePosition } from '../scroll-page-layout.js';
 import { piped } from '../theme.js';
-import { showUpdates, updatesText } from './updates.js';
 import { usePicker } from './usePicker.js';
 import { wrapSourceLines } from '../wrap.js';
 
 export function useCommandViews({
   coordinator,
-  cwd,
   jobs,
   policy,
-  updates,
   onExit,
   onRestart,
   toEnd,
 }: {
   coordinator: Coordinator;
-  cwd: string;
   jobs?: Pick<JobWatch, 'list' | 'stop'>;
   policy?: Parameters<typeof delegation>[1];
-  updates?: RuntimeUpdates;
   onExit(): void;
 
   onRestart?(): void;
@@ -311,20 +302,6 @@ export function useCommandViews({
       case 'jobs':
         return showJobs(active);
 
-      case 'updates':
-        return showUpdates(argument, {
-          updates,
-          agents: coordinator.snapshot.agents,
-          active,
-          picker,
-          details: () => {
-            openPage({ kind: 'updates' });
-
-            return true;
-          },
-          notice: (text) => coordinator.notice(text, { cwd, save: false }),
-        });
-
       case 'help':
         openPage({
           kind: 'page',
@@ -419,8 +396,6 @@ function pageContent(
   view: View,
   cwd: string,
   coordination: CoordinationSnapshot | undefined,
-  updates: RuntimeUpdateSnapshot,
-  agents: Snapshot['agents'],
 ): { title: string; text: string } | undefined {
   switch (view.kind) {
     case 'page':
@@ -446,12 +421,6 @@ function pageContent(
         text: coordinationText(coordination, view.mode),
       };
 
-    case 'updates':
-      return {
-        title: 'Native runtime updates',
-        text: updatesText(updates, agents),
-      };
-
     case 'chat':
 
     case 'picker':
@@ -465,8 +434,6 @@ export function CommandView({
   height: bodyHeight,
   cwd,
   coordination,
-  updates,
-  agents,
   copy,
   current,
 }: {
@@ -475,8 +442,6 @@ export function CommandView({
   height: number;
   cwd: string;
   coordination: CoordinationSnapshot | undefined;
-  updates: RuntimeUpdateSnapshot;
-  agents: Snapshot['agents'];
   copy?(text: string): void;
 
   current?(): boolean;
@@ -496,13 +461,13 @@ export function CommandView({
     view.kind === 'coordination' ? coordination : undefined;
 
   const { title, lines: pageLines } = useMemo(() => {
-    const content = pageContent(view, cwd, pageCoordination, updates, agents);
+    const content = pageContent(view, cwd, pageCoordination);
 
     return {
       title: content?.title ?? '',
       lines: wrapSourceLines(content?.text ?? '', bodyWidth),
     };
-  }, [view, cwd, pageCoordination, updates, agents, bodyWidth]);
+  }, [view, cwd, pageCoordination, bodyWidth]);
 
   const pageHeading = Number(bodyHeight >= 3);
   const pageHint = Number(bodyHeight >= 2);
@@ -526,13 +491,11 @@ export function CommandView({
 
   if (view.kind === 'picker') {
     const heading = Number(bodyHeight >= 4);
-    // from 6 rows, the first height where the caption still leaves a choice row
-    const caption = Number(!!view.caption && bodyHeight >= 6);
     const hint = Number(bodyHeight >= 3);
 
     const count = Math.max(
       0,
-      bodyHeight - 1 - heading - caption - hint - Number(bodyHeight >= 5),
+      bodyHeight - 1 - heading - hint - Number(bodyHeight >= 5),
     );
 
     const first = Math.max(0, selected - count + 1);
@@ -544,9 +507,6 @@ export function CommandView({
             {plain(view.title)}
           </Text>
         </Box>
-        {caption > 0 && (
-          <Text wrap="truncate-middle">{plain(view.caption ?? '')}</Text>
-        )}
         <Box height={count} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => {
             // a note name can hold a line break

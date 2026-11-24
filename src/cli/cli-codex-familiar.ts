@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from '../agents/codex/adapter.js';
+import { nativeExecutable } from '../agents/executable.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import type {
   FamiliarAction,
@@ -262,8 +263,12 @@ export async function runCodexFamiliar(
 
     for await (const chunk of process.stdin) prompt += chunk as string;
 
+    const codex = nativeExecutable('codex');
+
+    if (!codex) throw new Error('Native executable not found: codex');
+
     const adapter = new CodexAdapter((executable, cwd, signal) => {
-      const child = nativeLaunch(executable, undefined, (command) =>
+      const child = nativeLaunch(executable, (command) =>
         spawn(command, argv, {
           cwd,
           signal,
@@ -298,7 +303,7 @@ export async function runCodexFamiliar(
     });
 
     session = await adapter.connect({
-      executable: 'codex',
+      executable: codex,
       cwd: process.cwd(),
       memoryDirectories: [],
       withoutMcp: lean,

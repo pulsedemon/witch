@@ -18,7 +18,7 @@ import {
 } from '../../scripts/check-background-exhaustion.js';
 import { ClaudeAdapter } from '../../src/agents/claude/adapter.js';
 import { CodexAdapter } from '../../src/agents/codex/adapter.js';
-import * as nativeProfile from '../../src/agents/updates/native-verification-profile.js';
+import * as nativeProfile from '../../src/agents/native-check/native-verification-profile.js';
 import { FixtureAgent } from '../fixtures/agent.js';
 import { initialSnapshot } from '../../src/core/snapshot.js';
 import { createConversation } from '../../src/core/state.js';
@@ -939,7 +939,12 @@ test('missing consent exits before native discovery and preserves an existing ou
 
   await assert.rejects(
     execute(process.execPath, ['--import', 'tsx', script, '--out', out], {
-      env: { ...process.env, PATH: bin },
+      env: {
+        ...process.env,
+        PATH: bin,
+        WITCH_CLAUDE_EXECUTABLE: join(bin, 'claude'),
+        WITCH_CODEX_EXECUTABLE: join(bin, 'codex'),
+      },
     }),
     (error: unknown) => field(error, 'code') === 2,
   );

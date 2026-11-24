@@ -25,7 +25,7 @@ import { unitCoordinationFixture } from '../../fixtures/coordination.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until, within } from '../../fixtures/within.js';
 
-/** a coordinator whose familiar mailbox asks its reviewers first, with `claude` and `codex` fixtures on a private PATH. */
+/** a coordinator whose familiar mailbox asks its reviewers first, with `claude` and `codex` fixtures as its native executables. */
 async function setup(register: Parameters<typeof orderedCleanup>[0]) {
   const { start } = await unitCoordinationFixture(orderedCleanup(register));
   const session = await start();
@@ -76,7 +76,7 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
       name,
       directory,
       reportFile: join(directory, 'report.md'),
-      command: `cd ${quote(directory)} && PATH=${quote(bin)}:"$PATH" WITCH_FAMILIAR_FIXTURE=${mode} ${command}`,
+      command: `cd ${quote(directory)} && WITCH_CLAUDE_EXECUTABLE=${quote(join(bin, 'claude'))} WITCH_CODEX_EXECUTABLE=${quote(join(bin, 'codex'))} WITCH_FAMILIAR_FIXTURE=${mode} ${command}`,
     };
   };
 

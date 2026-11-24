@@ -392,7 +392,7 @@ for (const covered of [false, true]) {
       ui.stdin.write('\u001b[6~');
 
       await until('shell command explanation', () =>
-        first().startsWith('sandbox, and the agent'),
+        first().startsWith('finishes, unless the agent'),
       );
 
       const before = first();
@@ -418,7 +418,7 @@ for (const covered of [false, true]) {
         coordinator.publish({ requests: [] });
       }
 
-      await until('narrow paragraph', () => first() === 'without a sandbox,');
+      await until('narrow paragraph', () => first() === 'agent finishes,');
 
       assert.ok(
         ui

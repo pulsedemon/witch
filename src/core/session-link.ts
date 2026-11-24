@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { taskActivity } from './coordination/coordination-state.js';
-import type { NativeRuntime } from '../agents/updates/runtime-updates.js';
-import { errorMessage, failureOf } from '../errors.js';
+import { errorMessage } from '../errors.js';
 import type {
   AgentEvent,
   AgentSession,
@@ -98,75 +96,6 @@ export class SessionLink {
     private readonly jobs?: LinkJobs,
     private readonly changes?: WorkTreeChanges,
   ) {}
-
-  retryInitialization?: () => Promise<void>;
-
-  get maintenanceReady(): boolean {
-    const state = this.host.snapshot();
-
-    return (
-      ['idle', 'error'].includes(state.phase) &&
-      !state.queue.length &&
-      !state.requests.length &&
-      !state.pendingCompaction &&
-      !state.nativeRunning &&
-      !taskActivity(state).running
-    );
-  }
-
-  /** an update disconnects its runtime and refreshes discovery before reopening the saved session. */
-  async maintain(
-    runtime: NativeRuntime,
-    run: () => Promise<void>,
-  ): Promise<void> {
-    const reconnect = this.host.record()?.agent === runtime;
-    const failures: unknown[] = [];
-
-    try {
-      await this.usage.suspend();
-      this.catalog.cancel();
-
-      if (reconnect) await this.disconnect({ keepActivation: true });
-
-      await run();
-    } catch (error) {
-      failures.push(error);
-    } finally {
-      this.catalog.invalidate(runtime);
-
-      if (this.host.snapshot().phase !== 'closing') {
-        if (reconnect) {
-          const error = await failureOf(this.connect());
-
-          if (error) {
-            failures.push(new Error(error));
-            this.host.publish({ error });
-          }
-        }
-
-        if (!this.host.record() && this.retryInitialization) {
-          const error = await failureOf(this.retryInitialization());
-
-          // project startup errors do not invalidate a qualified native installation.
-          if (error) this.host.publish({ error });
-          else this.retryInitialization = undefined;
-        }
-      }
-
-      this.usage.resume(runtime);
-
-      if (this.host.snapshot().phase !== 'closing')
-        this.host.publish({
-          phase: this.host.record() ? 'idle' : 'error',
-          agents: this.catalog.availability,
-        });
-    }
-
-    if (failures.length === 1) throw failures[0];
-
-    if (failures.length)
-      throw new AggregateError(failures, failures.map(errorMessage).join('\n'));
-  }
 
   async clear(scope: MemoryScope, forget: () => void): Promise<void> {
     const conversation = this.host.conversation();

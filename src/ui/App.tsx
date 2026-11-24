@@ -63,8 +63,6 @@ import { useExitConfirm } from './useExitConfirm.js';
 import { useFlash } from './useFlash.js';
 import { accent, colors, potion } from './theme.js';
 import { wrapSourceLines } from './wrap.js';
-import type { RuntimeUpdates } from '../core/runtime/runtime-updates.js';
-import { useRuntimeUpdates } from './commands/updates.js';
 
 const unwatched = () => () => {};
 
@@ -93,10 +91,8 @@ export function App({
   store,
   policy,
   copy,
-  updates,
 }: {
   coordinator: Coordinator;
-  updates?: RuntimeUpdates;
   /** the project's Git status for the status line, which leaves Git out without it. */
   repository?: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>;
   /** draws images in the transcript, which leaves them out without it. */
@@ -117,8 +113,6 @@ export function App({
   /** sent once loading and cleanup end idle with nothing reported and tools unfocused, or ahead of a prompt submitted while waiting; otherwise left as the draft. */
   initialPrompt?: string;
 }) {
-  const updateSnapshot = useRuntimeUpdates(updates);
-
   const subscription = useMemo(
     () => (notify: () => void) => {
       let scheduled: ReturnType<typeof setTimeout> | undefined;
@@ -187,10 +181,8 @@ export function App({
 
   const commandViews = useCommandViews({
     coordinator,
-    cwd,
     jobs,
     policy,
-    updates,
     onExit,
     onRestart,
     toEnd: () => setTop(null),
@@ -819,8 +811,6 @@ export function App({
         height={bodyHeight}
         cwd={cwd}
         coordination={coordination}
-        updates={updateSnapshot}
-        agents={state.agents}
       />
     );
   } else {

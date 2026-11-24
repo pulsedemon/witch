@@ -25,11 +25,6 @@ const catalog = [
   { id: 'clear', label: 'Clear agent context', leading: true },
   { id: 'memory', label: 'Browse shared memory' },
   { id: 'jobs', label: 'Running jobs' },
-  {
-    id: 'updates',
-    label: 'Native runtime updates and recovery',
-    takesArguments: true,
-  },
   { id: 'help', label: 'Keyboard help' },
   {
     id: 'restart',

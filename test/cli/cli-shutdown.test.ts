@@ -77,6 +77,9 @@ async function check(
       env: {
         ...process.env,
         PATH: `${bin}:/usr/bin:/bin`,
+        // the runtime the test doesn't fake must not resolve to the pinned binary
+        WITCH_CLAUDE_EXECUTABLE: join(bin, 'claude'),
+        WITCH_CODEX_EXECUTABLE: join(bin, 'codex'),
         HOME: root,
         TMPDIR: root,
         WITCH_CONVERSATION: 'shutdown',

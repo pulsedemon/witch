@@ -12,6 +12,7 @@ import { render } from 'ink';
 import { CodexAdapter } from '../src/agents/codex/adapter.js';
 import { scanMarkers } from '../src/agents/familiar-report.js';
 import type { MarkerLine } from '../src/agents/familiar-report.js';
+import { nativeLaunch } from '../src/agents/native-launch.js';
 import { installedAgents } from '../src/agents/registry.js';
 import { shellWords } from '../src/agents/tool-title.js';
 import type { Subagent } from '../src/agents/types.js';
@@ -110,7 +111,7 @@ ChildProcess.prototype.spawn = function(options) {
   const result = original.call(this, options);
   const audit = process.env.WITCH_REVIEW_AUDIT;
   if (audit && isAbsolute(options.file) &&
-      realpathSync(options.file) === process.env.WITCH_REVIEW_EXECUTABLE) {
+      realpathSync.native(options.file) === process.env.WITCH_REVIEW_EXECUTABLE) {
     publish(audit + '.processes.json', {
       child: identity(this.pid), wrapper: identity(process.pid),
     });
@@ -170,21 +171,23 @@ const native = registrations.find((agent) => agent.adapter.id === 'codex');
 if (!native?.executable) {
   await writeJson(join(root, 'result.json'), {
     passed: false,
-    error: 'Codex is not installed.',
+    error: 'Codex is not installed. Run pnpm install first.',
   });
 
   await coordination.close();
   jobs.close();
 
-  throw new Error('Codex is not installed.');
+  throw new Error('Codex is not installed. Run pnpm install first.');
 }
 
 const adapter = new CodexAdapter((executable, cwd, signal) => {
-  const child = spawn(executable, ['app-server', '--stdio'], {
-    cwd,
-    signal,
-    stdio: 'pipe',
-  });
+  const child = nativeLaunch(executable, (command) =>
+    spawn(command, ['app-server', '--stdio'], {
+      cwd,
+      signal,
+      stdio: 'pipe',
+    }),
+  );
 
   createInterface({ input: child.stdout }).on('line', (line) => {
     const frame = JSON.parse(line) as {
@@ -441,7 +444,7 @@ async function command(
     'env',
     'NODE_OPTIONS=' + quote('--import=' + join(project, 'audit.mjs')),
     'WITCH_REVIEW_AUDIT=' + quote(audit),
-    'WITCH_REVIEW_EXECUTABLE=' + quote(realpathSync(executable)),
+    'WITCH_REVIEW_EXECUTABLE=' + quote(realpathSync.native(executable)),
     coordination.commandPrefixes().familiar,
     '--familiar-' + runtime,
     quote(name),

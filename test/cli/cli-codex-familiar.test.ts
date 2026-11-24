@@ -179,7 +179,7 @@ syncBuiltinESMExports();
       cwd: root,
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
+        WITCH_CODEX_EXECUTABLE: join(bin, 'codex'),
         WITCH_CODEX_FAMILIAR_FIXTURE: options.mode ?? 'success',
         WITCH_JOBS: 'owned-mark',
       },

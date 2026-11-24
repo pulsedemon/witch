@@ -9,7 +9,7 @@ import {
   normalizeWire,
 } from '../fixtures/native-wire.js';
 import { scratch } from '../fixtures/scratch.js';
-import { probeApproval } from '../../src/agents/updates/native-scenario.js';
+import { probeApproval } from '../../src/agents/native-check/native-scenario.js';
 
 test('wire capture retains split JSON lines in both directions without consuming the streams', async () => {
   const child = spawn(

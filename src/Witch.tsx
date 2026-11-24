@@ -4,8 +4,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
-import { registerNativeParticipant } from './agents/native-launch.js';
-import { RuntimeUpdates } from './core/runtime/runtime-updates.js';
 import { errorMessage } from './errors.js';
 import { controlPrefix } from './cli/cli-control.js';
 import type { parseCommand } from './cli/cli-control.js';
@@ -68,7 +66,6 @@ export async function runWitch(
     process.exit(1);
   }
 
-  registerNativeParticipant();
   const prompt = positionals.join(' ');
   let stopTerminal: (() => void) | undefined;
 
@@ -147,26 +144,6 @@ export async function runWitch(
     changes,
   );
 
-  const updates = new RuntimeUpdates({
-    cwd: () => coordinator.snapshot.conversation?.cwd ?? process.cwd(),
-    maintain: (runtime, run) =>
-      coordinator.maintainNative(runtime, async (signal) => {
-        try {
-          await run(signal);
-        } finally {
-          const registration = registrations.find(
-            (value) => value.adapter.id === runtime,
-          );
-
-          if (registration)
-            registration.executable = (await installedAgents()).find(
-              (value) => value.adapter.id === runtime,
-            )?.executable;
-        }
-      }),
-    notice: (message) => coordinator.notice(message, { save: false }),
-  });
-
   /** a desktop action that failed; nothing in the conversation depends on it. */
   const warn = (error: unknown) =>
     coordinator.notice(errorMessage(error), { save: false });
@@ -191,7 +168,6 @@ export async function runWitch(
   let shuttingDown = false;
 
   const shutdown = () => {
-    updates.close();
     stopTerminal?.();
 
     // a second request quits without waiting for a stuck agent
@@ -280,7 +256,6 @@ export async function runWitch(
   const application = render(
     <App
       coordinator={coordinator}
-      updates={updates}
       repository={repository}
       jobs={jobs}
       store={store}
@@ -334,9 +309,7 @@ export async function runWitch(
     // initialize shows its own failure
     .catch(() => {});
 
-  void updates.check().catch(warn);
   await application.waitUntilExit();
-  updates.close();
   stopMerges();
   stopConflicts();
   stopCopilot();

@@ -14,9 +14,9 @@ import type { AgentRegistration } from '../src/agents/registry.js';
 import { nativeLaunch } from '../src/agents/native-launch.js';
 import { beforeDeadline } from '../src/agents/shutdown.js';
 import { shellWords } from '../src/agents/tool-title.js';
-import { verificationAdapter } from '../src/agents/updates/native-verification-profile.js';
-import type { NativeRuntime } from '../src/agents/updates/runtime-updates.js';
-import type { VerificationLaunch } from '../src/agents/updates/native-verification-profile.js';
+import { verificationAdapter } from '../src/agents/native-check/native-verification-profile.js';
+import type { NativeRuntime } from '../src/agents/native-check/artifact.js';
+import type { VerificationLaunch } from '../src/agents/native-check/native-verification-profile.js';
 import { controlPrefix } from '../src/cli/cli-control.js';
 import { SessionCoordination } from '../src/core/coordination/coordination.js';
 import { Coordinator } from '../src/core/coordinator.js';
@@ -401,7 +401,7 @@ export async function runCase(
 
           const child = fixtureLaunch
             ? fixtureLaunch(command, args, cwd, env, launchSignal)
-            : nativeLaunch(command, env, (executable) =>
+            : nativeLaunch(command, (executable) =>
                 spawn(executable, args, {
                   cwd,
                   env,
