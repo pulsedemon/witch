@@ -10,7 +10,7 @@ Witch drives the Codex and Claude Code versions it pins, signed in under your ow
 
 ## Install
 
-Install Node.js (the version in `package.json` `engines`), pnpm and Git 2.43 or newer. `pnpm install` brings the pinned Claude Code and Codex. Sign in once through each native CLI; Witch's pinned copies use the same logins. VS Code handles file links other than images and memory editing, and a signed-in `gh` adds the branch's pull request to the status line, or one whose branch the checkout left while the checked-out branch has none, and lets Witch clean up after it merges.
+Install Node.js (the version in `package.json` `engines`), pnpm and Git 2.43 or newer. `pnpm install` brings the pinned Claude Code and Codex. Sign in once with `pnpm exec codex login` and `node_modules/@anthropic-ai/claude-agent-sdk/../claude-agent-sdk-<platform>/claude auth login`, where `<platform>` is like `darwin-arm64`. Native installs share these logins. VS Code handles file links other than images and memory editing, and a signed-in `gh` adds the branch's pull request to the status line, or one whose branch the checkout left while the checked-out branch has none, and lets Witch clean up after it merges.
 
 Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` module. Installing the native dependency requires Python 3 and Xcode Command Line Tools.
 
