@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { AgentEvent } from '../../../src/agents/types.js';
@@ -75,6 +75,17 @@ async function reportedFixture() {
       Date.now() + 5000,
     );
 
+  /** answers the fixture's deferred background list read with `index`. */
+  const list = (
+    index: number,
+    ...data: { itemId: string; processId: string; command: string }[]
+  ) =>
+    writeJson(join(cwd, `list-reply-${index}.json`), {
+      result: { data, nextCursor: null },
+    });
+
+  const own = { itemId: item.id, processId: '42', command: 'review' };
+
   const familiarEvents = () =>
     events.flatMap((event) =>
       event.type === 'subagent' && event.subagent.id.includes('-familiar/')
@@ -95,6 +106,8 @@ async function reportedFixture() {
     emit,
     output,
     register,
+    list,
+    own,
     familiarEvents,
   };
 }
@@ -105,6 +118,9 @@ const cleanupNotices = (events: AgentEvent[]) =>
       ? [event.text]
       : [],
   );
+
+const listRequests = async (cwd: string) =>
+  (await readdir(cwd)).filter((name) => /^list-\d+\.json$/.test(name));
 
 async function terminateRequests(cwd: string): Promise<unknown[]> {
   const text = await readFile(join(cwd, 'terminated.jsonl'), 'utf8').catch(
@@ -127,6 +143,7 @@ test('a missing familiar cleanup acknowledgment cannot hold Codex close open', a
     );
 
     assert.equal((await f.register()).kind, 'familiar-registered');
+    await f.list(1, f.own);
     await writeFile(join(f.cwd, 'hold-termination'), '');
     const closing = f.session.close({ deadline: performance.now() + 3200 });
     await within(closing, 2500, 'bounded familiar cleanup');
@@ -315,6 +332,7 @@ test('a registration accepted during native background listing cannot become a d
     );
 
     assert.equal(f.familiarEvents().at(-1)!.tools, 4);
+    await f.list(2);
   } finally {
     await f.session.close();
   }
@@ -364,6 +382,7 @@ test('stale markers and expired admission cannot register, and another command c
 
     await assert.rejects(f.register(), /more than one command/);
     assert.equal(f.familiarEvents().length, 1);
+    await f.list(1);
   } finally {
     await f.session.close();
   }
@@ -411,6 +430,7 @@ test('a registration renamed after its command ended reports the ended command, 
     );
 
     assert.equal((await f.register()).kind, 'familiar-registered');
+    await f.list(1);
 
     await f.emit({
       method: 'item/completed',
@@ -429,6 +449,10 @@ test('a registration renamed after its command ended reports the ended command, 
       ),
       { message: 'The familiar command has already ended.' },
     );
+
+    // a familiar codex doesn't list is left alone
+    await f.session.close();
+    assert.deepEqual(await terminateRequests(f.cwd), []);
   } finally {
     await f.session.close();
   }
@@ -483,6 +507,7 @@ test('an approval-first start resolves only its own native handle before admitti
       async () => (await f.register()).kind === 'familiar-registered',
     );
 
+    await f.list(3, { ...f.own, processId: '73' });
     await f.session.close();
 
     assert.deepEqual(
@@ -574,6 +599,7 @@ test('closing a native connection reports stopped even when command completion a
     );
 
     await f.register();
+    await f.list(1, f.own);
     await writeFile(join(f.cwd, 'hold-termination'), 'yes');
     closing = f.session.close();
 
@@ -630,18 +656,20 @@ for (const [status, exitCode] of [
         params: { ...f.params, item: { ...f.item, status, exitCode } },
       });
 
-      // a model read follows any terminate the completion sent, so the fixture has recorded it
+      // a model read follows any cleanup request the completion sent, so the fixture has recorded it
       await f.session.models();
+      assert.deepEqual(await listRequests(f.cwd), []);
       assert.deepEqual(await terminateRequests(f.cwd), []);
       assert.equal(f.familiarEvents().at(-1)!.status, status);
       await f.session.close();
+      assert.deepEqual(await listRequests(f.cwd), []);
       assert.deepEqual(await terminateRequests(f.cwd), []);
     } finally {
       await f.session.close();
     }
   });
 
-test('a familiar command that ended without a clean exit keeps the cleanup notice', async () => {
+test('a familiar whose process id codex reassigned is not terminated', async () => {
   const f = await reportedFixture();
 
   try {
@@ -651,7 +679,13 @@ test('a familiar command that ended without a clean exit keeps the cleanup notic
     );
 
     assert.equal((await f.register()).kind, 'familiar-registered');
-    await writeFile(join(f.cwd, 'terminal-gone'), '');
+
+    // codex freed 42 when the familiar's record went and gave it to another command
+    await f.list(
+      1,
+      { ...f.own, processId: '73' },
+      { itemId: 'unrelated', processId: '42', command: 'other' },
+    );
 
     // Codex reports -1 when it never observed the exit, as on its exec-server failure path
     await f.emit({
@@ -662,16 +696,37 @@ test('a familiar command that ended without a clean exit keeps the cleanup notic
       },
     });
 
-    await until(
-      'cleanup request',
-      async () => (await terminateRequests(f.cwd)).length > 0,
+    assert.equal(f.familiarEvents().at(-1)!.status, 'failed');
+    // close shares the completion's cleanup, so its list read and any terminate have settled
+    await f.session.close();
+    assert.equal((await listRequests(f.cwd)).length, 1);
+    assert.deepEqual(await terminateRequests(f.cwd), []);
+    assert.deepEqual(cleanupNotices(f.events), []);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a failed list read leaves the familiar unterminated and reports cleanup', async () => {
+  const f = await reportedFixture();
+
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
     );
 
-    await f.emit();
-    assert.equal(f.familiarEvents().at(-1)!.status, 'failed');
+    assert.equal((await f.register()).kind, 'familiar-registered');
+
+    await writeJson(join(f.cwd, 'list-reply-1.json'), {
+      error: { code: -32603, message: 'list failed' },
+    });
+
+    await f.session.close();
+    assert.deepEqual(await terminateRequests(f.cwd), []);
 
     assert.deepEqual(cleanupNotices(f.events), [
-      'Witch could not confirm cleanup of plan review: The native terminal was not found; check remaining jobs.',
+      'Witch could not confirm cleanup of plan review: list failed',
     ]);
   } finally {
     await f.session.close();
@@ -689,6 +744,7 @@ test('a familiar command that exits 0 while close is cleaning it up keeps the cl
     );
 
     assert.equal((await f.register()).kind, 'familiar-registered');
+    await f.list(1, f.own);
     await writeFile(join(f.cwd, 'terminal-gone'), '');
     await writeFile(join(f.cwd, 'hold-termination'), '');
     closing = f.session.close();
@@ -787,6 +843,8 @@ test('registration transfers an existing brew and leaves an unrelated background
         },
       ],
     );
+
+    await f.list(2);
   } finally {
     await f.session.close();
   }
@@ -825,9 +883,15 @@ test('one native command registers each familiar whose marker appears in its out
       'familiar-registered',
     );
 
+    await f.list(1, f.own);
+
+    // a -1 whose record codex still lists, as when its exec-server stream closes first
     await f.emit({
       method: 'item/completed',
-      params: { ...f.params, item: { ...f.item, status: 'failed' } },
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'failed', exitCode: -1 },
+      },
     });
 
     await until('targeted cleanup', async () =>

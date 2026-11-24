@@ -41,6 +41,11 @@ export function sessionOptions(
   };
 }
 
+/** the isolated native home a verification profile gives its runtime. */
+export function verificationHome(directory: string): string {
+  return join(directory, 'config');
+}
+
 /** credentials stay in the native store; only synthetic sessions and settings live in this directory. */
 export async function verificationAdapter(
   runtime: NativeRuntime,
@@ -58,7 +63,7 @@ export async function verificationAdapter(
     allow?: readonly string[];
   } = {},
 ): Promise<AgentAdapter> {
-  const config = join(directory, 'config');
+  const config = verificationHome(directory);
   const temporary = join(directory, 'tmp');
   await mkdir(config, { recursive: true, mode: 0o700 });
   await mkdir(temporary, { recursive: true, mode: 0o700 });

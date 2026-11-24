@@ -164,6 +164,16 @@ test('capture normalization removes account identity and encoded project paths w
   );
 
   assert.equal(input[1]!.message.result!.accountId, 'private-account');
+
+  assert.equal(
+    normalizeWire(
+      '/Users/person/capture/config/sessions',
+      '/Users/person/capture/project',
+      '/Users/person',
+      '/Users/person/capture/config',
+    ),
+    '/native/config/sessions',
+  );
 });
 
 test('replay binds request IDs consistently and rejects a changed payload', async () => {

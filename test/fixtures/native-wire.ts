@@ -9,10 +9,12 @@ export interface WireFrame {
   message: unknown;
 }
 
+/** `config` is a capture's isolated native home, which sits outside `cwd`. */
 export function normalizeWire(
   value: unknown,
   cwd: string,
   home: string,
+  config?: string,
 ): unknown {
   const identities: Record<string, string> = {
     '/message/response/response/account/email': 'native@example.invalid',
@@ -28,7 +30,7 @@ export function normalizeWire(
     if (typeof input === 'string')
       return (
         identities[path] ??
-        input
+        (config ? input.replaceAll(config, '/native/config') : input)
           .replaceAll(encoded, '-native-project')
           .replaceAll(cwd, '/native/project')
           .replaceAll(home, '/home/native')

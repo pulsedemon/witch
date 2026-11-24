@@ -149,7 +149,8 @@ export class CodexCommands {
       for (const familiar of familiars)
         familiar.end(stopped ? 'stopped' : 'failed');
 
-      // the parent reads a real exit from Codex's record, and once read its process id can be reused
+      // the parent reads a real exit from Codex's record, and once read its process id can be reused.
+      // codex never lists an exited record, so skipping cleanup also spares a list read
       entry.exited = typeof item.exitCode === 'number' && item.exitCode >= 0;
 
       if (!entry.exited) void this.collect(entry);
@@ -277,33 +278,52 @@ export class CodexCommands {
     this.entries.clear();
   }
 
-  /** completion and close can both reach one entry; they share its request. */
+  /**
+   * completion and close can both reach one entry; they share its cleanup.
+   * codex reuses a freed process id, so only a record it still lists under this item is terminated.
+   */
   private collect(entry: Command): Promise<void> {
-    entry.cleanup ??= this.rpc
-      .request('thread/backgroundTerminals/terminate', {
-        threadId: entry.threadId,
-        processId: entry.processId,
-      })
-      .then((result) => {
-        if (!z.object({ terminated: z.boolean() }).parse(result).terminated)
-          throw new Error(
-            'The native terminal was not found; check remaining jobs.',
-          );
-      })
-      .catch((error: unknown) => {
-        if (this.stopped) return;
+    entry.cleanup ??= this.terminate(entry).catch((error: unknown) => {
+      if (this.stopped) return;
 
-        const names = admitted(entry.familiars)
-          .map(({ subagent }) => subagent.name)
-          .join(', ');
+      const names = admitted(entry.familiars)
+        .map(({ subagent }) => subagent.name)
+        .join(', ');
 
-        this.emit({
-          type: 'notice',
-          text: `Witch could not confirm cleanup of ${names}: ${errorMessage(error)}`,
-        });
+      this.emit({
+        type: 'notice',
+        text: `Witch could not confirm cleanup of ${names}: ${errorMessage(error)}`,
       });
+    });
 
     return entry.cleanup;
+  }
+
+  private async terminate(entry: Command): Promise<void> {
+    if (!(await this.listed(entry)) || this.stopped) return;
+
+    const result = await this.rpc.request(
+      'thread/backgroundTerminals/terminate',
+      { threadId: entry.threadId, processId: entry.processId },
+    );
+
+    if (!z.object({ terminated: z.boolean() }).parse(result).terminated)
+      throw new Error(
+        'The native terminal was not found; check remaining jobs.',
+      );
+  }
+
+  private async listed(entry: Command): Promise<boolean> {
+    for await (const data of this.backgroundPages(entry.threadId))
+      if (
+        data.some(
+          ({ itemId, processId }) =>
+            itemId === entry.itemId && processId === entry.processId,
+        )
+      )
+        return true;
+
+    return false;
   }
 
   /** approval starts omit the handle and suppress the later native start; the list retains the same item id. */
