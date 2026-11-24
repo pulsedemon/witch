@@ -329,7 +329,11 @@ test('Claude USD comes from the whole session estimate', async () => {
 
 test('Codex rollouts without per-response records are counted as skipped, not as zero', async () => {
   assert.match(await report(), /\n1 Codex rollouts from before September 2026/);
-  assert.equal((await byRole()).get('codex familiar')?.[0], '1');
+
+  assert.equal(
+    (await table('top Codex sessions by tokens')).has('codex-legacy'),
+    false,
+  );
 });
 
 test('per-day totals bucket each request by its own day and leave out earlier ones', async () => {
