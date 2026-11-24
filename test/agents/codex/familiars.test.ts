@@ -452,6 +452,7 @@ test('a registration renamed after its command ended reports the ended command, 
 
     // a familiar codex doesn't list is left alone
     await f.session.close();
+    assert.equal((await listRequests(f.cwd)).length, 1);
     assert.deepEqual(await terminateRequests(f.cwd), []);
   } finally {
     await f.session.close();
@@ -680,7 +681,7 @@ test('a familiar whose process id codex reassigned is not terminated', async () 
 
     assert.equal((await f.register()).kind, 'familiar-registered');
 
-    // 42 now belongs to another command, and the familiar's item appears under another id, so neither field alone matches
+    // 42 now belongs to another command and the familiar's item lists another id; no row holds both
     await f.list(
       1,
       { ...f.own, processId: '73' },
