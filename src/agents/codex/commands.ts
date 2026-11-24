@@ -31,6 +31,7 @@ interface Command {
   ended: boolean;
   interrupted?: boolean;
   done?: boolean;
+  exited?: boolean;
   command?: BackgroundCommand;
   line: MarkerLine;
   familiars: FamiliarSlot[];
@@ -148,7 +149,10 @@ export class CodexCommands {
       for (const familiar of familiars)
         familiar.end(stopped ? 'stopped' : 'failed');
 
-      void this.collect(entry, item.status === 'completed');
+      // the parent reads a real exit from Codex's record, and once read its process id can be reused
+      entry.exited = typeof item.exitCode === 'number' && item.exitCode >= 0;
+
+      if (!entry.exited) void this.collect(entry);
     } else {
       if (entry.command)
         this.emit({
@@ -248,7 +252,7 @@ export class CodexCommands {
 
     await Promise.all(
       [...this.entries.values()]
-        .filter((entry) => admitted(entry.familiars).length)
+        .filter((entry) => admitted(entry.familiars).length && !entry.exited)
         .map((entry) => this.collect(entry)),
     );
 
@@ -273,19 +277,15 @@ export class CodexCommands {
     this.entries.clear();
   }
 
-  /** the first caller's `exitedCleanly` stands: a completion arriving while close's request is in flight doesn't show it succeeded. */
-  private collect(entry: Command, exitedCleanly = false): Promise<void> {
+  /** completion and close can both reach one entry; they share its request. */
+  private collect(entry: Command): Promise<void> {
     entry.cleanup ??= this.rpc
       .request('thread/backgroundTerminals/terminate', {
         threadId: entry.threadId,
         processId: entry.processId,
       })
       .then((result) => {
-        // Codex reports `completed` only for an observed exit 0, so a missing terminal is one it already reaped
-        if (
-          !z.object({ terminated: z.boolean() }).parse(result).terminated &&
-          !exitedCleanly
-        )
+        if (!z.object({ terminated: z.boolean() }).parse(result).terminated)
           throw new Error(
             'The native terminal was not found; check remaining jobs.',
           );
