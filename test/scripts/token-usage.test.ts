@@ -287,6 +287,9 @@ test('guardians and Claude subagent files get their own roles', async () => {
 
 test('a main is found by its bootstrap prompt after other user messages, and other SDK sessions are familiars', async () => {
   const roles = await byRole();
+  // the Claude main's bootstrap follows a slash command; the Codex main's follows AGENTS.md
+  assert.equal(roles.get('claude main')?.[0], '1');
+  assert.equal(roles.get('codex main')?.[0], '1');
   assert.equal(roles.get('claude familiar')?.[4], '30');
   // only the familiar's own request, not the main's
   assert.equal(roles.get('codex familiar')?.[0], '1');
