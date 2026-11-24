@@ -152,7 +152,7 @@ registerHooks({
 
   const recover = (apply: boolean) =>
     run(
-      `cd ${quote(destination)} && PATH=${quote(bin)}:$PATH ${command} --state-dir ${quote(state)} --recover-directory ${quote(source)}${apply ? ' --apply' : ''}`,
+      `cd ${quote(destination)} && WITCH_CLAUDE_EXECUTABLE=${quote(join(bin, 'claude'))} WITCH_CODEX_EXECUTABLE=${quote(join(bin, 'codex'))} ${command} --state-dir ${quote(state)} --recover-directory ${quote(source)}${apply ? ' --apply' : ''}`,
     );
 
   const command = `${quote(process.execPath)} --import ${quote(headless)} ${quote(await compiledCli())}`;

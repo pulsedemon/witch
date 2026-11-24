@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: '@anthropic-ai/claude-agent-sdk'
+      - dependency-name: '@openai/codex'
+    groups:
+      native-runtimes:
+        patterns:
+          - '@anthropic-ai/claude-agent-sdk'
+          - '@openai/codex'
+    commit-message:
+      prefix: build(deps)
+    rebase-strategy: disabled

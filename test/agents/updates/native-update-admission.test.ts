@@ -75,7 +75,6 @@ test('native launch executes the checked artifact even if the launcher changes i
 
   const child = nativeLaunch(
     f.launcher,
-    process.env,
     (executable) => {
       unlinkSync(f.launcher);
       symlinkSync(f.artifacts.get('2.0.0')!.executable, f.launcher);
@@ -122,7 +121,6 @@ test('a pending update prevents a native launch before a subprocess is created',
       () =>
         nativeLaunch(
           f.launcher,
-          process.env,
           (executable) => {
             spawned = true;
 
@@ -162,7 +160,6 @@ test('an error from a still-running native child retains its lease until exit', 
 
   const child = nativeLaunch(
     f.launcher,
-    process.env,
     (executable) => spawn(executable, [], { stdio: 'pipe' }),
     f.store.directory,
   );

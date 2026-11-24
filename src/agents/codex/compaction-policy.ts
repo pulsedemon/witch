@@ -75,7 +75,7 @@ export async function readContextCatalog(
 
   try {
     const stdout = await new Promise<string>((resolve, reject) => {
-      child = nativeLaunch(options.executable, env, (command) =>
+      child = nativeLaunch(options.executable, (command) =>
         execFile(
           command,
           ['debug', 'models'],

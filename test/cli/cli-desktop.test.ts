@@ -117,6 +117,9 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       env: {
         ...process.env,
         PATH: `${bin}:/usr/bin:/bin`,
+        // Claude isn't faked here and must not resolve to the pinned binary
+        WITCH_CLAUDE_EXECUTABLE: join(bin, 'claude'),
+        WITCH_CODEX_EXECUTABLE: join(bin, 'codex'),
         HOME: root,
         TMPDIR: root,
         WITCH_CONVERSATION: 'desktop',

@@ -81,7 +81,7 @@ import type {
 } from '../types.js';
 
 const launch: ClaudeLaunch = (options) =>
-  nativeLaunch(options.command, options.env, (command) =>
+  nativeLaunch(options.command, (command) =>
     spawn(command, options.args, {
       cwd: options.cwd,
       env: options.env,

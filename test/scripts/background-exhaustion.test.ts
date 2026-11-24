@@ -939,7 +939,12 @@ test('missing consent exits before native discovery and preserves an existing ou
 
   await assert.rejects(
     execute(process.execPath, ['--import', 'tsx', script, '--out', out], {
-      env: { ...process.env, PATH: bin },
+      env: {
+        ...process.env,
+        PATH: bin,
+        WITCH_CLAUDE_EXECUTABLE: join(bin, 'claude'),
+        WITCH_CODEX_EXECUTABLE: join(bin, 'codex'),
+      },
     }),
     (error: unknown) => field(error, 'code') === 2,
   );

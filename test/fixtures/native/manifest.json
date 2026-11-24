@@ -101,10 +101,6 @@
           }
         ]
       }
-    },
-    "schema": {
-      "file": "protocol.schema.json",
-      "sha256": "e4e7f0c7d3fd77c48cd8619cad2bf2b315d860ab006ad5a7ebe44f6e32e666c1"
     }
   },
   "claude": {

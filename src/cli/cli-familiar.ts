@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { ClaudeTask } from '../agents/claude/task.js';
+import { nativeExecutable } from '../agents/executable.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import { running, terminateGraceMs } from '../agents/shutdown.js';
 import { errorMessage } from '../errors.js';
@@ -128,7 +129,11 @@ export async function runClaudeFamiliar(
       reports.push(progress),
     );
 
-    child = nativeLaunch('claude', undefined, (executable) =>
+    const claude = nativeExecutable('claude');
+
+    if (!claude) throw new Error('Native executable not found: claude');
+
+    child = nativeLaunch(claude, (executable) =>
       spawn(executable, argv, {
         stdio: ['inherit', 'pipe', 'pipe'],
         detached: false,

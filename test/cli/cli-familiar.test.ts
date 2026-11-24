@@ -99,7 +99,7 @@ async function fixture(
       cwd: root,
       env: {
         ...process.env,
-        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        WITCH_CLAUDE_EXECUTABLE: join(root, 'bin/claude'),
         WITCH_FAMILIAR_FIXTURE: mode,
         WITCH_FAMILIAR_MARK: 'kept',
       },

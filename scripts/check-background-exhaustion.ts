@@ -401,7 +401,7 @@ export async function runCase(
 
           const child = fixtureLaunch
             ? fixtureLaunch(command, args, cwd, env, launchSignal)
-            : nativeLaunch(command, env, (executable) =>
+            : nativeLaunch(command, (executable) =>
                 spawn(executable, args, {
                   cwd,
                   env,

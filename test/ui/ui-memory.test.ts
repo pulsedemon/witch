@@ -475,7 +475,7 @@ test('/memory reads one commit even when main moves during the action', async ()
     // only the launch's connect report, no error from reading memory
     assert.equal(
       coordinator.snapshot.error,
-      'a is not installed. Install its native CLI and sign in before using it.',
+      "a is not installed. Run pnpm install in Witch's checkout, and sign in through its native CLI once.",
     );
   } finally {
     ui.unmount();

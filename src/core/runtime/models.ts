@@ -99,7 +99,7 @@ export class ModelCatalog {
 
     if (!registration?.executable)
       throw new Error(
-        `${registration?.adapter.label ?? id} is not installed. Install its native CLI and sign in before using it.`,
+        `${registration?.adapter.label ?? id} is not installed. Run pnpm install in Witch's checkout, and sign in through its native CLI once.`,
       );
 
     return registration;

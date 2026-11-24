@@ -418,7 +418,8 @@ def main():
     env = dict(os.environ)
     for name in ('WITCH_CONVERSATION', 'WITCH_SCRATCH', 'WITCH_JOBS', 'TMUX', 'NODE_TEST_CONTEXT'):
         env.pop(name, None)
-    env.update(PATH=str(bin_dir) + os.pathsep + env['PATH'],
+    env.update(WITCH_CLAUDE_EXECUTABLE=str(bin_dir / 'claude'),
+               WITCH_CODEX_EXECUTABLE=str(bin_dir / 'codex'),
                TSX_TSCONFIG_PATH=str(repo / 'tsconfig.json'), TERM='xterm-256color')
     failed = False
     for index, (name, restarts, kind) in enumerate(cases):

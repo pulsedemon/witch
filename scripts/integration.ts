@@ -23,7 +23,7 @@ const agents = await installedAgents();
 
 assert.ok(
   agents.every((agent) => agent.executable),
-  'Install and sign in to both native CLIs first',
+  'Run pnpm install and sign in to both native CLIs first',
 );
 
 for (const cwd of [project, otherProject]) {

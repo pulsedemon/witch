@@ -1,40 +1,74 @@
-import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import {
-  basename,
-  delimiter,
-  dirname,
-  isAbsolute,
-  join,
-  resolve,
-} from 'node:path';
+  accessSync,
+  constants,
+  readdirSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
+import { basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-export function findExecutable(
-  name: string,
-  search = process.env.PATH ?? '',
-): string | undefined {
-  const paths =
-    isAbsolute(name) || name.includes('/')
-      ? [resolve(name)]
-      : search.split(delimiter).map((directory) => join(directory, name));
+/** an executable regular file, checked at the path as given. */
+export function launchable(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
 
-  for (const path of paths) {
-    try {
-      if (!statSync(path).isFile()) continue;
+    accessSync(path, constants.X_OK);
 
-      accessSync(path, constants.X_OK);
-
-      return path;
-    } catch {
-      continue;
-    }
+    return true;
+  } catch {
+    return false;
   }
+}
 
-  return undefined;
+const witchRoot = fileURLToPath(new URL('../..', import.meta.url)).replace(
+  /\/$/,
+  '',
+);
+
+/**
+ * the native binary bundled with Witch's pinned dependency, or the `WITCH_<RUNTIME>_EXECUTABLE` override when set.
+ * the path keeps `..` after pnpm's package link so it names the installed version at each launch; launch its
+ * `realpathSync.native`, since Codex started through the `..` fails its turns. `path.join` would collapse the `..`.
+ */
+export function nativeExecutable(
+  runtime: string,
+  {
+    environment = process.env,
+    root = witchRoot,
+  }: { environment?: NodeJS.ProcessEnv; root?: string } = {},
+): string | undefined {
+  const override = environment[`WITCH_${runtime.toUpperCase()}_EXECUTABLE`];
+
+  if (override !== undefined)
+    return launchable(override) ? override : undefined;
+
+  const platform = `${process.platform}-${process.arch}`;
+  let path: string;
+
+  if (runtime === 'claude')
+    path = `${root}/node_modules/@anthropic-ai/claude-agent-sdk/../claude-agent-sdk-${platform}/claude`;
+  else if (runtime === 'codex') {
+    const vendor = `${root}/node_modules/@openai/codex/../codex-${platform}/vendor`;
+    let triples: string[];
+
+    try {
+      triples = readdirSync(vendor);
+    } catch {
+      return undefined;
+    }
+
+    if (triples.length !== 1) return undefined;
+
+    path = `${vendor}/${triples[0]}/bin/codex`;
+  } else return undefined;
+
+  return launchable(path) ? path : undefined;
 }
 
 /** versioned artifact paths map to the same installation across native upgrades. */
 export function nativeInstallationRoot(executable: string): string | undefined {
-  const file = realpathSync(executable);
+  const file = realpathSync.native(executable);
   const directory = dirname(file);
 
   if (

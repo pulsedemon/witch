@@ -91,7 +91,7 @@ type Launch = (
 ) => ChildProcessWithoutNullStreams;
 
 const launch: Launch = (executable, cwd, signal) =>
-  nativeLaunch(executable, undefined, (command) =>
+  nativeLaunch(executable, (command) =>
     spawn(command, ['app-server', '--stdio'], { cwd, stdio: 'pipe', signal }),
   );
 

@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { findExecutable, nativeInstallationRoot } from './executable.js';
+import { launchable, nativeInstallationRoot } from './executable.js';
 import {
   holdRuntime,
   nativeUpdateDirectory,
@@ -71,30 +71,25 @@ export function registerNativeParticipant(
   return release;
 }
 
-/** the lease follows child exit, including failed spawns; PATH is resolved before acquiring it. */
+/** launches the executable's real path, resolved now; the lease follows child exit, including failed spawns. */
 export function nativeLaunch<T extends ChildProcess>(
   executable: string,
-  environment: NodeJS.ProcessEnv | undefined,
   start: (executable: string) => T,
   directory = nativeUpdateDirectory(),
 ): T {
-  const launcher = findExecutable(
-    executable,
-    (environment ?? process.env).PATH ?? '',
-  );
+  if (!launchable(executable))
+    throw new Error(`Native executable not found: ${executable}`);
 
-  if (!launcher) throw new Error(`Native executable not found: ${executable}`);
-
-  const resolved = realpathSync(launcher);
+  const resolved = realpathSync.native(executable);
   const root = nativeInstallationRoot(resolved);
 
-  if (!root) return start(launcher);
+  if (!root) return start(resolved);
 
   registerNativeParticipant(directory);
   const release = holdRuntime(root, directory);
 
   try {
-    if (realpathSync(launcher) !== resolved)
+    if (realpathSync.native(executable) !== resolved)
       throw new Error('Native installation changed before launch. Try again.');
 
     const child = start(resolved);
