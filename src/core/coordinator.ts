@@ -1065,6 +1065,13 @@ export class Coordinator {
     event: Extract<AgentEvent, { type: 'subagent' | 'command' }>,
     cwd = this.current().cwd,
   ): void {
+    if (event.type === 'subagent') {
+      const { status, exhausted, runtime } = event.subagent;
+
+      if (status === 'failed' && exhausted && runtime)
+        this.accountUsage.exhausted(runtime, cwd, exhausted);
+    }
+
     const update = updateBackgroundActivity(this.snapshot, event, cwd);
 
     if (!update) return;

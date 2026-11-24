@@ -734,6 +734,23 @@ test('a nonzero native exit after a result prevents successful terminal reportin
   }
 });
 
+for (const [prompt, exhausted] of [
+  ['usage-limit', {}],
+  ['rate-limit', undefined],
+] as const)
+  test(`a Codex familiar whose turn fails on a ${prompt} reports ${exhausted ? 'the usage refusal' : 'no usage refusal'}`, async () => {
+    const f = await fixture({ prompt });
+
+    try {
+      assert.equal(await within(f.closed, 8000, 'failed turn'), 1);
+      const last = f.updates().at(-1)!;
+      assert.equal(last.status, 'failed');
+      assert.deepEqual(last.exhausted, exhausted);
+    } finally {
+      await f.close();
+    }
+  });
+
 test('a Codex familiar posts a failed MCP server as a notice and keeps app-server logs off its stderr', async () => {
   const f = await fixture({ mode: 'mcp-failed' });
 

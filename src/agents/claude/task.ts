@@ -1,3 +1,4 @@
+import type { SDKRateLimitInfo } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { mergeCasts } from '../familiar-report.js';
 import type { FamiliarProgress } from '../familiar-report.js';
@@ -5,7 +6,8 @@ import { errorMessage } from '../../errors.js';
 import { claudeTitle } from './tool-title.js';
 import { skillCasts } from './spells.js';
 import { fallbackModel, reportedModel } from './models.js';
-import type { Cast } from '../types.js';
+import { RateLimit } from './limits.js';
+import type { Cast, ExhaustedLimit } from '../types.js';
 
 const frame = z.object({
   type: z.string(),
@@ -33,6 +35,11 @@ const assistant = z.object({
     model: z.string().min(1),
     content: z.array(z.object({ type: z.string() }).passthrough()),
   }),
+});
+
+// RateLimit reads the SDK's own shape; the status is what decides a rejection
+const rateLimitEvent = z.object({
+  rate_limit_info: z.object({ status: z.string() }).passthrough(),
 });
 
 const tool = z.object({ id: z.string(), name: z.string(), input: z.unknown() });
@@ -73,6 +80,12 @@ export class ClaudeTask {
   private success = false;
   private receivedResult = false;
   private failure?: string;
+  private readonly rateLimit = new RateLimit<object>();
+  /** stands for the current native turn, so a rejection without a reset time or window speaks only for the turn it arrived in. */
+  private turn: object = {};
+  /** the current turn has activity and no result yet. */
+  private open = false;
+  private rejected?: ExhaustedLimit;
 
   constructor(
     private readonly cwd: string,
@@ -114,7 +127,20 @@ export class ClaudeTask {
           this.identity = { ...this.identity, model };
           this.emit(this.progress());
         }
+      } else if (message.type === 'rate_limit_event') {
+        // only advisory: a frame of another shape is skipped rather than failing the task
+        const event = rateLimitEvent.safeParse(value).data;
+
+        if (event)
+          this.rateLimit.report(
+            event.rate_limit_info as SDKRateLimitInfo,
+            this.turn,
+          );
+
+        this.open = true;
       } else if (message.type === 'assistant') {
+        this.open = true;
+
         if (!this.identity)
           throw new Error('Claude activity arrived before initialization.');
 
@@ -173,6 +199,13 @@ export class ClaudeTask {
 
         if (this.success && finished.result) this.final = finished.result;
 
+        if (this.success) {
+          this.rateLimit.clear();
+          this.rejected = undefined;
+        } else this.rejected = this.rejection();
+
+        this.turn = {};
+        this.open = false;
         this.draft = '';
       }
     } catch (error) {
@@ -203,13 +236,28 @@ export class ClaudeTask {
                 ? 'Claude task failed.'
                 : undefined);
 
+    // a CLI that dies after a rejection confirms it as a failed result would
+    const exhausted =
+      !signal && reason
+        ? this.open
+          ? this.rejection()
+          : this.rejected
+        : undefined;
+
     return {
       ...this.progress(),
       status: signal ? 'stopped' : reason ? 'failed' : 'completed',
       report: [...this.reports, this.draft, reason]
         .filter(Boolean)
         .join('\n\n'),
+      ...(exhausted && { exhausted }),
     };
+  }
+
+  private rejection(): ExhaustedLimit | undefined {
+    return (
+      this.identity && this.rateLimit.rejection(this.turn, this.identity.model)
+    );
   }
 
   private progress(): FamiliarProgress {

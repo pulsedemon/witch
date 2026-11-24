@@ -123,6 +123,9 @@ const controlOutcomeSchema = z.discriminatedUnion('kind', [
     kind: z.literal('route'),
     routes: z.array(routedSchema),
     folded: z.array(routedSchema).optional(),
+    dropped: z
+      .array(z.object({ runtime: z.string(), reason: z.string() }))
+      .optional(),
   }),
 ]);
 

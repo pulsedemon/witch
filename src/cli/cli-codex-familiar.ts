@@ -256,6 +256,7 @@ export async function runCodexFamiliar(
   /** the last turn's final message: a follow-up turn only carries the reply to the familiar's own question. */
   let answer = '';
   let status: FamiliarProgress['status'] = 'failed';
+  let exhausted = false;
   let registered = false;
   const save = () => saveReport(file, report);
   const suspension = watchSuspension();
@@ -346,6 +347,7 @@ export async function runCodexFamiliar(
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
       answer = result.final ?? '';
       status = result.status === 'interrupted' ? 'stopped' : result.status;
+      exhausted = !!result.exhausted;
       // a checkpoint: the familiar can still await a question's reply or run another turn
       await save();
 
@@ -413,7 +415,13 @@ export async function runCodexFamiliar(
 
     if (registered) {
       try {
-        await reports.finish({ ...progress, status, report });
+        await reports.finish({
+          ...progress,
+          status,
+          report,
+          // Codex names no limit, so routing holds the whole runtime
+          ...(exhausted && status === 'failed' && { exhausted: {} }),
+        });
       } catch (error) {
         status = stopped ? 'stopped' : 'failed';
         report = [report, errorMessage(error)].filter(Boolean).join('\n\n');

@@ -880,6 +880,30 @@ test('an unlimited grant still displays a native spending denial', () => {
   );
 });
 
+test('a runtime refused for usage does not show its usable credits as a spending denial', () => {
+  const now = Date.now();
+
+  assert.deepEqual(
+    accountRows(
+      {
+        limits: [],
+        funding: {
+          kind: 'credits',
+          balance: '20.58',
+          available: true,
+          unlimited: false,
+          observedAt: now,
+        },
+        creditAccess: { state: 'available', observedAt: now },
+        exhausted: { at: now - 1000, balance: '20.58' },
+      },
+      now,
+      false,
+    ),
+    ['20.58 credits'],
+  );
+});
+
 const fable = (
   utilization: number | null,
   resets = '2026-11-14T22:00:00+00:00',

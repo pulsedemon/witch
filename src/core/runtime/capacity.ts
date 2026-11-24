@@ -1,6 +1,6 @@
 import type { AccountReading, Limit } from '../../agents/types.js';
 import type { Demand } from './demand.js';
-import { creditCapacity, headroom, over } from './usage.js';
+import { creditCapacity, headroom, limitsFor, over, refused } from './usage.js';
 
 /** relative quota pressure, not a prediction of task cost or equal token allowances. */
 function allowance(limits: readonly Limit[], now: number): number {
@@ -24,16 +24,19 @@ function allowance(limits: readonly Limit[], now: number): number {
 
 export function capacity(
   runtime: string,
-  limits: readonly Limit[],
+  model: string,
   account: AccountReading | undefined,
   demand: Demand | undefined,
   shiftAt: number,
   now: number,
 ) {
-  const credits = creditCapacity(account, now) === 'available';
-  const included = headroom(limits, 100, now);
-  const spent = over(limits, 100, now);
-  const high = over(limits, shiftAt, now);
+  const limits = limitsFor(account, model);
+  // a refused runtime has no room whatever its windows say until a later reading shows it recovered
+  const out = refused(account, model, now);
+  const credits = !out && creditCapacity(account, now) === 'available';
+  const included = !out && headroom(limits, 100, now);
+  const spent = out || over(limits, 100, now);
+  const high = out || over(limits, shiftAt, now);
 
   const reserved =
     high &&
@@ -49,6 +52,7 @@ export function capacity(
     (demand?.familiars?.[runtime] ?? 0);
 
   return {
+    out,
     credits,
     included,
     spent,
