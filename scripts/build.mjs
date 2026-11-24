@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
@@ -35,12 +34,3 @@ execute('@babel/cli/bin/babel.js', [
 
 const cli = join(output, 'cli.js');
 chmodSync(cli, statSync(cli).mode | 0o111);
-
-writeFileSync(
-  join(output, 'native-build.json'),
-  JSON.stringify({
-    dependencies: createHash('sha256')
-      .update(readFileSync(join(repository, 'pnpm-lock.yaml')))
-      .digest('hex'),
-  }),
-);

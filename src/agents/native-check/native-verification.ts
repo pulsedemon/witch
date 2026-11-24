@@ -15,8 +15,8 @@ import { checkCodexAnswerSandbox } from './native-sandbox-check.js';
 import { checkNativeSettings } from './native-settings-check.js';
 import { nativeScenario } from './native-scenario.js';
 import type { NativeScenario } from './native-scenario.js';
-import { artifactDigest } from './runtime-updates.js';
-import type { NativeRuntime, RuntimeInstallation } from './runtime-updates.js';
+import { fileDigest } from './artifact.js';
+import type { NativeArtifact, NativeRuntime } from './artifact.js';
 import type {
   AgentEvent,
   AgentSession,
@@ -26,7 +26,6 @@ import type {
 import { unlessGone, writeJson } from '../../persistence/json.js';
 import { errorMessage } from '../../errors.js';
 
-export const verificationProfile = 'native-update-1';
 const execute = promisify(execFile);
 
 type NativeCheck =
@@ -47,7 +46,7 @@ function nativeScenarios(runtime: NativeRuntime): NativeScenario[] {
   ];
 }
 
-export function requiredNativeChecks(runtime: NativeRuntime): NativeCheck[] {
+function requiredNativeChecks(runtime: NativeRuntime): NativeCheck[] {
   return [
     'cross-version resume',
     'native approval and denial',
@@ -58,10 +57,10 @@ export function requiredNativeChecks(runtime: NativeRuntime): NativeCheck[] {
   ];
 }
 
-interface PreparedNativeUpdate {
+interface PreparedNativeCheck {
   directory: string;
   runtime: NativeRuntime;
-  previous: RuntimeInstallation;
+  previous: NativeArtifact;
   model: string;
   sessionId: string;
   marker: string;
@@ -69,7 +68,6 @@ interface PreparedNativeUpdate {
 
 interface NativeVerificationOptions {
   directory: string;
-  build: string;
   launch?: VerificationLaunch;
   model?: string;
   allowAccountUsage: boolean;
@@ -77,12 +75,10 @@ interface NativeVerificationOptions {
   progress(message: string): void;
 }
 
-export interface NativeVerificationReport {
-  profile: string;
-  build: string;
+interface NativeVerificationReport {
   runtime: NativeRuntime;
-  previous: RuntimeInstallation;
-  candidate: RuntimeInstallation;
+  previous: NativeArtifact;
+  candidate: NativeArtifact;
   sdkVersion: string;
   evidenceDirectory: string;
   model: string;
@@ -127,10 +123,10 @@ function completed(result: TurnResult): void {
   );
 }
 
-export async function prepareNativeUpdate(
-  previous: RuntimeInstallation,
+export async function prepareNativeCheck(
+  previous: NativeArtifact,
   options: NativeVerificationOptions,
-): Promise<PreparedNativeUpdate> {
+): Promise<PreparedNativeCheck> {
   if (!options.allowAccountUsage)
     throw new Error('Native qualification requires account-usage consent.');
 
@@ -202,7 +198,7 @@ export async function prepareNativeUpdate(
 }
 
 async function recall(
-  prepared: PreparedNativeUpdate,
+  prepared: PreparedNativeCheck,
   executable: string,
   options: NativeVerificationOptions,
 ): Promise<void> {
@@ -255,7 +251,7 @@ async function recall(
 }
 
 async function checkNativeApprovals(
-  candidate: RuntimeInstallation,
+  candidate: NativeArtifact,
   model: string,
   options: NativeVerificationOptions,
 ): Promise<void> {
@@ -387,9 +383,9 @@ async function checkNativeApprovals(
   }
 }
 
-export async function verifyNativeUpdate(
-  prepared: PreparedNativeUpdate,
-  candidate: RuntimeInstallation,
+export async function runNativeCheck(
+  prepared: PreparedNativeCheck,
+  candidate: NativeArtifact,
   options: NativeVerificationOptions,
 ): Promise<NativeVerificationReport> {
   if (!options.allowAccountUsage)
@@ -398,14 +394,12 @@ export async function verifyNativeUpdate(
   assert.equal(candidate.runtime, prepared.runtime);
 
   assert.equal(
-    await artifactDigest(candidate.runtime, candidate.executable),
+    await fileDigest(candidate.executable),
     candidate.digest,
     'Candidate changed before qualification',
   );
 
   const report: NativeVerificationReport = {
-    profile: verificationProfile,
-    build: options.build,
     runtime: candidate.runtime,
     previous: prepared.previous,
     candidate,
@@ -504,7 +498,7 @@ export async function verifyNativeUpdate(
       await check(name, runs[name]);
 
     assert.equal(
-      await artifactDigest(candidate.runtime, candidate.executable),
+      await fileDigest(candidate.executable),
       candidate.digest,
       'Candidate changed during qualification',
     );

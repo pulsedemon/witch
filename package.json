@@ -21,6 +21,7 @@
     "test:integration:codex-brews": "node --import tsx scripts/check-codex-brews.ts",
     "test:integration:background-exhaustion": "node --import tsx scripts/check-background-exhaustion.ts",
     "test:record-native": "node --import tsx scripts/record-native-protocol.ts",
+    "native:check": "node --import tsx scripts/check-native-runtime.ts",
     "native:schema": "node --import tsx scripts/refresh-native-schema.ts",
     "lint:eslint": "eslint .",
     "lint:compiler": "babel src/ui --extensions .ts,.tsx --out-file /dev/null --env-name lint",

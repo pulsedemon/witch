@@ -8,13 +8,13 @@ import {
   verificationAdapter,
 } from './native-verification-profile.js';
 import { probeApproval } from './native-scenario.js';
-import type { RuntimeInstallation } from './runtime-updates.js';
+import type { NativeArtifact } from './artifact.js';
 import type { AgentEvent, AgentSession } from '../types.js';
 import { writeJson } from '../../persistence/json.js';
 
 /** only synthetic settings are loaded; the probe records their effect in a real native tool process. */
 export async function checkNativeSettings(
-  candidate: RuntimeInstallation,
+  candidate: NativeArtifact,
   model: string,
   directory: string,
   signal: AbortSignal,

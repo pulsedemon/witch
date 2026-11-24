@@ -105,13 +105,6 @@ export class ModelCatalog {
     return registration;
   }
 
-  invalidate(runtime: string): void {
-    for (const key of this.lists.keys())
-      if (key.startsWith(`${runtime}:`)) this.lists.delete(key);
-
-    this.latestModels.delete(runtime);
-  }
-
   async read(
     cwd: string,
     active?: AgentSession,

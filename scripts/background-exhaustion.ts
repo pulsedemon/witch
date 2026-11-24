@@ -2,7 +2,7 @@ import { performance } from 'node:perf_hooks';
 import type { AgentEvent } from '../src/agents/types.js';
 import type { WireFrame } from '../test/fixtures/native-wire.js';
 
-import type { NativeRuntime } from '../src/agents/updates/runtime-updates.js';
+import type { NativeRuntime } from '../src/agents/native-check/artifact.js';
 
 export type Status = 'passed' | 'blocked' | 'failed' | 'incomplete';
 

@@ -10,17 +10,15 @@ export type Picker = (
   title: string,
   choices: readonly Choice[],
   choose: (id: string) => void | boolean | Promise<void | boolean>,
-  options?: { custom?: boolean; caption?: string },
+  options?: { custom?: boolean },
 ) => Promise<boolean>;
 
 export type View =
   | { kind: 'chat' }
   | { kind: 'coordination'; mode: 'peers' | 'task' }
-  | { kind: 'updates' }
   | {
       kind: 'picker';
       title: string;
-      caption?: string;
       choices: Choice[];
       choose(id: string): void;
       custom?: boolean;

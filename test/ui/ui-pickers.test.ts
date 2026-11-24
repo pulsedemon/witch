@@ -416,6 +416,43 @@ test('a long picker shows as many choices as its rows hold', async () => {
   }
 });
 
+test('a picker keeps a choice row at every height', async () => {
+  const { app } = fake({
+    models: Array.from({ length: 5 }, (_, n) => ({
+      agent: 'a',
+      id: `model-${n + 1}`,
+      label: `model-${n + 1}`,
+      efforts: [],
+    })),
+  });
+
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    80,
+    12,
+  );
+
+  try {
+    await delay(60);
+    await openCommand(ui, '/model', 'Models ·');
+
+    for (let rows = 12; rows >= 3; rows--) {
+      ui.resize(80, rows);
+
+      await until(`a choice at ${rows} rows`, () => {
+        const frame = ui.text().split('\n');
+
+        return (
+          frame.length === rows &&
+          frame.some((row) => row.trim().startsWith('a · model-'))
+        );
+      });
+    }
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const [typed, call] of [
   ['/model m high', ['selectModel', { agent: 'a', id: 'm', effort: 'high' }]],
   ['/model b:m high', ['selectModel', { agent: 'b', id: 'm', effort: 'high' }]],

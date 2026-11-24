@@ -1,11 +1,4 @@
-import {
-  accessSync,
-  constants,
-  readdirSync,
-  realpathSync,
-  statSync,
-} from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { accessSync, constants, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /** an executable regular file, checked at the path as given. */
@@ -64,28 +57,4 @@ export function nativeExecutable(
   } else return undefined;
 
   return launchable(path) ? path : undefined;
-}
-
-/** versioned artifact paths map to the same installation across native upgrades. */
-export function nativeInstallationRoot(executable: string): string | undefined {
-  const file = realpathSync.native(executable);
-  const directory = dirname(file);
-
-  if (
-    basename(directory) === 'versions' &&
-    basename(dirname(directory)) === 'claude'
-  )
-    return dirname(directory);
-
-  const releases = dirname(dirname(directory));
-
-  if (
-    basename(file) === 'codex' &&
-    basename(directory) === 'bin' &&
-    basename(releases) === 'releases' &&
-    basename(dirname(releases)) === 'standalone'
-  )
-    return dirname(releases);
-
-  return undefined;
 }

@@ -15,7 +15,7 @@ import { CodexAdapter } from '../src/agents/codex/adapter.js';
 import { readContextCatalog } from '../src/agents/codex/compaction-policy.js';
 import type { RpcMessage } from '../src/agents/codex/json-rpc.js';
 import { nativeLaunch } from '../src/agents/native-launch.js';
-import { streamResponse } from '../src/agents/updates/native-sandbox-check.js';
+import { streamResponse } from '../src/agents/native-check/native-sandbox-check.js';
 import { installedAgents } from '../src/agents/registry.js';
 import type { AgentEvent, SessionOptions } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';

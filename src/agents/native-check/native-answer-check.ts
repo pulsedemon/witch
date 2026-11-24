@@ -7,7 +7,7 @@ import {
   sessionOptions,
   verificationAdapter,
 } from './native-verification-profile.js';
-import type { RuntimeInstallation } from './runtime-updates.js';
+import type { NativeArtifact } from './artifact.js';
 import type { AgentEvent, AgentSession } from '../types.js';
 import { unlessGone, writeJson } from '../../persistence/json.js';
 
@@ -29,7 +29,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 `;
 
 export async function checkNativeAnswer(
-  candidate: RuntimeInstallation,
+  candidate: NativeArtifact,
   model: string,
   directory: string,
   signal: AbortSignal,

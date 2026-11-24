@@ -54,12 +54,7 @@ export function usePicker({
     flushSync(() => setView({ kind: 'chat' }));
   };
 
-  const picker: Picker = (
-    title,
-    entries,
-    choose,
-    { custom = false, caption } = {},
-  ) => {
+  const picker: Picker = (title, entries, choose, { custom = false } = {}) => {
     if (disposed.current) return Promise.resolve(false);
 
     pickerWait.current?.resolve(true);
@@ -72,7 +67,6 @@ export function usePicker({
     setView({
       kind: 'picker',
       title,
-      caption,
       choices: [...entries],
       custom,
       choose: (id) => {

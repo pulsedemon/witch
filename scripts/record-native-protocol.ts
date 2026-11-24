@@ -7,11 +7,11 @@ import { homedir } from 'node:os';
 import {
   verificationAdapter,
   verificationHome,
-} from '../src/agents/updates/native-verification-profile.js';
+} from '../src/agents/native-check/native-verification-profile.js';
 import { nativeExecutable } from '../src/agents/executable.js';
 import { nativeLaunch } from '../src/agents/native-launch.js';
 import { observeWire, normalizeWire } from '../test/fixtures/native-wire.js';
-import { nativeScenario } from '../src/agents/updates/native-scenario.js';
+import { nativeScenario } from '../src/agents/native-check/native-scenario.js';
 
 const { values } = parseArgs({
   options: {

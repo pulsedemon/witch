@@ -11,8 +11,6 @@ import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
-import { NativeUpdatePending } from '../persistence/runtime-updates.js';
-import type { NativeRuntime } from '../agents/updates/runtime-updates.js';
 import { aborted, errorMessage, failureOf } from '../errors.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
@@ -202,7 +200,6 @@ export class Coordinator {
   private editorCancellation?: AbortController;
   private cleanupCancellation?: AbortController;
   private reviewCancellation?: AbortController;
-  private nativeUpdateCancellation?: AbortController;
   constructor(
     private readonly store: StateStore,
     readonly memory: Memory,
@@ -343,12 +340,10 @@ export class Coordinator {
     return () => this.listeners.delete(listener);
   }
   async initialize(directory: string, options: Launch = {}): Promise<void> {
-    this.link.retryInitialization = () => this.load(directory, options);
     this.task = this.load(directory, options);
 
     try {
       await this.task;
-      this.link.retryInitialization = undefined;
     } catch (error) {
       throw this.enterError(error);
     } finally {
@@ -784,13 +779,9 @@ export class Coordinator {
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
     this.reviewCancellation?.abort(new NativeStop(stop));
-    this.nativeUpdateCancellation?.abort(new NativeStop(stop));
 
     const results = await Promise.allSettled([
-      (this.cleanupCancellation ??
-        this.reviewCancellation ??
-        this.nativeUpdateCancellation) &&
-        this.task,
+      (this.cleanupCancellation ?? this.reviewCancellation) && this.task,
       this.coordination?.endTurn(),
       (async () => {
         if (refresh && !this.closed) return;
@@ -834,39 +825,6 @@ export class Coordinator {
     }
 
     if (response.decision === 'cancel') await this.interrupt();
-  }
-
-  /** maintenance can recover an installation even when no conversation or native connection opened. */
-  async maintainNative(
-    runtime: NativeRuntime,
-    run: (signal: AbortSignal) => Promise<void>,
-  ): Promise<void> {
-    if (
-      this.task ||
-      this.changingModel ||
-      this.modelRefresh ||
-      !this.link.maintenanceReady
-    )
-      throw new Refusal(
-        'Finish current work and queued prompts before updating or qualifying a native runtime.',
-      );
-
-    const release = this.holdPromptDelivery();
-    const abort = new AbortController();
-    this.nativeUpdateCancellation = abort;
-    this.operations++;
-    this.cancelled = false;
-    this.publish({ phase: 'updating', error: undefined });
-    const operation = this.link.maintain(runtime, () => run(abort.signal));
-    this.task = operation;
-
-    try {
-      await operation;
-    } finally {
-      this.task = undefined;
-      this.nativeUpdateCancellation = undefined;
-      release();
-    }
   }
 
   async recoverMemory(decision: 'accept' | 'discard' | 'keep'): Promise<void> {
@@ -1170,11 +1128,7 @@ export class Coordinator {
   }
 
   private enterError(error: unknown): Error {
-    const text =
-      error instanceof NativeUpdatePending
-        ? error.message
-        : `Restart Witch: ${errorMessage(error)}`;
-
+    const text = `Restart Witch: ${errorMessage(error)}`;
     this.publish({ phase: 'error', error: text });
 
     return new Error(text, { cause: error });

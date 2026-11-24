@@ -1,20 +1,45 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmod, copyFile, readFile } from 'node:fs/promises';
+import { chmod, copyFile, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import {
-  prepareNativeUpdate,
-  verifyNativeUpdate,
-} from '../../../src/agents/updates/native-verification.js';
-import { verificationAdapter } from '../../../src/agents/updates/native-verification-profile.js';
-import { nativeScenario } from '../../../src/agents/updates/native-scenario.js';
-import { runtimeUpdateFixture } from '../../fixtures/runtime-updates.js';
+  prepareNativeCheck,
+  runNativeCheck,
+} from '../../../src/agents/native-check/native-verification.js';
+import { verificationAdapter } from '../../../src/agents/native-check/native-verification-profile.js';
+import { nativeScenario } from '../../../src/agents/native-check/native-scenario.js';
+import { inspectArtifact } from '../../../src/agents/native-check/artifact.js';
+import { scratch } from '../../fixtures/scratch.js';
 import { FixtureAgent } from '../../fixtures/agent.js';
 import { until, within } from '../../fixtures/within.js';
-import { checkNativeAnswer } from '../../../src/agents/updates/native-answer-check.js';
-import { checkCodexAnswerSandbox } from '../../../src/agents/updates/native-sandbox-check.js';
+import { checkNativeAnswer } from '../../../src/agents/native-check/native-answer-check.js';
+import { checkCodexAnswerSandbox } from '../../../src/agents/native-check/native-sandbox-check.js';
 import { unlessGone } from '../../../src/persistence/json.js';
+
+/** two versioned fake Codex executables, inspected as the check reads them. */
+async function artifacts() {
+  const directory = await scratch('witch-native-check-');
+
+  const artifact = async (version: string) => {
+    const executable = join(directory, `codex-${version}`);
+
+    await writeFile(
+      executable,
+      `#!/bin/sh\nprintf 'codex-cli ${version}\\n'\n`,
+    );
+
+    await chmod(executable, 0o755);
+
+    return inspectArtifact('codex', executable);
+  };
+
+  return {
+    directory,
+    previous: await artifact('1.0.0'),
+    candidate: await artifact('2.0.0'),
+  };
+}
 
 for (const [mode, expected] of [
   ['lost-context', /lost the previous conversation context/],
@@ -26,13 +51,12 @@ for (const [mode, expected] of [
   ['timeout', /aborted|stop requested/i],
 ] as const) {
   test(`qualification refuses ${mode} and retains its incomplete report`, async () => {
-    const f = await runtimeUpdateFixture();
+    const f = await artifacts();
     const abort = new AbortController();
     let preparing = true;
 
     const options = {
       directory: f.directory,
-      build: 'checked-build',
       model: 'fixture',
       allowAccountUsage: true,
       signal: abort.signal,
@@ -55,56 +79,51 @@ for (const [mode, expected] of [
         ),
     };
 
-    try {
-      const prepared = await prepareNativeUpdate(await f.inspect(), options);
-      preparing = false;
-      const candidate = f.artifacts.get('2.0.0')!;
-      const verified = verifyNativeUpdate(prepared, candidate, options);
-      const refused = assert.rejects(verified, expected);
+    const prepared = await prepareNativeCheck(f.previous, options);
+    preparing = false;
+    const candidate = f.candidate;
+    const verified = runNativeCheck(prepared, candidate, options);
+    const refused = assert.rejects(verified, expected);
 
-      if (mode === 'timeout') {
-        await until(
-          'native recall waits',
-          async () =>
-            (await unlessGone(
-              readFile(join(f.directory, 'resume/project/waiting')),
-            )) !== undefined,
-        );
-
-        abort.abort();
-      }
-
-      await refused;
-
-      const report = JSON.parse(
-        await readFile(join(f.directory, 'qualification.json'), 'utf8'),
+    if (mode === 'timeout') {
+      await until(
+        'native recall waits',
+        async () =>
+          (await unlessGone(
+            readFile(join(f.directory, 'resume/project/waiting')),
+          )) !== undefined,
       );
 
-      assert.equal(report.passed, false);
-      assert.equal(report.build, 'checked-build');
-      assert.equal(report.previous.digest, prepared.previous.digest);
-      assert.equal(report.candidate.digest, candidate.digest);
-      assert.match(report.error, expected);
-      assert.ok(report.diagnostic);
-
-      assert.equal(
-        report.completed.includes('native approval and denial'),
-        false,
-      );
-
-      const events = JSON.parse(
-        await readFile(join(prepared.directory, 'recall-events.json'), 'utf8'),
-      );
-
-      assert.ok(events.length > 0);
-    } finally {
-      f.updates.close();
+      abort.abort();
     }
+
+    await refused;
+
+    const report = JSON.parse(
+      await readFile(join(f.directory, 'qualification.json'), 'utf8'),
+    );
+
+    assert.equal(report.passed, false);
+    assert.equal(report.previous.digest, prepared.previous.digest);
+    assert.equal(report.candidate.digest, candidate.digest);
+    assert.match(report.error, expected);
+    assert.ok(report.diagnostic);
+
+    assert.equal(
+      report.completed.includes('native approval and denial'),
+      false,
+    );
+
+    const events = JSON.parse(
+      await readFile(join(prepared.directory, 'recall-events.json'), 'utf8'),
+    );
+
+    assert.ok(events.length > 0);
   });
 }
 
 test('controlled Claude launches keep hooks and user MCP out while preserving isolated sessions', async () => {
-  const f = await runtimeUpdateFixture();
+  const f = await artifacts();
   let observed: { args: string[]; env: NodeJS.ProcessEnv } | undefined;
 
   const adapter = await verificationAdapter('claude', f.directory, {
@@ -115,32 +134,28 @@ test('controlled Claude launches keep hooks and user MCP out while preserving is
     },
   });
 
-  try {
-    await assert.rejects(
-      adapter.connect({
-        cwd: f.directory,
-        executable: '/native/claude',
-        memoryDirectories: [],
-        onEvent: () => {},
-        onProcess: async () => {},
-      }),
-      /Launch observed/,
-    );
+  await assert.rejects(
+    adapter.connect({
+      cwd: f.directory,
+      executable: '/native/claude',
+      memoryDirectories: [],
+      onEvent: () => {},
+      onProcess: async () => {},
+    }),
+    /Launch observed/,
+  );
 
-    assert.ok(observed);
-    assert.ok(observed.args.includes('--setting-sources=project'));
-    assert.ok(observed.args.includes('--strict-mcp-config'));
-    assert.ok(observed.args.includes('{"disableAllHooks":true}'));
-    assert.equal(observed.env.CLAUDE_CONFIG_DIR, join(f.directory, 'config'));
-    assert.equal(observed.env.CLAUDE_SECURESTORAGE_CONFIG_DIR, '');
-    assert.equal(observed.env.DISABLE_AUTOUPDATER, '1');
-  } finally {
-    f.updates.close();
-  }
+  assert.ok(observed);
+  assert.ok(observed.args.includes('--setting-sources=project'));
+  assert.ok(observed.args.includes('--strict-mcp-config'));
+  assert.ok(observed.args.includes('{"disableAllHooks":true}'));
+  assert.equal(observed.env.CLAUDE_CONFIG_DIR, join(f.directory, 'config'));
+  assert.equal(observed.env.CLAUDE_SECURESTORAGE_CONFIG_DIR, '');
+  assert.equal(observed.env.DISABLE_AUTOUPDATER, '1');
 });
 
 test('Claude allow rules travel in flag settings beside disabled hooks', async () => {
-  const f = await runtimeUpdateFixture();
+  const f = await artifacts();
   let observed: string[] | undefined;
 
   const adapter = await verificationAdapter('claude', f.directory, {
@@ -152,56 +167,45 @@ test('Claude allow rules travel in flag settings beside disabled hooks', async (
     },
   });
 
-  try {
-    await assert.rejects(
-      adapter.connect({
-        cwd: f.directory,
-        executable: '/native/claude',
-        memoryDirectories: [],
-        onEvent: () => {},
-        onProcess: async () => {},
-      }),
-      /Launch observed/,
-    );
+  await assert.rejects(
+    adapter.connect({
+      cwd: f.directory,
+      executable: '/native/claude',
+      memoryDirectories: [],
+      onEvent: () => {},
+      onProcess: async () => {},
+    }),
+    /Launch observed/,
+  );
 
-    assert.ok(observed);
+  assert.ok(observed);
 
-    assert.deepEqual(
-      JSON.parse(observed[observed.indexOf('--settings') + 1]!),
-      {
-        disableAllHooks: true,
-        permissions: { allow: ["Bash('/bin/node' '/project/helper.mjs':*)"] },
-      },
-    );
-  } finally {
-    f.updates.close();
-  }
+  assert.deepEqual(JSON.parse(observed[observed.indexOf('--settings') + 1]!), {
+    disableAllHooks: true,
+    permissions: { allow: ["Bash('/bin/node' '/project/helper.mjs':*)"] },
+  });
 });
 
 test('a failed control turn reports its native diagnostic without waiting for a nonexistent tool', async () => {
-  const f = await runtimeUpdateFixture();
+  const f = await artifacts();
   const adapter = new FixtureAgent('codex');
   adapter.failNext = true;
 
-  try {
-    await assert.rejects(
-      nativeScenario(
-        adapter,
-        { cwd: f.directory, executable: 'fixture', memoryDirectories: [] },
-        'control',
-      ),
-      /Overloaded/,
-    );
+  await assert.rejects(
+    nativeScenario(
+      adapter,
+      { cwd: f.directory, executable: 'fixture', memoryDirectories: [] },
+      'control',
+    ),
+    /Overloaded/,
+  );
 
-    assert.ok(adapter.sessions.every(({ session }) => session.closed));
-  } finally {
-    f.updates.close();
-  }
+  assert.ok(adapter.sessions.every(({ session }) => session.closed));
 });
 
 for (const kind of ['answer', 'sandbox'] as const) {
   test(`${kind} qualification cancellation stops the restricted child and retains evidence`, async () => {
-    const f = await runtimeUpdateFixture();
+    const f = await artifacts();
     const executable = join(f.directory, 'fake-codex.mjs');
 
     await copyFile(
@@ -218,7 +222,7 @@ for (const kind of ['answer', 'sandbox'] as const) {
     const running =
       kind === 'answer'
         ? checkNativeAnswer(
-            { ...(await f.inspect()), executable },
+            { ...f.previous, executable },
             'fixture',
             f.directory,
             abort.signal,
@@ -280,7 +284,6 @@ for (const kind of ['answer', 'sandbox'] as const) {
 
       await running.catch(() => {});
       await refused.catch(() => {});
-      f.updates.close();
     }
   });
 }

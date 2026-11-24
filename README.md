@@ -1,16 +1,16 @@
 # Witch
 
-A personal terminal app for installed Codex and Claude Code, with Git-backed shared memory.
+A personal terminal app for Codex and Claude Code, with Git-backed shared memory.
 
 ## Status
 
 Witch is my personal tool, published as is. You are welcome to use it, read it and send changes. I make no promises: no support, no roadmap, and no guarantee that an issue or pull request gets a reply.
 
-Witch drives the Codex and Claude Code CLIs you install and sign in to yourself, under your own accounts and each vendor's terms. It relies on experimental native interfaces, listed under [Development](#development), so a native CLI update can break it.
+Witch drives the Codex and Claude Code versions it pins, signed in under your own accounts and each vendor's terms. It relies on experimental native interfaces, listed under [Development](#development), so it moves to a new native release only through a checked version bump.
 
 ## Install
 
-Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links other than images and memory editing, and a signed-in `gh` adds the branch's pull request to the status line, or one whose branch the checkout left while the checked-out branch has none, and lets Witch clean up after it merges.
+Install Node.js (the version in `package.json` `engines`), pnpm and Git 2.43 or newer. `pnpm install` brings the pinned Claude Code and Codex. Sign in once through each native CLI; Witch's pinned copies use the same logins. VS Code handles file links other than images and memory editing, and a signed-in `gh` adds the branch's pull request to the status line, or one whose branch the checkout left while the checked-out branch has none, and lets Witch clean up after it merges.
 
 Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` module. Installing the native dependency requires Python 3 and Xcode Command Line Tools.
 
@@ -37,8 +37,6 @@ Other Witch sessions and exclusive task claims are described under [session coor
 Agents delegate work through the [familiar reporting path](docs/rules.md#native-adapters-and-execution) on either runtime, with native identity, activity and a saved report. `/delegation` configures work placement, model families and the coordinator reserve threshold.
 
 Using Witch means accepting that its agents fix small flaws they find in the same pull request, even outside the request's scope. [nativePrompt](src/core/prompts.ts) owns that rule and the precedence of Witch's rules over conflicting ones.
-
-`/updates` shows native CLI versions and available releases; `/updates check` refreshes them. `/updates claude` or `/updates codex` opens confirmation for an update, a recovery or qualifying the installed version. [Native runtime updates](docs/rules.md#native-runtime-updates) defines supported installations, live-check consent and recovery.
 
 Witch repairs a directory moved on the same volume on its own the next time it starts there or anywhere else: its conversations, prompt history, spawned worktrees' Git links and shared-memory paths. For a move it can't prove, such as a copy to another volume, its startup notice gives the `--recover-directory` command to run from the new location.
 
@@ -90,7 +88,7 @@ Fixture edits rerun the selected watch set, including fixtures loaded only by sp
 
 Confirm before running `pnpm test:integration`: it runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
-`pnpm test:integration:codex-brews` checks native child brews with the installed Codex and a localhost model fixture, without account usage, and retains its evidence under `TMPDIR`.
+`pnpm test:integration:codex-brews` checks native child brews with the pinned Codex and a localhost model fixture, without account usage, and retains its evidence under `TMPDIR`.
 
 `pnpm test:integration:background-exhaustion` runs the real background-exhaustion acceptance check for [#882](https://github.com/pulsedemon/witch/issues/882). Confirm its account usage before running it with `--allow-account-usage`. Supply explicit concrete model IDs: setup needs a healthy Claude model, a separately refusable Claude model, and an eligible Codex destination. Native setup determines whether the source can run; its catalog and usage meter do not establish that. The command does not change account settings or exhaust healthy allowance. A native permission request or refused model change blocks staging.
 
@@ -114,11 +112,11 @@ python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.ts"
 python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
 ```
 
-To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
+To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), pin its package in [nativeExecutable](src/agents/executable.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 
-The [native protocol manifest](test/fixtures/native/manifest.json) records the tested CLI versions, capture models and launch arguments. Dependency versions are owned by [package.json](package.json) and its lockfile.
+[package.json](package.json) pins the Claude Code (through `@anthropic-ai/claude-agent-sdk`) and Codex versions Witch runs, and its lockfile owns the rest. The [native protocol manifest](test/fixtures/native/manifest.json) records the CLI version, model and launch arguments each capture used.
 
-[check-native-update.ts](scripts/check-native-update.ts) runs the installed updater's qualification against explicit `--runtime`, `--executable` and `--out` paths. Without `--allow-account-usage` it checks startup and discovery only. Full qualification also requires `--previous-executable`, creates an isolated old-version conversation, and spends native account usage. `--model` selects an available model; failed and incomplete checks retain diagnostics in the output directory. This command verifies artifacts without changing the native installation.
+`pnpm native:check --runtime <runtime> --out <new directory>` ([check-native-runtime.ts](scripts/check-native-runtime.ts)) checks the pinned binary, or `--executable`. Without `--allow-account-usage` it checks startup and discovery only. Full qualification also requires `--previous-root <checkout>`, whose pinned binary creates an isolated old-version conversation, and spends native account usage. `--model` selects an available model; failed and incomplete checks retain diagnostics in the output directory.
 
 Witch uses these experimental or undeclared native interfaces:
 
@@ -140,12 +138,20 @@ Witch uses these experimental or undeclared native interfaces:
 
 The Claude recording verifies that a result waits for native idle. Its result also acknowledges the original and steered inputs, so scripted fixtures remain responsible for isolating pending-input lifecycle acknowledgements.
 
-After a CLI upgrade, confirm the account usage before capturing new evidence. Create a task directory under Witch scratch with `mktemp -d -p "$TMPDIR"`. Generate both schema variants into new directories there:
+Dependabot opens one weekly pull request that bumps both pins. To take it:
+
+1. ci runs typecheck, the replays and the schema guard in [native-pins.test.ts](test/agents/native-pins.test.ts). When the guard fails, `pnpm native:schema` writes the pinned Codex's experimental schema over `codex/protocol.schema.json`; compare the diff with the interface table above.
+2. From a checkout of the bump branch, run `pnpm native:check --runtime <runtime> --previous-root <a checkout on main> --out "$(mktemp -d -p "$TMPDIR")/check" --allow-account-usage` for each runtime. The two checkouts must differ, or both sides resolve to the same binary.
+3. Recapture fixtures only when a replay or live check fails, as below.
+4. After merging, run `/restart` in each open Witch session; [native runtime versions](docs/rules.md#native-runtime-versions) says what a session that hasn't restarted can lose.
+
+Before capturing new evidence, confirm the account usage. Create a task directory under Witch scratch with `mktemp -d -p "$TMPDIR"`. Generate both schema variants into new directories there with the pinned Codex:
 
 ```sh
 capture_root=$(mktemp -d -p "$TMPDIR" witch-native-XXXXXX)
-codex app-server generate-json-schema --experimental --out "$capture_root/experimental"
-codex app-server generate-json-schema --out "$capture_root/stable"
+codex=$(node --import tsx --input-type=module -e "const { nativeExecutable } = await import('./src/agents/executable.ts'); console.log(nativeExecutable('codex'))")
+"$codex" app-server generate-json-schema --experimental --out "$capture_root/experimental"
+"$codex" app-server generate-json-schema --out "$capture_root/stable"
 ```
 
 Capture `basic`, `control`, `background` and `spell` separately for each runtime, using explicit available models and a new output directory each time:
@@ -155,9 +161,9 @@ pnpm test:record-native --runtime codex --model "$codex_model" --scenario basic 
 pnpm test:record-native --runtime claude --model "$claude_model" --scenario basic --out "$capture_root/claude-basic"
 ```
 
-The recorder creates synthetic projects, requests only their named command approvals, checks file effects and native cleanup replies, and retains raw traffic locally. Codex uses `on-request` approvals with user review and a read-only sandbox. Claude uses project settings, strict MCP configuration and default approvals. These per-process capture settings do not change the user's native configuration. The output's `normalized` directory replaces personal paths and account identity while preserving protocol fields, values and ID relationships.
+The recorder launches the pinned binary unless `--executable` names another. It creates synthetic projects, requests only their named command approvals, checks file effects and native cleanup replies, and retains raw traffic locally. Codex uses `on-request` approvals with user review and a read-only sandbox. Claude uses project settings, strict MCP configuration and default approvals. These per-process capture settings do not change the user's native configuration. The output's `normalized` directory replaces personal paths and account identity while preserving protocol fields, values and ID relationships.
 
-Inspect every normalized stream before copying it into `test/fixtures/native/<runtime>/`. Update the manifest from the successful `capture.json` records, including the SDK version, model, launch arguments and capture date. Copy only the complete generated `codex_app_server_protocol.schemas.json` to `codex/protocol.schema.json`, byte for byte, and record its SHA-256 in the manifest. Compare the stable and experimental definitions against the adapter's consumed interfaces to refresh the inventory above. Review schema and trace diffs before changing expected results; never fill missing native events by hand. Rerun the focused tests and the normal verification below. Keep raw captures out of Git and remove owned scratch after checking its processes and open files.
+Inspect every normalized stream before copying it into `test/fixtures/native/<runtime>/`. Update the manifest from the successful `capture.json` records, including the SDK version, model, launch arguments and capture date. Copy only the complete generated experimental `codex_app_server_protocol.schemas.json` to `codex/protocol.schema.json`, byte for byte. Compare the stable and experimental definitions against the adapter's consumed interfaces to refresh the inventory above. Review schema and trace diffs before changing expected results; never fill missing native events by hand. Rerun the focused tests and the normal verification below. Keep raw captures out of Git and remove owned scratch after checking its processes and open files.
 
 For changes to [automatic peer-answer isolation](docs/rules.md#session-coordination), run disposable owner/asker conversations with each real runtime. Retain native input and tool output, attempt a local marker write and a fake connected-tool mutation, verify no prompt or target change, and confirm the answer is stored. Check a subsequent normal owner write, interruption during answer startup, and cleanup of the separate process. A model declining an action without invoking a tool does not establish native enforcement; use the native tool result or verified absence of the mutation capability. Keep synthetic targets and captures under Witch scratch, and never use real connected-service writes for this check.
 
