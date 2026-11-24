@@ -680,7 +680,7 @@ test('a familiar whose process id codex reassigned is not terminated', async () 
 
     assert.equal((await f.register()).kind, 'familiar-registered');
 
-    // codex freed 42 when the familiar's record went and gave it to another command
+    // 42 now belongs to another command, and the familiar's item appears under another id, so neither field alone matches
     await f.list(
       1,
       { ...f.own, processId: '73' },
@@ -771,6 +771,42 @@ test('a familiar command that exits 0 while close is cleaning it up keeps the cl
     ]);
   } finally {
     await writeFile(join(f.cwd, 'release-termination'), '');
+    await (closing ?? f.session.close());
+  }
+});
+
+test('a familiar that exits while close is listing it is left for the parent to read', async () => {
+  const f = await reportedFixture();
+  let closing: Promise<void> | undefined;
+
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    closing = f.session.close();
+
+    await until(
+      'cleanup list',
+      async () => (await listRequests(f.cwd)).length > 0,
+    );
+
+    await f.emit({
+      method: 'item/completed',
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'completed', exitCode: 0 },
+      },
+    });
+
+    // the list still shows the record it read before the exit was published
+    await f.list(1, f.own);
+    await closing;
+    assert.deepEqual(await terminateRequests(f.cwd), []);
+  } finally {
+    await f.list(1, f.own);
     await (closing ?? f.session.close());
   }
 });

@@ -300,7 +300,8 @@ export class CodexCommands {
   }
 
   private async terminate(entry: Command): Promise<void> {
-    if (!(await this.listed(entry)) || this.stopped) return;
+    // a real exit can be recorded while the list read is pending; its record is the parent's to read
+    if (!(await this.listed(entry)) || this.stopped || entry.exited) return;
 
     const result = await this.rpc.request(
       'thread/backgroundTerminals/terminate',
