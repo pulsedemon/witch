@@ -45,7 +45,7 @@ const previousPath =
 if (values['previous-root'])
   assert.ok(
     previousPath,
-    `No pinned ${runtime} under ${values['previous-root']}`,
+    `Run pnpm install in ${values['previous-root']} first: its pinned ${runtime} is missing`,
   );
 
 console.log(`Candidate: ${candidatePath}`);
