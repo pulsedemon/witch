@@ -69,13 +69,12 @@ test('a pinned runtime resolves through its package link, keeping the `..` that 
 
 test('a runtime whose platform package is missing is not installed', async () => {
   const root = await scratch('witch-pinned-');
-  await mkdir(join(root, 'store/@openai/codex'), { recursive: true });
-  await mkdir(join(root, 'node_modules/@openai'), { recursive: true });
 
-  await symlink(
-    join(root, 'store/@openai/codex'),
-    join(root, 'node_modules/@openai/codex'),
-  );
+  for (const name of ['@openai/codex', '@anthropic-ai/claude-agent-sdk']) {
+    await mkdir(join(root, 'store', name), { recursive: true });
+    await mkdir(join(root, 'node_modules', name, '..'), { recursive: true });
+    await symlink(join(root, 'store', name), join(root, 'node_modules', name));
+  }
 
   assert.equal(nativeExecutable('codex', { environment: {}, root }), undefined);
 
