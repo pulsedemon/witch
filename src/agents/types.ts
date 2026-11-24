@@ -89,16 +89,20 @@ export interface ModelLimit extends Limit {
 }
 
 /** the native limit behind a confirmed exhaustion; a field the runtime didn't report is absent. */
-export interface ExhaustedLimit {
-  /** the window's length, such as `5H` or `7D`. */
-  window?: string;
-  /** the runtime's label for the only models it blocks. */
-  model?: string;
-  /** in epoch seconds. */
-  resetsAt?: number;
-  /** why account credits could not cover the request, in the runtime's words. */
-  credits?: string;
-}
+export const exhaustedLimitSchema = z
+  .object({
+    /** the window's length, such as `5H` or `7D`. */
+    window: z.string(),
+    /** the runtime's label for the only models it blocks. */
+    model: z.string(),
+    /** in epoch seconds. */
+    resetsAt: z.number(),
+    /** why account credits could not cover the request, in the runtime's words. */
+    credits: z.string(),
+  })
+  .partial();
+
+export type ExhaustedLimit = z.infer<typeof exhaustedLimitSchema>;
 
 export type Funding = (
   | {

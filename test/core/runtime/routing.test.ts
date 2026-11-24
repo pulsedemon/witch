@@ -1187,6 +1187,42 @@ test('a runtime refused for usage leaves a review to the other runtime even whil
   assert.match(both.refused, /claude ran out of usage/);
 });
 
+test('a review leaves out a refused runtime whose share has nowhere to go, with its reason, and keeps the other runtime', () => {
+  const of = { runtime: 'claude', model: 'claude-opus-5-5' };
+
+  const cases: [Partial<Policy>, AccountReading][] = [
+    [{}, { limits: [] }],
+    [{ shiftAt: null }, { limits: [window('7D', 40)] }],
+  ];
+
+  for (const [policy, claude] of cases) {
+    const routed = route({
+      work: 'review',
+      caller: 'claude',
+      of,
+      policy: { ...defaultPolicy, ...policy },
+      installed,
+      catalog,
+      accounts: { claude, codex: refusedAt(credited(100)) },
+      now,
+    });
+
+    assert.ok('routes' in routed);
+
+    assert.deepEqual(
+      routed.routes.map(({ runtime }) => runtime),
+      ['claude'],
+    );
+
+    assert.deepEqual(
+      routed.dropped?.map(({ runtime }) => runtime),
+      ['codex'],
+    );
+
+    assert.match(routed.dropped![0]!.reason, /codex ran out of usage/);
+  }
+});
+
 test('work a rule pins to a refused runtime shifts to a comparable model, and is refused when automatic movement is off', () => {
   const accounts = {
     claude: { limits: [window('7D', 40)] },

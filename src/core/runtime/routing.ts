@@ -60,6 +60,8 @@ export type Route =
       routes: Routed[];
       /** shifted placements that landed on a runtime already routed the same model, so they run once. */
       folded?: Routed[];
+      /** runtimes a review leaves out because they ran out of usage and their share has nowhere to go. */
+      dropped?: { runtime: string; reason: string }[];
     }
   | { refused: string };
 
@@ -304,7 +306,7 @@ export function route({
     rule: string,
     why: string,
     mixed = false,
-  ): Routed | { refused: string } => {
+  ): Routed | { refused: string; out?: true } => {
     const [kind, pinned] = rule.split(/:(.*)/s) as [string, string?];
 
     if (kind === 'auto' && work === 'review')
@@ -411,6 +413,7 @@ export function route({
       return refused(accounts[runtime], chosen.model, now)
         ? {
             refused: `${describe(runtime, chosen.model)}; automatic movement is off`,
+            out: true,
           }
         : keep('automatic movement is off');
 
@@ -507,7 +510,10 @@ export function route({
       const reasons = blocked.join(', ') || 'no other runtime is installed';
 
       return state.out
-        ? { refused: `${describe(runtime, chosen.model)}; ${reasons}` }
+        ? {
+            refused: `${describe(runtime, chosen.model)}; ${reasons}`,
+            out: true,
+          }
         : keep(`${protection}; ${reasons}`);
     }
 
@@ -541,6 +547,7 @@ export function route({
 
   if (rule === 'both') {
     const placements: Routed[] = [];
+    const dropped: { runtime: string; reason: string }[] = [];
 
     for (const runtime of installed) {
       const placed = place(
@@ -549,10 +556,14 @@ export function route({
         true,
       );
 
-      if ('refused' in placed) return placed;
-
-      placements.push(placed);
+      if (!('refused' in placed)) placements.push(placed);
+      // a runtime that ran out leaves the review to the others
+      else if (placed.out) dropped.push({ runtime, reason: placed.refused });
+      else return placed;
     }
+
+    if (!placements.length)
+      return { refused: dropped.map(({ reason }) => reason).join('; ') };
 
     const routes = placements.filter(({ from }) => !from);
     const folded: Routed[] = [];
@@ -567,7 +578,11 @@ export function route({
       (taken ? folded : routes).push(placed);
     }
 
-    return folded.length ? { routes, folded } : { routes };
+    return {
+      routes,
+      ...(folded.length ? { folded } : {}),
+      ...(dropped.length ? { dropped } : {}),
+    };
   }
 
   const why =
@@ -579,5 +594,7 @@ export function route({
 
   const placed = place(rule, why);
 
-  return 'refused' in placed ? placed : { routes: [placed] };
+  return 'refused' in placed
+    ? { refused: placed.refused }
+    : { routes: [placed] };
 }

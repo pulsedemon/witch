@@ -4,6 +4,7 @@ import { checkDeadline } from '../persistence/coordination.js';
 import { FamiliarRun } from './familiar-requests.js';
 import type { Cast, UserResponse } from './types.js';
 import {
+  exhaustedLimitSchema,
   taskStatuses,
   userRequestSchema,
   userResponseSchema,
@@ -19,15 +20,7 @@ const familiarProgressSchema = z.object({
   notices: z.array(z.string()).optional(),
   spells: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
   /** on a failed end: the runtime confirmed a usage refusal, with the limit as far as it reported one. */
-  exhausted: z
-    .object({
-      window: z.string(),
-      model: z.string(),
-      resetsAt: z.number(),
-      credits: z.string(),
-    })
-    .partial()
-    .optional(),
+  exhausted: exhaustedLimitSchema.optional(),
 });
 
 export type FamiliarProgress = z.infer<typeof familiarProgressSchema>;

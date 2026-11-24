@@ -697,7 +697,7 @@ test('a refused runtime stays out while later readings keep its balance, and a t
   tick();
   usage.exhausted('b');
   tick();
-  // the #942 shape: the bucket Witch reads still says credits are usable
+  // the bucket Witch reads still says credits are usable after the refusal
   usage.report('b', reading('20.58'));
   assert.equal(refused(latest(), 'model', at()), true);
   assert.equal(creditCapacity(latest(), at()), 'unavailable');

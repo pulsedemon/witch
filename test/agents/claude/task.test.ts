@@ -418,3 +418,16 @@ test('a rejected rate limit before a failed result or a dying CLI reports the us
   assert.equal(close([rejected], null, 'SIGTERM'), undefined);
   assert.equal(close([failure]), undefined);
 });
+
+test('a rate limit frame of another shape is skipped and does not fail the task', () => {
+  const task = new ClaudeTask('/work', () => {});
+
+  for (const frame of [
+    init,
+    { type: 'rate_limit_event', session_id: 'review' },
+    success,
+  ])
+    task.message(frame);
+
+  assert.equal(task.closed(0, null).status, 'completed');
+});

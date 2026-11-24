@@ -81,7 +81,7 @@ export class ClaudeTask {
   private receivedResult = false;
   private failure?: string;
   private readonly rateLimit = new RateLimit<object>();
-  /** stands for the current native turn, so a rejection without a reset speaks only for the turn it arrived in. */
+  /** stands for the current native turn, so a rejection without a reset time or window speaks only for the turn it arrived in. */
   private turn: object = {};
   /** the current turn has activity and no result yet. */
   private open = false;
@@ -128,8 +128,15 @@ export class ClaudeTask {
           this.emit(this.progress());
         }
       } else if (message.type === 'rate_limit_event') {
-        const { rate_limit_info: info } = rateLimitEvent.parse(value);
-        this.rateLimit.report(info as SDKRateLimitInfo, this.turn);
+        // only advisory: a frame of another shape is skipped rather than failing the task
+        const event = rateLimitEvent.safeParse(value).data;
+
+        if (event)
+          this.rateLimit.report(
+            event.rate_limit_info as SDKRateLimitInfo,
+            this.turn,
+          );
+
         this.open = true;
       } else if (message.type === 'assistant') {
         this.open = true;

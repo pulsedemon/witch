@@ -242,6 +242,43 @@ test('a review that loses a runtime to usage routes once and says on its own lin
   }
 });
 
+test('a review leaves out a runtime that ran out with nowhere to shift, and says so on its own line', async (t) => {
+  const f = await start(t.onTestFinished);
+  f.coordinator.accountUsage.report('a', { limits: [window(40)] });
+  f.coordinator.accountUsage.report('b', { limits: [window(100)] });
+  f.coordinator.accountUsage.exhausted('a');
+
+  const reply = await f.route({
+    work: 'review',
+    of: { runtime: 'b', model: 'b-3-model' },
+  });
+
+  assert.equal(reply.kind, 'route');
+
+  if (reply.kind !== 'route') return;
+
+  assert.deepEqual(
+    reply.routes.map(({ runtime }) => runtime),
+    ['b'],
+  );
+
+  assert.deepEqual(
+    reply.dropped?.map(({ runtime }) => runtime),
+    ['a'],
+  );
+
+  assert.match(reply.dropped![0]!.reason, /a ran out of usage/);
+
+  assert.ok(
+    f.coordinator.snapshot.items.some(
+      (item) =>
+        item.kind === 'notice' &&
+        item.warning &&
+        item.text === `Left a out of review: ${reply.dropped![0]!.reason}`,
+    ),
+  );
+});
+
 test('a route after an empty read starts no new one, and says the reading is missing', async (t) => {
   const f = await start(t.onTestFinished);
   await until('the connect read of b', () => f.b.accountReads.length === 1);
