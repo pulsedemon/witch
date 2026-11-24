@@ -1254,6 +1254,23 @@ test('work a rule pins to a refused runtime shifts to a comparable model, and is
   );
 });
 
+test('credits do not keep work on a model a model-scoped refusal blocks', () => {
+  const routed = ask({
+    policy: { work: { implementation: 'codex:gpt-6.1-sol' } },
+    accounts: {
+      claude: { limits: [window('7D', 40)] },
+      codex: {
+        ...credited(100),
+        exhausted: { at: now - 500, limit: { model: 'Sol' }, balance: null },
+      },
+    },
+  });
+
+  assert.ok(!('refused' in routed) && !Array.isArray(routed));
+  assert.equal(routed.runtime, 'claude');
+  assert.equal(routed.from, 'codex');
+});
+
 test('a named model on a refused runtime still runs, and its reason says the runtime ran out', () => {
   const routed = ask({
     named: { runtime: 'codex', model: 'gpt-6.1-sol' },

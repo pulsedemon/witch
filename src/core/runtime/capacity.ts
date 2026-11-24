@@ -33,7 +33,7 @@ export function capacity(
   const limits = limitsFor(account, model);
   // a refused runtime has no room whatever its windows say until a later reading shows it recovered
   const out = refused(account, model, now);
-  const credits = creditCapacity(account, now) === 'available';
+  const credits = !out && creditCapacity(account, now) === 'available';
   const included = !out && headroom(limits, 100, now);
   const spent = out || over(limits, 100, now);
   const high = out || over(limits, shiftAt, now);
