@@ -1065,6 +1065,20 @@ export class Coordinator {
     event: Extract<AgentEvent, { type: 'subagent' | 'command' }>,
     cwd = this.current().cwd,
   ): void {
+    if (event.type === 'subagent') {
+      const { status, exhausted, runtime } = event.subagent;
+
+      if (status === 'failed' && exhausted && runtime) {
+        this.accountUsage.exhausted(runtime, exhausted);
+
+        // a top-up since the last reading would otherwise wait out the read throttle
+        void this.accountUsage.refresh(runtime, cwd, {
+          force: true,
+          after: this.snapshot.accounts[runtime]?.exhausted?.at,
+        });
+      }
+    }
+
     const update = updateBackgroundActivity(this.snapshot, event, cwd);
 
     if (!update) return;

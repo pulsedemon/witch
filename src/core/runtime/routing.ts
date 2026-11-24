@@ -8,6 +8,7 @@ import {
   currentLimits,
   fundingText,
   limitsFor,
+  refused,
   untilReset,
 } from './usage.js';
 
@@ -202,20 +203,39 @@ function standing(
   return `${runtime} (${parts.join(', ')})`;
 }
 
+/** `''` unless a confirmed refusal still blocks `model`. */
+function outOfUsage(
+  runtime: string,
+  account: AccountReading | undefined,
+  model: string,
+  now: number,
+): string {
+  if (!refused(account, model, now)) return '';
+
+  const left = untilReset(account!.exhausted!.limit?.resetsAt, now);
+
+  return `${runtime} ran out of usage${left && `, resets in ${left}`}`;
+}
+
 function reading(
   runtime: string,
   account: AccountReading | undefined,
+  model: string,
   now: number,
   limits: readonly Limit[],
 ): string {
-  if (!account || (!limits.length && !account.funding))
-    return `${runtime} has no usage reading`;
-
   const stale = limits.filter((limit) => !current(limit, now));
 
-  return stale.length
-    ? `${runtime}'s ${stale.map(({ window }) => window).join(' and ')} reading is not current`
-    : standing(runtime, account, now, limits);
+  const state =
+    !account || (!limits.length && !account.funding)
+      ? `${runtime} has no usage reading`
+      : stale.length
+        ? `${runtime}'s ${stale.map(({ window }) => window).join(' and ')} reading is not current`
+        : standing(runtime, account, now, limits);
+
+  return [state, outOfUsage(runtime, account, model, now)]
+    .filter(Boolean)
+    .join('; ');
 }
 
 export function route({
@@ -249,9 +269,11 @@ export function route({
 }): Route {
   const evidence = (runtime: string, model: string) => {
     const limits = limitsFor(accounts[runtime], model);
-    const state = reading(runtime, accounts[runtime], now, limits);
+    const state = reading(runtime, accounts[runtime], model, now, limits);
 
-    return currentLimits(limits, now) && !accounts[runtime]!.funding
+    return currentLimits(limits, now) &&
+      !accounts[runtime]!.funding &&
+      !refused(accounts[runtime], model, now)
       ? ''
       : `; ${state}`;
   };
@@ -374,7 +396,7 @@ export function route({
           ? `${standing(id, accounts[id]!, now, fresh)}; `
           : '';
 
-      return `${partial}${reading(id, accounts[id], now, limits)}; ${demandText(id, demand)}`;
+      return `${partial}${reading(id, accounts[id], model, now, limits)}; ${demandText(id, demand)}`;
     };
 
     const keep = (reason: string): Routed => ({
@@ -385,7 +407,12 @@ export function route({
         .join('; '),
     });
 
-    if (shiftAt === null) return keep('automatic movement is off');
+    if (shiftAt === null)
+      return refused(accounts[runtime], chosen.model, now)
+        ? {
+            refused: `${describe(runtime, chosen.model)}; automatic movement is off`,
+          }
+        : keep('automatic movement is off');
 
     const candidate = (
       id: string,
@@ -394,14 +421,7 @@ export function route({
       runtime: id,
       model,
       note,
-      capacity: capacity(
-        id,
-        limitsFor(accounts[id], model),
-        accounts[id],
-        demand,
-        shiftAt,
-        now,
-      ),
+      capacity: capacity(id, model, accounts[id], demand, shiftAt, now),
     });
 
     const own = candidate(runtime, chosen);
@@ -472,18 +492,24 @@ export function route({
 
     const selected = candidates[0];
 
-    const protection = state.spent
-      ? `${runtime} has a full applicable usage window`
-      : state.reserved
-        ? !demand || demand.unknown.includes(runtime)
-          ? `${runtime} needs a capacity reserve while coordinator activity is unknown`
-          : `${runtime} needs a capacity reserve for its active coordinator${(demand.coordinators[runtime] ?? 0) === 1 ? '' : 's'}`
-        : '';
+    // describe() already says a refused runtime ran out
+    const protection = state.out
+      ? ''
+      : state.spent
+        ? `${runtime} has a full applicable usage window`
+        : state.reserved
+          ? !demand || demand.unknown.includes(runtime)
+            ? `${runtime} needs a capacity reserve while coordinator activity is unknown`
+            : `${runtime} needs a capacity reserve for its active coordinator${(demand.coordinators[runtime] ?? 0) === 1 ? '' : 's'}`
+          : '';
 
-    if (!selected)
-      return keep(
-        `${protection}; ${blocked.join(', ') || 'no other runtime is installed'}`,
-      );
+    if (!selected) {
+      const reasons = blocked.join(', ') || 'no other runtime is installed';
+
+      return state.out
+        ? { refused: `${describe(runtime, chosen.model)}; ${reasons}` }
+        : keep(`${protection}; ${reasons}`);
+    }
 
     const compared = automatic ? candidates : [own, selected];
 

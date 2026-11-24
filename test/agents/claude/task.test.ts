@@ -364,3 +364,57 @@ test('malformed required protocol fails even if a later result claims success', 
   assert.equal(result.status, 'failed');
   assert.match(result.report!, /^Reviewed\.\n\nInvalid Claude task stream:/);
 });
+
+const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+
+const rejected = {
+  type: 'rate_limit_event',
+  session_id: 'review',
+  rate_limit_info: {
+    status: 'rejected',
+    resetsAt,
+    rateLimitType: 'seven_day',
+  },
+};
+
+const failure = {
+  type: 'result',
+  subtype: 'error_during_execution',
+  session_id: 'review',
+  is_error: true,
+  errors: ['You have hit your limit.'],
+  permission_denials: [],
+};
+
+test('a rejected rate limit before a failed result or a dying CLI reports the usage refusal, and overage, a success or a stop do not', () => {
+  const close = (
+    frames: object[],
+    code: number | null = 0,
+    signal: NodeJS.Signals | null = null,
+  ) => {
+    const task = new ClaudeTask('/work', () => {});
+
+    for (const frame of [init, ...frames]) task.message(frame);
+
+    return task.closed(code, signal).exhausted;
+  };
+
+  const limit = { window: '7D', resetsAt };
+  assert.deepEqual(close([rejected, failure]), limit);
+  assert.deepEqual(close([rejected], 1), limit);
+  assert.equal(close([rejected, success, failure]), undefined);
+
+  assert.equal(
+    close([
+      {
+        ...rejected,
+        rate_limit_info: { ...rejected.rate_limit_info, isUsingOverage: true },
+      },
+      failure,
+    ]),
+    undefined,
+  );
+
+  assert.equal(close([rejected], null, 'SIGTERM'), undefined);
+  assert.equal(close([failure]), undefined);
+});

@@ -5,6 +5,7 @@ import type {
   AgentSession,
   AgentStopOptions,
   ExhaustedLimit,
+  Exhaustion,
   Funding,
   Limit,
   ModelLimit,
@@ -81,17 +82,20 @@ function named({ model, ...limit }: ModelLimit): Limit {
   return { ...limit, window: `${limit.window} ${model}` };
 }
 
-/** the windows `model` runs under: those that block every model, then each model-only window whose label names it, as `Fable` names `claude-fable-5-2`. */
+/** whether a runtime's model label names `model`, as `Fable` names `claude-fable-5-2`. */
+function names(label: string, model: string | undefined): boolean {
+  return `-${words(model ?? '')}-`.includes(`-${words(label)}-`);
+}
+
+/** the windows `model` runs under: those that block every model, then each model-only window whose label names it. */
 export function limitsFor(
   account: AccountReading | undefined,
   model: string | undefined,
 ): readonly Limit[] {
-  const id = `-${words(model ?? '')}-`;
-
   return [
     ...(account?.limits ?? []),
     ...(account?.modelLimits ?? [])
-      .filter((limit) => id.includes(`-${words(limit.model)}-`))
+      .filter((limit) => names(limit.model, model))
       .map(named),
   ];
 }
@@ -108,10 +112,65 @@ export function due(account: AccountReading | undefined, now: number): boolean {
   );
 }
 
+/**
+ * the refused limit reset, or a reading observed after the refusal shows room or a balance above the lowest seen
+ * since: Codex has reported usable credits in the bucket Witch reads while refusing for usage.
+ */
+function recovered(
+  { exhausted, limits, modelLimits, funding, creditAccess }: AccountReading,
+  now: number,
+): boolean {
+  const { at, limit, balance } = exhausted!;
+
+  if (limit?.resetsAt !== undefined && limit.resetsAt * 1000 <= now)
+    return true;
+
+  const applicable = limit?.model
+    ? limitsFor({ limits, modelLimits }, limit.model)
+    : limits;
+
+  if (
+    applicable.every((window) => window.observedAt > at) &&
+    headroom(applicable, 100, now)
+  )
+    return true;
+
+  return (
+    funding?.kind === 'credits' &&
+    funding.observedAt > at &&
+    current(funding, now) &&
+    creditAccess?.state === 'available' &&
+    creditAccess.observedAt > at &&
+    current(creditAccess, now) &&
+    (funding.unlimited ||
+      (funding.available &&
+        balance !== null &&
+        funding.balance !== null &&
+        Number(funding.balance) > Number(balance)))
+  );
+}
+
+/** whether a usage refusal still blocks `model`; with no model, only a refusal that blocks every model counts. */
+export function refused(
+  account: AccountReading | undefined,
+  model: string | undefined,
+  now: number,
+): boolean {
+  const mark = account?.exhausted;
+
+  return (
+    !!mark &&
+    (!mark.limit?.model || names(mark.limit.model, model)) &&
+    !recovered(account, now)
+  );
+}
+
 export function creditCapacity(
   account: AccountReading | undefined,
   now: number,
 ): 'available' | 'unavailable' | 'unknown' {
+  if (refused(account, undefined, now)) return 'unavailable';
+
   const access = account?.creditAccess;
 
   if (!access || !current(access, now)) return 'unknown';
@@ -252,6 +311,23 @@ export function usageContext(
     : undefined;
 }
 
+/** a mark's balance after `reading`: the lowest credit balance observed since the refusal. */
+function settle(mark: Exhaustion, { funding }: AccountReading): Exhaustion {
+  if (
+    funding?.kind !== 'credits' ||
+    funding.balance === null ||
+    funding.observedAt <= mark.at ||
+    (mark.balance !== null && Number(funding.balance) >= Number(mark.balance))
+  )
+    return mark;
+
+  return { ...mark, balance: funding.balance };
+}
+
+function sameMark(a: Exhaustion | undefined, b: Exhaustion | undefined) {
+  return a === b || (a?.at === b?.at && a?.balance === b?.balance);
+}
+
 /** each runtime's latest reading, and the reads Witch starts for it; one read per runtime runs at a time. */
 export class AccountUsage {
   private accounts: Record<string, AccountReading> = {};
@@ -289,11 +365,33 @@ export class AccountUsage {
       : [];
 
     const reading = kept.length ? [...limits, ...kept] : limits;
-    this.store(agent, { ...previous, ...account, limits: reading });
+
+    this.store(agent, {
+      ...previous,
+      ...account,
+      limits: reading,
+      // a refusal recorded before the account identified itself still belongs to it
+      exhausted: stored?.identity ? previous?.exhausted : stored?.exhausted,
+    });
   }
 
-  private store(agent: string, next: AccountReading): void {
+  /** records a confirmed usage refusal; the first credit balance observed after it is the floor recovery must beat. */
+  exhausted(agent: string, limit?: ExhaustedLimit): void {
+    this.store(agent, {
+      ...(this.accounts[agent] ?? { limits: [] }),
+      exhausted: { at: Date.now(), ...(limit && { limit }), balance: null },
+    });
+  }
+
+  private store(agent: string, reading: AccountReading): void {
     const previous = this.accounts[agent];
+    const { exhausted, ...rest } = reading;
+    const mark = exhausted && settle(exhausted, reading);
+
+    const next: AccountReading =
+      mark && !recovered({ ...rest, exhausted: mark }, Date.now())
+        ? { ...rest, exhausted: mark }
+        : rest;
 
     if (
       previous?.limits.length === next.limits.length &&
@@ -301,7 +399,8 @@ export class AccountUsage {
       previous.modelLimits === next.modelLimits &&
       previous.funding === next.funding &&
       previous.creditAccess === next.creditAccess &&
-      previous.identity === next.identity
+      previous.identity === next.identity &&
+      sameMark(previous.exhausted, next.exhausted)
     )
       return;
 
@@ -456,6 +555,8 @@ export class AccountUsage {
           ...(current?.modelLimits !== previous?.modelLimits
             ? { modelLimits: current?.modelLimits }
             : {}),
+          // the adapter echoes the reading the probe started from, which can hold an older mark
+          exhausted: current?.exhausted,
         });
       })
       // a failed read leaves the reading to age until the next attempt

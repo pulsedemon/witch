@@ -6,12 +6,7 @@ import type {
   Limit,
   Usage,
 } from '../../agents/types.js';
-import {
-  creditCapacity,
-  current,
-  fundingText,
-  untilReset,
-} from '../../core/runtime/usage.js';
+import { current, fundingText, untilReset } from '../../core/runtime/usage.js';
 import type { Repository } from '../../core/repository/repository.js';
 import { hyperlink, linkify, oneLine, plain } from '../links.js';
 import { colors, piped } from '../theme.js';
@@ -111,7 +106,9 @@ function spendingBlocked(
   return (
     account?.funding?.kind === 'credits' &&
     (account.funding.available || account.funding.unlimited) &&
-    creditCapacity(account, now) === 'unavailable'
+    // the account's own denial, not a usage refusal, which also leaves credits unusable
+    account.creditAccess?.state === 'unavailable' &&
+    current(account.creditAccess, now)
   );
 }
 

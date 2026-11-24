@@ -18,6 +18,16 @@ const familiarProgressSchema = z.object({
   /** the transient notices its native session posted, oldest first. */
   notices: z.array(z.string()).optional(),
   spells: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  /** on a failed end: the runtime confirmed a usage refusal, with the limit as far as it reported one. */
+  exhausted: z
+    .object({
+      window: z.string(),
+      model: z.string(),
+      resetsAt: z.number(),
+      credits: z.string(),
+    })
+    .partial()
+    .optional(),
 });
 
 export type FamiliarProgress = z.infer<typeof familiarProgressSchema>;

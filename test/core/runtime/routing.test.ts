@@ -1142,3 +1142,94 @@ test('a rule that pins a model keeps it under a tier, and says the tier did not 
     },
   );
 });
+
+/** refused for usage after `credited`'s reading, which still says credits are usable at the same balance. */
+const refusedAt = (account: AccountReading): AccountReading => ({
+  ...account,
+  exhausted: { at: now - 500, balance: '25966.049947' },
+});
+
+test('a runtime refused for usage leaves a review to the other runtime even while its reading says credits are usable', () => {
+  const of = { runtime: 'claude', model: 'claude-opus-5-5' };
+  const claude = { limits: [window('7D', 40)] };
+
+  const routed = route({
+    work: 'review',
+    caller: 'claude',
+    of,
+    policy: defaultPolicy,
+    installed,
+    catalog,
+    accounts: { claude, codex: refusedAt(credited(100)) },
+    now,
+  });
+
+  assert.ok('routes' in routed);
+
+  assert.deepEqual(
+    routed.routes.map(({ runtime }) => runtime),
+    ['claude'],
+  );
+
+  assert.equal(routed.folded?.[0]?.from, 'codex');
+  assert.match(routed.folded[0].reason, /codex ran out of usage/);
+
+  const both = ask({
+    work: 'review',
+    of,
+    accounts: {
+      claude: refusedAt(claude),
+      codex: refusedAt(credited(100)),
+    },
+  });
+
+  assert.ok('refused' in both);
+  assert.match(both.refused, /claude ran out of usage/);
+});
+
+test('work a rule pins to a refused runtime shifts to a comparable model, and is refused when automatic movement is off', () => {
+  const accounts = {
+    claude: { limits: [window('7D', 40)] },
+    codex: refusedAt(credited(100)),
+  };
+
+  const policy = { work: { implementation: 'codex:gpt-6.1-sol' } };
+  const shifted = ask({ policy, accounts });
+  assert.ok(!('refused' in shifted) && !Array.isArray(shifted));
+  assert.equal(shifted.runtime, 'claude');
+  assert.equal(shifted.from, 'codex');
+  const off = { ...policy, shiftAt: null };
+
+  assert.equal(
+    (
+      ask({ policy: off, accounts: { ...accounts, codex: credited(100) } }) as {
+        runtime: string;
+      }
+    ).runtime,
+    'codex',
+  );
+
+  const refusal = ask({ policy: off, accounts });
+  assert.ok('refused' in refusal);
+
+  assert.match(
+    refusal.refused,
+    /codex ran out of usage.*automatic movement is off/,
+  );
+});
+
+test('a named model on a refused runtime still runs, and its reason says the runtime ran out', () => {
+  const routed = ask({
+    named: { runtime: 'codex', model: 'gpt-6.1-sol' },
+    accounts: {
+      codex: {
+        limits: [window('7D', 49)],
+        exhausted: { at: now - 500, balance: null },
+      },
+    },
+  });
+
+  assert.ok(!('refused' in routed) && !Array.isArray(routed));
+  assert.equal(routed.runtime, 'codex');
+  assert.match(routed.reason, /codex ran out of usage/);
+});

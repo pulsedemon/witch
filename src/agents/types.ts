@@ -134,6 +134,15 @@ export interface AccountReading {
   };
   /** native account and quota identity, when reported. */
   identity?: string;
+  /** recorded only by AccountUsage when the account refused work for its usage; adapters carry it over with the previous reading. */
+  exhausted?: Exhaustion;
+}
+
+export interface Exhaustion {
+  at: number;
+  limit?: ExhaustedLimit;
+  /** the lowest credit balance observed since `at`, `null` until one is. */
+  balance: string | null;
 }
 
 export const taskStatuses = [
@@ -168,6 +177,8 @@ export interface Subagent {
   notices?: string[];
   /** the spells it has cast, oldest first. */
   spells?: Cast[];
+  /** set on a familiar's end when its runtime confirmed a usage refusal. */
+  exhausted?: ExhaustedLimit;
 }
 
 /** a command the native agent left running in the background; a running event starts it, a later one with another status ends it, and a repeated start changes nothing. */

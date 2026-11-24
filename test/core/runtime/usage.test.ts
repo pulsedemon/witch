@@ -18,6 +18,7 @@ import {
   headroom,
   limitsFor,
   over,
+  refused,
   USAGE_CURRENT_MS,
   USAGE_PROBE_MS,
   usageContext,
@@ -660,4 +661,108 @@ test('an empty probe clears unchanged windows while retaining concurrent credit 
     assert.deepEqual(published.at(-1)!.b!.limits, changed ? [newer] : []);
     assert.equal(published.at(-1)!.b!.funding, funding);
   }
+});
+
+/** a clock the test moves, and a credits reading observed at its current time. */
+function exhaustion() {
+  let at = now;
+  vi.spyOn(Date, 'now').mockImplementation(() => at);
+  const { b, usage, published } = readings();
+
+  const reading = (balance: string, percent = 100): AccountReading => ({
+    limits: [window('7D', percent, { observedAt: at })],
+    funding: {
+      kind: 'credits',
+      balance,
+      unlimited: false,
+      available: true,
+      observedAt: at,
+    },
+    creditAccess: { state: 'available', observedAt: at },
+  });
+
+  return {
+    b,
+    usage,
+    reading,
+    latest: () => published.at(-1)!.b!,
+    tick: () => (at += 1000),
+    at: () => at,
+  };
+}
+
+test('a refused runtime stays out while later readings keep its balance, and a top-up above the lowest since lets it back', () => {
+  const { usage, reading, latest, tick, at } = exhaustion();
+  usage.report('b', reading('70.67'));
+  tick();
+  usage.exhausted('b');
+  tick();
+  // the #942 shape: the bucket Witch reads still says credits are usable
+  usage.report('b', reading('20.58'));
+  assert.equal(refused(latest(), 'model', at()), true);
+  assert.equal(creditCapacity(latest(), at()), 'unavailable');
+  assert.equal(latest().exhausted!.balance, '20.58');
+  tick();
+  usage.report('b', reading('10'));
+  tick();
+  usage.report('b', reading('15'));
+  assert.equal(latest().exhausted, undefined);
+  assert.equal(creditCapacity(latest(), at()), 'available');
+  tick();
+  usage.report('b', reading('15'));
+  assert.equal(refused(latest(), 'model', at()), false);
+});
+
+test('room observed after a refusal lets the runtime back, and room observed before it does not', () => {
+  const { usage, reading, latest, tick, at } = exhaustion();
+  const before = reading('0', 40);
+  tick();
+  usage.exhausted('b');
+  tick();
+  usage.report('b', before);
+  assert.equal(refused(latest(), 'model', at()), true);
+  usage.report('b', reading('0', 40));
+  assert.equal(latest().exhausted, undefined);
+});
+
+test('a refusal ends at its limit reset, and one for a model label blocks only that model', () => {
+  const { usage, latest, tick, at } = exhaustion();
+  usage.exhausted('b', { window: '7D', resetsAt: at() / 1000 + 1 });
+  assert.equal(refused(latest(), 'model', at()), true);
+  tick();
+  assert.equal(refused(latest(), 'model', at()), false);
+  usage.exhausted('b', { window: '7D', model: 'Fable' });
+  assert.equal(refused(latest(), 'claude-fable-5-2', at()), true);
+  assert.equal(refused(latest(), 'claude-opus-5-5', at()), false);
+  assert.equal(refused(latest(), undefined, at()), false);
+});
+
+test('a refusal survives the account first identifying itself and ends with another account', () => {
+  const { usage, latest, at } = exhaustion();
+  usage.exhausted('b');
+  usage.report('b', { identity: 'first', limits: [] });
+  assert.equal(refused(latest(), 'model', at()), true);
+  usage.report('b', { identity: 'second', limits: [] });
+  assert.equal(latest().exhausted, undefined);
+});
+
+test('a probe that started before a refusal does not restore the earlier mark', async () => {
+  const { b, usage, latest, tick } = exhaustion();
+  usage.exhausted('b');
+  const read = Promise.withResolvers<AccountReading>();
+  let started: AccountReading | undefined;
+
+  b.accountRead = (_, previous) => {
+    started = previous;
+
+    return read.promise;
+  };
+
+  const probing = usage.refresh('b', '/w');
+  tick();
+  usage.exhausted('b');
+  const mark = latest().exhausted;
+  read.resolve({ ...started!, limits: [] });
+  await probing;
+  assert.equal(latest().exhausted, mark);
 });

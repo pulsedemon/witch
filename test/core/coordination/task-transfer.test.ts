@@ -607,6 +607,31 @@ test('merged credits veto automatic transfer after a sparse reconnect, while man
   );
 });
 
+test('credits on a runtime that refused for usage cannot veto automatic transfer', async (t) => {
+  const f = await automatic(t, ['codex', 'claude']);
+  const usage = f.owner.coordinator.accountUsage;
+
+  usage.report('codex', {
+    ...f.owner.coordinator.snapshot.accounts.codex!,
+    funding: {
+      kind: 'credits',
+      balance: '123.456',
+      unlimited: false,
+      available: true,
+      observedAt: Date.now(),
+    },
+    creditAccess: { state: 'available', observedAt: Date.now() },
+  });
+
+  usage.exhausted('codex');
+  assert.equal((await f.attempt()).kind, 'claimed');
+
+  assert.equal(
+    (await f.registry.claims())[0]!.owner.conversation,
+    f.requester.coordinator.snapshot.conversation!.id,
+  );
+});
+
 test('another runtime credits cannot veto an exhausted owner transfer', async (t) => {
   const f = await automatic(t);
 
