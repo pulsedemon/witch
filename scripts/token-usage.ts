@@ -527,7 +527,7 @@ print(
 );
 
 console.log(
-  `\n${behind} sessions have a last cost-state that predates their last response and ${unknownCost} have a model without a known price; their USD is understated.`,
+  `\nUSD is understated for sessions whose last cost-state predates their last response (${behind}) or that used a model without a known price (${unknownCost}).`,
 );
 
 function quantile(sorted: number[], q: number): string {
