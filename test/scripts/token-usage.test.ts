@@ -129,8 +129,9 @@ async function home(): Promise<string> {
         'claude-o[1m]': {
           inputTokens: 1,
           cacheCreationInputTokens: 100,
-          cacheReadInputTokens: 1000,
-          outputTokens: 500,
+          // a last response written after this cost-state
+          cacheReadInputTokens: 900,
+          outputTokens: 600,
         },
         'claude-h': { inputTokens: 3000, outputTokens: 70 },
       },
@@ -171,6 +172,7 @@ async function home(): Promise<string> {
     record(inside(10), 700, 0, 7),
     // read before the main thread's 60, written after it
     { ...balance(11, '90'), timestamp: '2026-11-20T11:30:00.000Z' },
+    balance(14, '55'),
   ]);
 
   await jsonl(join(codex, '2026', '11', '20', 'rollout-guardian.jsonl'), [
@@ -179,14 +181,23 @@ async function home(): Promise<string> {
     record(inside(10), 400, 100, 4),
   ]);
 
+  // written before Codex logged per-response usage records
+  await jsonl(join(codex, '2026', '11', '20', 'rollout-legacy.jsonl'), [
+    meta('codex-legacy', 'vscode'),
+    {
+      timestamp: inside(10),
+      type: 'event_msg',
+      payload: { type: 'token_count', info: { last_token_usage: {} } },
+    },
+  ]);
+
   return root;
 }
 
 let output: Promise<string> | undefined;
 
-/** the report's rows as whitespace-split cells, keyed by their label. */
-async function table(title: string): Promise<Map<string, string[]>> {
-  output ??= home().then(async (root) => {
+function report(): Promise<string> {
+  return (output ??= home().then(async (root) => {
     const { stdout } = await execute(
       process.execPath,
       ['--import', import.meta.resolve('tsx'), script, '--since', '2026-11-10'],
@@ -194,9 +205,12 @@ async function table(title: string): Promise<Map<string, string[]>> {
     );
 
     return stdout;
-  });
+  }));
+}
 
-  const [, section = ''] = (await output).split(`\n${title}\n`);
+/** the report's rows as whitespace-split cells, keyed by their label. */
+async function table(title: string): Promise<Map<string, string[]>> {
+  const [, section = ''] = (await report()).split(`\n${title}\n`);
   const rows = new Map<string, string[]>();
 
   for (const line of section.split('\n').slice(1)) {
@@ -262,13 +276,21 @@ test('usage outside transcripts subtracts the main file and its subagents per mo
     'Claude usage not in transcripts, cause unverified',
   );
 
-  // sessions, uncached, write, read, output; the `[1m]` key matches `claude-o` and leaves nothing
-  assert.deepEqual([...residuals], [['claude-h', ['1', '2K', '0', '0', '20']]]);
+  // sessions, uncached, write, read, output; the `[1m]` key matches `claude-o`, whose short read clamps to 0
+  assert.deepEqual(
+    [...residuals],
+    [
+      ['claude-h', ['1', '2K', '0', '0', '20']],
+      ['claude-o', ['1', '0', '0', '0', '100']],
+    ],
+  );
+
+  assert.match(await report(), /predates their last response \(1\)/);
 });
 
 test('credits spent ignore stale readings from concurrent sessions and premium rows', async () => {
   const credits = await table('Codex credits beyond plan quota, account-wide');
-  assert.deepEqual(credits.get('last'), [inside(12), '50.00']);
+  assert.deepEqual(credits.get('last'), [inside(14), '55.00']);
   assert.deepEqual(credits.get('spent'), ['50.00']);
 });
 
@@ -278,4 +300,9 @@ test('Claude USD comes from the whole session estimate', async () => {
   );
 
   assert.deepEqual(usd.get('main'), ['1', '$1.50']);
+});
+
+test('Codex rollouts without per-response records are counted as skipped, not as zero', async () => {
+  assert.match(await report(), /\n1 Codex rollouts from before September 2026/);
+  assert.equal((await byRole()).get('codex familiar'), undefined);
 });

@@ -257,6 +257,7 @@ interface CodexRow {
     role?: string;
     content?: unknown;
     usage?: CodexUsage;
+    info?: unknown;
     rate_limits?: { credits?: { has_credits?: boolean; balance?: string } };
   };
 }
@@ -299,11 +300,15 @@ function credit(row: CodexRow): void {
     credits.lowest = read;
 }
 
+/** rollouts from before Codex wrote per-response usage records; their tokens aren't counted. */
+let unrecorded = 0;
+
 async function codex(file: string): Promise<void> {
   let meta: CodexRow['payload'] | undefined;
   let model = '?';
   let answered = false;
   let main = false;
+  let usage = false;
 
   const session: Session = {
     runtime: 'codex',
@@ -326,8 +331,10 @@ async function codex(file: string): Promise<void> {
     // a fork copies its parent's session_meta after its own
     if (row.type === 'session_meta') meta ??= payload;
     else if (row.type === 'turn_context') model = payload.model ?? model;
-    else if (payload.type === 'token_count') credit(row);
-    else if (payload.role === 'user')
+    else if (payload.type === 'token_count') {
+      credit(row);
+      usage ||= Boolean(payload.info) && Date.parse(row.timestamp) >= since;
+    } else if (payload.role === 'user')
       main ||= opening(payload.content)?.startsWith(bootstrap) ?? false;
     else if (row.type === 'token_usage_record' && payload.usage) {
       const tokens = codexTokens(payload.usage);
@@ -342,6 +349,12 @@ async function codex(file: string): Promise<void> {
         tally(days, day(row.timestamp, 'codex'), tokens);
       }
     }
+  }
+
+  if (usage && !answered) {
+    unrecorded++;
+
+    return;
   }
 
   const subagent = meta?.source?.subagent;
@@ -501,6 +514,12 @@ print(
 );
 
 console.log("\noutside Witch includes Witch's own probe rollouts.");
+
+if (unrecorded)
+  console.log(
+    `${unrecorded} Codex rollouts from before September 2026 have no per-response usage records and aren't counted.`,
+  );
+
 const priced = sessions.filter((session) => session.usd !== undefined);
 
 print(

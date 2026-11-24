@@ -20,7 +20,10 @@ export async function* jsonl(dir: string): AsyncGenerator<string> {
       yield join(entry.parentPath, entry.name);
 }
 
-/** parses one JSONL row; only the last row may be malformed, since a running agent can be mid-write. */
+/**
+ * parses one wanted JSONL row; only the last may be malformed, since a running agent can be mid-write. unwanted
+ * rows aren't checked.
+ */
 class Rows<T> {
   private malformed?: number;
   private number = 0;
