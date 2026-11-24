@@ -466,6 +466,14 @@ for await (const line of lines) {
   }
 
   if (request.method === 'initialize') {
+    if (familiar === 'hang-on-init') {
+      process.stderr.write('init hang text\n');
+      // past the familiar's stall bound, so an ignored abort fails the test instead of hanging it
+      setTimeout(() => process.exit(1), 30_000);
+
+      continue;
+    }
+
     if (mode === 'hang-on-init') {
       record('initializing.json', request);
       // bounded, so an ignored abort fails the test instead of hanging it
@@ -553,6 +561,12 @@ for await (const line of lines) {
       file('methods.jsonl'),
       `${JSON.stringify(request.method)}\n`,
     );
+
+  if (request.method === 'skills/list' && familiar === 'hang-on-skills') {
+    setTimeout(() => process.exit(1), 30_000);
+
+    continue;
+  }
 
   if (
     request.method === 'skills/list' &&

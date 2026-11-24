@@ -28,6 +28,10 @@ import {
 } from './familiar-run.js';
 import { questionReply } from '../core/prompts.js';
 import type { ControlBinding } from '../persistence/control.js';
+import { elapsed } from '../ui/status/elapsed.js';
+
+/** bounds registration to the turn being sent; a running turn can stay silent for minutes. */
+const startupDeadlineMs = 180_000;
 
 /** the wrapper owns transport and input; native configuration remains Codex's. */
 export function codexArguments(args: readonly string[]): string[] {
@@ -78,6 +82,9 @@ export async function runCodexFamiliar(
   let ending = false;
   let failure: string | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let startup: ReturnType<typeof setTimeout> | undefined;
+  let waiting = 'the prompt on stdin';
+  let stalled = false;
 
   let childExit:
     | { code: number | null; signal: NodeJS.Signals | null; tail: string }
@@ -256,6 +263,19 @@ export async function runCodexFamiliar(
   try {
     await registerFamiliar(binding, run, name, 'codex', () => stopped);
     registered = true;
+
+    startup = setTimeout(() => {
+      if (failure || stopped) return;
+
+      stalled = true;
+
+      fail(
+        new Error(
+          `Codex familiar did not send its turn within ${elapsed(startupDeadlineMs)}; waiting for ${waiting}`,
+        ),
+      );
+    }, startupDeadlineMs);
+
     reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);
     let prompt = '';
@@ -263,6 +283,7 @@ export async function runCodexFamiliar(
 
     for await (const chunk of process.stdin) prompt += chunk as string;
 
+    waiting = 'Codex to start';
     const codex = nativeExecutable('codex');
 
     if (!codex) throw new Error('Native executable not found: codex');
@@ -315,8 +336,10 @@ export async function runCodexFamiliar(
     if (stopped || failure)
       throw new Error(failure ?? 'Codex familiar stopped before its turn.');
 
+    waiting = 'the spell listing';
     // only to recognize the spells it casts, so a failed listing costs only that
     await session.skills().catch(() => {});
+    clearTimeout(startup);
 
     for (;;) {
       const result = await session.send(prompt);
@@ -345,6 +368,7 @@ export async function runCodexFamiliar(
   } catch (error) {
     failure ??= errorMessage(error);
   } finally {
+    clearTimeout(startup);
     close();
 
     await closing?.catch((error: unknown) => {
@@ -362,6 +386,9 @@ export async function runCodexFamiliar(
   }
 
   try {
+    // the stall fails before cleanup, and only cleanup's close captures the app-server's stderr
+    if (stalled && failure) failure = withTail(failure, childExit?.tail ?? '');
+
     if (stopped) status = 'stopped';
     else if (failure) status = 'failed';
     else if (status === 'completed' && childExit?.code !== 0) {
