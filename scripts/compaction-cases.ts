@@ -1,6 +1,5 @@
 // writes one grading packet per compaction in real Witch conversations; docs/compaction-check.md owns the procedure.
 import assert from 'node:assert/strict';
-import { createReadStream } from 'node:fs';
 import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -10,6 +9,7 @@ import {
   historyPath,
   recordPath,
 } from '../src/persistence/store.js';
+import { absent, jsonl, lines } from './jsonl.js';
 
 const { values } = parseArgs({
   options: {
@@ -50,24 +50,6 @@ type Entry = {
     }
 );
 
-/** a missing file or directory reads as the fallback; any other failure stops the run. */
-function absent<T>(fallback: T): (error: NodeJS.ErrnoException) => T {
-  return (error) => {
-    if (error.code === 'ENOENT') return fallback;
-
-    throw error;
-  };
-}
-
-async function* jsonl(dir: string): AsyncGenerator<string> {
-  for (const entry of await readdir(dir, {
-    recursive: true,
-    withFileTypes: true,
-  }).catch(absent([])))
-    if (entry.isFile() && entry.name.endsWith('.jsonl'))
-      yield join(entry.parentPath, entry.name);
-}
-
 /** the fields read from Witch history, Claude transcript and Codex rollout rows. */
 interface Row {
   kind?: string;
@@ -99,73 +81,15 @@ interface Row {
   };
 }
 
-/** parses one JSONL row; only the last row may be malformed, since a running agent can be mid-write. */
-class Rows {
-  private malformed?: number;
-  private number = 0;
-
-  constructor(private readonly file: string) {}
-
-  parse(line: string): Row | undefined {
-    this.number++;
-
-    if (!line) return;
-
-    if (this.malformed)
-      throw new Error(`${this.file}:${this.malformed}: malformed JSON row`);
-
-    try {
-      return JSON.parse(line) as Row;
-    } catch {
-      this.malformed = this.number;
-    }
-  }
-}
-
 /**
- * streams a log's rows; some Codex rollouts exceed the maximum string length. rows end at `\n` only, since
- * `readline` also breaks at a U+2028 inside a row's text.
- */
-async function* lines(file: string): AsyncGenerator<Row> {
-  const parsed = new Rows(file);
-  // a row's pieces, joined once at its newline, so a row spanning many chunks isn't rescanned
-  let pieces: string[] = [];
-
-  for await (const chunk of createReadStream(file, { encoding: 'utf8' })) {
-    const text = chunk as string;
-    let start = 0;
-
-    for (
-      let end = text.indexOf('\n');
-      end !== -1;
-      end = text.indexOf('\n', start)
-    ) {
-      pieces.push(text.slice(start, end));
-      const row = parsed.parse(pieces.join(''));
-      pieces = [];
-
-      if (row) yield row;
-
-      start = end + 1;
-    }
-
-    pieces.push(text.slice(start));
-  }
-
-  const row = parsed.parse(pieces.join(''));
-
-  if (row) yield row;
-}
-
-/**
- * Claude records a compaction Witch runs as a manual trigger. `sdk-ts` leaves out familiars, which run `claude -p`;
- * Witch's other Agent SDK queries don't persist, though another SDK app's sessions would pass.
+ * Claude records a compaction Witch runs as a manual trigger. familiars and other Agent SDK apps also run as `sdk-ts`,
+ * so their compactions can pair with a notice in the second pass; Witch's side queries don't persist.
  */
 async function claudeCompactions(): Promise<NativeCompaction[]> {
   const found: NativeCompaction[] = [];
 
   for await (const file of jsonl(join(homedir(), '.claude', 'projects'))) {
-    for await (const row of lines(file))
+    for await (const row of lines<Row>(file))
       if (
         row.subtype === 'compact_boundary' &&
         row.entrypoint === 'sdk-ts' &&
@@ -213,7 +137,7 @@ async function codexCompactions(): Promise<NativeCompaction[]> {
     // the usage Witch's pre-turn check read
     let start: number | undefined;
 
-    for await (const row of lines(file)) {
+    for await (const row of lines<Row>(file)) {
       const payload = row.payload ?? {};
 
       if (row.type === 'session_meta') {
@@ -273,7 +197,7 @@ async function transcript(file: string): Promise<Entry[]> {
   const unread = new Set<Entry>();
 
   try {
-    for await (const row of lines(file)) {
+    for await (const row of lines<Row>(file)) {
       const kind = row.contextCleared
         ? 'cleared'
         : row.kind === 'notice' && row.text === 'Conversation compacted'
