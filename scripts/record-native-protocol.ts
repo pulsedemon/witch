@@ -4,7 +4,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
-import { verificationAdapter } from '../src/agents/updates/native-verification-profile.js';
+import {
+  verificationAdapter,
+  verificationHome,
+} from '../src/agents/updates/native-verification-profile.js';
 import { observeWire, normalizeWire } from '../test/fixtures/native-wire.js';
 import { nativeScenario } from '../src/agents/updates/native-scenario.js';
 
@@ -198,7 +201,11 @@ try {
       await writeFile(
         join(normalized, `${values.scenario}-${index}.jsonl`),
         capture.frames
-          .map((frame) => JSON.stringify(normalizeWire(frame, cwd, homedir())))
+          .map((frame) =>
+            JSON.stringify(
+              normalizeWire(frame, cwd, homedir(), verificationHome(root)),
+            ),
+          )
           .join('\n') + '\n',
       );
     }

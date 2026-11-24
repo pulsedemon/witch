@@ -672,6 +672,15 @@ test('Codex owner shutdown collects its familiar after answer cleanup rejects', 
         ).kind === 'familiar-registered',
     );
 
+    await writeJson(join(f.cwd, 'list-reply-1.json'), {
+      result: {
+        data: [
+          { itemId: 'review-command', processId: '42', command: 'review' },
+        ],
+        nextCursor: null,
+      },
+    });
+
     await assert.rejects(f.session.close(), /Answer cleanup refused/);
 
     assert.deepEqual(
