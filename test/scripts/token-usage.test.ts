@@ -175,6 +175,14 @@ async function home(): Promise<string> {
     balance(14, '55'),
   ]);
 
+  await jsonl(join(codex, '2026', '11', '20', 'rollout-familiar.jsonl'), [
+    meta('codex-familiar', 'vscode'),
+    user('# AGENTS.md instructions'),
+    user('# Reviewer persona: correctness'),
+    context('gpt-x'),
+    record(inside(10), 600, 500, 6),
+  ]);
+
   await jsonl(join(codex, '2026', '11', '20', 'rollout-guardian.jsonl'), [
     meta('codex-guardian', { subagent: { other: 'guardian' } }),
     context('codex-auto-review'),
@@ -259,6 +267,18 @@ test("a fork keeps its own role, not its copied parent's", async () => {
   assert.equal((await byRole()).get('codex native subagent')?.[1], '700');
 });
 
+test('a Codex rollout from Witch without the bootstrap is a familiar', async () => {
+  assert.deepEqual((await byRole()).get('codex familiar'), [
+    '1',
+    '100',
+    '0',
+    '500',
+    '6',
+    '0%',
+    '83%',
+  ]);
+});
+
 test('guardians and Claude subagent files get their own roles', async () => {
   const roles = await byRole();
   assert.equal(roles.get('codex guardian')?.[1], '300');
@@ -268,7 +288,8 @@ test('guardians and Claude subagent files get their own roles', async () => {
 test('a main is found by its bootstrap prompt after other user messages, and other SDK sessions are familiars', async () => {
   const roles = await byRole();
   assert.equal(roles.get('claude familiar')?.[4], '30');
-  assert.equal(roles.get('codex familiar'), undefined);
+  // only the familiar's own request, not the main's
+  assert.equal(roles.get('codex familiar')?.[0], '1');
 });
 
 test('usage outside transcripts subtracts the main file and its subagents per model', async () => {
@@ -304,5 +325,5 @@ test('Claude USD comes from the whole session estimate', async () => {
 
 test('Codex rollouts without per-response records are counted as skipped, not as zero', async () => {
   assert.match(await report(), /\n1 Codex rollouts from before September 2026/);
-  assert.equal((await byRole()).get('codex familiar'), undefined);
+  assert.equal((await byRole()).get('codex familiar')?.[0], '1');
 });
