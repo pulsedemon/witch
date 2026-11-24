@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
-import { parseCommand } from '../../../src/cli/cli-control.js';
+import { parseCommand, writeControl } from '../../../src/cli/cli-control.js';
 import type { Limit } from '../../../src/agents/types.js';
 import { router } from '../../../src/core/runtime/router.js';
 import { defaultPolicy } from '../../../src/core/runtime/routing.js';
@@ -275,6 +275,18 @@ test('a review leaves out a runtime that ran out with nowhere to shift, and says
         item.kind === 'notice' &&
         item.warning &&
         item.text === `Left a out of review: ${reply.dropped![0]!.reason}`,
+    ),
+  );
+
+  const write = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation(() => true);
+
+  assert.equal(writeControl(reply, false), 0);
+
+  assert.ok(
+    String(write.mock.calls[0]![0]).includes(
+      `Left out: a\nReason: ${reply.dropped![0]!.reason}`,
     ),
   );
 });
