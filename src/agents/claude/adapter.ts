@@ -1034,13 +1034,15 @@ class ClaudeSession implements AgentSession {
 
   /** relists skills when a turn's init names a different set, since only it tells bundled skills apart. */
   private bundledSkills(names: string[]): void {
+    const bundled = new Set(names);
+
     if (
-      names.length === this.bundled.size &&
-      names.every((name) => this.bundled.has(name))
+      bundled.size === this.bundled.size &&
+      [...bundled].every((name) => this.bundled.has(name))
     )
       return;
 
-    this.bundled = new Set(names);
+    this.bundled = bundled;
 
     // the SDK answers from its cache once initialize has resolved, so this can't reject
     void this.skills().then((skills) => {

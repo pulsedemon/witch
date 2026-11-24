@@ -841,7 +841,13 @@ for await (const line of lines) {
       apiKeySource: 'none',
       output_style: 'default',
       agents: [],
-      skills: mode === 'init-skills' ? ['autocompact'] : [],
+      skills:
+        mode !== 'init-skills'
+          ? []
+          : ({
+              'swap skills': ['advisor'],
+              'repeat skills': ['advisor', 'advisor'],
+            }[run.lastPrompt] ?? ['autocompact']),
       plugins: [],
       uuid: randomUUID(),
       claude_code_version: nativeVersion,

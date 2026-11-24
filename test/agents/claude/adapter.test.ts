@@ -175,6 +175,16 @@ test("a built-in the turn's init lists as a skill is marked bundled through a na
     assert.equal(listed().length, 2);
     assert.ok(named(listed()[1]!, 'later'));
     assert.equal(named(listed()[1]!, 'autocompact')?.bundled, true);
+    // as many names as before, but different ones
+    assert.equal((await session.send('swap skills')).status, 'completed');
+    await until('the swapped skills', () => listed().length > 2);
+    assert.equal(named(listed()[2]!, 'advisor')?.bundled, true);
+    assert.equal(named(listed()[2]!, 'autocompact')?.bundled, undefined);
+    // a repeated name doesn't make the same set look new
+    assert.equal((await session.send('repeat skills')).status, 'completed');
+    assert.equal((await session.send('hello')).status, 'completed');
+    await until('the restored skills', () => listed().length > 3);
+    assert.equal(listed().length, 4);
   } finally {
     await session.close();
   }
