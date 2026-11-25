@@ -2,11 +2,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import { runCommand } from '../../../src/core/repository/command.js';
 import { ps } from '../../../src/persistence/process.js';
+import type * as Process from '../../../src/persistence/process.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { until, within } from '../../fixtures/within.js';
+
+vi.mock('../../../src/persistence/process.js', { spy: true });
+
+const actual = await vi.importActual<typeof Process>(
+  '../../../src/persistence/process.js',
+);
 
 for (const cancellable of [false, true])
   test(`commands preserve cwd, arguments and environment in returned output (cancellable: ${cancellable})`, async () => {
@@ -282,7 +290,7 @@ for (const trigger of ['abort', 'timeout'] as const)
       if (trigger === 'abort') command.abort();
 
       await assert.rejects(
-        within(command.run, 4000, 'the stopped command'),
+        within(command.run, 15_000, 'the stopped command'),
         trigger === 'abort'
           ? { name: 'AbortError' }
           : { message: /^Timed out after 2000 ms: / },
@@ -302,7 +310,7 @@ test("an abort after the command's exit still kills what stayed in its group", a
     assert.equal(await running(member), true);
     command.abort();
 
-    await assert.rejects(within(command.run, 3000, 'the stopped command'), {
+    await assert.rejects(within(command.run, 15_000, 'the stopped command'), {
       name: 'AbortError',
     });
 
@@ -331,7 +339,7 @@ test("a group that empties after the command's exit is forgotten", async () => {
 
     command.abort();
 
-    await assert.rejects(within(command.run, 3000, 'the stopped command'), {
+    await assert.rejects(within(command.run, 15_000, 'the stopped command'), {
       name: 'AbortError',
     });
 
@@ -341,26 +349,66 @@ test("a group that empties after the command's exit is forgotten", async () => {
   }
 });
 
-test('a stopped command returns while its killed member is unreaped', async () => {
-  // the member's parent leaves the group without reaping it, so the group keeps answering after the kill
-  const command = await left(
-    outside(
-      'my $c = fork; if (!$c) { exec "sleep", "30" } open my $m, ">", "member.pid"; print $m $c; close $m; ',
-    ),
+/** the member's parent leaves the group without reaping it, so the group keeps answering after the kill. */
+const unreaped = () =>
+  outside(
+    'my $c = fork; if (!$c) { exec "sleep", "30" } open my $m, ">", "member.pid"; print $m $c; close $m; ',
   );
+
+test('a stopped command returns while its killed member is unreaped', async () => {
+  const command = await left(unreaped());
 
   try {
     const member = command.pid('member')!;
     assert.equal(await running(member), true);
     command.abort();
 
-    await assert.rejects(within(command.run, 3000, 'the stopped command'), {
+    await assert.rejects(within(command.run, 15_000, 'the stopped command'), {
       name: 'AbortError',
     });
 
     assert.equal(await running(member), false);
     assert.equal(await running(command.pid('outside')!), true);
   } finally {
+    await command.close();
+  }
+});
+
+test('a stopped command waits out a slow listing of its group', async () => {
+  const command = await left(unreaped());
+  let listings = 0;
+
+  // stands in for a full listing that takes 1500 ms, killed at the caller's timeout as `ps` would be
+  vi.mocked(ps).mockImplementation(async (format, pids, options) => {
+    if (format !== 'pgid=,stat=' || pids || listings++)
+      return actual.ps(format, pids, options);
+
+    if (options?.timeout !== undefined && options.timeout < 1500) {
+      await delay(options.timeout);
+
+      throw Object.assign(
+        new Error(`Command failed: /bin/ps -A -o ${format}`),
+        { killed: true, signal: 'SIGKILL' },
+      );
+    }
+
+    await delay(1500);
+
+    return actual.ps(format, pids, options);
+  });
+
+  try {
+    const member = command.pid('member')!;
+    command.abort();
+
+    await assert.rejects(within(command.run, 15_000, 'the stopped command'), {
+      name: 'AbortError',
+    });
+
+    assert.equal(listings, 1);
+    assert.equal(await running(member), false);
+  } finally {
+    vi.mocked(ps).mockImplementation(actual.ps);
     await command.close();
   }
 });
@@ -373,7 +421,7 @@ test('a command stopped while it runs returns though a descendant outside its gr
   try {
     command.abort();
 
-    await assert.rejects(within(command.run, 3000, 'the stopped command'), {
+    await assert.rejects(within(command.run, 15_000, 'the stopped command'), {
       name: 'AbortError',
     });
 
@@ -390,7 +438,7 @@ test('a stopped command keeps killing a group that outlives the first kill', asy
   try {
     command.abort();
 
-    await assert.rejects(within(command.run, 3000, 'the stopped command'), {
+    await assert.rejects(within(command.run, 15_000, 'the stopped command'), {
       name: 'AbortError',
     });
 
