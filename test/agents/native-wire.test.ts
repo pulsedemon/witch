@@ -9,6 +9,7 @@ import {
   normalizeWire,
 } from '../fixtures/native-wire.js';
 import { scratch } from '../fixtures/scratch.js';
+import { within } from '../fixtures/within.js';
 import { probeApproval } from '../../src/agents/native-check/native-scenario.js';
 
 test('wire capture retains split JSON lines in both directions without consuming the streams', async () => {
@@ -287,58 +288,68 @@ for (const [name, issued, expected, actual] of [
   });
 }
 
-test('replay gives a server frame sent before any client frame the launch session id', async () => {
-  const cwd = await scratch('witch-native-session-');
-  const file = join(cwd, 'wire.jsonl');
+for (const flag of ['--session-id', '--resume'])
+  test(`replay gives a server frame sent before any client frame the ${flag} session id`, async () => {
+    const cwd = await scratch('witch-native-session-');
+    const file = join(cwd, 'wire.jsonl');
 
-  await writeFile(
-    file,
-    [
-      {
-        direction: 'server',
-        message: {
+    await writeFile(
+      file,
+      [
+        {
+          direction: 'server',
+          message: {
+            type: 'system',
+            subtype: 'commands_changed',
+            session_id: 'recorded-session',
+          },
+        },
+        {
+          direction: 'client',
+          message: { type: 'user', session_id: 'recorded-session' },
+        },
+      ]
+        .map((frame) => JSON.stringify(frame))
+        .join('\n') + '\n',
+    );
+
+    const replay = replayWire([file], cwd);
+    const child = replay.launch([`${flag}=launch-session`]);
+    const capture = observeWire(child);
+
+    try {
+      await within(
+        new Promise<void>((resolve) =>
+          child.stdout.once('data', () => resolve()),
+        ),
+        5000,
+        'first replay frame',
+      );
+
+      child.stdin.end(
+        JSON.stringify({ type: 'user', session_id: 'launch-session' }) + '\n',
+      );
+
+      await replay.finished();
+    } finally {
+      child.kill();
+    }
+
+    await capture.finished();
+
+    assert.deepEqual(
+      capture.frames.flatMap(({ direction, message }) =>
+        direction === 'server' ? [message] : [],
+      ),
+      [
+        {
           type: 'system',
           subtype: 'commands_changed',
-          session_id: 'recorded-session',
+          session_id: 'launch-session',
         },
-      },
-      {
-        direction: 'client',
-        message: { type: 'user', session_id: 'recorded-session' },
-      },
-    ]
-      .map((frame) => JSON.stringify(frame))
-      .join('\n') + '\n',
-  );
-
-  const replay = replayWire([file], cwd);
-  const child = replay.launch(['--session-id=launch-session']);
-  const capture = observeWire(child);
-
-  await new Promise<void>((resolve) =>
-    child.stdout.once('data', () => resolve()),
-  );
-
-  child.stdin.end(
-    JSON.stringify({ type: 'user', session_id: 'launch-session' }) + '\n',
-  );
-
-  await replay.finished();
-  await capture.finished();
-
-  assert.deepEqual(
-    capture.frames.flatMap(({ direction, message }) =>
-      direction === 'server' ? [message] : [],
-    ),
-    [
-      {
-        type: 'system',
-        subtype: 'commands_changed',
-        session_id: 'launch-session',
-      },
-    ],
-  );
-});
+      ],
+    );
+  });
 
 test('closing replay with a missing client request fails instead of accepting a partial recording', async () => {
   const cwd = await scratch('witch-native-incomplete-');

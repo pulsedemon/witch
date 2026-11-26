@@ -180,7 +180,6 @@ class ClaudeSession implements AgentSession {
   private process?: ChildProcessWithoutNullStreams;
   private closeTask?: Promise<void>;
   private bundled: ReadonlySet<string> = new Set();
-  private turnInit = false;
   private readonly reloadAbort = new AbortController();
   private reloadProcess?: ChildProcessWithoutNullStreams;
   private reloaded = Promise.resolve();
@@ -826,8 +825,8 @@ class ClaudeSession implements AgentSession {
       await this.reading;
       await this.child?.closed;
       await shellFinished;
-      await usageClosed;
       await this.reloaded;
+      await usageClosed;
 
       if (cleanupError) throw cleanupError;
     })();
@@ -1015,7 +1014,7 @@ class ClaudeSession implements AgentSession {
   }
 
   private initialized(message: SDKSystemMessage): void {
-    this.turnInit = true;
+    this.reloadAbort.abort();
 
     this.messageLifecycle =
       message.capabilities?.includes('msg_lifecycle_v1') ?? false;
@@ -1053,13 +1052,16 @@ class ClaudeSession implements AgentSession {
 
     this.bundled = bundled;
 
-    // the SDK answers from its cache once initialize has resolved, so this can't reject
-    void this.skills().then((skills) => {
-      if (!this.closed) this.options.onEvent({ type: 'skills', skills });
-    });
+    // a catalog the SDK can't read has already posted its notice at connect
+    void this.skills().then(
+      (skills) => {
+        if (!this.closed) this.options.onEvent({ type: 'skills', skills });
+      },
+      () => {},
+    );
   }
 
-  /** a side query, because Claude Code holds prompts and interrupts while a reload waits on skill sync; any turn's init outranks its answer. */
+  /** a side query, because Claude Code holds prompts and interrupts while a reload waits on skill sync; a turn's init or the session's close stops it and discards its answer. */
   private async reloadBundled(): Promise<void> {
     try {
       const { skills } = await sideQuery(
@@ -1072,7 +1074,7 @@ class ClaudeSession implements AgentSession {
         (query) => query.reloadSkills(),
       );
 
-      if (!this.closed && !this.turnInit)
+      if (!this.reloadAbort.signal.aborted)
         this.bundledSkills(
           skills.flatMap((skill) => (skill.builtin ? [skill.name] : [])),
         );

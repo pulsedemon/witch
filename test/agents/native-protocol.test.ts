@@ -62,7 +62,7 @@ const reloadAnswered = ({ frames }: Wire) =>
       ),
   );
 
-/** a session's close aborts its connect-time skill reload, so it waits for the reply the replay must consume. */
+/** the replay waits for each recorded skill reload reply before a session closes, because close aborts the reload. */
 function awaitReloads(adapter: ClaudeAdapter, reloads: Wire[]): void {
   const connect = adapter.connect.bind(adapter);
   let sessions = 0;

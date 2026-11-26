@@ -55,7 +55,11 @@ const stateCommands = [
 }));
 
 // the reload modes answer `reload_skills` with a bundled built-in and a user skill sharing a built-in's name
-const reloading = ['reload-skills', 'reload-late'].includes(mode);
+const reloading = ['reload-skills', 'reload-late', 'reload-linger'].includes(
+  mode,
+);
+
+if (mode === 'reload-linger') process.on('SIGTERM', () => {});
 
 const simplify = {
   name: 'simplify',
@@ -965,4 +969,12 @@ for await (const line of lines) {
 
     finish();
   }
+}
+
+// `reload-linger` marks its closed input with `reload-closing`, then exits only once the test writes `release-reload`
+if (mode === 'reload-linger') {
+  writeFileSync(join(process.cwd(), 'reload-closing'), '');
+
+  while (!existsSync(join(process.cwd(), 'release-reload')))
+    await new Promise((resolve) => setTimeout(resolve, 10));
 }

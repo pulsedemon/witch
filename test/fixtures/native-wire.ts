@@ -59,7 +59,7 @@ export function replayWire(
   cwd: string,
   options: { fragmentBytes?: number; gates?: number[][] } = {},
 ): {
-  /** `args` are Claude's launch arguments; a `--session-id=<id>` among them binds the recording's first `session_id` to `<id>`. */
+  /** `args` are Claude's launch arguments; a `--session-id=<id>` or `--resume=<id>` among them binds the recording's first `session_id` to `<id>`. */
   launch(args?: readonly string[]): ChildProcessWithoutNullStreams;
 
   finished(): Promise<void>;
@@ -90,7 +90,7 @@ export function replayWire(
       assert.ok(files[index], `Unexpected native process ${index}`);
 
       const session = args
-        .map((arg) => /^--session-id=(.+)$/.exec(arg)?.[1])
+        .map((arg) => /^--(?:session-id|resume)=(.+)$/.exec(arg)?.[1])
         .find(Boolean);
 
       const child = spawn(
