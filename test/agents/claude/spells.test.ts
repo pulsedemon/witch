@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentEvent, SkillCall } from '../../../src/agents/types.js';
+import type {
+  AgentEvent,
+  Skill,
+  SkillCall,
+} from '../../../src/agents/types.js';
 import {
   fixture,
   frameWriter,
@@ -12,6 +18,7 @@ import {
 } from '../../fixtures/claude-adapter.js';
 import { until, within } from '../../fixtures/within.js';
 import { lifecycle } from '../../fixtures/claude-background.js';
+import { running } from '../../../src/agents/shutdown.js';
 
 const probe: SkillCall = { name: 'probe', args: 'later' };
 
@@ -283,5 +290,208 @@ test("a listed familiar's Skill call joins its spells, while an ambient worker's
     );
   } finally {
     await f.session.close();
+  }
+});
+
+const named = (skills: Skill[], name: string) =>
+  skills.find((skill) => skill.name === name);
+
+const listed = (events: AgentEvent[]) =>
+  events.flatMap((event) => (event.type === 'skills' ? [event.skills] : []));
+
+const held = (children: { cwd: string }[]) =>
+  !!children[0] && existsSync(join(children[0].cwd, 'reload-held'));
+
+test("a built-in the session's skill reload lists is marked bundled before the first turn", async () => {
+  const events: AgentEvent[] = [];
+  const f = await launcher('reload-skills', 'reload-skills');
+  const session = await f.connect({ onEvent: (event) => events.push(event) });
+
+  try {
+    await until('the reloaded skills', () => listed(events).length > 0);
+    const [skills] = listed(events);
+
+    assert.deepEqual(named(skills!, 'simplify'), {
+      name: 'simplify',
+      description: 'Review the changed code',
+      builtin: true,
+      bundled: true,
+    });
+
+    // the reload's same-named user skill must not mark the built-in bundled
+    assert.deepEqual(named(skills!, 'compact'), {
+      name: 'compact',
+      description: 'Compact the conversation',
+      builtin: true,
+      aliases: ['squash'],
+    });
+
+    // the first turn's init names no bundled skills, so it replaces the reload's set
+    assert.equal((await session.send('hello')).status, 'completed');
+
+    await until('the init catalog', () =>
+      listed(events).some((list) => named(list, 'simplify')?.bundled !== true),
+    );
+
+    const replaced = listed(events).find(
+      (list) => named(list, 'simplify')?.bundled !== true,
+    )!;
+
+    assert.equal(named(replaced, 'simplify')?.builtin, true);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a resumed session's skill reload marks a built-in bundled before the first turn", async () => {
+  const events: AgentEvent[] = [];
+  const f = await launcher('reload-skills', 'reload-skills');
+  const resume = randomUUID();
+
+  const session = await f.connect({
+    resume,
+    onEvent: (event) => events.push(event),
+  });
+
+  try {
+    assert.ok(f.args[0]!.includes(`--resume=${resume}`));
+
+    await until('the reloaded skills', () =>
+      listed(events).some((list) => named(list, 'simplify')?.bundled),
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+test("a turn's init stops a skill reload Claude Code has not answered", async () => {
+  const f = await launcher('reload-late', 'reload-late');
+  const session = await f.connect();
+
+  try {
+    await until('the held reload', () => held(f.sideChildren));
+    assert.equal((await session.send('hello')).status, 'completed');
+    await until('reload stop', () => !running(f.sideChildren[0]!.child));
+    const skills = await session.skills();
+    assert.equal(named(skills, 'autocompact')?.bundled, true);
+    assert.equal(named(skills, 'simplify')?.bundled, undefined);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a skill reload that finishes after an empty turn init leaves that init's set", async () => {
+  const events: AgentEvent[] = [];
+  const f = await launcher('reload-skills', 'reload-linger');
+  const session = await f.connect({ onEvent: (event) => events.push(event) });
+
+  try {
+    // an answered reload whose input then closed has settled its read, so its answer predates the init
+    await until('the answered reload', () =>
+      ['reload-answered', 'reload-closing'].every((marker) =>
+        existsSync(join(f.sideChildren[0]?.cwd ?? '', marker)),
+      ),
+    );
+
+    const reload = f.sideChildren[0]!;
+
+    // listening before the turn, since the SDK starts stopping the process once it closes the answered query
+    const reloadClosed = new Promise((resolve) =>
+      reload.child.once('close', resolve),
+    );
+
+    assert.equal((await session.send('hello')).status, 'completed');
+    await writeFile(join(reload.cwd, 'release-reload'), '');
+    await reloadClosed;
+    // a second turn leaves the settled reload time to publish a set it must not
+    assert.equal((await session.send('again')).status, 'completed');
+    assert.ok(!listed(events).some((list) => named(list, 'simplify')?.bundled));
+  } finally {
+    await session.close();
+  }
+});
+
+test("a refused skill reload leaves the first turn's init to name the bundled skills", async () => {
+  const events: AgentEvent[] = [];
+  const f = await launcher('reload-refused', 'reload-refused');
+  const session = await f.connect({ onEvent: (event) => events.push(event) });
+
+  try {
+    // the side process ends once its refusal has been answered
+    await until(
+      'the refused reload',
+      () => !!f.sideChildren[0] && !running(f.sideChildren[0].child),
+    );
+
+    assert.ok(!listed(events).some((list) => list.some((s) => s.bundled)));
+    assert.equal((await session.send('hello')).status, 'completed');
+
+    await until('the init catalog', () =>
+      listed(events).some((list) => named(list, 'autocompact')?.bundled),
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+test('closing a session stops a skill reload Claude Code has not answered', async () => {
+  const f = await launcher('', 'reload-late');
+  const session = await f.connect();
+
+  try {
+    await until('the held reload', () => held(f.sideChildren));
+  } finally {
+    await session.close();
+  }
+
+  assert.ok(!running(f.sideChildren[0]!.child));
+});
+
+test('a skill reload Claude Code leaves unanswered stops at its deadline', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const f = await launcher('', 'reload-late');
+  const session = await f.connect();
+
+  try {
+    await until('the held reload', () => held(f.sideChildren));
+    const reload = f.sideChildren[0]!.child;
+    // the SDK ends the reload's input as soon as it aborts
+    vi.advanceTimersByTime(59_999);
+    assert.equal(reload.stdin.writableEnded, false);
+    vi.advanceTimersByTime(1);
+    assert.equal(reload.stdin.writableEnded, true);
+
+    await until('the reload deadline', () => {
+      vi.advanceTimersByTime(100);
+
+      return !running(reload);
+    });
+
+    assert.equal(session.closed, false);
+  } finally {
+    vi.useRealTimers();
+    await session.close();
+  }
+});
+
+test('a skill reload Claude Code has not answered stops when Claude Code exits cleanly', async () => {
+  const closed = Promise.withResolvers<void>();
+  const f = await launcher('', 'reload-late');
+
+  const session = await f.connect({
+    onEvent: (event) => {
+      if (event.type === 'closed') closed.resolve();
+    },
+  });
+
+  try {
+    await until('the held reload', () => held(f.sideChildren));
+    // ending its input exits Claude Code with status 0 before any turn's init can stop the reload
+    f.children[0]!.stdin.end();
+    await within(closed.promise, 5000, 'session exit');
+    await until('the clean exit', () => f.children[0]!.exitCode === 0);
+    await until('reload stop', () => !running(f.sideChildren[0]!.child));
+  } finally {
+    await session.close();
   }
 });

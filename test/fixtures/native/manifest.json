@@ -104,11 +104,17 @@
     }
   },
   "claude": {
-    "version": "2.1.299",
+    "version": "2.1.330",
     "model": "haiku",
     "scenarios": {
       "basic": {
-        "files": ["basic-0.jsonl", "basic-1.jsonl"],
+        "capturedOn": "2026-11-26",
+        "files": [
+          "basic-0.jsonl",
+          "basic-1.jsonl",
+          "basic-2.jsonl",
+          "basic-3.jsonl"
+        ],
         "launches": [
           {
             "command": "claude",
@@ -122,7 +128,26 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=1301b07a-c324-4b1a-b8f5-b5924b2bd480",
+              "--session-id=a15665e6-96f8-407d-979c-d1c3bfc83bc9",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
+            ]
+          },
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--strict-mcp-config",
+              "--no-session-persistence",
+              "--settings",
+              "{\"disableAllHooks\":true}",
               "--setting-sources=project",
               "--strict-mcp-config",
               "--permission-mode=default",
@@ -141,7 +166,7 @@
               "--effort=low",
               "--model=haiku",
               "--permission-prompt-tool=stdio",
-              "--resume=1301b07a-c324-4b1a-b8f5-b5924b2bd480",
+              "--resume=a15665e6-96f8-407d-979c-d1c3bfc83bc9",
               "--include-partial-messages",
               "--setting-sources=project",
               "--strict-mcp-config",
@@ -149,12 +174,31 @@
               "--settings",
               "{\"disableAllHooks\":true}"
             ]
+          },
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--strict-mcp-config",
+              "--no-session-persistence",
+              "--settings",
+              "{\"disableAllHooks\":true}",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
+            ]
           }
-        ],
-        "capturedOn": "2026-11-10"
+        ]
       },
       "control": {
-        "files": ["control-0.jsonl"],
+        "capturedOn": "2026-11-26",
+        "files": ["control-0.jsonl", "control-1.jsonl"],
         "launches": [
           {
             "command": "claude",
@@ -168,16 +212,38 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=be06c87a-b4d2-45dc-b775-18063612e8da",
+              "--session-id=bccc41d2-afd3-4518-8727-dc5bfe9e933b",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
+            ]
+          },
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--strict-mcp-config",
+              "--no-session-persistence",
+              "--settings",
+              "{\"disableAllHooks\":true}",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
         ]
       },
       "background": {
-        "files": ["background-0.jsonl"],
+        "capturedOn": "2026-11-26",
+        "files": ["background-0.jsonl", "background-1.jsonl"],
         "launches": [
           {
             "command": "claude",
@@ -191,16 +257,38 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=b885aa3c-59be-41a4-9163-29979ea8c73b",
+              "--session-id=b0c2bb17-21ff-47a0-8f4a-b5e26de1e5e5",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
+            ]
+          },
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--strict-mcp-config",
+              "--no-session-persistence",
+              "--settings",
+              "{\"disableAllHooks\":true}",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
         ]
       },
       "spell": {
-        "files": ["spell-0.jsonl"],
+        "capturedOn": "2026-11-26",
+        "files": ["spell-0.jsonl", "spell-1.jsonl"],
         "launches": [
           {
             "command": "claude",
@@ -214,17 +302,38 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=dc32dd84-db7e-47f5-8d66-ce26f27cc7a2",
+              "--session-id=37656bd3-4081-4020-a14d-b75abafbbe1e",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
+            ]
+          },
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--strict-mcp-config",
+              "--no-session-persistence",
+              "--settings",
+              "{\"disableAllHooks\":true}",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
         ]
       },
       "idle-run": {
-        "capturedOn": "2026-11-03",
-        "files": ["idle-run-0.jsonl"],
+        "capturedOn": "2026-11-26",
+        "files": ["idle-run-0.jsonl", "idle-run-1.jsonl"],
         "launches": [
           {
             "command": "claude",
@@ -238,15 +347,36 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=31c17a7e-e681-42a0-8784-03f163553705",
+              "--session-id=658fa4ec-590a-4f16-822f-d02f24ec5d0b",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
+            ]
+          },
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--strict-mcp-config",
+              "--no-session-persistence",
+              "--settings",
+              "{\"disableAllHooks\":true}",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
         ]
       }
     },
-    "sdk": "0.3.296"
+    "sdk": "0.3.330"
   }
 }

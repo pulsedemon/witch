@@ -3,12 +3,20 @@ import { spawn } from 'node:child_process';
 import { test } from 'vitest';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   observeWire,
   replayWire,
   normalizeWire,
+  requireReloadReplyOnConnect,
 } from '../fixtures/native-wire.js';
+import type {
+  AgentAdapter,
+  AgentSession,
+  SessionOptions,
+} from '../../src/agents/types.js';
 import { scratch } from '../fixtures/scratch.js';
+import { within } from '../fixtures/within.js';
 import { probeApproval } from '../../src/agents/native-check/native-scenario.js';
 
 test('wire capture retains split JSON lines in both directions without consuming the streams', async () => {
@@ -78,7 +86,7 @@ test('wire callbacks retain split UTF-8 and final non-newline frames once in cap
   assert.deepEqual(capture.frames, observed);
 });
 
-test('capture normalization removes account identity and encoded project paths without changing protocol values', () => {
+test('capture normalization removes account identity, credential expiry and encoded project paths without changing other protocol values', () => {
   const input = [
     {
       direction: 'server',
@@ -116,6 +124,13 @@ test('capture normalization removes account identity and encoded project paths w
           serverName: 'personal-machine.local',
           installationId: 'personal-installation',
         },
+      },
+    },
+    {
+      direction: 'server',
+      message: {
+        type: 'result',
+        credential_expires_at: '2031-04-05T06:07:08.000Z',
       },
     },
   ];
@@ -158,6 +173,13 @@ test('capture normalization removes account identity and encoded project paths w
             serverName: 'native-machine.invalid',
             installationId: 'native-installation',
           },
+        },
+      },
+      {
+        direction: 'server',
+        message: {
+          type: 'result',
+          credential_expires_at: '2000-01-01T00:00:00.000Z',
         },
       },
     ],
@@ -272,6 +294,112 @@ for (const [name, issued, expected, actual] of [
     await assert.rejects(replay.finished(), /ID mismatch/);
   });
 }
+
+for (const flag of ['--session-id', '--resume'])
+  test(`replay gives a server frame sent before any client frame the ${flag} session id`, async () => {
+    const cwd = await scratch('witch-native-session-');
+    const file = join(cwd, 'wire.jsonl');
+
+    await writeFile(
+      file,
+      [
+        {
+          direction: 'server',
+          message: {
+            type: 'system',
+            subtype: 'commands_changed',
+            session_id: 'recorded-session',
+          },
+        },
+        {
+          direction: 'client',
+          message: { type: 'user', session_id: 'recorded-session' },
+        },
+      ]
+        .map((frame) => JSON.stringify(frame))
+        .join('\n') + '\n',
+    );
+
+    const replay = replayWire([file], cwd);
+    const child = replay.launch([`${flag}=launch-session`]);
+    const capture = observeWire(child);
+
+    try {
+      await within(
+        new Promise<void>((resolve) =>
+          child.stdout.once('data', () => resolve()),
+        ),
+        5000,
+        'first replay frame',
+      );
+
+      child.stdin.end(
+        JSON.stringify({ type: 'user', session_id: 'launch-session' }) + '\n',
+      );
+
+      await replay.finished();
+    } finally {
+      child.kill();
+    }
+
+    await capture.finished();
+
+    assert.deepEqual(
+      capture.frames.flatMap(({ direction, message }) =>
+        direction === 'server' ? [message] : [],
+      ),
+      [
+        {
+          type: 'system',
+          subtype: 'commands_changed',
+          session_id: 'launch-session',
+        },
+      ],
+    );
+  });
+
+test('a connection waits for the reply to its skill reload, not another success', async () => {
+  const frames: { direction: 'client' | 'server'; message: unknown }[] = [
+    {
+      direction: 'client',
+      message: { request_id: 'init', request: { subtype: 'initialize' } },
+    },
+    {
+      direction: 'server',
+      message: { response: { subtype: 'success', request_id: 'init' } },
+    },
+    {
+      direction: 'client',
+      message: { request_id: 'reload', request: { subtype: 'reload_skills' } },
+    },
+  ];
+
+  const session = { close: async () => {} } as AgentSession;
+
+  const adapter = {
+    connect: async () => session,
+  } as unknown as AgentAdapter;
+
+  requireReloadReplyOnConnect(adapter, [
+    { frames } as unknown as ReturnType<typeof observeWire>,
+  ]);
+
+  let connected = false;
+
+  const connecting = adapter
+    .connect({} as SessionOptions)
+    .then(() => (connected = true));
+
+  await delay(200);
+  assert.equal(connected, false);
+
+  frames.push({
+    direction: 'server',
+    message: { response: { subtype: 'success', request_id: 'reload' } },
+  });
+
+  await within(connecting, 2000, 'reload reply');
+});
 
 test('closing replay with a missing client request fails instead of accepting a partial recording', async () => {
   const cwd = await scratch('witch-native-incomplete-');

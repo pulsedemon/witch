@@ -54,6 +54,51 @@ const stateCommands = [
   ...(aliases.length ? { aliases } : {}),
 }));
 
+const reloading = ['reload-skills', 'reload-late', 'reload-linger'].includes(
+  mode,
+);
+
+if (mode === 'reload-linger') process.on('SIGTERM', () => {});
+
+const simplify = {
+  name: 'simplify',
+  description: 'Review the changed code',
+  argumentHint: '',
+  builtin: true,
+};
+
+const commands = [
+  {
+    name: 'compact',
+    description: 'Compact the conversation',
+    argumentHint: '',
+    builtin: true,
+    aliases: ['squash'],
+  },
+  {
+    name: 'compact',
+    description: 'Shadowed',
+    argumentHint: '',
+    aliases: ['shadowed'],
+  },
+  {
+    name: 'effort',
+    description: 'Set the effort level',
+    argumentHint: '[low|high]',
+    builtin: true,
+  },
+  ...stateCommands,
+  { name: 'config', description: 'Shadowed', argumentHint: '' },
+  { name: 'rename', description: 'Shadowed', argumentHint: '' },
+  {
+    name: 'review',
+    description: 'Review changes',
+    argumentHint: '<target>',
+    aliases: ['rv'],
+  },
+  ...(reloading ? [simplify] : []),
+];
+
 let initialization = 0;
 let model = 'claude-a';
 
@@ -419,36 +464,7 @@ for await (const line of lines) {
       }
 
       response = {
-        commands: [
-          {
-            name: 'compact',
-            description: 'Compact the conversation',
-            argumentHint: '',
-            builtin: true,
-            aliases: ['squash'],
-          },
-          {
-            name: 'compact',
-            description: 'Shadowed',
-            argumentHint: '',
-            aliases: ['shadowed'],
-          },
-          {
-            name: 'effort',
-            description: 'Set the effort level',
-            argumentHint: '[low|high]',
-            builtin: true,
-          },
-          ...stateCommands,
-          { name: 'config', description: 'Shadowed', argumentHint: '' },
-          { name: 'rename', description: 'Shadowed', argumentHint: '' },
-          {
-            name: 'review',
-            description: 'Review changes',
-            argumentHint: '<target>',
-            aliases: ['rv'],
-          },
-        ],
+        commands,
         agents: [],
         output_style: 'default',
         available_output_styles: [],
@@ -503,6 +519,36 @@ for await (const line of lines) {
 
     if (request.subtype === 'get_context_usage')
       response = { percentage: 12.5, maxTokens: 200000 };
+
+    if (request.subtype === 'reload_skills' && mode === 'reload-refused') {
+      send({
+        type: 'control_response',
+        response: {
+          subtype: 'error',
+          request_id: message.request_id,
+          error: 'reload refused',
+        },
+      });
+
+      continue;
+    }
+
+    if (request.subtype === 'reload_skills') {
+      response = {
+        skills: reloading
+          ? [simplify, { name: 'compact', description: '', argumentHint: '' }]
+          : [],
+      };
+
+      if (mode === 'reload-linger')
+        writeFileSync(join(process.cwd(), 'reload-answered'), '');
+
+      // like a stalled skill sync, `reload-late` holds the input loop with the request unanswered, marked by `reload-held`
+      if (mode === 'reload-late') {
+        writeFileSync(join(process.cwd(), 'reload-held'), '');
+        await new Promise(() => setInterval(() => {}, 1000));
+      }
+    }
 
     if (request.subtype === 'mcp_status') {
       if (mode === 'mcp' && existsSync(join(process.cwd(), 'hold-mcp')))
@@ -841,13 +887,12 @@ for await (const line of lines) {
       apiKeySource: 'none',
       output_style: 'default',
       agents: [],
-      skills:
-        mode !== 'init-skills'
-          ? []
-          : ({
-              'swap skills': ['advisor'],
-              'repeat skills': ['advisor', 'advisor'],
-            }[run.lastPrompt] ?? ['autocompact']),
+      skills: !['init-skills', 'reload-late', 'reload-refused'].includes(mode)
+        ? []
+        : ({
+            'swap skills': ['advisor'],
+            'repeat skills': ['advisor', 'advisor'],
+          }[run.lastPrompt] ?? ['autocompact']),
       plugins: [],
       uuid: randomUUID(),
       claude_code_version: nativeVersion,
@@ -921,4 +966,12 @@ for await (const line of lines) {
 
     finish();
   }
+}
+
+// `reload-linger` marks its answer with `reload-answered` and its closed input with `reload-closing`, then lingers until the test writes `release-reload` or the SDK kills it
+if (mode === 'reload-linger') {
+  writeFileSync(join(process.cwd(), 'reload-closing'), '');
+
+  while (!existsSync(join(process.cwd(), 'release-reload')))
+    await new Promise((resolve) => setTimeout(resolve, 10));
 }

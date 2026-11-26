@@ -16,6 +16,19 @@ const reverse = new Map();
 const inputs = [];
 let position = 0;
 let held = false;
+const session = process.argv[5];
+
+// Claude Code can echo the launch's session id before the client first sends it
+if (session) {
+  const recorded = frames
+    .map(({ message }) => message?.session_id)
+    .find((id) => typeof id === 'string');
+
+  if (recorded) {
+    bindings.set(recorded, session);
+    reverse.set(session, recorded);
+  }
+}
 
 const identity = new Set([
   'id',

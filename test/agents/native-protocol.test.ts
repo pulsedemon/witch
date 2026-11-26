@@ -9,7 +9,11 @@ import { CodexAdapter } from '../../src/agents/codex/adapter.js';
 import { ClaudeAdapter } from '../../src/agents/claude/adapter.js';
 import { nativeScenario } from '../../src/agents/native-check/native-scenario.js';
 import type { NativeScenario } from '../../src/agents/native-check/native-scenario.js';
-import { replayWire, observeWire } from '../fixtures/native-wire.js';
+import {
+  requireReloadReplyOnConnect,
+  replayWire,
+  observeWire,
+} from '../fixtures/native-wire.js';
 import { scratch } from '../fixtures/scratch.js';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -50,6 +54,8 @@ const manifest = JSON.parse(
 
 const requests: RpcMessage[] = [];
 
+type Wire = ReturnType<typeof observeWire>;
+
 for (const runtime of ['codex', 'claude'] as const) {
   for (const scenario of Object.keys(
     manifest[runtime].scenarios,
@@ -67,10 +73,10 @@ for (const runtime of ['codex', 'claude'] as const) {
         cwd,
       );
 
-      const captures: ReturnType<typeof observeWire>[] = [];
+      const captures: Wire[] = [];
 
-      const launch = () => {
-        const child = replay.launch();
+      const launch = (args?: readonly string[]) => {
+        const child = replay.launch(args);
         captures.push(observeWire(child));
 
         return child;
@@ -78,8 +84,11 @@ for (const runtime of ['codex', 'claude'] as const) {
 
       const adapter =
         runtime === 'codex'
-          ? new CodexAdapter(launch)
-          : new ClaudeAdapter(launch);
+          ? new CodexAdapter(() => launch())
+          : new ClaudeAdapter((options) => launch(options.args));
+
+      if (adapter instanceof ClaudeAdapter)
+        requireReloadReplyOnConnect(adapter, captures);
 
       const events = await nativeScenario(
         adapter,
@@ -104,24 +113,38 @@ for (const runtime of ['codex', 'claude'] as const) {
         const expected =
           runtime === 'codex'
             ? [{ window: '7D', percent: 37, resetsAt: 1793820572 }]
-            : [{ window: '7D', percent: 47, resetsAt: 1794693600.275 }];
+            : [{ window: '7D', percent: 91, resetsAt: 1795903200.438 }];
 
         assert.deepEqual(limits[0], expected);
 
         if (runtime === 'claude') {
-          // later cached replies omit native rows and cannot replace the complete account reading; a fresh reply's reset time moves by a fraction of a second.
+          // a fresh reply's reset time moves by a fraction of a second either way of the hour.
           const seconds = (
             reading: readonly Omit<Limit, 'observedAt'>[] | undefined,
           ) =>
             reading?.map((limit) => ({
               ...limit,
-              resetsAt: Math.floor(limit.resetsAt!),
+              resetsAt: Math.round(limit.resetsAt!),
             }));
 
           assert.ok(limits.length > 1);
 
           for (const reading of limits.slice(1))
             assert.deepEqual(seconds(reading), seconds(expected));
+
+          // only the recorded reload marks `security-review` bundled; the turn's init names `batch` instead
+          const [reloaded] = events.flatMap((event) =>
+            event.type === 'skills' && event.skills.some((s) => s.bundled)
+              ? [new Map(event.skills.map((s) => [s.name, s]))]
+              : [],
+          );
+
+          assert.ok(reloaded);
+          assert.equal(reloaded.get('security-review')?.bundled, true);
+          assert.equal(reloaded.get('simplify')?.bundled, true);
+          assert.equal(reloaded.get('batch')?.bundled, undefined);
+          assert.equal(reloaded.get('compact')?.builtin, true);
+          assert.equal(reloaded.get('compact')?.bundled, undefined);
         }
       }
 
@@ -606,15 +629,16 @@ test('a recorded Claude result stays pending until its recorded native idle arri
 
   assert.ok(idle > 0);
   const replay = replayWire(files, cwd, { gates: [[idle]], fragmentBytes: 7 });
-  let capture: ReturnType<typeof observeWire>;
+  const captures: Wire[] = [];
 
-  const adapter = new ClaudeAdapter(() => {
-    const child = replay.launch();
-    capture = observeWire(child);
+  const adapter = new ClaudeAdapter((options) => {
+    const child = replay.launch(options.args);
+    captures.push(observeWire(child));
 
     return child;
   });
 
+  requireReloadReplyOnConnect(adapter, captures);
   const connect = adapter.connect.bind(adapter);
   let first: Promise<TurnResult> | undefined;
   let completed = false;
@@ -661,7 +685,8 @@ test('a recorded Claude result stays pending until its recorded native idle arri
     await within(replay.paused(0, idle), 5000, 'recorded idle gate');
 
     await until('recorded result at the SDK transport', () =>
-      capture.frames.some(
+      // the first launch is the session; its skill reload launches after it
+      captures[0]!.frames.some(
         ({ direction, message }) =>
           direction === 'server' &&
           (message as { type?: string }).type === 'result',

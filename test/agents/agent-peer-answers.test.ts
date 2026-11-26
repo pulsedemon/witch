@@ -535,6 +535,7 @@ test('Claude allows its exact request file when the native read needs approval',
   const events: AgentEvent[] = [];
   const session = await f.connect({ onEvent: (event) => events.push(event) });
   t.onTestFinished(() => session.close());
+  await until('the owner skill reload', () => f.sideChildren.length === 1);
   const batch = await input(f.cwd);
   await writeFile(join(f.cwd, 'answer-approval'), batch.file);
 
@@ -553,6 +554,8 @@ test('Claude allows its exact request file when the native read needs approval',
   assert.equal(response.response.behavior, 'allow');
   assert.deepEqual(response.response.updatedInput, { file_path: batch.file });
   assert.ok(!events.some((event) => event.type === 'request'));
+  // an answer's skill catalog goes unused, so only the owner starts a reload
+  assert.equal(f.sideChildren.length, 1);
 
   assert.deepEqual(
     parsePeerAnswers(result.text, batch.requests),

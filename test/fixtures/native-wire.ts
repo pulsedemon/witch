@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
+import type { AgentAdapter } from '../../src/agents/types.js';
+import { until } from './within.js';
 
 export interface WireFrame {
   direction: 'client' | 'server';
@@ -22,6 +24,7 @@ export function normalizeWire(
     '/message/result/accountId': 'native-account',
     '/message/params/serverName': 'native-machine.invalid',
     '/message/params/installationId': 'native-installation',
+    '/message/credential_expires_at': '2000-01-01T00:00:00.000Z',
   };
 
   const encoded = cwd.replace(/[^a-zA-Z0-9]/g, '-');
@@ -58,7 +61,8 @@ export function replayWire(
   cwd: string,
   options: { fragmentBytes?: number; gates?: number[][] } = {},
 ): {
-  launch(): ChildProcessWithoutNullStreams;
+  /** `args` are Claude's launch arguments; a `--session-id=<id>` or `--resume=<id>` among them binds the recording's first `session_id` to `<id>`. */
+  launch(args?: readonly string[]): ChildProcessWithoutNullStreams;
 
   finished(): Promise<void>;
 
@@ -83,9 +87,13 @@ export function replayWire(
   };
 
   return {
-    launch() {
+    launch(args = []) {
       const index = children.length;
       assert.ok(files[index], `Unexpected native process ${index}`);
+
+      const session = args
+        .map((arg) => /^--(?:session-id|resume)=(.+)$/.exec(arg)?.[1])
+        .find(Boolean);
 
       const child = spawn(
         process.execPath,
@@ -94,6 +102,7 @@ export function replayWire(
           files[index]!,
           String(options.fragmentBytes ?? 0),
           JSON.stringify(options.gates?.[index] ?? []),
+          session ?? '',
         ],
         { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'] },
       ) as ChildProcessWithoutNullStreams;
@@ -223,5 +232,62 @@ export function observeWire(
         reader.pending = '';
       }
     },
+  };
+}
+
+type Wire = ReturnType<typeof observeWire>;
+
+type Control = {
+  request_id?: string;
+  request?: { subtype?: string };
+  response?: { subtype?: string; request_id?: string };
+} | null;
+
+/** only a successful reply to a `reload_skills` request counts, so the session's and a usage helper's captures don't. */
+const reloadAnswered = ({ frames }: Wire) => {
+  const messages = frames.map(({ direction, message }) => ({
+    direction,
+    message: message as Control,
+  }));
+
+  return messages.some(
+    ({ direction, message }) =>
+      direction === 'client' &&
+      message?.request?.subtype === 'reload_skills' &&
+      messages.some(
+        (reply) =>
+          reply.direction === 'server' &&
+          reply.message?.response?.subtype === 'success' &&
+          reply.message.response.request_id === message.request_id,
+      ),
+  );
+};
+
+/** wraps `connect` so each Claude connection waits for its skill reload's reply, which a turn's init or the session's close would abort before a recording holds it. */
+export function requireReloadReplyOnConnect(
+  adapter: AgentAdapter,
+  captures: Wire[],
+  attempts = 500,
+): void {
+  const connect = adapter.connect.bind(adapter);
+  let sessions = 0;
+
+  adapter.connect = async (options) => {
+    const session = await connect(options);
+    const reloaded = ++sessions;
+
+    try {
+      await until(
+        'recorded skill reload answer',
+        () => captures.filter(reloadAnswered).length >= reloaded,
+        attempts,
+      );
+    } catch (error) {
+      await session.close();
+
+      throw error;
+    }
+
+    return session;
   };
 }

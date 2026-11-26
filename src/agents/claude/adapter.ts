@@ -90,6 +90,8 @@ const launch: ClaudeLaunch = (options) =>
     }),
   );
 
+/** Claude Code's default 30 s skill-sync wait plus its rescan; a longer `CLAUDE_CODE_SYNC_SKILLS_INSTALL_TIMEOUT_MS` is cut short. */
+const reloadDeadlineMs = 60_000;
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 
 const sessionUsage = z.object({
@@ -180,6 +182,9 @@ class ClaudeSession implements AgentSession {
   private process?: ChildProcessWithoutNullStreams;
   private closeTask?: Promise<void>;
   private bundled: ReadonlySet<string> = new Set();
+  private readonly reloadAbort = new AbortController();
+  private reloadProcess?: ChildProcessWithoutNullStreams;
+  private reloaded = Promise.resolve();
   private interrupting?: Promise<void>;
   private terminating?: Promise<boolean>;
   private stopUntil?: number;
@@ -210,7 +215,7 @@ class ClaudeSession implements AgentSession {
 
   constructor(
     private readonly options: SessionOptions,
-    start: ClaudeLaunch,
+    private readonly start: ClaudeLaunch,
     connect: (options: SessionOptions) => Promise<AgentSession>,
   ) {
     this.answers = new AnswerTurn(options, connect);
@@ -357,6 +362,7 @@ class ClaudeSession implements AgentSession {
     if (!this.options.answer) {
       this.readUsage();
       this.mcp.refresh();
+      this.reloaded = this.reloadBundled();
     }
   }
 
@@ -789,6 +795,7 @@ class ClaudeSession implements AgentSession {
   private markClosed(): Promise<void> {
     this.closed = true;
     this.mcp.stop();
+    this.reloadAbort.abort();
 
     return this.usageReader.close({ deadline: this.stopUntil });
   }
@@ -820,6 +827,7 @@ class ClaudeSession implements AgentSession {
       await this.reading;
       await this.child?.closed;
       await shellFinished;
+      await this.reloaded;
       await usageClosed;
 
       if (cleanupError) throw cleanupError;
@@ -836,6 +844,13 @@ class ClaudeSession implements AgentSession {
       this.input.close();
       this.query.close();
 
+      // the reload ends once its process closes, so it is the termination's exit signal
+      const reloadStopped = this.reloadProcess
+        ? terminateChild(this.reloadProcess, this.reloaded, deadline)
+        : this.reloaded;
+
+      void reloadStopped.catch(() => {});
+
       try {
         await this.terminate(deadline);
       } finally {
@@ -843,7 +858,7 @@ class ClaudeSession implements AgentSession {
       }
 
       await beforeDeadline(
-        Promise.all([this.reading, usageClosed, shellFinished]),
+        Promise.all([this.reading, usageClosed, shellFinished, reloadStopped]),
         deadline,
       );
     } finally {
@@ -918,14 +933,10 @@ class ClaudeSession implements AgentSession {
 
       await this.end(errorMessage(failure));
     } finally {
-      this.closed = true;
-      this.mcp.stop();
+      // closed before stopped commands report, so their listeners can't start a turn
+      const closing = this.markClosed();
       this.commands.stop();
-
-      await this.usageReader
-        .close({ deadline: this.stopUntil })
-        .catch(() => {});
-
+      await closing.catch(() => {});
       this.requests.cancel();
 
       if (this.connected) this.options.onEvent({ type: 'closed' });
@@ -1007,6 +1018,8 @@ class ClaudeSession implements AgentSession {
   }
 
   private initialized(message: SDKSystemMessage): void {
+    this.reloadAbort.abort();
+
     this.messageLifecycle =
       message.capabilities?.includes('msg_lifecycle_v1') ?? false;
 
@@ -1032,7 +1045,6 @@ class ClaudeSession implements AgentSession {
     this.bundledSkills(message.skills);
   }
 
-  /** relists skills when a turn's init names a different set, since only it tells bundled skills apart. */
   private bundledSkills(names: string[]): void {
     const bundled = new Set(names);
 
@@ -1044,10 +1056,42 @@ class ClaudeSession implements AgentSession {
 
     this.bundled = bundled;
 
-    // the SDK answers from its cache once initialize has resolved, so this can't reject
-    void this.skills().then((skills) => {
-      if (!this.closed) this.options.onEvent({ type: 'skills', skills });
-    });
+    // a catalog the SDK can't read has already posted its notice at connect
+    void this.skills().then(
+      (skills) => {
+        if (!this.closed) this.options.onEvent({ type: 'skills', skills });
+      },
+      () => {},
+    );
+  }
+
+  /** a side query, because Claude Code holds prompts and interrupts while a reload waits on skill sync; a turn's init, the session's close or the deadline stops it and discards its answer. */
+  private async reloadBundled(): Promise<void> {
+    const deadline = setTimeout(
+      () => this.reloadAbort.abort(),
+      reloadDeadlineMs,
+    );
+
+    try {
+      const { skills } = await sideQuery(
+        (settings) => (this.reloadProcess = this.start(settings)),
+        {
+          cwd: this.options.cwd,
+          executable: this.options.executable,
+          signal: this.reloadAbort.signal,
+        },
+        (query) => query.reloadSkills(),
+      );
+
+      if (!this.reloadAbort.signal.aborted)
+        this.bundledSkills(
+          skills.flatMap((skill) => (skill.builtin ? [skill.name] : [])),
+        );
+    } catch {
+      // a failed or stopped reload leaves the first turn's init as the source
+    } finally {
+      clearTimeout(deadline);
+    }
   }
 
   private fellBack(message: SDKModelRefusalFallbackMessage): void {
@@ -1206,12 +1250,11 @@ class ClaudeSession implements AgentSession {
       };
     }
 
-    const account = accountReading(
-      report,
-      this.usage.account ?? { limits: [] },
-    );
+    const unread: AccountReading = { limits: [] };
+    const account = accountReading(report, this.usage.account ?? unread);
 
-    if (account) update.account = account;
+    // the placeholder back means the reply had no native rows, and publishing it would clear the account's rate-limit windows
+    if (account && account !== unread) update.account = account;
 
     if (Object.keys(update).length) this.report(update);
   }

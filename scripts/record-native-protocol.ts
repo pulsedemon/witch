@@ -10,7 +10,11 @@ import {
 } from '../src/agents/native-check/native-verification-profile.js';
 import { nativeExecutable } from '../src/agents/executable.js';
 import { nativeLaunch } from '../src/agents/native-launch.js';
-import { observeWire, normalizeWire } from '../test/fixtures/native-wire.js';
+import {
+  requireReloadReplyOnConnect,
+  observeWire,
+  normalizeWire,
+} from '../test/fixtures/native-wire.js';
 import { nativeScenario } from '../src/agents/native-check/native-scenario.js';
 
 const { values } = parseArgs({
@@ -102,6 +106,10 @@ assert.ok(
 );
 
 const adapter = await verificationAdapter(runtime, root, { start });
+
+// replay needs each Claude connection's skill reload reply, which the adapter allows a minute
+if (runtime === 'claude') requireReloadReplyOnConnect(adapter, captures, 3500);
+
 let passed = false;
 const abort = new AbortController();
 
