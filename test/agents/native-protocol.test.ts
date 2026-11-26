@@ -131,6 +131,20 @@ for (const runtime of ['codex', 'claude'] as const) {
 
           for (const reading of limits.slice(1))
             assert.deepEqual(seconds(reading), seconds(expected));
+
+          // only the recorded reload marks `security-review` bundled; the turn's init names `batch` instead
+          const [reloaded] = events.flatMap((event) =>
+            event.type === 'skills' && event.skills.some((s) => s.bundled)
+              ? [new Map(event.skills.map((s) => [s.name, s]))]
+              : [],
+          );
+
+          assert.ok(reloaded);
+          assert.equal(reloaded.get('security-review')?.bundled, true);
+          assert.equal(reloaded.get('simplify')?.bundled, true);
+          assert.equal(reloaded.get('batch')?.bundled, undefined);
+          assert.equal(reloaded.get('compact')?.builtin, true);
+          assert.equal(reloaded.get('compact')?.bundled, undefined);
         }
       }
 
