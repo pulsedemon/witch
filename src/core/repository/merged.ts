@@ -264,13 +264,14 @@ const arrived = (
 
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base and brings it up to date, or detaches
- * at the base's remote branch in a linked worktree or while one holds the base, deletes the branch and its gitignored
- * plans with their gitignored ledgers, and prunes unused merged branches with gone upstreams. when the repository
- * retains its own merged heads, it also prunes branches at their own upstream tip on the head's remote, excluding the
- * base and default branch. a checkout that left the branch stays where it is: it loses the branch with its config and
- * plans, and on the base it is fast-forwarded. returns a sentence saying what it did, and whether it deleted the merged
- * branch or moved the checkout or the base, `'changed'` when the checkout changed, moved during the cleanup or went back
- * onto the branch, or nothing when another Witch is updating it or `blocked` says one is working in it.
+ * at the base's remote branch in a linked worktree, while the base is held, rebased or bisected in one, or while it is
+ * symbolic. it deletes the branch and its gitignored plans with their gitignored ledgers, and prunes unused merged
+ * branches with gone upstreams. when the repository retains its own merged heads, it also prunes branches at their own
+ * upstream tip on the head's remote, excluding the base and default branch. a checkout that left the branch stays where
+ * it is: it loses the branch with its config and plans, and on the base it is fast-forwarded. returns a sentence saying
+ * what it did, and whether it deleted the merged branch or moved the checkout or the base, `'changed'` when the checkout
+ * changed, moved during the cleanup or went back onto the branch, or nothing when another Witch is updating it or
+ * `blocked` says one is working in it.
  */
 export async function cleanUpMerge(
   cwd: string,
@@ -710,7 +711,8 @@ async function advanceBase(git: Git, base: string, commonDir: string) {
   )
     return;
 
-  await git('update-ref', `refs/heads/${base}`, upstream, local);
+  // a base made symbolic after the checks is overwritten, never followed into a branch they didn't cover
+  await git('update-ref', '--no-deref', `refs/heads/${base}`, upstream, local);
 }
 
 async function leaveBranch(

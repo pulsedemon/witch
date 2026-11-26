@@ -126,7 +126,7 @@ test('a base moved immediately before its advance keeps the competing commit', a
 
   await withGit(
     root,
-    `if (args[0] === 'update-ref' && args[1] === 'refs/heads/main' && !existsSync(${JSON.stringify(marker)})) {
+    `if (args[0] === 'update-ref' && args.includes('refs/heads/main') && !existsSync(${JSON.stringify(marker)})) {
   writeFileSync(${JSON.stringify(marker)}, '');
   if (run(['update-ref', 'refs/heads/main', ${JSON.stringify(moved)}], 'ignore').status) process.exit(1);
 }`,

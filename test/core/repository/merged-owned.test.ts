@@ -14,6 +14,7 @@ import {
   merge,
   merged,
   pullRequest,
+  withGit,
   write,
 } from '../../fixtures/merged.js';
 import { configureGitEnvironment } from '../../fixtures/merged-environment.js';
@@ -252,6 +253,34 @@ test('a symbolic base detaches without moving its checked-out target', async () 
   assert.equal(await git(checkout, 'rev-parse', 'owned'), before);
   assert.equal(await git(holder, 'status', '--porcelain'), '');
   assert.ok(!(await branches(checkout)).includes('feat/x'));
+});
+
+test('a base made symbolic just before its advance is overwritten without moving the checked-out target', async () => {
+  const { root, checkout, tip, before, target } = await staleBase();
+  const holder = join(root, 'holder');
+  await git(checkout, 'branch', 'owned', 'main');
+  await git(checkout, 'worktree', 'add', holder, 'owned');
+  const marker = join(root, 'redirected');
+
+  const result = await withGit(
+    root,
+    `if (args[0] === 'update-ref' && args.includes('refs/heads/main') && !existsSync(${JSON.stringify(marker)})) {
+  writeFileSync(${JSON.stringify(marker)}, '');
+  if (run(['symbolic-ref', 'refs/heads/main', 'refs/heads/owned'], 'ignore').status) process.exit(1);
+}`,
+    () => cleanUpMerge(checkout, pullRequest(tip), idle),
+  );
+
+  assert.deepEqual(result, {
+    text: '#7 merged: switched to main and pulled, deleted branch feat/x.',
+    cleaned: true,
+  });
+
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
+  assert.equal(await git(checkout, 'rev-parse', 'owned'), before);
+  assert.equal(await git(holder, 'status', '--porcelain'), '');
+  await assert.rejects(git(checkout, 'symbolic-ref', '-q', 'refs/heads/main'));
+  assert.equal(await git(checkout, 'rev-parse', 'main'), target);
 });
 
 for (const mode of ['update-refs', 'symbolic', 'late-upstream symbolic'])
