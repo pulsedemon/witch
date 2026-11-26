@@ -362,9 +362,8 @@ test("a resumed session's skill reload marks a built-in bundled before the first
 });
 
 test("a turn's init stops a skill reload Claude Code has not answered", async () => {
-  const events: AgentEvent[] = [];
   const f = await launcher('reload-late', 'reload-late');
-  const session = await f.connect({ onEvent: (event) => events.push(event) });
+  const session = await f.connect();
 
   try {
     await until('the held reload', () => held(f.usageChildren));
@@ -379,8 +378,9 @@ test("a turn's init stops a skill reload Claude Code has not answered", async ()
 });
 
 test("a skill reload that finishes after an empty turn init leaves that init's set", async () => {
+  const events: AgentEvent[] = [];
   const f = await launcher('reload-skills', 'reload-linger');
-  const session = await f.connect();
+  const session = await f.connect({ onEvent: (event) => events.push(event) });
 
   try {
     // the reload's input closes only once its answer is in, so the answer predates the init
@@ -390,12 +390,16 @@ test("a skill reload that finishes after an empty turn init leaves that init's s
 
     assert.equal((await session.send('hello')).status, 'completed');
     const reload = f.usageChildren[0]!;
+
+    const reloadClosed = new Promise((resolve) =>
+      reload.child.once('close', resolve),
+    );
+
     await writeFile(join(reload.cwd, 'release-reload'), '');
-    await until('reload stop', () => !running(reload.child));
-    await new Promise(setImmediate);
-    const skills = await session.skills();
-    assert.equal(named(skills, 'simplify')?.builtin, true);
-    assert.equal(named(skills, 'simplify')?.bundled, undefined);
+    await reloadClosed;
+    // a second turn leaves the settled reload time to publish a set it must not
+    assert.equal((await session.send('again')).status, 'completed');
+    assert.ok(!listed(events).some((list) => named(list, 'simplify')?.bundled));
   } finally {
     await session.close();
   }
@@ -439,7 +443,7 @@ test('closing a session stops a skill reload Claude Code has not answered', asyn
 
 test('a skill reload Claude Code has not answered stops when Claude Code exits cleanly', async () => {
   const closed = Promise.withResolvers<void>();
-  const f = await launcher('exit-cleanly-when-idle', 'reload-late');
+  const f = await launcher('', 'reload-late');
 
   const session = await f.connect({
     onEvent: (event) => {
@@ -449,8 +453,10 @@ test('a skill reload Claude Code has not answered stops when Claude Code exits c
 
   try {
     await until('the held reload', () => held(f.usageChildren));
-    assert.equal((await session.send('hello')).status, 'completed');
+    // ending its input exits Claude Code with status 0 before any turn's init can stop the reload
+    f.children[0]!.stdin.end();
     await within(closed.promise, 5000, 'session exit');
+    await until('the clean exit', () => f.children[0]!.exitCode === 0);
     await until('reload stop', () => !running(f.usageChildren[0]!.child));
   } finally {
     await session.close();

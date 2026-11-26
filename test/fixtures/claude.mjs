@@ -327,9 +327,6 @@ const finish = () => {
     state('idle');
 
     if (mode === 'exit-when-idle') exitBeforeGrandchild(1);
-
-    if (mode === 'exit-cleanly-when-idle')
-      process.stdout.end(() => process.exit(0));
   }
 };
 
