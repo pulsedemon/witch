@@ -90,7 +90,7 @@ const launch: ClaudeLaunch = (options) =>
     }),
   );
 
-/** Claude Code bounds a reload's skill sync at 30 s, so this leaves its rescan room before the reload counts as stalled. */
+/** Claude Code's default 30 s skill-sync wait plus its rescan; a longer `CLAUDE_CODE_SYNC_SKILLS_INSTALL_TIMEOUT_MS` is cut short. */
 const reloadDeadlineMs = 60_000;
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 
@@ -933,8 +933,10 @@ class ClaudeSession implements AgentSession {
 
       await this.end(errorMessage(failure));
     } finally {
+      // closed before stopped commands report, so their listeners can't start a turn
+      const closing = this.markClosed();
       this.commands.stop();
-      await this.markClosed().catch(() => {});
+      await closing.catch(() => {});
       this.requests.cancel();
 
       if (this.connected) this.options.onEvent({ type: 'closed' });

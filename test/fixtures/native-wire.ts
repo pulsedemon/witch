@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
+import type { AgentAdapter } from '../../src/agents/types.js';
+import { until } from './within.js';
 
 export interface WireFrame {
   direction: 'client' | 'server';
@@ -230,5 +232,42 @@ export function observeWire(
         reader.pending = '';
       }
     },
+  };
+}
+
+type Wire = ReturnType<typeof observeWire>;
+
+const reloadAnswered = ({ frames }: Wire) =>
+  frames.some(
+    ({ direction, message }) =>
+      direction === 'server' &&
+      Array.isArray(
+        (message as { response?: { response?: { skills?: unknown } } }).response
+          ?.response?.skills,
+      ),
+  );
+
+/** each Claude connection waits for its skill reload's reply, which a turn's init or the session's close would abort before a recording holds it. */
+export function awaitReloads(adapter: AgentAdapter, reloads: Wire[]): void {
+  const connect = adapter.connect.bind(adapter);
+  let sessions = 0;
+
+  adapter.connect = async (options) => {
+    const session = await connect(options);
+    const reloaded = ++sessions;
+
+    try {
+      await until(
+        'recorded skill reload answer',
+        () => reloads.length >= reloaded && reloads.every(reloadAnswered),
+        500,
+      );
+    } catch (error) {
+      await session.close();
+
+      throw error;
+    }
+
+    return session;
   };
 }

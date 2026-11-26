@@ -9,7 +9,11 @@ import { CodexAdapter } from '../../src/agents/codex/adapter.js';
 import { ClaudeAdapter } from '../../src/agents/claude/adapter.js';
 import { nativeScenario } from '../../src/agents/native-check/native-scenario.js';
 import type { NativeScenario } from '../../src/agents/native-check/native-scenario.js';
-import { replayWire, observeWire } from '../fixtures/native-wire.js';
+import {
+  awaitReloads,
+  replayWire,
+  observeWire,
+} from '../fixtures/native-wire.js';
 import { scratch } from '../fixtures/scratch.js';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -51,41 +55,6 @@ const manifest = JSON.parse(
 const requests: RpcMessage[] = [];
 
 type Wire = ReturnType<typeof observeWire>;
-
-const reloadAnswered = ({ frames }: Wire) =>
-  frames.some(
-    ({ direction, message }) =>
-      direction === 'server' &&
-      Array.isArray(
-        (message as { response?: { response?: { skills?: unknown } } }).response
-          ?.response?.skills,
-      ),
-  );
-
-/** the recordings hold each skill reload's reply, and a turn's init and the session's close both abort the reload, so a connection waits for it. */
-function awaitReloads(adapter: ClaudeAdapter, reloads: Wire[]): void {
-  const connect = adapter.connect.bind(adapter);
-  let sessions = 0;
-
-  adapter.connect = async (options) => {
-    const session = await connect(options);
-    const reloaded = ++sessions;
-
-    try {
-      await until(
-        'recorded skill reload answer',
-        () => reloads.length >= reloaded && reloads.every(reloadAnswered),
-        500,
-      );
-    } catch (error) {
-      await session.close();
-
-      throw error;
-    }
-
-    return session;
-  };
-}
 
 for (const runtime of ['codex', 'claude'] as const) {
   for (const scenario of Object.keys(

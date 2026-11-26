@@ -10,7 +10,11 @@ import {
 } from '../src/agents/native-check/native-verification-profile.js';
 import { nativeExecutable } from '../src/agents/executable.js';
 import { nativeLaunch } from '../src/agents/native-launch.js';
-import { observeWire, normalizeWire } from '../test/fixtures/native-wire.js';
+import {
+  awaitReloads,
+  observeWire,
+  normalizeWire,
+} from '../test/fixtures/native-wire.js';
 import { nativeScenario } from '../src/agents/native-check/native-scenario.js';
 
 const { values } = parseArgs({
@@ -69,6 +73,7 @@ if (values.scenario === 'spell') {
 
 process.env.CLAUDE_CODE_TMPDIR = root;
 const captures: ReturnType<typeof observeWire>[] = [];
+const reloads: ReturnType<typeof observeWire>[] = [];
 const launches: { command: string; args: string[] }[] = [];
 
 const start = (
@@ -88,7 +93,11 @@ const start = (
   );
 
   launches.push({ command: runtime, args });
-  captures.push(observeWire(child));
+  const capture = observeWire(child);
+  captures.push(capture);
+
+  if (args.includes('--no-session-persistence')) reloads.push(capture);
+
   child.stderr.on('data', (chunk) => process.stderr.write(chunk));
 
   return child;
@@ -102,6 +111,10 @@ assert.ok(
 );
 
 const adapter = await verificationAdapter(runtime, root, { start });
+
+// replay needs each Claude connection's skill reload reply
+if (runtime === 'claude') awaitReloads(adapter, reloads);
+
 let passed = false;
 const abort = new AbortController();
 
@@ -131,22 +144,6 @@ try {
     },
     true,
   );
-
-  // replay needs each connection's skill reload reply, which a turn's init can abort before it arrives
-  if (runtime === 'claude')
-    for (const [index, launch] of launches.entries())
-      if (launch.args.includes('--no-session-persistence'))
-        assert.ok(
-          captures[index]!.frames.some(
-            ({ direction, message }) =>
-              direction === 'server' &&
-              Array.isArray(
-                (message as { response?: { response?: { skills?: unknown } } })
-                  .response?.response?.skills,
-              ),
-          ),
-          `Native skill reload ${index} answered`,
-        );
 
   if (values.scenario === 'background') {
     const frames = captures

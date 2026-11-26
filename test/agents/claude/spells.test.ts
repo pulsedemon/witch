@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -452,11 +451,11 @@ test('a skill reload Claude Code leaves unanswered stops at its deadline', async
   try {
     await until('the held reload', () => held(f.sideChildren));
     const reload = f.sideChildren[0]!.child;
-    // the SDK sends SIGTERM two seconds after an abort, so an earlier deadline would have stopped it by now
+    // the SDK ends the reload's input as soon as it aborts
     vi.advanceTimersByTime(59_999);
-    await delay(500);
-    assert.ok(running(reload));
+    assert.equal(reload.stdin.writableEnded, false);
     vi.advanceTimersByTime(1);
+    assert.equal(reload.stdin.writableEnded, true);
 
     await until('the reload deadline', () => {
       vi.advanceTimersByTime(100);
