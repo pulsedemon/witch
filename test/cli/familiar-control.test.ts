@@ -368,6 +368,7 @@ test('pending native requests leave the mailbox available and retain complete re
           run,
         }),
       }),
+      backgroundTasks: async () => true,
       stopTask: async () => {},
     },
     binding,
