@@ -50,6 +50,41 @@ const manifest = JSON.parse(
 
 const requests: RpcMessage[] = [];
 
+type Wire = ReturnType<typeof observeWire>;
+
+const reloadAnswered = ({ frames }: Wire) =>
+  frames.some(
+    ({ direction, message }) =>
+      direction === 'server' &&
+      Array.isArray(
+        (message as { response?: { response?: { skills?: unknown } } }).response
+          ?.response?.skills,
+      ),
+  );
+
+/** a session's close aborts its connect-time skill reload, so it waits for the reply the replay must consume. */
+function awaitReloads(adapter: ClaudeAdapter, reloads: Wire[]): void {
+  const connect = adapter.connect.bind(adapter);
+  let sessions = 0;
+
+  adapter.connect = async (options) => {
+    const session = await connect(options);
+    const reloaded = ++sessions;
+    const close = session.close.bind(session);
+
+    session.close = async (stop) => {
+      await until(
+        'recorded skill reload answer',
+        () => reloads.length >= reloaded && reloads.every(reloadAnswered),
+      );
+
+      return close(stop);
+    };
+
+    return session;
+  };
+}
+
 for (const runtime of ['codex', 'claude'] as const) {
   for (const scenario of Object.keys(
     manifest[runtime].scenarios,
@@ -67,11 +102,15 @@ for (const runtime of ['codex', 'claude'] as const) {
         cwd,
       );
 
-      const captures: ReturnType<typeof observeWire>[] = [];
+      const captures: Wire[] = [];
+      const reloads: Wire[] = [];
 
-      const launch = (args?: readonly string[]) => {
+      const launch = (args: readonly string[] = []) => {
         const child = replay.launch(args);
-        captures.push(observeWire(child));
+        const capture = observeWire(child);
+        captures.push(capture);
+
+        if (args.includes('--no-session-persistence')) reloads.push(capture);
 
         return child;
       };
@@ -80,6 +119,8 @@ for (const runtime of ['codex', 'claude'] as const) {
         runtime === 'codex'
           ? new CodexAdapter(() => launch())
           : new ClaudeAdapter((options) => launch(options.args));
+
+      if (adapter instanceof ClaudeAdapter) awaitReloads(adapter, reloads);
 
       const events = await nativeScenario(
         adapter,
@@ -606,16 +647,21 @@ test('a recorded Claude result stays pending until its recorded native idle arri
 
   assert.ok(idle > 0);
   const replay = replayWire(files, cwd, { gates: [[idle]], fragmentBytes: 7 });
-  let wire: ReturnType<typeof observeWire> | undefined;
+  let wire: Wire | undefined;
+  const reloads: Wire[] = [];
 
   const adapter = new ClaudeAdapter((options) => {
     const child = replay.launch(options.args);
-    // the first launch is the session; the connect-time skill reload launches after it
-    wire ??= observeWire(child);
+    const capture = observeWire(child);
+
+    if (options.args.includes('--no-session-persistence'))
+      reloads.push(capture);
+    else wire ??= capture;
 
     return child;
   });
 
+  awaitReloads(adapter, reloads);
   const connect = adapter.connect.bind(adapter);
   let first: Promise<TurnResult> | undefined;
   let completed = false;

@@ -323,6 +323,9 @@ const finish = () => {
     state('idle');
 
     if (mode === 'exit-when-idle') exitBeforeGrandchild(1);
+
+    if (mode === 'exit-cleanly-when-idle')
+      process.stdout.end(() => process.exit(0));
   }
 };
 
@@ -537,10 +540,13 @@ for await (const line of lines) {
           : [],
       };
 
-      // like a skill sync, `reload-late` holds the input loop until the test writes `release-reload` into the cwd
-      if (mode === 'reload-late')
+      // like a skill sync, `reload-late` holds the input loop, marked by `reload-held`, until the test writes `release-reload` into the cwd
+      if (mode === 'reload-late') {
+        writeFileSync(join(process.cwd(), 'reload-held'), '');
+
         while (!existsSync(join(process.cwd(), 'release-reload')))
           await new Promise((resolve) => setTimeout(resolve, 10));
+      }
     }
 
     if (request.subtype === 'mcp_status') {

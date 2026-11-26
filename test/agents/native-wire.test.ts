@@ -78,7 +78,7 @@ test('wire callbacks retain split UTF-8 and final non-newline frames once in cap
   assert.deepEqual(capture.frames, observed);
 });
 
-test('capture normalization removes account identity and encoded project paths without changing protocol values', () => {
+test('capture normalization removes account identity, credential expiry and encoded project paths without changing other protocol values', () => {
   const input = [
     {
       direction: 'server',

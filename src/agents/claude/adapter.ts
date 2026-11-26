@@ -932,14 +932,8 @@ class ClaudeSession implements AgentSession {
 
       await this.end(errorMessage(failure));
     } finally {
-      this.closed = true;
-      this.mcp.stop();
       this.commands.stop();
-
-      await this.usageReader
-        .close({ deadline: this.stopUntil })
-        .catch(() => {});
-
+      await this.markClosed().catch(() => {});
       this.requests.cancel();
 
       if (this.connected) this.options.onEvent({ type: 'closed' });
@@ -1246,7 +1240,7 @@ class ClaudeSession implements AgentSession {
     const unread: AccountReading = { limits: [] };
     const account = accountReading(report, this.usage.account ?? unread);
 
-    // the placeholder back means the reply had no native rows, and publishing it would clear the account's reading
+    // the placeholder back means the reply had no native rows, and publishing it would clear the account's rate-limit windows
     if (account && account !== unread) update.account = account;
 
     if (Object.keys(update).length) this.report(update);

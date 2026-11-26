@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
@@ -371,9 +372,9 @@ test("a skill reload answered after a turn's init leaves the init's set", async 
     );
 
     const reload = f.usageChildren[0]!;
-    const answered = once(reload.child, 'close');
+    const reloadClosed = once(reload.child, 'close');
     await writeFile(join(reload.cwd, 'release-reload'), '');
-    await answered;
+    await reloadClosed;
     await new Promise(setImmediate);
     const skills = await session.skills();
     assert.equal(named(skills, 'autocompact')?.bundled, true);
@@ -406,17 +407,20 @@ test("a refused skill reload leaves the first turn's init to name the bundled sk
   }
 });
 
+const held = (children: { cwd: string }[]) =>
+  !!children[0] && existsSync(join(children[0].cwd, 'reload-held'));
+
 test('closing a session stops a skill reload Claude Code has not answered', async () => {
   const f = await launcher('', 'reload-late');
   const session = await f.connect();
-  await until('the reload process', () => !!f.usageChildren[0]);
+  await until('the held reload', () => held(f.usageChildren));
   await session.close();
   assert.ok(!running(f.usageChildren[0]!.child));
 });
 
-test('a skill reload Claude Code has not answered stops when the session exits on its own', async () => {
+test('a skill reload Claude Code has not answered stops when Claude Code exits cleanly', async () => {
   const closed = Promise.withResolvers<void>();
-  const f = await launcher('exit-when-idle', 'reload-late');
+  const f = await launcher('exit-cleanly-when-idle', 'reload-late');
 
   const session = await f.connect({
     onEvent: (event) => {
@@ -425,7 +429,7 @@ test('a skill reload Claude Code has not answered stops when the session exits o
   });
 
   try {
-    await until('the reload process', () => !!f.usageChildren[0]);
+    await until('the held reload', () => held(f.usageChildren));
     assert.equal((await session.send('hello')).status, 'completed');
     await within(closed.promise, 5000, 'session exit');
     await until('reload stop', () => !running(f.usageChildren[0]!.child));
