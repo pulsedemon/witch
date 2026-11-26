@@ -90,7 +90,7 @@ export function replayWire(
       assert.ok(files[index], `Unexpected native process ${index}`);
 
       const session = args
-        .map((arg) => /^--(?:session-id|resume)=(.+)$/.exec(arg)?.[1])
+        .map((arg) => /^--session-id=(.+)$/.exec(arg)?.[1])
         .find(Boolean);
 
       const child = spawn(

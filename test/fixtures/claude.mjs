@@ -96,8 +96,24 @@ const commands = [
   ...(reloading ? [simplify] : []),
 ];
 
-// `reload-late` answers `reload_skills` only after the first turn's result
+// `reload-late` answers `reload_skills` only after the first turn's init, while that turn still runs
 let heldReload;
+
+const releaseReload = () => {
+  if (!heldReload) return;
+
+  send(heldReload);
+  heldReload = undefined;
+
+  // a changed catalog after the answer proves the adapter has handled it
+  task('commands_changed', {
+    commands: [
+      ...commands,
+      { name: 'marker', description: '', argumentHint: '' },
+    ],
+  });
+};
+
 let initialization = 0;
 let model = 'claude-a';
 
@@ -270,19 +286,6 @@ const result = (fields = {}) => {
     total_cost_usd: 0,
     ...fields,
   });
-
-  if (heldReload) {
-    send(heldReload);
-    heldReload = undefined;
-
-    // a changed catalog after the answer proves the adapter has handled it
-    task('commands_changed', {
-      commands: [
-        ...commands,
-        { name: 'marker', description: '', argumentHint: '' },
-      ],
-    });
-  }
 
   // a later native frame proves the adapter consumed the result before a test continues.
   if (
@@ -923,6 +926,7 @@ for await (const line of lines) {
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
 
+    releaseReload();
     state('running');
 
     if (mode === 'peer-answer') {

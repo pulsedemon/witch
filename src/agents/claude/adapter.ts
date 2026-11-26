@@ -1226,7 +1226,7 @@ class ClaudeSession implements AgentSession {
     const unread: AccountReading = { limits: [] };
     const account = accountReading(report, this.usage.account ?? unread);
 
-    // a reply that observes nothing must not publish an empty reading over the account's
+    // the placeholder back means the reply had no native rows, and publishing it would clear the account's reading
     if (account && account !== unread) update.account = account;
 
     if (Object.keys(update).length) this.report(update);
