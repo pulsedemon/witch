@@ -433,6 +433,17 @@ test('a familiar in a foreground command is moved to the background and then reg
   f.start('review', '2', false);
   f.start('other', '2', false);
 
+  f.emit({
+    subtype: 'task_started',
+    task_id: 'bare',
+    run_id: '2',
+    task_type: 'local_bash',
+    description: 'review',
+    is_backgrounded: false,
+  });
+
+  f.outputs.set('bare', f.marker);
+
   f.outputs.set(
     'other',
     familiarMarker({
@@ -459,6 +470,30 @@ test('a familiar in a foreground command is moved to the background and then reg
   assert.equal(f.familiars()[0]!.status, 'running');
   assert.equal(f.familiars()[0]!.parent, 'parent');
   await f.owner.close();
+});
+
+test('a native task request that never answers rejects the registration at its deadline', async () => {
+  for (const request of ['getTaskOutput', 'backgroundTasks'] as const) {
+    const f = commands();
+    f.start('review', '2', request === 'getTaskOutput');
+    f.control[request] = () => new Promise<never>(() => {});
+
+    await assert.rejects(
+      f.owner.report(
+        {
+          kind: 'familiar-register',
+          run: f.run,
+          name: 'review',
+          runtime: 'claude',
+        },
+        Date.now() + 200,
+      ),
+      /expired/,
+    );
+
+    assert.deepEqual(f.familiars(), []);
+    await f.owner.close();
+  }
 });
 
 test('completed foreground tasks release their state while active tasks can still become familiars', async () => {

@@ -237,6 +237,27 @@ export function remaining(deadline: number | undefined): number | undefined {
   return deadline === undefined ? undefined : checkDeadline(deadline);
 }
 
+/** `work`'s result, or DeadlineExpired once the deadline passes first, so a request that is never answered can't hold its caller. */
+export async function beforeDeadline<T>(
+  work: Promise<T>,
+  deadline: number,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new DeadlineExpired()),
+      checkDeadline(deadline),
+    );
+  });
+
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** how long a store transaction gets when it runs on its own clock instead of a caller's deadline. */
 export const transactionBudget = 1000;
 

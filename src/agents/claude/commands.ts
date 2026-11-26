@@ -1,6 +1,7 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { ControlBinding } from '../../persistence/control.js';
+import { beforeDeadline } from '../../persistence/coordination.js';
 import {
   addFamiliar,
   admitFamiliar,
@@ -212,7 +213,7 @@ export class ClaudeCommands {
           continue;
 
         const { output } = taskOutput.parse(
-          await this.query.getTaskOutput(entry.id),
+          await beforeDeadline(this.query.getTaskOutput(entry.id), deadline),
         );
 
         checkReporting(
@@ -238,7 +239,10 @@ export class ClaudeCommands {
           )
         ) {
           // the move arrives as task_updated, and a later poll admits the familiar once its command no longer blocks
-          await this.query.backgroundTasks(entry.toolUse);
+          await beforeDeadline(
+            this.query.backgroundTasks(entry.toolUse),
+            deadline,
+          );
 
           checkReporting(
             deadline,
