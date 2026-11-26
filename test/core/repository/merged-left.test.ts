@@ -856,7 +856,7 @@ for (const back of [false, true])
     const cleanup = withGit(
       root,
       `
-if (args[0] === 'rev-parse' && args.at(-1).endsWith('@{upstream}')) {
+if (args[0] === 'rev-parse' && args.at(-1).includes('@{upstream}')) {
   if (run(['switch', 'feat/y'], 'pipe').status) process.exit(1);
   writeFileSync(${JSON.stringify(switched)}, '');
   ${

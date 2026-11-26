@@ -137,25 +137,38 @@ export async function fastForward(
   const left = (status: Repository) =>
     status.branch !== base || changed(status);
 
-  if (left(await read(git))) return false;
+  const before = await read(git);
 
-  const target = await commitAt(git, `${base}@{upstream}`);
+  if (left(before) || !before.commit) return false;
+
+  const target = await commitAt(git, `${base}@{upstream}^{commit}`);
+
+  const ahead =
+    target !== before.commit && (await isAncestor(git, target, before.commit));
+
   const status = await read(git);
   const head = status.commit;
 
-  if (left(status) || !head) return false;
+  if (left(status) || !head || head !== before.commit) return false;
 
   if (progress.head && head !== progress.head && head !== progress.target)
     return false;
 
   progress.head = head;
-  progress.target = target;
+  progress.target = ahead ? head : target;
   await git('merge', '--ff-only', '--no-overwrite-ignore', target);
-  progress.head = target;
+  progress.head = progress.target;
   progress.done = true;
 
   return true;
 }
+
+/** git answers no with exit 1; any other failure throws. */
+export const isAncestor = (git: Git, ancestor: string, commit: string) =>
+  unlessExit1(
+    git('merge-base', '--is-ancestor', ancestor, commit).then(() => true),
+    false,
+  );
 
 /** skips a checkout another Witch is updating; locking the git directory leaves no file behind. */
 export async function lockCheckout(git: Git): Promise<FileHandle | undefined> {
