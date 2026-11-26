@@ -346,13 +346,16 @@ test("a built-in the session's skill reload lists is marked bundled before the f
 test("a resumed session's skill reload marks a built-in bundled before the first turn", async () => {
   const events: AgentEvent[] = [];
   const f = await launcher('reload-skills', 'reload-skills');
+  const resume = randomUUID();
 
   const session = await f.connect({
-    resume: randomUUID(),
+    resume,
     onEvent: (event) => events.push(event),
   });
 
   try {
+    assert.ok(f.args[0]!.includes(`--resume=${resume}`));
+
     await until('the reloaded skills', () =>
       listed(events).some((list) => named(list, 'simplify')?.bundled),
     );
@@ -392,7 +395,7 @@ test("a skill reload that finishes after an empty turn init leaves that init's s
 
     const reload = f.sideChildren[0]!;
 
-    // listening before the turn, since the SDK kills the lingering process a few seconds after the init's abort
+    // listening before the turn, since the SDK starts stopping the process once it closes the answered query
     const reloadClosed = new Promise((resolve) =>
       reload.child.once('close', resolve),
     );

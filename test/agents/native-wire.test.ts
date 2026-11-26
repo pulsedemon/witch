@@ -3,11 +3,18 @@ import { spawn } from 'node:child_process';
 import { test } from 'vitest';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   observeWire,
   replayWire,
   normalizeWire,
+  requireReloadReplyOnConnect,
 } from '../fixtures/native-wire.js';
+import type {
+  AgentAdapter,
+  AgentSession,
+  SessionOptions,
+} from '../../src/agents/types.js';
 import { scratch } from '../fixtures/scratch.js';
 import { within } from '../fixtures/within.js';
 import { probeApproval } from '../../src/agents/native-check/native-scenario.js';
@@ -350,6 +357,49 @@ for (const flag of ['--session-id', '--resume'])
       ],
     );
   });
+
+test('a connection waits for the reply to its skill reload, not another success', async () => {
+  const frames: { direction: 'client' | 'server'; message: unknown }[] = [
+    {
+      direction: 'client',
+      message: { request_id: 'init', request: { subtype: 'initialize' } },
+    },
+    {
+      direction: 'server',
+      message: { response: { subtype: 'success', request_id: 'init' } },
+    },
+    {
+      direction: 'client',
+      message: { request_id: 'reload', request: { subtype: 'reload_skills' } },
+    },
+  ];
+
+  const session = { close: async () => {} } as AgentSession;
+
+  const adapter = {
+    connect: async () => session,
+  } as unknown as AgentAdapter;
+
+  requireReloadReplyOnConnect(adapter, [
+    { frames } as unknown as ReturnType<typeof observeWire>,
+  ]);
+
+  let connected = false;
+
+  const connecting = adapter
+    .connect({} as SessionOptions)
+    .then(() => (connected = true));
+
+  await delay(200);
+  assert.equal(connected, false);
+
+  frames.push({
+    direction: 'server',
+    message: { response: { subtype: 'success', request_id: 'reload' } },
+  });
+
+  await within(connecting, 2000, 'reload reply');
+});
 
 test('closing replay with a missing client request fails instead of accepting a partial recording', async () => {
   const cwd = await scratch('witch-native-incomplete-');

@@ -10,7 +10,7 @@ import { ClaudeAdapter } from '../../src/agents/claude/adapter.js';
 import { nativeScenario } from '../../src/agents/native-check/native-scenario.js';
 import type { NativeScenario } from '../../src/agents/native-check/native-scenario.js';
 import {
-  awaitReloads,
+  requireReloadReplyOnConnect,
   replayWire,
   observeWire,
 } from '../fixtures/native-wire.js';
@@ -74,14 +74,10 @@ for (const runtime of ['codex', 'claude'] as const) {
       );
 
       const captures: Wire[] = [];
-      const reloads: Wire[] = [];
 
-      const launch = (args: readonly string[] = []) => {
+      const launch = (args?: readonly string[]) => {
         const child = replay.launch(args);
-        const capture = observeWire(child);
-        captures.push(capture);
-
-        if (args.includes('--no-session-persistence')) reloads.push(capture);
+        captures.push(observeWire(child));
 
         return child;
       };
@@ -91,7 +87,8 @@ for (const runtime of ['codex', 'claude'] as const) {
           ? new CodexAdapter(() => launch())
           : new ClaudeAdapter((options) => launch(options.args));
 
-      if (adapter instanceof ClaudeAdapter) awaitReloads(adapter, reloads);
+      if (adapter instanceof ClaudeAdapter)
+        requireReloadReplyOnConnect(adapter, captures);
 
       const events = await nativeScenario(
         adapter,
@@ -618,21 +615,16 @@ test('a recorded Claude result stays pending until its recorded native idle arri
 
   assert.ok(idle > 0);
   const replay = replayWire(files, cwd, { gates: [[idle]], fragmentBytes: 7 });
-  let wire: Wire | undefined;
-  const reloads: Wire[] = [];
+  const captures: Wire[] = [];
 
   const adapter = new ClaudeAdapter((options) => {
     const child = replay.launch(options.args);
-    const capture = observeWire(child);
-
-    if (options.args.includes('--no-session-persistence'))
-      reloads.push(capture);
-    else wire ??= capture;
+    captures.push(observeWire(child));
 
     return child;
   });
 
-  awaitReloads(adapter, reloads);
+  requireReloadReplyOnConnect(adapter, captures);
   const connect = adapter.connect.bind(adapter);
   let first: Promise<TurnResult> | undefined;
   let completed = false;
@@ -679,7 +671,8 @@ test('a recorded Claude result stays pending until its recorded native idle arri
     await within(replay.paused(0, idle), 5000, 'recorded idle gate');
 
     await until('recorded result at the SDK transport', () =>
-      wire!.frames.some(
+      // the first launch is the session; its skill reload launches after it
+      captures[0]!.frames.some(
         ({ direction, message }) =>
           direction === 'server' &&
           (message as { type?: string }).type === 'result',

@@ -11,7 +11,7 @@ import {
 import { nativeExecutable } from '../src/agents/executable.js';
 import { nativeLaunch } from '../src/agents/native-launch.js';
 import {
-  awaitReloads,
+  requireReloadReplyOnConnect,
   observeWire,
   normalizeWire,
 } from '../test/fixtures/native-wire.js';
@@ -73,7 +73,6 @@ if (values.scenario === 'spell') {
 
 process.env.CLAUDE_CODE_TMPDIR = root;
 const captures: ReturnType<typeof observeWire>[] = [];
-const reloads: ReturnType<typeof observeWire>[] = [];
 const launches: { command: string; args: string[] }[] = [];
 
 const start = (
@@ -93,11 +92,7 @@ const start = (
   );
 
   launches.push({ command: runtime, args });
-  const capture = observeWire(child);
-  captures.push(capture);
-
-  if (args.includes('--no-session-persistence')) reloads.push(capture);
-
+  captures.push(observeWire(child));
   child.stderr.on('data', (chunk) => process.stderr.write(chunk));
 
   return child;
@@ -113,7 +108,7 @@ assert.ok(
 const adapter = await verificationAdapter(runtime, root, { start });
 
 // replay needs each Claude connection's skill reload reply, which the adapter allows a minute
-if (runtime === 'claude') awaitReloads(adapter, reloads, 3500);
+if (runtime === 'claude') requireReloadReplyOnConnect(adapter, captures, 3500);
 
 let passed = false;
 const abort = new AbortController();

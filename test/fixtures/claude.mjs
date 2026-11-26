@@ -968,7 +968,7 @@ for await (const line of lines) {
   }
 }
 
-// `reload-linger` marks its answer with `reload-answered` and its closed input with `reload-closing`, then exits only once the test writes `release-reload`
+// `reload-linger` marks its answer with `reload-answered` and its closed input with `reload-closing`, then lingers until the test writes `release-reload` or the SDK kills it
 if (mode === 'reload-linger') {
   writeFileSync(join(process.cwd(), 'reload-closing'), '');
 
