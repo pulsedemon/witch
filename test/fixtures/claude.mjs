@@ -532,6 +532,19 @@ for await (const line of lines) {
     if (request.subtype === 'get_context_usage')
       response = { percentage: 12.5, maxTokens: 200000 };
 
+    if (request.subtype === 'reload_skills' && mode === 'reload-refused') {
+      send({
+        type: 'control_response',
+        response: {
+          subtype: 'error',
+          request_id: message.request_id,
+          error: 'reload refused',
+        },
+      });
+
+      continue;
+    }
+
     if (request.subtype === 'reload_skills') {
       response = {
         skills: reloading
@@ -890,7 +903,7 @@ for await (const line of lines) {
       apiKeySource: 'none',
       output_style: 'default',
       agents: [],
-      skills: !['init-skills', 'reload-late'].includes(mode)
+      skills: !['init-skills', 'reload-late', 'reload-refused'].includes(mode)
         ? []
         : ({
             'swap skills': ['advisor'],

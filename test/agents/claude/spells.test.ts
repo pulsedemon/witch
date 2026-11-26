@@ -322,6 +322,13 @@ test("a built-in the session's skill reload lists is marked bundled before the f
       builtin: true,
       aliases: ['squash'],
     });
+
+    // the first turn's init names no bundled skills, so it replaces the reload's set
+    assert.equal((await session.send('hello')).status, 'completed');
+
+    await until('the init catalog', () =>
+      listed(events).some((list) => !named(list, 'simplify')?.bundled),
+    );
   } finally {
     await session.close();
   }
@@ -346,6 +353,25 @@ test("a skill reload answered after a turn's init leaves the init's set", async 
     assert.equal(named(skills, 'autocompact')?.bundled, true);
     assert.ok(named(skills, 'simplify'));
     assert.equal(named(skills, 'simplify')?.bundled, undefined);
+  } finally {
+    await session.close();
+  }
+});
+
+test("a refused skill reload leaves the first turn's init to name the bundled skills", async () => {
+  const events: AgentEvent[] = [];
+
+  const { session } = await fixture(
+    (event) => events.push(event),
+    'reload-refused',
+  );
+
+  try {
+    assert.equal((await session.send('hello')).status, 'completed');
+
+    await until('the init catalog', () =>
+      listed(events).some((list) => named(list, 'autocompact')?.bundled),
+    );
   } finally {
     await session.close();
   }
