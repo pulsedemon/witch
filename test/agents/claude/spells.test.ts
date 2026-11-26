@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -383,9 +384,11 @@ test("a skill reload that finishes after an empty turn init leaves that init's s
   const session = await f.connect({ onEvent: (event) => events.push(event) });
 
   try {
-    // the reload's input closes only once its answer is in, so the answer predates the init
+    // an answered reload whose input then closed has settled its read, so its answer predates the init
     await until('the answered reload', () =>
-      existsSync(join(f.sideChildren[0]?.cwd ?? '', 'reload-closing')),
+      ['reload-answered', 'reload-closing'].every((marker) =>
+        existsSync(join(f.sideChildren[0]?.cwd ?? '', marker)),
+      ),
     );
 
     assert.equal((await session.send('hello')).status, 'completed');
@@ -448,11 +451,17 @@ test('a skill reload Claude Code leaves unanswered stops at its deadline', async
 
   try {
     await until('the held reload', () => held(f.sideChildren));
+    const reload = f.sideChildren[0]!.child;
+    // the SDK sends SIGTERM two seconds after an abort, so an earlier deadline would have stopped it by now
+    vi.advanceTimersByTime(59_999);
+    await delay(500);
+    assert.ok(running(reload));
+    vi.advanceTimersByTime(1);
 
     await until('the reload deadline', () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(100);
 
-      return !running(f.sideChildren[0]!.child);
+      return !running(reload);
     });
 
     assert.equal(session.closed, false);

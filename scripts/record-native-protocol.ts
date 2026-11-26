@@ -132,6 +132,22 @@ try {
     true,
   );
 
+  // replay needs each connection's skill reload reply, which a turn's init can abort before it arrives
+  if (runtime === 'claude')
+    for (const [index, launch] of launches.entries())
+      if (launch.args.includes('--no-session-persistence'))
+        assert.ok(
+          captures[index]!.frames.some(
+            ({ direction, message }) =>
+              direction === 'server' &&
+              Array.isArray(
+                (message as { response?: { response?: { skills?: unknown } } })
+                  .response?.response?.skills,
+              ),
+          ),
+          `Native skill reload ${index} answered`,
+        );
+
   if (values.scenario === 'background') {
     const frames = captures
       .flatMap((capture) => capture.frames)

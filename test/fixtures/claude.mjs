@@ -54,7 +54,6 @@ const stateCommands = [
   ...(aliases.length ? { aliases } : {}),
 }));
 
-// the reload modes answer `reload_skills` with a bundled built-in and a user skill sharing a built-in's name
 const reloading = ['reload-skills', 'reload-late', 'reload-linger'].includes(
   mode,
 );
@@ -541,6 +540,9 @@ for await (const line of lines) {
           : [],
       };
 
+      if (mode === 'reload-linger')
+        writeFileSync(join(process.cwd(), 'reload-answered'), '');
+
       // like a stalled skill sync, `reload-late` holds the input loop with the request unanswered, marked by `reload-held`
       if (mode === 'reload-late') {
         writeFileSync(join(process.cwd(), 'reload-held'), '');
@@ -966,7 +968,7 @@ for await (const line of lines) {
   }
 }
 
-// `reload-linger` marks its closed input with `reload-closing`, then exits only once the test writes `release-reload`
+// `reload-linger` marks its answer with `reload-answered` and its closed input with `reload-closing`, then exits only once the test writes `release-reload`
 if (mode === 'reload-linger') {
   writeFileSync(join(process.cwd(), 'reload-closing'), '');
 
