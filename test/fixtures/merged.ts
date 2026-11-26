@@ -2,7 +2,7 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { PullRequest } from '../../src/core/repository/pull-requests.js';
 import { quote } from '../../src/shell.js';
-import { git } from './git.js';
+import { git, identity } from './git.js';
 import { execute } from './merged-environment.js';
 import { scratch } from './scratch.js';
 
@@ -80,6 +80,92 @@ export async function merge(other: string, branch: string, keep = false) {
   await git(other, 'push', 'origin', 'main');
 
   if (!keep) await git(other, 'push', 'origin', '--delete', branch);
+}
+
+export async function ignoredVendor() {
+  const state = await merged({ 'vendor/lib.js': 'tracked\n' });
+  const { checkout } = state;
+  await git(checkout, 'rm', '--cached', 'vendor/lib.js');
+
+  await write(
+    join(checkout, '.gitignore'),
+    'docs/superpowers/\n.superpowers/\nvendor/lib.js\n',
+  );
+
+  await git(checkout, 'add', '.gitignore');
+  await git(checkout, 'commit', '-m', 'ignore vendor');
+  await git(checkout, 'push');
+  await write(join(checkout, 'vendor/lib.js'), 'installed\n');
+
+  return { ...state, tip: await git(checkout, 'rev-parse', 'HEAD') };
+}
+
+export async function editingSequence(root: string) {
+  const editor = join(root, 'editor.cjs');
+
+  await write(
+    editor,
+    `#!${process.execPath}
+const fs = require('node:fs');
+const path = process.argv[2];
+fs.writeFileSync(path, fs.readFileSync(path, 'utf8').replace(/^pick /m, 'edit '));
+`,
+  );
+
+  await chmod(editor, 0o755);
+
+  return editor;
+}
+
+/** upload-pack's stdin and stdout belong to its protocol, so setup commands inherit neither. */
+export async function duringFetch(
+  root: string,
+  checkout: string,
+  script: string,
+  onBase = false,
+) {
+  const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
+  const pack = join(root, 'upload-pack.cjs');
+  const marker = join(root, 'fetched');
+
+  await write(
+    pack,
+    `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const { existsSync, writeFileSync } = require('node:fs');
+const git = ${JSON.stringify(realGit)};
+const run = (...args) => {
+  const result = spawnSync(git, [...${JSON.stringify(identity)}, ...args], { stdio: 'ignore' });
+  if (result.status !== 0) process.exit(result.status ?? 1);
+};
+const ready = ${
+      onBase
+        ? `spawnSync(git, ['-C', ${JSON.stringify(checkout)}, 'branch', '--show-current'], { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' }).stdout.trim() === 'main'`
+        : 'true'
+    };
+if (!existsSync(${JSON.stringify(marker)}) && ready) {
+  writeFileSync(${JSON.stringify(marker)}, '');
+  ${script}
+}
+process.exit(spawnSync(git, ['upload-pack', ...process.argv.slice(2)], { stdio: 'inherit' }).status ?? 1);
+`,
+  );
+
+  await chmod(pack, 0o755);
+  await git(checkout, 'config', 'remote.origin.uploadpack', pack);
+}
+
+export async function pushingOnBase(
+  root: string,
+  checkout: string,
+  other: string,
+) {
+  await duringFetch(
+    root,
+    checkout,
+    `run('-C', ${JSON.stringify(other)}, 'push', '-q', 'origin', 'main');`,
+    true,
+  );
 }
 
 export const pullRequest = (tip: string): PullRequest => ({

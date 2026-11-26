@@ -19,6 +19,7 @@ import {
   merge,
   merged,
   pullRequest,
+  pushingOnBase,
   write,
   withGit,
   withGh,
@@ -463,6 +464,7 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
     // a commit only the checkout's main has, so main can't fast-forward
     await git(checkout, 'switch', 'main');
     await git(checkout, 'commit', '--allow-empty', '-m', 'local');
+    const local = await git(checkout, 'rev-parse', 'HEAD');
     await git(checkout, 'switch', 'feat/x');
     await merge(other, 'feat/x');
     await chmod(ledgers, 0o500);
@@ -489,6 +491,8 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
         return true;
       },
     );
+
+    assert.equal(await git(checkout, 'rev-parse', 'main'), local);
   }
 });
 
@@ -633,6 +637,11 @@ test('a checkout that changed since the watch looked is left alone', async () =>
   assert.equal(await readFile(join(checkout, 'x.txt'), 'utf8'), 'changed\n');
   assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
   assert.ok(await exists(join(plans(checkout), 'x.md')));
+
+  assert.equal(
+    await git(checkout, 'rev-parse', 'main'),
+    await git(other, 'rev-parse', 'main'),
+  );
 });
 
 test('a checkout with a staged or conflicted change is left alone, and one with only an untracked file is not', async () => {
@@ -676,65 +685,81 @@ test('a checkout with a staged or conflicted change is left alone, and one with 
   assert.equal(await readFile(join(checkout, 'notes.txt'), 'utf8'), 'notes\n');
 });
 
-test('an ignored file the base or the merge would start tracking stops the cleanup before overwriting it', async () => {
-  {
-    const { checkout, other } = await merged({ 'config.local': 'base\n' });
-    const first = await git(checkout, 'rev-parse', 'HEAD');
-    await git(checkout, 'rm', '--cached', '-q', 'config.local');
+test('an ignored file the base or the merge would start tracking stops the cleanup before overwriting it (base)', async () => {
+  const { checkout, other } = await merged({ 'config.local': 'base\n' });
+  const first = await git(checkout, 'rev-parse', 'HEAD');
+  await git(checkout, 'rm', '--cached', '-q', 'config.local');
 
-    await writeFile(
-      join(checkout, '.gitignore'),
-      'docs/superpowers/\n.superpowers/\nconfig.local\n',
-    );
+  await writeFile(
+    join(checkout, '.gitignore'),
+    'docs/superpowers/\n.superpowers/\nconfig.local\n',
+  );
 
-    await git(checkout, 'add', '.gitignore');
-    await git(checkout, 'commit', '-m', 'untrack');
-    const tip = await git(checkout, 'rev-parse', 'HEAD');
-    await git(other, 'pull');
-    await git(other, 'merge', '--no-ff', '-m', 'merge', first);
-    await git(other, 'push', 'origin', 'main');
-    await git(other, 'push', 'origin', '--delete', 'feat/x');
-    await writeFile(join(checkout, 'config.local'), 'mine');
-    await assert.rejects(cleanUpMerge(checkout, pullRequest(tip), idle));
+  await git(checkout, 'add', '.gitignore');
+  await git(checkout, 'commit', '-m', 'untrack');
+  const tip = await git(checkout, 'rev-parse', 'HEAD');
+  await git(other, 'pull');
+  await git(other, 'merge', '--no-ff', '-m', 'merge', first);
+  await git(other, 'push', 'origin', 'main');
+  await git(other, 'push', 'origin', '--delete', 'feat/x');
+  await writeFile(join(checkout, 'config.local'), 'mine');
+  await assert.rejects(cleanUpMerge(checkout, pullRequest(tip), idle));
+  assert.equal(await readFile(join(checkout, 'config.local'), 'utf8'), 'mine');
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+});
 
-    assert.equal(
-      await readFile(join(checkout, 'config.local'), 'utf8'),
-      'mine',
-    );
+test('an ignored file the base or the merge would start tracking stops the cleanup before overwriting it (switch)', async () => {
+  const { checkout, other, tip } = await merged({}, ['secret.txt']);
+  await merge(other, 'feat/x');
+  await writeFile(join(other, 'secret.txt'), 'theirs');
+  await git(other, 'add', '-f', 'secret.txt');
+  await git(other, 'commit', '-m', 'secret');
+  await git(other, 'push', 'origin', 'main');
+  await writeFile(join(checkout, 'secret.txt'), 'mine');
 
-    assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-  }
+  await assert.rejects(
+    cleanUpMerge(checkout, pullRequest(tip), idle),
+    /#7 merged, but its cleanup failed before deleting feat\/x/,
+  );
 
-  {
-    const { checkout, other, tip } = await merged({}, ['secret.txt']);
-    await merge(other, 'feat/x');
-    await writeFile(join(other, 'secret.txt'), 'theirs');
-    await git(other, 'add', '-f', 'secret.txt');
-    await git(other, 'commit', '-m', 'secret');
-    await git(other, 'push', 'origin', 'main');
-    await writeFile(join(checkout, 'secret.txt'), 'mine');
+  assert.equal(await readFile(join(checkout, 'secret.txt'), 'utf8'), 'mine');
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 
-    await assert.rejects(
-      cleanUpMerge(checkout, pullRequest(tip), idle),
-      (error) => {
-        const message = (error as Error).message;
+  assert.equal(
+    await git(checkout, 'rev-parse', 'main'),
+    await git(other, 'rev-parse', 'main'),
+  );
+});
 
-        assert.ok(
-          message.startsWith(
-            '#7 merged: switched to main and deleted branch feat/x',
-          ),
-          message,
-        );
+test('an ignored file the base or the merge would start tracking stops the cleanup before overwriting it (merge)', async () => {
+  const { root, checkout, other, tip } = await merged({}, ['secret.txt']);
+  await merge(other, 'feat/x');
+  await writeFile(join(other, 'secret.txt'), 'theirs');
+  await git(other, 'add', '-f', 'secret.txt');
+  await git(other, 'commit', '-m', 'secret');
+  await pushingOnBase(root, checkout, other);
+  await writeFile(join(checkout, 'secret.txt'), 'mine');
 
-        assert.ok(message.trim().endsWith('Aborting'), message);
+  await assert.rejects(
+    cleanUpMerge(checkout, pullRequest(tip), idle),
+    (error) => {
+      const message = (error as Error).message;
 
-        return true;
-      },
-    );
+      assert.ok(
+        message.startsWith(
+          '#7 merged: switched to main and deleted branch feat/x',
+        ),
+        message,
+      );
 
-    assert.equal(await readFile(join(checkout, 'secret.txt'), 'utf8'), 'mine');
-    assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
-  }
+      assert.ok(message.trim().endsWith('Aborting'), message);
+
+      return true;
+    },
+  );
+
+  assert.equal(await readFile(join(checkout, 'secret.txt'), 'utf8'), 'mine');
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
 test('of two cleanups in one checkout at once, one cleans up and the other does nothing', async () => {
@@ -832,7 +857,6 @@ test('a cleanup that fails before deleting the branch says which merge it was fo
 test('a cleanup failure after branch deletion reports the completed work', async () => {
   for (const mode of ['plans', 'siblings']) {
     const { root, checkout, other, tip } = await merged();
-    const before = await git(checkout, 'rev-parse', 'main');
     await merge(other, 'feat/x');
     const after = await git(other, 'rev-parse', 'main');
     const unreadable = join(plans(checkout), 'unreadable.md');
@@ -904,11 +928,7 @@ test('a cleanup failure after branch deletion reports the completed work', async
 
     assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
     assert.deepEqual(await branches(checkout), ['main']);
-
-    assert.equal(
-      await git(checkout, 'rev-parse', 'HEAD'),
-      mode === 'plans' ? before : after,
-    );
+    assert.equal(await git(checkout, 'rev-parse', 'HEAD'), after);
 
     if (mode === 'siblings') {
       await assert.rejects(readFile(join(plans(checkout), 'removed.md')), {
@@ -1005,7 +1025,7 @@ test('a base and a merged branch named like options are switched to and deleted'
   await git(other, 'push', 'origin', 'main:refs/heads/-base');
   await git(checkout, 'fetch');
   // git's porcelain won't name a branch this way, but update-ref will
-  await git(checkout, 'update-ref', 'refs/heads/-base', 'origin/-base');
+  await git(checkout, 'update-ref', 'refs/heads/-base', 'main');
   await git(checkout, 'update-ref', 'refs/heads/-old', 'main');
 
   for (const name of ['-base', '-old']) {
@@ -1026,8 +1046,10 @@ test('a base and a merged branch named like options are switched to and deleted'
 });
 
 test('a merged branch recreated during the base pull is pruned and reported once', async () => {
-  const { checkout, other, tip } = await merged();
+  const { root, checkout, other, tip } = await merged();
   await merge(other, 'feat/x');
+  await git(other, 'commit', '--allow-empty', '-m', 'during pull');
+  await pushingOnBase(root, checkout, other);
   const hooks = join(checkout, '.git/hooks');
   await git(checkout, 'config', 'core.hooksPath', hooks);
 
@@ -1056,13 +1078,15 @@ test('a merged branch recreated during the base pull is pruned and reported once
 });
 
 test("another merged branch's config section that branch -d leaves is named", async () => {
-  const { checkout, other, tip } = await merged();
+  const { root, checkout, other, tip } = await merged();
   await git(checkout, 'switch', '-c', 'feat/old', 'main');
   await git(checkout, 'commit', '--allow-empty', '-m', 'old');
   await git(checkout, 'push', '-u', 'origin', 'feat/old');
   await merge(other, 'feat/old');
   await git(checkout, 'switch', 'feat/x');
   await merge(other, 'feat/x');
+  await git(other, 'commit', '--allow-empty', '-m', 'during pull');
+  await pushingOnBase(root, checkout, other);
   // runs after the fast-forward, so only the other branches meet the locked config
   const hooks = join(checkout, '.git/hooks');
   await git(checkout, 'config', 'core.hooksPath', hooks);
@@ -1284,7 +1308,6 @@ test('a branch switched to during the base fetch is left as it was, and the clea
 
 test('an edit made during the base fetch stops the cleanup before the fast-forward', async () => {
   const { root, checkout, other, tip } = await merged({ 'a.txt': 'a\n' });
-  const before = await git(checkout, 'rev-parse', 'main');
   await merge(other, 'feat/x');
   // runs in each fetch, and edits once the cleanup is on the base, as another terminal could
   const pack = join(root, 'upload-pack');
@@ -1302,6 +1325,10 @@ test('an edit made during the base fetch stops the cleanup before the fast-forwa
       "#7 merged: switched to main and deleted branch feat/x, but main didn't fast-forward: the checkout left main or changed during the fetch",
   });
 
-  assert.equal(await git(checkout, 'rev-parse', 'HEAD'), before);
+  assert.equal(
+    await git(checkout, 'rev-parse', 'HEAD'),
+    await git(other, 'rev-parse', 'main'),
+  );
+
   assert.equal(await readFile(join(checkout, 'a.txt'), 'utf8'), 'edited\n');
 });

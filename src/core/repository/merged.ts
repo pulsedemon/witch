@@ -14,13 +14,16 @@ import {
   fetchRemote,
   gitIn,
   hasBranchConfig,
+  isAncestor,
   isFetchRefConflict,
   lockCheckout,
   read,
   reconcilePull,
   refHead,
   succeeds,
+  symbolicTarget,
   topLevel,
+  unlessExit1,
 } from './checkout-git.js';
 import type { CheckoutProgress, Git } from './checkout-git.js';
 import { refreshInstall } from './install-refresh.js';
@@ -36,8 +39,8 @@ import type { PullRequest } from './pull-requests.js';
 export interface MergeCleanup {
   cwd?: string;
   /**
-   * the base's upstream, such as `origin/main`, or the merged branch's remote copy of a base with no local branch, where
-   * a linked worktree, or a checkout whose base one holds, detaches.
+   * the base's upstream, such as `origin/main`, or the merged branch's remote copy of a base with no upstream, where
+   * a linked worktree detaches, or a checkout whose base another worktree holds, rebases or bisects, or is symbolic.
    */
   detached?: string;
   switchHead?: string;
@@ -569,8 +572,7 @@ async function clean(
 
   const pulled = progress.detached ? moved : `${moved} and pulled`;
 
-  // deleted only while still at the merged commit, since another terminal can commit to it after the tip check. -d
-  // would compare against the base before it's brought up to date
+  // deleted only while still at the merged commit, since another terminal can commit to it after the tip check
   if (!progress.deleted)
     try {
       if (await refHead(git, branch))
@@ -678,6 +680,39 @@ async function resumeCheck(
   }
 }
 
+/** switching to the stale base would check out files the merge stopped tracking over their ignored replacements. */
+async function advanceBase(git: Git, base: string, commonDir: string) {
+  const upstream = await unlessExit1(
+    git(
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      '--end-of-options',
+      `${base}@{upstream}^{commit}`,
+    ),
+    undefined,
+  );
+
+  const local = await refHead(git, base);
+
+  if (!local || !upstream || local === upstream) return;
+
+  if (!(await isAncestor(git, local, upstream))) return;
+
+  if (
+    (await symbolicTarget(git, base)) ||
+    (await git(
+      'for-each-ref',
+      '--format=%(worktreepath)',
+      `refs/heads/${base}`,
+    )) ||
+    (await branchInOperation(commonDir, base))
+  )
+    return;
+
+  await git('update-ref', `refs/heads/${base}`, upstream, local);
+}
+
 async function leaveBranch(
   git: Git,
   pullRequest: PullRequest,
@@ -691,14 +726,19 @@ async function leaveBranch(
   const { branch, commit, base } = pullRequest;
   const stopped = stopping(pullRequest, signal);
 
+  const commonDir = await git(
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-common-dir',
+  ).catch(stopped);
+
   // a linked worktree never takes the base, which would leave the main checkout unable to switch back to it. the main
-  // checkout detaches only while a worktree holds the base, and keeps that decision, so a retry after it lets go still
-  // detaches
+  // checkout detaches only while the base is held, rebased or bisected in a worktree, or symbolic, and keeps that
+  // decision, so a retry after it lets go still detaches
   if (progress.detached === undefined) {
     // separate reads keep newlines inside paths from becoming separators between them
-    const [gitDir, commonDir, top] = await Promise.all([
+    const [gitDir, top] = await Promise.all([
       git('rev-parse', '--path-format=absolute', '--git-dir'),
-      git('rev-parse', '--path-format=absolute', '--git-common-dir'),
       git('rev-parse', '--path-format=absolute', '--show-toplevel'),
     ]).catch(stopped);
 
@@ -708,17 +748,25 @@ async function leaveBranch(
       `refs/heads/${base}`,
     ).catch(stopped);
 
+    const symbolic = await symbolicTarget(git, base).catch(stopped);
+
     // a stacked pull request's base can exist only on the merged branch's remote
-    if (gitDir !== commonDir || (holder && holder !== top))
-      progress.detached = (await refHead(git, base).catch(stopped))
-        ? await git(
-            'rev-parse',
-            '--abbrev-ref',
-            '--verify',
-            '--end-of-options',
-            `${base}@{upstream}`,
-          ).catch(stopped)
-        : `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
+    if (
+      gitDir !== commonDir ||
+      (holder && holder !== top) ||
+      symbolic ||
+      (await branchInOperation(commonDir, base).catch(stopped))
+    ) {
+      const upstream = await git(
+        'for-each-ref',
+        '--format=%(upstream:short)',
+        `refs/heads/${base}`,
+      ).catch(stopped);
+
+      progress.detached =
+        upstream ||
+        `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
+    }
   }
 
   if (!progress.remote && gitHubRepository(pullRequest.url)) {
@@ -735,16 +783,30 @@ async function leaveBranch(
 
   const remote = await headRemote(git, pullRequest, policy, stopped, signal);
 
-  // a detach takes the base's upstream as it is now, so its own remote is fetched here, before the checks below, since
-  // a slow fetch gives another terminal time to switch or edit
-  if (progress.detached) {
-    const remote = (name: string) =>
-      configValue(git, `branch.${name}.remote`).catch(stopped);
+  // the base's own remote is fetched and the base advanced before the checks below, since a slow fetch gives another
+  // terminal time to switch or edit
+  const [local, tracking] = await Promise.all([
+    refHead(git, base),
+    git(
+      'for-each-ref',
+      '--format=%(upstream)%09%(upstream:short)%09%(upstream:remotename)',
+      `refs/heads/${base}`,
+    ),
+  ]).catch(stopped);
 
-    const own = await remote(base);
+  const [upstream, upstreamName, upstreamRemote] = tracking.split('\t');
 
-    if (own && own !== (await remote(branch)))
-      await fetchRemote(git, own).catch(stopped);
+  if (local && upstream) {
+    if (
+      upstreamRemote &&
+      upstreamRemote !== '.' &&
+      upstreamRemote !==
+        (await configValue(git, `branch.${branch}.remote`).catch(stopped))
+    )
+      await fetchRemote(git, upstreamRemote).catch(stopped);
+
+    if (!progress.detached)
+      await advanceBase(git, base, commonDir).catch(stopped);
   }
 
   // after the fetch, which can take a while: the watch's status is seconds old, and a commit made meanwhile would
@@ -767,23 +829,41 @@ async function leaveBranch(
   let created: string | undefined;
 
   if (progress.detached) {
-    const upstream = (await refHead(git, base).catch(stopped))
-      ? `${base}@{upstream}`
-      : `refs/remotes/${progress.detached}`;
+    progress.detached =
+      local && upstream
+        ? upstreamName!
+        : `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
 
-    const target = await commitAt(git, `${upstream}^{commit}`).catch(stopped);
+    const targetRef =
+      local && upstream
+        ? `${base}@{upstream}`
+        : `refs/remotes/${progress.detached}`;
+
+    const target = await commitAt(git, `${targetRef}^{commit}`).catch(stopped);
     progress.switchHead = target;
     // already at the fetched upstream, so there's nothing to fast-forward
     progress.pull = { head: target, target, done: true };
   } else {
-    const local = await refHead(git, base).catch(stopped);
+    if (await symbolicTarget(git, base).catch(stopped)) {
+      progress.deferred = `${base} became a symbolic ref`;
+
+      return 'blocked';
+    }
+
+    const current = await refHead(git, base).catch(stopped);
+
+    if (current && (await branchInOperation(commonDir, base).catch(stopped))) {
+      progress.deferred = `another worktree owns ${base}`;
+
+      return 'blocked';
+    }
 
     // a stacked pull request's base can exist only on the merged branch's remote, and the switch creates it from there
-    if (!local)
+    if (!current)
       created = `refs/remotes/${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
 
     progress.switchHead =
-      local ?? (await commitAt(git, `${created}^{commit}`).catch(stopped));
+      current ?? (await commitAt(git, `${created}^{commit}`).catch(stopped));
   }
 
   // a plain switch overwrites an ignored file the base tracks, and that file was never committed

@@ -170,6 +170,13 @@ export const isAncestor = (git: Git, ancestor: string, commit: string) =>
     false,
   );
 
+/** the ref a symbolic branch points at, even one that doesn't exist yet, or nothing for an ordinary branch. */
+export const symbolicTarget = (git: Git, branch: string) =>
+  unlessExit1<string | undefined>(
+    git('symbolic-ref', '--quiet', `refs/heads/${branch}`),
+    undefined,
+  );
+
 /** skips a checkout another Witch is updating; locking the git directory leaves no file behind. */
 export async function lockCheckout(git: Git): Promise<FileHandle | undefined> {
   return tryOpenLocked(

@@ -8,10 +8,12 @@ import { quote } from '../../../src/shell.js';
 import {
   answering,
   branches,
+  editingSequence,
   idle,
   merge,
   merged,
   pullRequest,
+  pushingOnBase,
   url,
   withGh,
   withGit,
@@ -623,6 +625,8 @@ for (const repoint of [false, true])
     const old = await older(checkout, other, 'feat/old');
     const changed = await older(checkout, other, 'feat/changed');
     await merge(other, 'feat/x');
+    await git(other, 'commit', '--allow-empty', '-m', 'during pull');
+    await pushingOnBase(root, checkout, other);
     const entered = join(root, 'entered');
     const hooks = join(root, 'hooks');
     await git(checkout, 'config', 'core.hooksPath', hooks);
@@ -898,14 +902,7 @@ for (const mode of ['bisect', 'rebase', 'apply', 'update-refs'])
         git(holder, 'rebase', '--apply', '--onto', 'target', base),
       );
     else {
-      const editor = join(root, 'editor.cjs');
-
-      await write(
-        editor,
-        `#!${process.execPath}\nconst fs=require('node:fs');const path=process.argv[2];fs.writeFileSync(path,fs.readFileSync(path,'utf8').replace(/^pick /m,'edit '));\n`,
-      );
-
-      await chmod(editor, 0o755);
+      const editor = await editingSequence(root);
 
       await git(
         holder,
