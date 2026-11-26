@@ -5,7 +5,7 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 const ui = fileURLToPath(new URL('./src/ui/', import.meta.url));
 const configFile = fileURLToPath(new URL('./babel.config.js', import.meta.url));
-// keep above the slowest case, so a hang fails naming its test instead of running to ci's job limit
+// leave headroom above the slowest cases under contention
 const timeout = 60_000;
 const workers = Math.min(8, availableParallelism());
 

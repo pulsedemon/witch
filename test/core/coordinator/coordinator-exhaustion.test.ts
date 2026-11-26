@@ -624,6 +624,47 @@ test('a reading from before a runtime ran out does not qualify it', async () => 
   }
 });
 
+test('a runtime that ran out does not qualify on later readings that keep its credit balance', async () => {
+  const { coordinator, claude, codex } = await exhaustion((claude) => {
+    claude.accountRead = async () => {
+      const observedAt = Date.now();
+
+      return {
+        limits: [{ window: '7D', percent: 100, observedAt }],
+        funding: {
+          kind: 'credits',
+          balance: '20.58',
+          unlimited: false,
+          available: true,
+          observedAt,
+        },
+        creditAccess: { state: 'available', observedAt },
+      };
+    };
+  });
+
+  try {
+    claude.exhaust = (prompt) => prompt.includes('First');
+    await coordinator.send('First');
+    assert.equal(coordinator.snapshot.conversation!.agent, 'codex');
+    codex.exhaust = (prompt) => prompt.includes('Second');
+    await coordinator.send('Second');
+
+    assert.ok(
+      notices(coordinator).some((text) =>
+        /no other runtime can continue: claude .* has no room since it ran out\./.test(
+          text,
+        ),
+      ),
+    );
+
+    assert.equal(coordinator.snapshot.conversation!.agent, 'codex');
+    assert.equal(claude.inputs.length, 1);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a /model summary that runs out of usage also requires a later reading before switching back', async () => {
   const before = Date.now() - 1000;
 

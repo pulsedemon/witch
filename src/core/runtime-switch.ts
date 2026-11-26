@@ -18,6 +18,7 @@ import {
   describeReading,
   headroom,
   limitsFor,
+  refused,
   type AccountUsage,
 } from './runtime/usage.js';
 
@@ -95,8 +96,6 @@ export class RuntimeSwitch {
   /** a switch activated in this drain step, so another exhaustion stops instead of switching back. */
   private hopped = false;
   private pending?: PendingSwitch;
-  /** when each runtime last ran out in this process; only evidence observed later shows it has recovered. */
-  private readonly exhaustedAt = new Map<string, number>();
   private continuation?: TurnResult;
   private stopping?: PromiseWithResolvers<void>;
   private activityRevision = 0;
@@ -216,7 +215,10 @@ export class RuntimeSwitch {
     };
 
     this.pending = request;
-    this.exhaustedAt.set(request.conversation.agent, Date.now());
+
+    this.host
+      .usage()
+      .exhausted(request.conversation.agent, request.conversation.cwd, limit);
 
     return request;
   }
@@ -298,8 +300,10 @@ export class RuntimeSwitch {
             .finally(() => (this.continuing = false));
 
           // a `/model` summary can exhaust its source too, and returning there needs later evidence
-          if (result.status === 'failed' && result.exhausted)
-            this.exhaustedAt.set(host.conversation().agent, Date.now());
+          if (result.status === 'failed' && result.exhausted) {
+            const { agent, cwd } = host.conversation();
+            host.usage().exhausted(agent, cwd, result.limit);
+          }
 
           if (continuing) this.continuation = result;
 
@@ -429,9 +433,10 @@ export class RuntimeSwitch {
     await Promise.race([
       Promise.all(
         others.map((id) =>
-          host
-            .usage()
-            .refresh(id, cwd, { force: true, after: this.exhaustedAt.get(id) }),
+          host.usage().refresh(id, cwd, {
+            force: true,
+            after: host.snapshot().accounts[id]?.exhausted?.at,
+          }),
         ),
       ),
       stopped,
@@ -484,7 +489,7 @@ export class RuntimeSwitch {
     );
   }
 
-  /** `to` qualifies on room or usable credits observed after it last ran out, with a model comparable to the one `from` ran. */
+  /** `to` qualifies on room or usable credits, unless a refusal still blocks it, with a model comparable to the one `from` ran. */
   private destination(
     from: string,
     to: string,
@@ -501,26 +506,23 @@ export class RuntimeSwitch {
       ? resolve(to, family, { models, latest })
       : undefined;
 
-    const limits = limitsFor(
-      account,
-      resolved && 'model' in resolved ? resolved.model : undefined,
-    );
-
-    const since = this.exhaustedAt.get(to) ?? -Infinity;
-    const observed = Math.min(...limits.map(({ observedAt }) => observedAt));
-    const room = headroom(limits, 100, now) && observed > since;
+    const target = resolved && 'model' in resolved ? resolved.model : undefined;
+    const limits = limitsFor(account, target);
+    const out = refused(account, target, now);
+    const room = !out && headroom(limits, 100, now);
     const credits = creditCapacity(account, now);
 
-    if (
-      !room &&
-      !(credits === 'available' && account!.creditAccess!.observedAt > since)
-    ) {
+    if (!room && (out || credits !== 'available')) {
       if (!limits.length && account?.funding?.kind === 'unavailable')
         return { reason: `${name} reports no usage limits` };
 
-      if (!currentLimits(limits, now) || observed <= since)
+      const unseen =
+        out &&
+        limits.some(({ observedAt }) => observedAt <= account!.exhausted!.at);
+
+      if (!currentLimits(limits, now) || unseen)
         return {
-          reason: this.exhaustedAt.has(to)
+          reason: account?.exhausted
             ? `${name} has no reading since it ran out`
             : `${name} has no current reading`,
         };
@@ -529,7 +531,7 @@ export class RuntimeSwitch {
         return { reason: `${name}'s credits can't be verified` };
 
       return {
-        reason: `${describeReading(name, account, now, limits)} has no room`,
+        reason: `${describeReading(name, account, now, limits)} has no room${out ? ' since it ran out' : ''}`,
       };
     }
 

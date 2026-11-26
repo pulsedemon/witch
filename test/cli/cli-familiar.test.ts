@@ -13,7 +13,10 @@ import {
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { test, vi } from 'vitest';
+import { ClaudeCommands } from '../../src/agents/claude/commands.js';
+import type { FamiliarAction } from '../../src/agents/familiar-report.js';
 import { parseCommand } from '../../src/cli/cli-control.js';
 import { repeatAnswerInstruction } from '../../src/cli/cli-familiar.js';
 import {
@@ -159,6 +162,87 @@ async function fixture(
     },
   };
 }
+
+test('a familiar launched from a foreground Claude command is backgrounded, registers and exits 0', async () => {
+  let owner: ClaudeCommands | undefined;
+  let stdout = () => '';
+  let registrations = 0;
+  const backgrounded: string[] = [];
+
+  const emit = (fields: object) =>
+    owner!.receive({
+      type: 'system',
+      session_id: 'session',
+      uuid: randomUUID(),
+      ...fields,
+    } as SDKMessage);
+
+  const f = await fixture('success', async (request) => {
+    if (!owner) {
+      owner = new ClaudeCommands(
+        {
+          getTaskOutput: async () => ({ output: stdout() }),
+          backgroundTasks: async (toolUse) => {
+            backgrounded.push(toolUse);
+
+            emit({
+              subtype: 'task_updated',
+              task_id: 'launch',
+              patch: { is_backgrounded: true },
+            });
+
+            return true;
+          },
+          stopTask: async () => {},
+        },
+        {
+          directory: '',
+          conversation: request.conversation,
+          activation: request.activation,
+        },
+        () => 'session',
+        () => false,
+        () => {},
+      );
+
+      emit({
+        subtype: 'task_started',
+        task_id: 'launch',
+        task_type: 'local_bash',
+        tool_use_id: 'toolu_launch',
+        description: 'familiar',
+        is_backgrounded: false,
+      });
+    }
+
+    if (request.action.kind === 'familiar-register') registrations++;
+
+    return owner.report(request.action as FamiliarAction, request.deadline);
+  });
+
+  stdout = () => f.output().stdout;
+
+  try {
+    assert.equal(
+      await within(f.closed, 20_000, 'foreground familiar'),
+      0,
+      f.output().stderr,
+    );
+
+    assert.deepEqual(backgrounded, ['toolu_launch']);
+    assert.doesNotMatch(f.output().stderr, /registration timed out/);
+
+    assert.equal(
+      f
+        .output()
+        .stdout.split('\n')
+        .filter((line) => line.startsWith('WITCH_FAMILIAR ')).length,
+      registrations,
+    );
+  } finally {
+    await f.close();
+  }
+});
 
 test("the wrapper retries a lost marker, preserves native inputs and saves the latest turn's result only after child exit", async () => {
   let registrations = 0;

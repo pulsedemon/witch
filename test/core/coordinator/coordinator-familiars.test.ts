@@ -643,3 +643,42 @@ test('the pentacle spins while the session closes', async () => {
   assert.equal(coordinator.pentacle.active, true);
   await closing;
 });
+
+test("a familiar's reported usage refusal marks its runtime, also after its command's end failed the row, and rereads that runtime", async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  const emit = claude.sessions.at(-1)!.options.onEvent;
+
+  const familiar = {
+    id: 'codex-familiar/limit',
+    run: 'limit',
+    name: 'limit review',
+    kind: '',
+    runtime: 'codex',
+  };
+
+  try {
+    emit({ type: 'subagent', subagent: { ...familiar, status: 'running' } });
+    emit({ type: 'subagent', subagent: { ...familiar, status: 'failed' } });
+    assert.equal(coordinator.snapshot.accounts.codex?.exhausted, undefined);
+    const reads = codex.accountReads.length;
+
+    emit({
+      type: 'subagent',
+      subagent: { ...familiar, status: 'failed', exhausted: {} },
+    });
+
+    assert.ok(coordinator.snapshot.accounts.codex!.exhausted);
+    assert.equal(coordinator.snapshot.accounts.claude?.exhausted, undefined);
+
+    await within(
+      (async () => {
+        while (codex.accountReads.length === reads)
+          await new Promise((resolve) => setTimeout(resolve, 10));
+      })(),
+      2000,
+      'forced codex reread',
+    );
+  } finally {
+    await coordinator.close();
+  }
+});

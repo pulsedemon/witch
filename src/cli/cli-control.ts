@@ -446,6 +446,9 @@ function describe(outcome: ControlOutcome): string {
           ({ runtime, model, reason, from }) =>
             `Passed over: ${from} for ${runtime} ${model}\nReason: ${reason}`,
         ),
+        ...(outcome.dropped ?? []).map(
+          ({ runtime, reason }) => `Left out: ${runtime}\nReason: ${reason}`,
+        ),
       ].join('\n');
 
     case 'preview':

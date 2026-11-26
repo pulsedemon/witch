@@ -50,6 +50,7 @@ test('foreground exhaustion retains familiar outcomes without carrying old repor
   const commands = new ClaudeCommands(
     {
       getTaskOutput: async (id) => ({ output: outputs.get(id) ?? '' }),
+      backgroundTasks: async () => true,
       stopTask: async (id) => {
         stopped.push(id);
       },

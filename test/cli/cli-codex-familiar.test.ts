@@ -33,6 +33,7 @@ async function fixture(
     prompt?: string;
     openStdin?: boolean;
     pauseIntervals?: boolean;
+    startupDeadline?: boolean;
     response?: UserResponse;
     waitForResponse?: boolean;
     reject?: boolean;
@@ -69,6 +70,19 @@ async function fixture(
       hook,
       `const interval = globalThis.setInterval;
 globalThis.setInterval = (_callback, milliseconds) => interval(() => {}, milliseconds);
+`,
+    );
+
+    preload.push('--import', hook);
+  }
+
+  if (options.startupDeadline) {
+    const hook = join(root, 'startup-deadline.mjs');
+
+    await writeFile(
+      hook,
+      `const timeout = globalThis.setTimeout;
+globalThis.setTimeout = (callback, milliseconds, ...rest) => timeout(callback, milliseconds === 180_000 ? 8000 : milliseconds, ...rest);
 `,
     );
 
@@ -659,19 +673,23 @@ test('a Codex familiar survives an exhausted progress timeout and delivers its p
   const entered = Promise.withResolvers<void>();
   let approvalResolved = false;
 
-  const f = await fixture({ mode: 'gated-completion' }, async (request) => {
-    if (request.action.kind === 'familiar-request-resolved')
-      approvalResolved = true;
+  const f = await fixture(
+    // its turn outlasts the startup deadline, which must not end it
+    { mode: 'gated-completion', startupDeadline: true },
+    async (request) => {
+      if (request.action.kind === 'familiar-request-resolved')
+        approvalResolved = true;
 
-    if (
-      approvalResolved &&
-      request.action.kind === 'familiar-update' &&
-      request.action.progress.status === 'running'
-    ) {
-      entered.resolve();
-      await gate.promise;
-    }
-  });
+      if (
+        approvalResolved &&
+        request.action.kind === 'familiar-update' &&
+        request.action.progress.status === 'running'
+      ) {
+        entered.resolve();
+        await gate.promise;
+      }
+    },
+  );
 
   try {
     await within(entered.promise, 5000, 'stalled progress after approval');
@@ -716,6 +734,23 @@ test('a nonzero native exit after a result prevents successful terminal reportin
   }
 });
 
+for (const [prompt, exhausted] of [
+  ['usage-limit', {}],
+  ['rate-limit', undefined],
+] as const)
+  test(`a Codex familiar whose turn fails on a ${prompt} reports ${exhausted ? 'the usage refusal' : 'no usage refusal'}`, async () => {
+    const f = await fixture({ prompt });
+
+    try {
+      assert.equal(await within(f.closed, 8000, 'failed turn'), 1);
+      const last = f.updates().at(-1)!;
+      assert.equal(last.status, 'failed');
+      assert.deepEqual(last.exhausted, exhausted);
+    } finally {
+      await f.close();
+    }
+  });
+
 test('a Codex familiar posts a failed MCP server as a notice and keeps app-server logs off its stderr', async () => {
   const f = await fixture({ mode: 'mcp-failed' });
 
@@ -752,6 +787,52 @@ test('an app-server that exits during startup leaves its stderr tail in the repo
     await f.close();
   }
 });
+
+for (const stall of [
+  { step: 'the prompt on stdin', options: { openStdin: true } },
+  {
+    step: 'Codex to start',
+    options: { mode: 'hang-on-init' },
+    stderr: /init hang text/,
+  },
+  { step: 'the spell listing', options: { mode: 'hang-on-skills' } },
+])
+  test(`a Codex familiar stalled waiting for ${stall.step} fails at its startup deadline and names the step`, async () => {
+    const f = await fixture({ ...stall.options, startupDeadline: true });
+
+    try {
+      // past the 8 s deadline with room for shutdown, and before the fixture's own 30 s exit
+      assert.equal(await within(f.closed, 20_000, 'startup deadline'), 1);
+      const report = await readFile(f.report, 'utf8');
+
+      assert.match(
+        report,
+        new RegExp(
+          `did not send its turn within 3M00S; waiting for ${stall.step}`,
+        ),
+      );
+
+      if (stall.stderr) assert.match(report, stall.stderr);
+
+      assert.equal(f.updates().at(-1)!.status, 'failed');
+      assert.equal(f.updates().at(-1)!.report, report);
+
+      assert.ok(
+        f.output().stdout.endsWith(`${report}\n\nSaved report: ${f.report}\n`),
+      );
+
+      if (stall.options.mode)
+        assert.equal(await identifyProcess((await f.launch()).pid), undefined);
+
+      // a closed session refuses the turn after the swallowed listing failure
+      if (stall.options.mode === 'hang-on-skills')
+        await assert.rejects(readFile(join(f.root, 'prompt.json')), {
+          code: 'ENOENT',
+        });
+    } finally {
+      await f.close();
+    }
+  });
 
 test('Codex familiar arguments keep configuration but reject a different transport or command', () => {
   assert.deepEqual(

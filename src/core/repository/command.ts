@@ -135,11 +135,14 @@ async function cancellable(
       // the watch can forget the group during any of these waits
       const members = async () =>
         group !== undefined &&
-        (await ps('pgid=,stat=', undefined, { timeout: 1000 })).some((line) => {
-          const [id, state] = line.trim().split(/\s+/);
+        // bounds a hung listing; a slow one under load must not fail the stop
+        (await ps('pgid=,stat=', undefined, { timeout: 10_000 })).some(
+          (line) => {
+            const [id, state] = line.trim().split(/\s+/);
 
-          return Number(id) === group && !state?.startsWith('Z');
-        });
+            return Number(id) === group && !state?.startsWith('Z');
+          },
+        );
 
       while (await members()) {
         if (Date.now() >= deadline)

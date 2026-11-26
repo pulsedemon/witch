@@ -909,7 +909,7 @@ else {
   const status = tool === 'git' ? spawnSync(${JSON.stringify(realGit)}, args, {stdio:'inherit'}).status ?? 1 : 0;
   const hold = tool === 'pnpm' ? args[0] === (stage === 'advanced' ? 'install' : stage) :
     (stage === 'switch' && args[0] === 'switch') ||
-    (stage === 'delete' && args[0] === 'update-ref') ||
+    (stage === 'delete' && args[0] === 'update-ref' && args[1] === '-d') ||
     (stage === 'config' && args[0] === 'config' && args[1] === '--remove-section') ||
     (stage === 'pull' && args[0] === 'merge') ||
     (stage === 'report' && args[0] === 'rev-parse' && args[1] === '--short') ||
@@ -1098,7 +1098,7 @@ for (const [stage, worktree] of [
       if (repository.snapshot.branch === 'main')
         delete repository.snapshot.pullRequest;
 
-      await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+      await within(coordinator.interrupt(), 15_000, 'cleanup cancellation');
       await completed.promise;
       assert.deepEqual(results, ['interrupted', true]);
       assert.equal(coordinator.snapshot.error, undefined);
@@ -1124,13 +1124,27 @@ for (const [stage, worktree] of [
 
       const calls = await commands();
 
-      for (const command of ['switch', 'update-ref'])
-        assert.equal(
-          calls.filter(([tool, name]) => tool === 'git' && name === command)
-            .length,
-          1,
-          command,
-        );
+      assert.equal(
+        calls.filter(([tool, name]) => tool === 'git' && name === 'switch')
+          .length,
+        1,
+      );
+
+      assert.equal(
+        calls.filter(
+          ([tool, name, option]) =>
+            tool === 'git' && name === 'update-ref' && option === '-d',
+        ).length,
+        1,
+      );
+
+      assert.equal(
+        calls.filter(
+          ([tool, name, option]) =>
+            tool === 'git' && name === 'update-ref' && option !== '-d',
+        ).length,
+        worktree ? 0 : 1,
+      );
 
       assert.equal(
         calls.filter(
@@ -1201,7 +1215,7 @@ for (const stage of ['delete', 'install'])
 
     try {
       await entered();
-      await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+      await within(coordinator.interrupt(), 15_000, 'cleanup cancellation');
       await until('cleanup settles', () => results.length > 0, 500);
       await stopped();
       assert.deepEqual(results, [true]);
@@ -1225,8 +1239,10 @@ for (const stage of ['delete', 'install'])
       const calls = await commands();
 
       assert.equal(
-        calls.filter(([tool, name]) => tool === 'git' && name === 'update-ref')
-          .length,
+        calls.filter(
+          ([tool, name, option]) =>
+            tool === 'git' && name === 'update-ref' && option === '-d',
+        ).length,
         1,
       );
 
@@ -1279,7 +1295,7 @@ for (const branch of ['feat/y', 'main'])
 
     try {
       await entered();
-      await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+      await within(coordinator.interrupt(), 15_000, 'cleanup cancellation');
       await until('cleanup settles', () => results.length > 0, 500);
       await stopped();
       assert.deepEqual(results, [true]);
@@ -1312,7 +1328,7 @@ for (const changed of ['edit', 'branch', 'commit', 'recreated branch'])
     const request = pullRequest(tip);
     const first = coordinator.cleanUpMerge(request, project, progress);
     await entered();
-    await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+    await within(coordinator.interrupt(), 15_000, 'cleanup cancellation');
     assert.equal(await first, 'interrupted');
     await stopped();
 
@@ -1347,7 +1363,7 @@ for (const changed of ['edit', 'branch', 'commit', 'recreated branch'])
   });
 
 for (const restart of [false, true])
-  test(`${restart ? 'restart' : 'close'} stops an in-flight cleanup install and its children within five seconds`, async (t) => {
+  test(`${restart ? 'restart' : 'close'} stops an in-flight cleanup install and its children`, async (t) => {
     const { coordinator, project, tip, entered, stopped, commands } =
       await interruptedCleanup('install', t.onTestFinished);
 
@@ -1356,7 +1372,7 @@ for (const restart of [false, true])
 
     await within(
       coordinator.close({ restart }),
-      5000,
+      15_000,
       'closing during cleanup',
     );
 
@@ -1378,7 +1394,7 @@ for (const stage of ['delete', 'prune'])
     const request = pullRequest(tip);
     const first = coordinator.cleanUpMerge(request, project, progress);
     await entered();
-    await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+    await within(coordinator.interrupt(), 15_000, 'cleanup cancellation');
     assert.equal(await first, 'interrupted');
     await stopped();
     const name = stage === 'delete' ? 'feat/x' : 'feat/y';

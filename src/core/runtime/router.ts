@@ -126,6 +126,12 @@ export function router(
         { warning: true },
       );
 
+    for (const { runtime, reason } of decision.dropped ?? [])
+      coordinator.notice(
+        `Left ${agentLabel(snapshot.agents, runtime)} out of ${work}: ${reason}`,
+        { warning: true },
+      );
+
     return { kind: 'route', ...decision };
   };
 }
