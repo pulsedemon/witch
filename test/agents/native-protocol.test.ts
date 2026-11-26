@@ -62,7 +62,7 @@ const reloadAnswered = ({ frames }: Wire) =>
       ),
   );
 
-/** the replay waits for each recorded skill reload reply before a session closes, because close aborts the reload. */
+/** the recordings hold each skill reload's reply, and the first turn's init and the session's close both abort the reload, so prompts and close wait for it. */
 function awaitReloads(adapter: ClaudeAdapter, reloads: Wire[]): void {
   const connect = adapter.connect.bind(adapter);
   let sessions = 0;
@@ -70,14 +70,26 @@ function awaitReloads(adapter: ClaudeAdapter, reloads: Wire[]): void {
   adapter.connect = async (options) => {
     const session = await connect(options);
     const reloaded = ++sessions;
+
+    const answered = () =>
+      until(
+        'recorded skill reload answer',
+        () => reloads.length >= reloaded && reloads.every(reloadAnswered),
+        500,
+      );
+
+    const send = session.send.bind(session);
     const close = session.close.bind(session);
+
+    session.send = async (...args) => {
+      await answered();
+
+      return send(...args);
+    };
 
     session.close = async (stop) => {
       try {
-        await until(
-          'recorded skill reload answer',
-          () => reloads.length >= reloaded && reloads.every(reloadAnswered),
-        );
+        await answered();
       } finally {
         await close(stop);
       }
