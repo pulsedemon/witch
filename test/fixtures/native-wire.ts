@@ -237,18 +237,38 @@ export function observeWire(
 
 type Wire = ReturnType<typeof observeWire>;
 
-const reloadAnswered = ({ frames }: Wire) =>
-  frames.some(
+type Control = {
+  request_id?: string;
+  request?: { subtype?: string };
+  response?: { subtype?: string; request_id?: string };
+};
+
+/** a usage helper's capture also has no session persistence, so only a successful `reload_skills` reply counts. */
+const reloadAnswered = ({ frames }: Wire) => {
+  const messages = frames.map(({ direction, message }) => ({
+    direction,
+    message: message as Control,
+  }));
+
+  return messages.some(
     ({ direction, message }) =>
-      direction === 'server' &&
-      Array.isArray(
-        (message as { response?: { response?: { skills?: unknown } } }).response
-          ?.response?.skills,
+      direction === 'client' &&
+      message.request?.subtype === 'reload_skills' &&
+      messages.some(
+        (reply) =>
+          reply.direction === 'server' &&
+          reply.message.response?.subtype === 'success' &&
+          reply.message.response.request_id === message.request_id,
       ),
   );
+};
 
 /** each Claude connection waits for its skill reload's reply, which a turn's init or the session's close would abort before a recording holds it. */
-export function awaitReloads(adapter: AgentAdapter, reloads: Wire[]): void {
+export function awaitReloads(
+  adapter: AgentAdapter,
+  reloads: Wire[],
+  attempts = 500,
+): void {
   const connect = adapter.connect.bind(adapter);
   let sessions = 0;
 
@@ -259,8 +279,8 @@ export function awaitReloads(adapter: AgentAdapter, reloads: Wire[]): void {
     try {
       await until(
         'recorded skill reload answer',
-        () => reloads.length >= reloaded && reloads.every(reloadAnswered),
-        500,
+        () => reloads.filter(reloadAnswered).length >= reloaded,
+        attempts,
       );
     } catch (error) {
       await session.close();

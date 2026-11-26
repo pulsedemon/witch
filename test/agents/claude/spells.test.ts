@@ -390,13 +390,14 @@ test("a skill reload that finishes after an empty turn init leaves that init's s
       ),
     );
 
-    assert.equal((await session.send('hello')).status, 'completed');
     const reload = f.sideChildren[0]!;
 
+    // listening before the turn, since the SDK kills the lingering process a few seconds after the init's abort
     const reloadClosed = new Promise((resolve) =>
       reload.child.once('close', resolve),
     );
 
+    assert.equal((await session.send('hello')).status, 'completed');
     await writeFile(join(reload.cwd, 'release-reload'), '');
     await reloadClosed;
     // a second turn leaves the settled reload time to publish a set it must not

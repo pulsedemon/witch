@@ -112,8 +112,8 @@ assert.ok(
 
 const adapter = await verificationAdapter(runtime, root, { start });
 
-// replay needs each Claude connection's skill reload reply
-if (runtime === 'claude') awaitReloads(adapter, reloads);
+// replay needs each Claude connection's skill reload reply, which the adapter allows a minute
+if (runtime === 'claude') awaitReloads(adapter, reloads, 3500);
 
 let passed = false;
 const abort = new AbortController();
