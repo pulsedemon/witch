@@ -21,6 +21,8 @@ import type { AgentEvent, TaskStatus, UserResponse } from '../types.js';
 export interface ClaudeTaskControl {
   getTaskOutput(taskId: string): Promise<unknown>;
 
+  backgroundTasks(toolUseId: string): Promise<boolean>;
+
   stopTask(taskId: string): Promise<void>;
 }
 
@@ -28,6 +30,7 @@ interface Command {
   id: string;
   run?: string;
   parent?: string;
+  toolUse?: string;
   description: string;
   background: boolean;
   listed: boolean;
@@ -67,6 +70,7 @@ export class ClaudeCommands {
         id: message.task_id,
         run: message.run_id,
         parent: message.parent_task_id,
+        toolUse: message.tool_use_id,
         description: message.description,
         background: message.is_backgrounded === true,
       });
@@ -139,6 +143,7 @@ export class ClaudeCommands {
     ) {
       previous.run ??= input.run;
       previous.parent ??= input.parent;
+      previous.toolUse ??= input.toolUse;
 
       if (!previous.background && input.background) {
         previous.background = true;
@@ -203,7 +208,8 @@ export class ClaudeCommands {
       !findFamiliar(this.entries.values(), action)
     ) {
       for (const entry of this.entries.values()) {
-        if (!entry.background || entry.status !== 'running') continue;
+        if (entry.status !== 'running' || !(entry.background || entry.toolUse))
+          continue;
 
         const { output } = taskOutput.parse(
           await this.query.getTaskOutput(entry.id),
@@ -217,10 +223,27 @@ export class ClaudeCommands {
         if (this.entries.get(entry.id) !== entry || entry.status !== 'running')
           continue;
 
-        for (const line of output.split('\n').slice(0, -1)) {
-          const marker = boundMarker(line, this.binding!);
+        const lines = output.split('\n').slice(0, -1);
 
-          if (marker) addFamiliar(entry.familiars, marker);
+        if (entry.background) {
+          for (const line of lines) {
+            const marker = boundMarker(line, this.binding!);
+
+            if (marker) addFamiliar(entry.familiars, marker);
+          }
+        } else if (
+          entry.toolUse &&
+          lines.some(
+            (line) => boundMarker(line, this.binding!)?.run === action.run,
+          )
+        ) {
+          // the move arrives as task_updated, and a later poll admits the familiar once its command no longer blocks
+          await this.query.backgroundTasks(entry.toolUse);
+
+          checkReporting(
+            deadline,
+            !this.stopped && !this.closing && !!this.binding,
+          );
         }
       }
     }

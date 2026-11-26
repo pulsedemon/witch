@@ -25,11 +25,17 @@ function commands() {
   const events: AgentEvent[] = [];
   const outputs = new Map<string, string>();
   const stopped: string[] = [];
+  const backgrounded: string[] = [];
 
   const control = {
     getTaskOutput: async (id: string): Promise<unknown> => ({
       output: outputs.get(id) ?? '',
     }),
+    backgroundTasks: async (toolUse: string) => {
+      backgrounded.push(toolUse);
+
+      return true;
+    },
     stopTask: async (id: string) => {
       stopped.push(id);
     },
@@ -58,6 +64,7 @@ function commands() {
       run_id: runId,
       task_type: 'local_bash',
       parent_task_id: 'parent',
+      tool_use_id: `toolu_${id}`,
       description: 'review',
       is_backgrounded: background,
     });
@@ -103,6 +110,7 @@ function commands() {
     events,
     outputs,
     stopped,
+    backgrounded,
     control,
     owner,
     emit,
@@ -416,6 +424,39 @@ test('registration waits for backgrounding and a complete matching marker', asyn
   assert.equal((await f.register()).kind, 'familiar-registered');
   assert.equal((await f.register()).kind, 'familiar-registered');
   assert.equal(f.familiars().length, 1);
+  assert.equal(f.familiars()[0]!.parent, 'parent');
+  await f.owner.close();
+});
+
+test('a familiar in a foreground command is moved to the background and then registers', async () => {
+  const f = commands();
+  f.start('review', '2', false);
+  f.start('other', '2', false);
+
+  f.outputs.set(
+    'other',
+    familiarMarker({
+      version: 1,
+      conversation: f.binding.conversation,
+      activation: f.binding.activation,
+      run: randomUUID(),
+    }),
+  );
+
+  assert.equal((await f.register()).kind, 'familiar-pending');
+  assert.deepEqual(f.backgrounded, ['toolu_review']);
+  assert.equal(f.familiars().length, 0);
+
+  f.emit({
+    subtype: 'task_updated',
+    task_id: 'review',
+    run_id: '2',
+    patch: { is_backgrounded: true },
+  });
+
+  assert.equal((await f.register()).kind, 'familiar-registered');
+  assert.equal(f.familiars().length, 1);
+  assert.equal(f.familiars()[0]!.status, 'running');
   assert.equal(f.familiars()[0]!.parent, 'parent');
   await f.owner.close();
 });
