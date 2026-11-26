@@ -541,12 +541,10 @@ for await (const line of lines) {
           : [],
       };
 
-      // like a skill sync, `reload-late` holds the input loop, marked by `reload-held`, until the test writes `release-reload` into the cwd
+      // like a stalled skill sync, `reload-late` holds the input loop with the request unanswered, marked by `reload-held`
       if (mode === 'reload-late') {
         writeFileSync(join(process.cwd(), 'reload-held'), '');
-
-        while (!existsSync(join(process.cwd(), 'release-reload')))
-          await new Promise((resolve) => setTimeout(resolve, 10));
+        await new Promise(() => setInterval(() => {}, 1000));
       }
     }
 

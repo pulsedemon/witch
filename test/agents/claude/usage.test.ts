@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -176,7 +176,7 @@ async function controlled(
     } finally {
       for (const child of [
         ...f.children,
-        ...f.usageChildren.map((h) => h.child),
+        ...f.sideChildren.map((h) => h.child),
       ]) {
         if (child.exitCode !== null || child.signalCode !== null) continue;
 
@@ -197,10 +197,7 @@ async function controlled(
     identities.push(pid);
 
     if (pid !== undefined) {
-      const launched = f.usageChildren.find(
-        (entry) => entry.child.pid === pid,
-      )!;
-
+      const launched = f.sideChildren.find((entry) => entry.child.pid === pid)!;
       writeFileSync(join(launched.cwd, 'hold-usage'), '');
       helpers.push(endpoint(launched.child, launched.cwd));
     }
@@ -255,6 +252,12 @@ test('closing Claude uses the same stop budget for a usage helper that ignores S
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const f = await controlled(t.onTestFinished, {}, 'background', 'ignore-term');
   await initial(f);
+
+  // the fixture ignores SIGTERM once it has started
+  await until('the reload start', () =>
+    existsSync(join(f.sideChildren[0]?.cwd ?? '', 'initialize.json')),
+  );
+
   const helper = await poll(f);
   vi.useRealTimers();
   const started = performance.now();
@@ -274,7 +277,7 @@ test('closing Claude uses the same stop budget for a usage helper that ignores S
   );
 
   // the connect-time skill reload's process ignores SIGTERM too
-  assert.equal(f.usageChildren[0]!.child.signalCode, 'SIGKILL');
+  assert.equal(f.sideChildren[0]!.child.signalCode, 'SIGKILL');
 
   assert.equal(
     f.events.filter(
@@ -571,7 +574,7 @@ test(
     assert.equal(f.session.usage.context, 12.5);
     assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
 
-    const args = f.usageChildren.find(
+    const args = f.sideChildren.find(
       ({ child }) => child === helper.child,
     )!.args;
 
@@ -1000,7 +1003,7 @@ test(
         ...options,
         onUsageProcess: async (pid) => {
           if (pid !== undefined) {
-            const helper = f.usageChildren.find(
+            const helper = f.sideChildren.find(
               (entry) => entry.child.pid === pid,
             )!;
 
@@ -1141,7 +1144,7 @@ test(
 
       for (const child of [
         ...f.children,
-        ...f.usageChildren.map((entry) => entry.child),
+        ...f.sideChildren.map((entry) => entry.child),
       ])
         assert.ok(child.exitCode !== null || child.signalCode !== null);
     }
@@ -1241,13 +1244,13 @@ test(
 
     await initial(f);
     // the connect-time skill reload is the first side process
-    assert.equal(f.usageChildren.length, 1);
+    assert.equal(f.sideChildren.length, 1);
     const before = structuredClone(f.session.usage);
     vi.advanceTimersByTime(60_000);
 
     await until(
       'failed spawn closed',
-      () => !!f.usageChildren[1] && f.usageChildren[1].child.exitCode !== null,
+      () => !!f.sideChildren[1] && f.sideChildren[1].child.exitCode !== null,
     );
 
     await f.main.barrier();
@@ -1256,9 +1259,9 @@ test(
     assert.equal(f.session.closed, false);
     vi.advanceTimersByTime(59_999);
     await f.main.barrier();
-    assert.equal(f.usageChildren.length, 2);
+    assert.equal(f.sideChildren.length, 2);
     vi.advanceTimersByTime(1);
-    await until('spawn retried', () => f.usageChildren.length === 3);
+    await until('spawn retried', () => f.sideChildren.length === 3);
     await f.session.close();
     assert.deepEqual(f.identities, []);
   },

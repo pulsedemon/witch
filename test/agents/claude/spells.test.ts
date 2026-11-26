@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AgentEvent,
@@ -366,9 +366,9 @@ test("a turn's init stops a skill reload Claude Code has not answered", async ()
   const session = await f.connect();
 
   try {
-    await until('the held reload', () => held(f.usageChildren));
+    await until('the held reload', () => held(f.sideChildren));
     assert.equal((await session.send('hello')).status, 'completed');
-    await until('reload stop', () => !running(f.usageChildren[0]!.child));
+    await until('reload stop', () => !running(f.sideChildren[0]!.child));
     const skills = await session.skills();
     assert.equal(named(skills, 'autocompact')?.bundled, true);
     assert.equal(named(skills, 'simplify')?.bundled, undefined);
@@ -385,11 +385,11 @@ test("a skill reload that finishes after an empty turn init leaves that init's s
   try {
     // the reload's input closes only once its answer is in, so the answer predates the init
     await until('the answered reload', () =>
-      existsSync(join(f.usageChildren[0]?.cwd ?? '', 'reload-closing')),
+      existsSync(join(f.sideChildren[0]?.cwd ?? '', 'reload-closing')),
     );
 
     assert.equal((await session.send('hello')).status, 'completed');
-    const reload = f.usageChildren[0]!;
+    const reload = f.sideChildren[0]!;
 
     const reloadClosed = new Promise((resolve) =>
       reload.child.once('close', resolve),
@@ -414,7 +414,7 @@ test("a refused skill reload leaves the first turn's init to name the bundled sk
     // the side process ends once its refusal has been answered
     await until(
       'the refused reload',
-      () => !!f.usageChildren[0] && !running(f.usageChildren[0].child),
+      () => !!f.sideChildren[0] && !running(f.sideChildren[0].child),
     );
 
     assert.ok(!listed(events).some((list) => list.some((s) => s.bundled)));
@@ -433,12 +433,33 @@ test('closing a session stops a skill reload Claude Code has not answered', asyn
   const session = await f.connect();
 
   try {
-    await until('the held reload', () => held(f.usageChildren));
+    await until('the held reload', () => held(f.sideChildren));
   } finally {
     await session.close();
   }
 
-  assert.ok(!running(f.usageChildren[0]!.child));
+  assert.ok(!running(f.sideChildren[0]!.child));
+});
+
+test('a skill reload Claude Code leaves unanswered stops at its deadline', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const f = await launcher('', 'reload-late');
+  const session = await f.connect();
+
+  try {
+    await until('the held reload', () => held(f.sideChildren));
+
+    await until('the reload deadline', () => {
+      vi.advanceTimersByTime(1000);
+
+      return !running(f.sideChildren[0]!.child);
+    });
+
+    assert.equal(session.closed, false);
+  } finally {
+    vi.useRealTimers();
+    await session.close();
+  }
 });
 
 test('a skill reload Claude Code has not answered stops when Claude Code exits cleanly', async () => {
@@ -452,12 +473,12 @@ test('a skill reload Claude Code has not answered stops when Claude Code exits c
   });
 
   try {
-    await until('the held reload', () => held(f.usageChildren));
+    await until('the held reload', () => held(f.sideChildren));
     // ending its input exits Claude Code with status 0 before any turn's init can stop the reload
     f.children[0]!.stdin.end();
     await within(closed.promise, 5000, 'session exit');
     await until('the clean exit', () => f.children[0]!.exitCode === 0);
-    await until('reload stop', () => !running(f.usageChildren[0]!.child));
+    await until('reload stop', () => !running(f.sideChildren[0]!.child));
   } finally {
     await session.close();
   }

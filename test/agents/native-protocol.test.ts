@@ -62,7 +62,7 @@ const reloadAnswered = ({ frames }: Wire) =>
       ),
   );
 
-/** the recordings hold each skill reload's reply, and the first turn's init and the session's close both abort the reload, so prompts and close wait for it. */
+/** the recordings hold each skill reload's reply, and a turn's init and the session's close both abort the reload, so a connection waits for it. */
 function awaitReloads(adapter: ClaudeAdapter, reloads: Wire[]): void {
   const connect = adapter.connect.bind(adapter);
   let sessions = 0;
@@ -71,29 +71,17 @@ function awaitReloads(adapter: ClaudeAdapter, reloads: Wire[]): void {
     const session = await connect(options);
     const reloaded = ++sessions;
 
-    const answered = () =>
-      until(
+    try {
+      await until(
         'recorded skill reload answer',
         () => reloads.length >= reloaded && reloads.every(reloadAnswered),
         500,
       );
+    } catch (error) {
+      await session.close();
 
-    const send = session.send.bind(session);
-    const close = session.close.bind(session);
-
-    session.send = async (...args) => {
-      await answered();
-
-      return send(...args);
-    };
-
-    session.close = async (stop) => {
-      try {
-        await answered();
-      } finally {
-        await close(stop);
-      }
-    };
+      throw error;
+    }
 
     return session;
   };

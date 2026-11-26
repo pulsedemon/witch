@@ -23,7 +23,7 @@ export async function launcher(
   const args: string[][] = [];
   const envs: NodeJS.ProcessEnv[] = [];
 
-  const usageChildren: {
+  const sideChildren: {
     child: ChildProcessWithoutNullStreams;
     cwd: string;
     args: string[];
@@ -36,7 +36,7 @@ export async function launcher(
       options.args.includes('--no-session-persistence') &&
       !options.args.includes('--tools=Read,Grep,Glob')
     ) {
-      const directory = join(cwd, `usage-${usageChildren.length}`);
+      const directory = join(cwd, `usage-${sideChildren.length}`);
       mkdirSync(directory);
 
       const executable =
@@ -50,7 +50,7 @@ export async function launcher(
         signal: options.signal,
       });
 
-      usageChildren.push({
+      sideChildren.push({
         child,
         cwd: directory,
         args: options.args,
@@ -92,7 +92,7 @@ export async function launcher(
       ...options,
     });
 
-  return { cwd, children, args, envs, usageChildren, adapter, connect };
+  return { cwd, children, args, envs, sideChildren, adapter, connect };
 }
 
 export async function fixture(

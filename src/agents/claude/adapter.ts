@@ -90,6 +90,8 @@ const launch: ClaudeLaunch = (options) =>
     }),
   );
 
+/** Claude Code bounds a reload's skill sync at 30 s, so this leaves its rescan room before the reload counts as stalled. */
+const reloadDeadlineMs = 60_000;
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 
 const sessionUsage = z.object({
@@ -1061,8 +1063,13 @@ class ClaudeSession implements AgentSession {
     );
   }
 
-  /** a side query, because Claude Code holds prompts and interrupts while a reload waits on skill sync; a turn's init or the session's close stops it and discards its answer. */
+  /** a side query, because Claude Code holds prompts and interrupts while a reload waits on skill sync; a turn's init, the session's close or the deadline stops it and discards its answer. */
   private async reloadBundled(): Promise<void> {
+    const deadline = setTimeout(
+      () => this.reloadAbort.abort(),
+      reloadDeadlineMs,
+    );
+
     try {
       const { skills } = await sideQuery(
         (settings) => (this.reloadProcess = this.start(settings)),
@@ -1080,6 +1087,8 @@ class ClaudeSession implements AgentSession {
         );
     } catch {
       // a failed or stopped reload leaves the first turn's init as the source
+    } finally {
+      clearTimeout(deadline);
     }
   }
 
