@@ -181,6 +181,9 @@ class ClaudeSession implements AgentSession {
   private closeTask?: Promise<void>;
   private bundled: ReadonlySet<string> = new Set();
   private turnInit = false;
+  private readonly reloadAbort = new AbortController();
+  private reloadProcess?: ChildProcessWithoutNullStreams;
+  private reloaded = Promise.resolve();
   private interrupting?: Promise<void>;
   private terminating?: Promise<boolean>;
   private stopUntil?: number;
@@ -211,7 +214,7 @@ class ClaudeSession implements AgentSession {
 
   constructor(
     private readonly options: SessionOptions,
-    start: ClaudeLaunch,
+    private readonly start: ClaudeLaunch,
     connect: (options: SessionOptions) => Promise<AgentSession>,
   ) {
     this.answers = new AnswerTurn(options, connect);
@@ -358,7 +361,7 @@ class ClaudeSession implements AgentSession {
     if (!this.options.answer) {
       this.readUsage();
       this.mcp.refresh();
-      void this.reloadBundled();
+      this.reloaded = this.reloadBundled();
     }
   }
 
@@ -798,6 +801,7 @@ class ClaudeSession implements AgentSession {
   private async closeSession(deadline: number): Promise<void> {
     const shellFinished = this.userShell.finished;
     this.userShell.abort();
+    this.reloadAbort.abort();
     const usageClosed = this.markClosed();
     void usageClosed.catch(() => {});
 
@@ -823,6 +827,7 @@ class ClaudeSession implements AgentSession {
       await this.child?.closed;
       await shellFinished;
       await usageClosed;
+      await this.reloaded;
 
       if (cleanupError) throw cleanupError;
     })();
@@ -838,6 +843,13 @@ class ClaudeSession implements AgentSession {
       this.input.close();
       this.query.close();
 
+      // the reload ends once its process closes, so it is the termination's exit signal
+      const reloadStopped = this.reloadProcess
+        ? terminateChild(this.reloadProcess, this.reloaded, deadline)
+        : this.reloaded;
+
+      void reloadStopped.catch(() => {});
+
       try {
         await this.terminate(deadline);
       } finally {
@@ -845,7 +857,7 @@ class ClaudeSession implements AgentSession {
       }
 
       await beforeDeadline(
-        Promise.all([this.reading, usageClosed, shellFinished]),
+        Promise.all([this.reading, usageClosed, shellFinished, reloadStopped]),
         deadline,
       );
     } finally {
@@ -1053,10 +1065,18 @@ class ClaudeSession implements AgentSession {
     });
   }
 
-  /** detached because the request has no deadline; any turn's init outranks a later answer. */
+  /** a side query, because Claude Code holds prompts and interrupts while a reload waits on skill sync; any turn's init outranks its answer. */
   private async reloadBundled(): Promise<void> {
     try {
-      const { skills } = await this.query.reloadSkills();
+      const { skills } = await sideQuery(
+        (settings) => (this.reloadProcess = this.start(settings)),
+        {
+          cwd: this.options.cwd,
+          executable: this.options.executable,
+          signal: this.reloadAbort.signal,
+        },
+        (query) => query.reloadSkills(),
+      );
 
       if (!this.closed && !this.turnInit)
         this.bundledSkills(

@@ -104,18 +104,18 @@ for (const runtime of ['codex', 'claude'] as const) {
         const expected =
           runtime === 'codex'
             ? [{ window: '7D', percent: 37, resetsAt: 1793820572 }]
-            : [{ window: '7D', percent: 88, resetsAt: 1795903200.339 }];
+            : [{ window: '7D', percent: 91, resetsAt: 1795903200.438 }];
 
         assert.deepEqual(limits[0], expected);
 
         if (runtime === 'claude') {
-          // later cached replies omit native rows and cannot replace the complete account reading; a fresh reply's reset time moves by a fraction of a second.
+          // a fresh reply's reset time moves by a fraction of a second either way of the hour.
           const seconds = (
             reading: readonly Omit<Limit, 'observedAt'>[] | undefined,
           ) =>
             reading?.map((limit) => ({
               ...limit,
-              resetsAt: Math.floor(limit.resetsAt!),
+              resetsAt: Math.round(limit.resetsAt!),
             }));
 
           assert.ok(limits.length > 1);
@@ -606,11 +606,12 @@ test('a recorded Claude result stays pending until its recorded native idle arri
 
   assert.ok(idle > 0);
   const replay = replayWire(files, cwd, { gates: [[idle]], fragmentBytes: 7 });
-  let capture: ReturnType<typeof observeWire>;
+  let wire: ReturnType<typeof observeWire> | undefined;
 
   const adapter = new ClaudeAdapter((options) => {
     const child = replay.launch(options.args);
-    capture = observeWire(child);
+    // the first launch is the session; the connect-time skill reload launches after it
+    wire ??= observeWire(child);
 
     return child;
   });
@@ -661,7 +662,7 @@ test('a recorded Claude result stays pending until its recorded native idle arri
     await within(replay.paused(0, idle), 5000, 'recorded idle gate');
 
     await until('recorded result at the SDK transport', () =>
-      capture.frames.some(
+      wire!.frames.some(
         ({ direction, message }) =>
           direction === 'server' &&
           (message as { type?: string }).type === 'result',

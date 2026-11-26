@@ -96,24 +96,6 @@ const commands = [
   ...(reloading ? [simplify] : []),
 ];
 
-// `reload-late` answers `reload_skills` only after the first turn's init, while that turn still runs
-let heldReload;
-
-const releaseReload = () => {
-  if (!heldReload) return;
-
-  send(heldReload);
-  heldReload = undefined;
-
-  // a changed catalog after the answer proves the adapter has handled it
-  task('commands_changed', {
-    commands: [
-      ...commands,
-      { name: 'marker', description: '', argumentHint: '' },
-    ],
-  });
-};
-
 let initialization = 0;
 let model = 'claude-a';
 
@@ -560,18 +542,10 @@ for await (const line of lines) {
           : [],
       };
 
-      if (mode === 'reload-late' && !results) {
-        heldReload = {
-          type: 'control_response',
-          response: {
-            subtype: 'success',
-            request_id: message.request_id,
-            response,
-          },
-        };
-
-        continue;
-      }
+      // like a skill sync, `reload-late` holds the input loop until the test writes `release-reload` into the cwd
+      if (mode === 'reload-late')
+        while (!existsSync(join(process.cwd(), 'release-reload')))
+          await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
     if (request.subtype === 'mcp_status') {
@@ -926,7 +900,6 @@ for await (const line of lines) {
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
 
-    releaseReload();
     state('running');
 
     if (mode === 'peer-answer') {

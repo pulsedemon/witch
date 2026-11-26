@@ -59,7 +59,7 @@ export function replayWire(
   cwd: string,
   options: { fragmentBytes?: number; gates?: number[][] } = {},
 ): {
-  /** `args` are Claude's launch arguments, whose session id the recording's is bound to. */
+  /** `args` are Claude's launch arguments; a `--session-id` among them seeds the recording's session binding. */
   launch(args?: readonly string[]): ChildProcessWithoutNullStreams;
 
   finished(): Promise<void>;

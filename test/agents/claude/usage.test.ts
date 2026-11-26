@@ -1233,12 +1233,14 @@ test(
     );
 
     await initial(f);
+    // the connect-time skill reload is the first side process
+    assert.equal(f.usageChildren.length, 1);
     const before = structuredClone(f.session.usage);
     vi.advanceTimersByTime(60_000);
 
     await until(
       'failed spawn closed',
-      () => !!f.usageChildren[0] && f.usageChildren[0].child.exitCode !== null,
+      () => !!f.usageChildren[1] && f.usageChildren[1].child.exitCode !== null,
     );
 
     await f.main.barrier();
@@ -1247,9 +1249,9 @@ test(
     assert.equal(f.session.closed, false);
     vi.advanceTimersByTime(59_999);
     await f.main.barrier();
-    assert.equal(f.usageChildren.length, 1);
+    assert.equal(f.usageChildren.length, 2);
     vi.advanceTimersByTime(1);
-    await until('spawn retried', () => f.usageChildren.length === 2);
+    await until('spawn retried', () => f.usageChildren.length === 3);
     await f.session.close();
     assert.deepEqual(f.identities, []);
   },
