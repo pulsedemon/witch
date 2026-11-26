@@ -154,7 +154,7 @@ codex=$(node --import tsx --input-type=module -e "const { nativeExecutable } = a
 "$codex" app-server generate-json-schema --out "$capture_root/stable"
 ```
 
-Capture `basic`, `control`, `background` and `spell` separately for each runtime, using explicit available models and a new output directory each time:
+Capture `basic`, `control`, `background` and `spell` separately for each runtime, and `idle-run` for Claude, using explicit available models and a new output directory each time:
 
 ```sh
 pnpm test:record-native --runtime codex --model "$codex_model" --scenario basic --out "$capture_root/codex-basic"
