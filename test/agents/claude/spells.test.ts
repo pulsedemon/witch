@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -327,8 +328,14 @@ test("a built-in the session's skill reload lists is marked bundled before the f
     assert.equal((await session.send('hello')).status, 'completed');
 
     await until('the init catalog', () =>
-      listed(events).some((list) => !named(list, 'simplify')?.bundled),
+      listed(events).some((list) => named(list, 'simplify')?.bundled !== true),
     );
+
+    const replaced = listed(events).find(
+      (list) => named(list, 'simplify')?.bundled !== true,
+    )!;
+
+    assert.equal(named(replaced, 'simplify')?.builtin, true);
   } finally {
     await session.close();
   }
@@ -361,12 +368,16 @@ test("a skill reload answered after a turn's init leaves the init's set", async 
 test("a refused skill reload leaves the first turn's init to name the bundled skills", async () => {
   const events: AgentEvent[] = [];
 
-  const { session } = await fixture(
+  const { session, cwd } = await fixture(
     (event) => events.push(event),
     'reload-refused',
   );
 
   try {
+    await until('the refused reload', () =>
+      existsSync(join(cwd, 'reload-refused.json')),
+    );
+
     assert.equal((await session.send('hello')).status, 'completed');
 
     await until('the init catalog', () =>

@@ -533,6 +533,11 @@ for await (const line of lines) {
       response = { percentage: 12.5, maxTokens: 200000 };
 
     if (request.subtype === 'reload_skills' && mode === 'reload-refused') {
+      writeFileSync(
+        join(process.cwd(), 'reload-refused.json'),
+        JSON.stringify(message),
+      );
+
       send({
         type: 'control_response',
         response: {

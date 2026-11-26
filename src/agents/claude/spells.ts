@@ -33,7 +33,7 @@ export const textCommands = new Set([
 
 /**
  * one entry per name, a built-in's own row for a name it shadows, since `/name` runs the built-in.
- * `bundled` names the skills the connect-time reload or the latest turn's init lists.
+ * `bundled` names the built-ins the connect-time reload marks, then the skills the latest turn's init lists.
  */
 export function skillsOf(
   commands: SlashCommand[],
