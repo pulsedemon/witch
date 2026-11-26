@@ -73,12 +73,14 @@ function awaitReloads(adapter: ClaudeAdapter, reloads: Wire[]): void {
     const close = session.close.bind(session);
 
     session.close = async (stop) => {
-      await until(
-        'recorded skill reload answer',
-        () => reloads.length >= reloaded && reloads.every(reloadAnswered),
-      );
-
-      return close(stop);
+      try {
+        await until(
+          'recorded skill reload answer',
+          () => reloads.length >= reloaded && reloads.every(reloadAnswered),
+        );
+      } finally {
+        await close(stop);
+      }
     };
 
     return session;

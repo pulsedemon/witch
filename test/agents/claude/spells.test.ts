@@ -413,8 +413,13 @@ const held = (children: { cwd: string }[]) =>
 test('closing a session stops a skill reload Claude Code has not answered', async () => {
   const f = await launcher('', 'reload-late');
   const session = await f.connect();
-  await until('the held reload', () => held(f.usageChildren));
-  await session.close();
+
+  try {
+    await until('the held reload', () => held(f.usageChildren));
+  } finally {
+    await session.close();
+  }
+
   assert.ok(!running(f.usageChildren[0]!.child));
 });
 
