@@ -1206,12 +1206,11 @@ class ClaudeSession implements AgentSession {
       };
     }
 
-    const account = accountReading(
-      report,
-      this.usage.account ?? { limits: [] },
-    );
+    const unread: AccountReading = { limits: [] };
+    const account = accountReading(report, this.usage.account ?? unread);
 
-    if (account) update.account = account;
+    // a reply that observes nothing must not publish an empty reading over the account's
+    if (account && account !== unread) update.account = account;
 
     if (Object.keys(update).length) this.report(update);
   }
