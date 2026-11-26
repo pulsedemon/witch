@@ -273,6 +273,9 @@ test('closing Claude uses the same stop budget for a usage helper that ignores S
     f.children[0]!.exitCode !== null || f.children[0]!.signalCode !== null,
   );
 
+  // the connect-time skill reload's process ignores SIGTERM too
+  assert.equal(f.usageChildren[0]!.child.signalCode, 'SIGKILL');
+
   assert.equal(
     f.events.filter(
       (event) =>
@@ -567,7 +570,11 @@ test(
     assert.deepEqual(f.session.usage.lines, { added: 4, removed: 1 });
     assert.equal(f.session.usage.context, 12.5);
     assert.deepEqual(untimed(f.session.usage.account?.limits), nextLimits);
-    const args = f.usageChildren[0]!.args;
+
+    const args = f.usageChildren.find(
+      ({ child }) => child === helper.child,
+    )!.args;
+
     assert.ok(!args.includes('--resume') && !args.includes(info.id));
     assert.ok(args.includes('--strict-mcp-config'));
     assert.ok(args.some((arg) => arg.includes('disableAllHooks')));

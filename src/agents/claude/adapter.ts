@@ -794,6 +794,7 @@ class ClaudeSession implements AgentSession {
   private markClosed(): Promise<void> {
     this.closed = true;
     this.mcp.stop();
+    this.reloadAbort.abort();
 
     return this.usageReader.close({ deadline: this.stopUntil });
   }
@@ -801,7 +802,6 @@ class ClaudeSession implements AgentSession {
   private async closeSession(deadline: number): Promise<void> {
     const shellFinished = this.userShell.finished;
     this.userShell.abort();
-    this.reloadAbort.abort();
     const usageClosed = this.markClosed();
     void usageClosed.catch(() => {});
 
@@ -1083,7 +1083,7 @@ class ClaudeSession implements AgentSession {
           skills.flatMap((skill) => (skill.builtin ? [skill.name] : [])),
         );
     } catch {
-      // a closed session or a refused request leaves the first turn's init as the source
+      // a failed or stopped reload leaves the first turn's init as the source
     }
   }
 
