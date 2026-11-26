@@ -3,7 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentEvent, SkillCall } from '../../../src/agents/types.js';
+import type {
+  AgentEvent,
+  Skill,
+  SkillCall,
+} from '../../../src/agents/types.js';
 import {
   fixture,
   frameWriter,
@@ -283,5 +287,66 @@ test("a listed familiar's Skill call joins its spells, while an ambient worker's
     );
   } finally {
     await f.session.close();
+  }
+});
+
+const named = (skills: Skill[], name: string) =>
+  skills.find((skill) => skill.name === name);
+
+const listed = (events: AgentEvent[]) =>
+  events.flatMap((event) => (event.type === 'skills' ? [event.skills] : []));
+
+test("a built-in the session's skill reload lists is marked bundled before the first turn", async () => {
+  const events: AgentEvent[] = [];
+
+  const { session } = await fixture(
+    (event) => events.push(event),
+    'reload-skills',
+  );
+
+  try {
+    await until('the reloaded skills', () => listed(events).length > 0);
+    const [skills] = listed(events);
+
+    assert.deepEqual(named(skills!, 'simplify'), {
+      name: 'simplify',
+      description: 'Review the changed code',
+      builtin: true,
+      bundled: true,
+    });
+
+    // the reload's same-named user skill must not mark the built-in bundled
+    assert.deepEqual(named(skills!, 'compact'), {
+      name: 'compact',
+      description: 'Compact the conversation',
+      builtin: true,
+      aliases: ['squash'],
+    });
+  } finally {
+    await session.close();
+  }
+});
+
+test("a skill reload answered after a turn's init leaves the init's set", async () => {
+  const events: AgentEvent[] = [];
+
+  const { session } = await fixture(
+    (event) => events.push(event),
+    'reload-late',
+  );
+
+  try {
+    assert.equal((await session.send('hello')).status, 'completed');
+
+    await until('the marker catalog', () =>
+      listed(events).some((skills) => named(skills, 'marker')),
+    );
+
+    const skills = listed(events).find((list) => named(list, 'marker'))!;
+    assert.equal(named(skills, 'autocompact')?.bundled, true);
+    assert.ok(named(skills, 'simplify'));
+    assert.equal(named(skills, 'simplify')?.bundled, undefined);
+  } finally {
+    await session.close();
   }
 });

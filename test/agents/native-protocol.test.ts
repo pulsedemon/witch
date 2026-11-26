@@ -69,8 +69,8 @@ for (const runtime of ['codex', 'claude'] as const) {
 
       const captures: ReturnType<typeof observeWire>[] = [];
 
-      const launch = () => {
-        const child = replay.launch();
+      const launch = (args?: readonly string[]) => {
+        const child = replay.launch(args);
         captures.push(observeWire(child));
 
         return child;
@@ -78,8 +78,8 @@ for (const runtime of ['codex', 'claude'] as const) {
 
       const adapter =
         runtime === 'codex'
-          ? new CodexAdapter(launch)
-          : new ClaudeAdapter(launch);
+          ? new CodexAdapter(() => launch())
+          : new ClaudeAdapter((options) => launch(options.args));
 
       const events = await nativeScenario(
         adapter,
@@ -104,7 +104,7 @@ for (const runtime of ['codex', 'claude'] as const) {
         const expected =
           runtime === 'codex'
             ? [{ window: '7D', percent: 37, resetsAt: 1793820572 }]
-            : [{ window: '7D', percent: 47, resetsAt: 1794693600.275 }];
+            : [{ window: '7D', percent: 88, resetsAt: 1795903200.339 }];
 
         assert.deepEqual(limits[0], expected);
 
@@ -608,8 +608,8 @@ test('a recorded Claude result stays pending until its recorded native idle arri
   const replay = replayWire(files, cwd, { gates: [[idle]], fragmentBytes: 7 });
   let capture: ReturnType<typeof observeWire>;
 
-  const adapter = new ClaudeAdapter(() => {
-    const child = replay.launch();
+  const adapter = new ClaudeAdapter((options) => {
+    const child = replay.launch(options.args);
     capture = observeWire(child);
 
     return child;

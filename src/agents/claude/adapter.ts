@@ -180,6 +180,7 @@ class ClaudeSession implements AgentSession {
   private process?: ChildProcessWithoutNullStreams;
   private closeTask?: Promise<void>;
   private bundled: ReadonlySet<string> = new Set();
+  private turnInit = false;
   private interrupting?: Promise<void>;
   private terminating?: Promise<boolean>;
   private stopUntil?: number;
@@ -357,6 +358,7 @@ class ClaudeSession implements AgentSession {
     if (!this.options.answer) {
       this.readUsage();
       this.mcp.refresh();
+      void this.reloadBundled();
     }
   }
 
@@ -1007,6 +1009,8 @@ class ClaudeSession implements AgentSession {
   }
 
   private initialized(message: SDKSystemMessage): void {
+    this.turnInit = true;
+
     this.messageLifecycle =
       message.capabilities?.includes('msg_lifecycle_v1') ?? false;
 
@@ -1032,7 +1036,6 @@ class ClaudeSession implements AgentSession {
     this.bundledSkills(message.skills);
   }
 
-  /** relists skills when a turn's init names a different set, since only it tells bundled skills apart. */
   private bundledSkills(names: string[]): void {
     const bundled = new Set(names);
 
@@ -1048,6 +1051,20 @@ class ClaudeSession implements AgentSession {
     void this.skills().then((skills) => {
       if (!this.closed) this.options.onEvent({ type: 'skills', skills });
     });
+  }
+
+  /** detached because the request has no deadline; any turn's init outranks a later answer. */
+  private async reloadBundled(): Promise<void> {
+    try {
+      const { skills } = await this.query.reloadSkills();
+
+      if (!this.closed && !this.turnInit)
+        this.bundledSkills(
+          skills.flatMap((skill) => (skill.builtin ? [skill.name] : [])),
+        );
+    } catch {
+      // a closed session or a refused request leaves the first turn's init as the source
+    }
   }
 
   private fellBack(message: SDKModelRefusalFallbackMessage): void {

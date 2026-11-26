@@ -104,10 +104,11 @@
     }
   },
   "claude": {
-    "version": "2.1.299",
+    "version": "2.1.330",
     "model": "haiku",
     "scenarios": {
       "basic": {
+        "capturedOn": "2026-11-26",
         "files": ["basic-0.jsonl", "basic-1.jsonl"],
         "launches": [
           {
@@ -122,7 +123,7 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=1301b07a-c324-4b1a-b8f5-b5924b2bd480",
+              "--session-id=24a8235f-dafb-417d-be3c-5031dbefcc13",
               "--setting-sources=project",
               "--strict-mcp-config",
               "--permission-mode=default",
@@ -141,7 +142,7 @@
               "--effort=low",
               "--model=haiku",
               "--permission-prompt-tool=stdio",
-              "--resume=1301b07a-c324-4b1a-b8f5-b5924b2bd480",
+              "--resume=24a8235f-dafb-417d-be3c-5031dbefcc13",
               "--include-partial-messages",
               "--setting-sources=project",
               "--strict-mcp-config",
@@ -150,10 +151,10 @@
               "{\"disableAllHooks\":true}"
             ]
           }
-        ],
-        "capturedOn": "2026-11-10"
+        ]
       },
       "control": {
+        "capturedOn": "2026-11-26",
         "files": ["control-0.jsonl"],
         "launches": [
           {
@@ -168,15 +169,18 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=be06c87a-b4d2-45dc-b775-18063612e8da",
+              "--session-id=9f347e14-29d3-46e6-b135-0ab8e90f31f4",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
         ]
       },
       "background": {
+        "capturedOn": "2026-11-26",
         "files": ["background-0.jsonl"],
         "launches": [
           {
@@ -191,15 +195,18 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=b885aa3c-59be-41a4-9163-29979ea8c73b",
+              "--session-id=a0151d23-0fe2-4ada-affc-c5bb78883806",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
         ]
       },
       "spell": {
+        "capturedOn": "2026-11-26",
         "files": ["spell-0.jsonl"],
         "launches": [
           {
@@ -214,16 +221,18 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=dc32dd84-db7e-47f5-8d66-ce26f27cc7a2",
+              "--session-id=aaffce4c-e557-4736-9ecd-880aef753b7b",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
         ]
       },
       "idle-run": {
-        "capturedOn": "2026-11-03",
+        "capturedOn": "2026-11-26",
         "files": ["idle-run-0.jsonl"],
         "launches": [
           {
@@ -238,15 +247,17 @@
               "--model=haiku",
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
-              "--session-id=31c17a7e-e681-42a0-8784-03f163553705",
+              "--session-id=f58cf8d4-66cd-4589-a9aa-78d48d639f56",
               "--setting-sources=project",
               "--strict-mcp-config",
-              "--permission-mode=default"
+              "--permission-mode=default",
+              "--settings",
+              "{\"disableAllHooks\":true}"
             ]
           }
         ]
       }
     },
-    "sdk": "0.3.296"
+    "sdk": "0.3.330"
   }
 }

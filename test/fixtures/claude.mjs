@@ -54,6 +54,50 @@ const stateCommands = [
   ...(aliases.length ? { aliases } : {}),
 }));
 
+// the reload modes answer `reload_skills` with a bundled built-in and a user skill sharing a built-in's name
+const reloading = ['reload-skills', 'reload-late'].includes(mode);
+
+const simplify = {
+  name: 'simplify',
+  description: 'Review the changed code',
+  argumentHint: '',
+  builtin: true,
+};
+
+const commands = [
+  {
+    name: 'compact',
+    description: 'Compact the conversation',
+    argumentHint: '',
+    builtin: true,
+    aliases: ['squash'],
+  },
+  {
+    name: 'compact',
+    description: 'Shadowed',
+    argumentHint: '',
+    aliases: ['shadowed'],
+  },
+  {
+    name: 'effort',
+    description: 'Set the effort level',
+    argumentHint: '[low|high]',
+    builtin: true,
+  },
+  ...stateCommands,
+  { name: 'config', description: 'Shadowed', argumentHint: '' },
+  { name: 'rename', description: 'Shadowed', argumentHint: '' },
+  {
+    name: 'review',
+    description: 'Review changes',
+    argumentHint: '<target>',
+    aliases: ['rv'],
+  },
+  ...(reloading ? [simplify] : []),
+];
+
+// `reload-late` answers `reload_skills` only after the first turn's result
+let heldReload;
 let initialization = 0;
 let model = 'claude-a';
 
@@ -226,6 +270,19 @@ const result = (fields = {}) => {
     total_cost_usd: 0,
     ...fields,
   });
+
+  if (heldReload) {
+    send(heldReload);
+    heldReload = undefined;
+
+    // a changed catalog after the answer proves the adapter has handled it
+    task('commands_changed', {
+      commands: [
+        ...commands,
+        { name: 'marker', description: '', argumentHint: '' },
+      ],
+    });
+  }
 
   // a later native frame proves the adapter consumed the result before a test continues.
   if (
@@ -419,36 +476,7 @@ for await (const line of lines) {
       }
 
       response = {
-        commands: [
-          {
-            name: 'compact',
-            description: 'Compact the conversation',
-            argumentHint: '',
-            builtin: true,
-            aliases: ['squash'],
-          },
-          {
-            name: 'compact',
-            description: 'Shadowed',
-            argumentHint: '',
-            aliases: ['shadowed'],
-          },
-          {
-            name: 'effort',
-            description: 'Set the effort level',
-            argumentHint: '[low|high]',
-            builtin: true,
-          },
-          ...stateCommands,
-          { name: 'config', description: 'Shadowed', argumentHint: '' },
-          { name: 'rename', description: 'Shadowed', argumentHint: '' },
-          {
-            name: 'review',
-            description: 'Review changes',
-            argumentHint: '<target>',
-            aliases: ['rv'],
-          },
-        ],
+        commands,
         agents: [],
         output_style: 'default',
         available_output_styles: [],
@@ -503,6 +531,27 @@ for await (const line of lines) {
 
     if (request.subtype === 'get_context_usage')
       response = { percentage: 12.5, maxTokens: 200000 };
+
+    if (request.subtype === 'reload_skills') {
+      response = {
+        skills: reloading
+          ? [simplify, { name: 'compact', description: '', argumentHint: '' }]
+          : [],
+      };
+
+      if (mode === 'reload-late' && !results) {
+        heldReload = {
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: message.request_id,
+            response,
+          },
+        };
+
+        continue;
+      }
+    }
 
     if (request.subtype === 'mcp_status') {
       if (mode === 'mcp' && existsSync(join(process.cwd(), 'hold-mcp')))
@@ -841,13 +890,12 @@ for await (const line of lines) {
       apiKeySource: 'none',
       output_style: 'default',
       agents: [],
-      skills:
-        mode !== 'init-skills'
-          ? []
-          : ({
-              'swap skills': ['advisor'],
-              'repeat skills': ['advisor', 'advisor'],
-            }[run.lastPrompt] ?? ['autocompact']),
+      skills: !['init-skills', 'reload-late'].includes(mode)
+        ? []
+        : ({
+            'swap skills': ['advisor'],
+            'repeat skills': ['advisor', 'advisor'],
+          }[run.lastPrompt] ?? ['autocompact']),
       plugins: [],
       uuid: randomUUID(),
       claude_code_version: nativeVersion,
