@@ -118,6 +118,13 @@ test('capture normalization removes account identity and encoded project paths w
         },
       },
     },
+    {
+      direction: 'server',
+      message: {
+        type: 'result',
+        credential_expires_at: '2031-04-05T06:07:08.000Z',
+      },
+    },
   ];
 
   assert.deepEqual(
@@ -158,6 +165,13 @@ test('capture normalization removes account identity and encoded project paths w
             serverName: 'native-machine.invalid',
             installationId: 'native-installation',
           },
+        },
+      },
+      {
+        direction: 'server',
+        message: {
+          type: 'result',
+          credential_expires_at: '2000-01-01T00:00:00.000Z',
         },
       },
     ],

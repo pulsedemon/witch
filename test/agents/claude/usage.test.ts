@@ -421,6 +421,35 @@ test(
   },
 );
 
+test(
+  'a fresh session publishes no account reading from a first report without rate limits',
+  { timeout },
+  async (t) => {
+    const f = await controlled(
+      t.onTestFinished,
+      {},
+      'background',
+      'background',
+      true,
+    );
+
+    // a call, not the property, so the first assertion doesn't narrow the later read
+    const account = () => f.session.usage.account;
+    const bad = report();
+    bad.rate_limits = null;
+    const first = await f.main.reply(bad);
+    assert.equal(account(), undefined);
+
+    assert.ok(
+      !f.events.some((event) => event.type === 'usage' && event.usage.account),
+    );
+
+    await complete(f);
+    await f.main.reply(report(), first);
+    assert.deepEqual(untimed(account()?.limits), firstLimits);
+  },
+);
+
 for (const source of ['main', 'helper'] as const) {
   for (const variant of ['rejected', 'malformed', 'null', 'partial'] as const) {
     test(

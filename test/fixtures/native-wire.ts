@@ -22,6 +22,7 @@ export function normalizeWire(
     '/message/result/accountId': 'native-account',
     '/message/params/serverName': 'native-machine.invalid',
     '/message/params/installationId': 'native-installation',
+    '/message/credential_expires_at': '2000-01-01T00:00:00.000Z',
   };
 
   const encoded = cwd.replace(/[^a-zA-Z0-9]/g, '-');
