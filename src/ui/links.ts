@@ -386,6 +386,16 @@ function fileCandidates(
 
     if (!quoted && !label.includes('/') && !sourceFile.test(label)) continue;
 
+    // a call such as `console.log(x)` is code, unless the name is also a web address
+    if (
+      !quoted &&
+      !label.includes('/') &&
+      text[match.index + match[0].length] === '(' &&
+      !/[:#]/.test(label) &&
+      !urls.test(label)
+    )
+      continue;
+
     const index = offset + match.index + (quoted ? 1 : 0);
 
     matches.push({
