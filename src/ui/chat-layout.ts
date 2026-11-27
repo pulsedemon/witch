@@ -16,6 +16,8 @@ export function chatLayout(
     message: boolean;
     list: number;
     hints: number;
+    /** rows the footer took from the gap and then the tool window. */
+    yielded?: number;
   },
 ) {
   const transcript = Math.min(
@@ -38,8 +40,9 @@ export function chatLayout(
   const borderRows = take(border ? borderReserve : 0);
   const minimumList = controls.list ? 1 : controls.hints;
   const hints = take(minimumList);
-  const commands = take(commandWindowRows);
-  const gap = take(gapReserve);
+  const yielded = controls.yielded ?? 0;
+  const commands = take(commandWindowRows - Math.max(0, yielded - gapReserve));
+  const gap = take(Math.max(0, gapReserve - yielded));
 
   const list =
     hints + (controls.list ? take(Math.min(8, controls.list) - hints) : 0);

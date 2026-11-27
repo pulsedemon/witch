@@ -285,51 +285,38 @@ export function statusLines(
 }
 
 /** errors and account details share the footer budget without taking the composer's reserved rows. */
-export function statusFooter(
+function fitFooter(
   status: Status,
   now: number,
-  {
-    width,
-    height,
-    error,
-    bodyRows,
-    headerRows = 1,
-  }: {
-    width: number;
-    height: number;
-    error?: string;
-    bodyRows: number;
-    headerRows?: number;
-  },
+  width: number,
+  height: number,
+  available: number,
+  error?: string,
 ): { lines: string[]; errors: string[] } {
-  const available = Math.max(0, height - headerRows - bodyRows);
-
   if (!available) return { lines: [], errors: [] };
-
-  const funded = hasFunding(status);
-
-  const minimumStatusRows = funded
-    ? statusLines(status, now, width, 2).length
-    : 2;
 
   const errorLimit = Math.max(
     0,
-    Math.min(Math.floor(height / 3), available - minimumStatusRows),
+    Math.min(
+      Math.floor(height / 3),
+      available - minimumStatusRows(status, now, width),
+    ),
   );
 
-  const errorLines = error
-    ? wrapLines(linkify(plain(error), status.cwd), width)
-    : [];
+  const text = error ? linkify(plain(error), status.cwd) : '';
+  const errorLines = text ? wrapLines(text, width) : [];
 
   const errors =
     errorLimit === 0
       ? []
-      : errorLines.length > errorLimit
-        ? [
-            ...errorLines.slice(0, errorLimit - 1),
-            `+${errorLines.length - errorLimit + 1} more rows`,
-          ]
-        : errorLines;
+      : errorLines.length <= errorLimit
+        ? errorLines
+        : errorLimit === 1
+          ? [`${wrapLines(text, Math.max(1, width - 1))[0]}…`]
+          : [
+              ...errorLines.slice(0, errorLimit - 1),
+              `+${errorLines.length - errorLimit + 1} more rows`,
+            ];
 
   const lines = statusLines(
     status,
@@ -342,4 +329,48 @@ export function statusFooter(
     errors,
     lines: lines.length <= available - errors.length ? lines : [],
   };
+}
+
+function minimumStatusRows(status: Status, now: number, width: number) {
+  return hasFunding(status) ? statusLines(status, now, width, 2).length : 2;
+}
+
+/**
+ * `release` rows of the body may go to the footer when it would otherwise show no status or drop an active error,
+ * up to its minimum status rows and one error row. `yielded` is how many it took.
+ */
+export function statusFooter(
+  status: Status,
+  now: number,
+  {
+    width,
+    height,
+    error,
+    bodyRows,
+    headerRows = 1,
+    release = 0,
+  }: {
+    width: number;
+    height: number;
+    error?: string;
+    bodyRows: number;
+    headerRows?: number;
+    release?: number;
+  },
+): { lines: string[]; errors: string[]; yielded: number } {
+  const available = Math.max(0, height - headerRows - bodyRows);
+  const fitted = fitFooter(status, now, width, height, available, error);
+  const shown = fitted.lines.length + fitted.errors.length;
+
+  if (!release || (fitted.lines.length && (!error || fitted.errors.length)))
+    return { ...fitted, yielded: 0 };
+
+  const minimum = minimumStatusRows(status, now, width);
+  const rows = Math.min(available + release, minimum + (error ? 1 : 0));
+  const released = fitFooter(status, now, width, height, rows, error);
+  const yielded = released.lines.length + released.errors.length - shown;
+
+  return yielded > 0 && released.lines.length
+    ? { ...released, yielded }
+    : { ...fitted, yielded: 0 };
 }

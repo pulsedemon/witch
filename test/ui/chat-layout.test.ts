@@ -40,3 +40,13 @@ test('a composer at its limit leaves the transcript its rows at every height', (
       assert.ok(content - composer >= transcript, `height ${height}`);
     }
 });
+
+test('rows the footer took come out of the gap and then the tool window', () => {
+  const idle = { ...working, working: false, message: false };
+  const before = chatLayout(11, 80, idle);
+  const after = chatLayout(9, 80, { ...idle, yielded: 2 });
+  assert.deepEqual([before.commands, before.gap], [4, 1]);
+  assert.deepEqual([after.commands, after.gap], [3, 0]);
+  assert.equal(after.transcript, before.transcript);
+  assert.equal(after.composer, before.composer);
+});
