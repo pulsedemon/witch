@@ -262,3 +262,67 @@ test("clicking a tool's marker toggles it and a click on its title text does not
     ui.unmount();
   }
 });
+
+const lines = (id: string, count: number): DisplayItem => ({
+  id,
+  kind: 'assistant',
+  text: Array.from({ length: count }, (_, i) => `${id} line ${i}`).join('\n'),
+  cwd: '/work',
+});
+
+const PAGE_UP = '\u001b[5~';
+const TAB = '\u001b[9u';
+const wheelDown = '\u001b[<65;10;3M';
+
+test('Tab brings a tool above the viewport into view', async () => {
+  const { app } = fake({ items: [tool('alpha'), lines('reply', 40)] });
+
+  const ui = show(
+    createElement(App, { coordinator: app, onExit() {} }),
+    80,
+    16,
+  );
+
+  try {
+    await until('the reply end', () => ui.text().includes('reply line 39'));
+    assert.doesNotMatch(ui.text(), /\+ ✓ alpha tool/);
+    ui.stdin.write(TAB);
+    await until('the focused tool', () => /\+ ✓ alpha tool/.test(ui.text()));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('Tab keeps a tool on the last transcript row in view once the hints take a row', async () => {
+  const { app } = fake({
+    items: [lines('before', 30), tool('alpha'), lines('after', 30)],
+  });
+
+  const ui = show(
+    createElement(App, { coordinator: app, onExit() {} }),
+    80,
+    16,
+  );
+
+  const marker = /\+ ✓ alpha tool/;
+
+  try {
+    await until('the reply end', () => ui.text().includes('after line 29'));
+    ui.stdin.write(PAGE_UP.repeat(20));
+    await until('the top', () => ui.text().includes('before line 0'));
+
+    // a read-earlier view keeps its top, so the tool sits on its last row
+    for (let step = 0; step < 40 && !marker.test(ui.text()); step++) {
+      ui.stdin.write(wheelDown);
+      await delay(20);
+    }
+
+    assert.match(ui.text(), marker);
+    ui.stdin.write(TAB);
+    await until('the tool hints', () => ui.text().includes('ESC LEAVE TOOLS'));
+    await delay(60);
+    assert.match(ui.text(), marker);
+  } finally {
+    ui.unmount();
+  }
+});

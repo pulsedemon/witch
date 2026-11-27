@@ -400,6 +400,19 @@ export function App({
   const scrollTo = (row: number | null) =>
     setTop(row === null ? null : (transcript.anchorAt(row) ?? null));
 
+  // after the render that drew the focus hints, which can cover the row the selected tool was on
+  const focusedStart = toolFocus.focused
+    ? selectedTool && transcript.starts.get(selectedTool.id)
+    : undefined;
+
+  useEffect(() => {
+    if (
+      focusedStart !== undefined &&
+      (focusedStart < scrollTop || focusedStart >= scrollTop + transcriptHeight)
+    )
+      scrollTo(focusedStart);
+  }, [toolFocus.focused]);
+
   /** scrolls from the latest position, so two page keys in one read move two pages. */
   const scrollBy = (rows: number, page = false) => {
     const { top, maxTop, height } = viewport(topRef.current, seenRef.current);
