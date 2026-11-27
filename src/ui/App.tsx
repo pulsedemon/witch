@@ -304,7 +304,11 @@ export function App({
 
   const desired = chatLayout(height - phaseRows, bodyWidth, controls);
 
-  const { lines: status, errors: errorRows } = statusFooter(
+  const {
+    lines: status,
+    errors: errorRows,
+    yielded,
+  } = statusFooter(
     {
       ...usage.status,
       model:
@@ -324,11 +328,12 @@ export function App({
       headerRows: phaseRows,
       error: state.error,
       bodyRows: Math.min(height - phaseRows, chat ? desired.minimumRows : 6),
+      release: chat ? desired.commands + desired.gap : 0,
     },
   );
 
   const bodyHeight = height - phaseRows - status.length - errorRows.length;
-  const fitted = chatLayout(bodyHeight, bodyWidth, controls);
+  const fitted = chatLayout(bodyHeight, bodyWidth, { ...controls, yielded });
   const { list: listRows, transcript: minimumTranscriptRows } = fitted;
   const composerWidth = bodyWidth - (fitted.border ? 4 : 0);
 

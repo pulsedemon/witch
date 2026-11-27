@@ -69,8 +69,39 @@ test('tiny footer errors leave the full raw-unit funding height and reserved bod
     assert.equal(errors.length, expectedErrors);
     assert.equal(1 + lines.length + errors.length + bodyRows, 13);
 
-    if (expectedErrors) assert.match(errors.at(-1)!, /more rows$/);
+    // one row shows the error's start; two or more end with the count
+    if (expectedErrors === 1) assert.match(errors[0]!, /^A long error .*…$/);
+
+    if (expectedErrors === 2) assert.match(errors.at(-1)!, /more rows$/);
   }
+});
+
+test('a footer with no room takes its minimum rows and one error row from the release', () => {
+  const footer = (release: number, height: number, error?: string) =>
+    statusFooter({ usage: {}, cwd: '/work', model: 'model' }, now, {
+      width: 78,
+      height,
+      bodyRows: Math.min(height - 1, 10),
+      error,
+      release,
+    });
+
+  // 80x13: two status rows fit, and the release adds the error's row
+  const withError = footer(5, 13, 'nonexistent is not installed.');
+  assert.equal(withError.lines.length, 2);
+  assert.deepEqual(withError.errors, ['nonexistent is not installed.']);
+  assert.equal(withError.yielded, 1);
+
+  // 50x12 and 60x10: no status row fits until the release supplies two
+  for (const height of [12, 10]) {
+    const { lines, yielded } = footer(5, height);
+    assert.equal(lines.length, 2);
+    assert.equal(yielded, 2);
+  }
+
+  // a release smaller than the minimum footer gives nothing up
+  assert.deepEqual(footer(1, 7), { lines: [], errors: [], yielded: 0 });
+  assert.deepEqual(footer(0, 12), { lines: [], errors: [], yielded: 0 });
 });
 
 for (const [width, balance] of [

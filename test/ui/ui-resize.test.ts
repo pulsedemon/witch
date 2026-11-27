@@ -508,3 +508,93 @@ test('the sidebar width transition preserves the reading line and draft', async 
     ui.unmount();
   }
 });
+
+for (const [columns, rows, toolRows] of [
+  [50, 12, 3],
+  [60, 10, 2],
+] as const) {
+  test(`the footer keeps the live balance over a ${toolRows}-row tool window at ${columns} by ${rows}`, async () => {
+    const { app } = fake({
+      native: {
+        id: 's',
+        agent: 'a',
+        model: 'claude-fable-5-2',
+        permissionMode: 'on-request',
+        hasHistory: false,
+      },
+      accounts: {
+        a: {
+          limits: [],
+          funding: {
+            kind: 'extra-usage',
+            enabled: false,
+            used: 651,
+            limit: 10000,
+            currency: 'USD',
+            decimalPlaces: 2,
+            observedAt: Date.now(),
+          },
+        },
+      },
+    });
+
+    const ui = show(
+      createElement(App, { coordinator: app, onExit() {} }),
+      columns,
+      rows,
+    );
+
+    try {
+      await until('the delegation pointer', () =>
+        ui.text().includes('Details: /delegation'),
+      );
+
+      const frame = ui.text().split('\n');
+      assert.equal(frame.length, rows);
+      assert.match(ui.text(), /extra off: USD 6\.51 spent/);
+      const tools = frame.findIndex((line) => line.trim() === 'TOOLS');
+      const border = frame.findIndex((line) => line.includes('┏'));
+      assert.equal(border - tools, toolRows);
+    } finally {
+      ui.unmount();
+    }
+  });
+}
+
+test('a short terminal shows a command error instead of the gap below the tool window', async () => {
+  const { app } = fake({
+    error:
+      "nonexistent is not installed. Run pnpm install in Witch's checkout, and sign in through its native CLI once.",
+  });
+
+  const ui = show(
+    createElement(App, { coordinator: app, onExit() {} }),
+    80,
+    13,
+  );
+
+  try {
+    await until('the error', () =>
+      ui.text().includes('nonexistent is not installed.'),
+    );
+
+    assert.equal(ui.text().split('\n').length, 13);
+    assert.match(ui.text(), /TOOLS/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a terminal with no tool window to release keeps no footer', async () => {
+  const { app } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit() {} }), 80, 4);
+
+  try {
+    await until('the composer', () => ui.text().includes('Ask the agent'));
+    await delay(50);
+    assert.equal(ui.text().split('\n').length, 4);
+    assert.doesNotMatch(ui.text(), /CTX|Details/);
+  } finally {
+    ui.unmount();
+  }
+});
