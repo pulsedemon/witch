@@ -200,6 +200,8 @@ class CodexSession implements AgentSession {
     command?: string;
   };
   private requests = new Map<string, RpcMessage>();
+  /** the notice last posted for each failed MCP server, so a repeated report stays quiet. */
+  private readonly mcpFailures = new Map<string, string>();
   private readonly proposals = new Map<
     string,
     { threadId: string; turnId: string; diff: FileDiff[] }
@@ -1184,12 +1186,16 @@ class CodexSession implements AgentSession {
       case 'mcpServer/startupStatus/updated': {
         const { name, status, error } = mcpStartup.parse(data);
 
-        if (status === 'failed')
-          this.options.onEvent({
-            type: 'notice',
-            text: `Codex could not start MCP server ${name}${error ? `: ${error}` : '.'}`,
-            transient: true,
-          });
+        if (status === 'ready') this.mcpFailures.delete(name);
+
+        if (status === 'failed') {
+          const text = `Codex could not start MCP server ${name}${error ? `: ${error}` : '.'}`;
+
+          if (this.mcpFailures.get(name) !== text) {
+            this.mcpFailures.set(name, text);
+            this.options.onEvent({ type: 'notice', text, transient: true });
+          }
+        }
 
         break;
       }

@@ -854,6 +854,25 @@ test('a Codex MCP server that fails to start posts one notice naming it', async 
   }
 });
 
+test('a Codex MCP server failure repeats its notice only after the server was ready', async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+
+  try {
+    await session.send('mcp-flap');
+
+    assert.deepEqual(
+      events.flatMap((event) => (event.type === 'notice' ? [event.text] : [])),
+      [
+        'Codex could not start MCP server flaky: handshake failed',
+        'Codex could not start MCP server flaky: handshake failed',
+      ],
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test('a grandchild holding the native pipes cannot keep a dead turn open, and the exit posts no notice', async () => {
   const notices: AgentEvent[] = [];
 
