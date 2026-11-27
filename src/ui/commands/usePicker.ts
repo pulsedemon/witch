@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { flushSync } from 'ink';
 import type { Key } from 'ink';
 import type { Choice, Picker, View } from './choices.js';
@@ -23,8 +23,10 @@ export function usePicker({
     undefined,
   );
 
-  const [query, setQuery] = useState('');
+  const [query, queryRef, setQuery] = useLiveState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
+  /** the choice rows CommandView drew; with none, Enter takes only a typed ID and the arrows do nothing. */
+  const drawnRows = useRef(0);
   const pickerInput = useRef<InputHandle>(null);
   /** set for the rest of the read a picker choice came in, while the chosen command may still be opening its view. */
   const chosenInRead = useRef(false);
@@ -54,7 +56,12 @@ export function usePicker({
     flushSync(() => setView({ kind: 'chat' }));
   };
 
-  const picker: Picker = (title, entries, choose, { custom = false } = {}) => {
+  const picker: Picker = (
+    title,
+    entries,
+    choose,
+    { custom = false, current } = {},
+  ) => {
     if (disposed.current) return Promise.resolve(false);
 
     pickerWait.current?.resolve(true);
@@ -62,13 +69,20 @@ export function usePicker({
     pickerWait.current = waiting;
     pickerInput.current?.set({ value: '', cursor: 0 });
     setQuery('');
-    setSelection(0);
+
+    setSelection(
+      Math.max(
+        0,
+        filter([...entries], '').findIndex(({ id }) => id === current),
+      ),
+    );
 
     setView({
       kind: 'picker',
       title,
       choices: [...entries],
       custom,
+      current,
       choose: (id) => {
         if (pickerWait.current !== waiting) return;
 
@@ -107,32 +121,41 @@ export function usePicker({
     if (current.kind !== 'picker') return false;
 
     const matching = filter(current.choices, text);
+    const typed = text.trim();
 
-    const choice =
-      matching[Math.min(selectionRef.current, matching.length - 1)];
+    const choice = drawnRows.current
+      ? matching[Math.min(selectionRef.current, matching.length - 1)]
+      : matching.find(
+          ({ id, exact }) => typed && (id === typed || exact === typed),
+        );
 
     if (choice) current.choose(choice.id);
-    else if (current.custom && text.trim()) current.choose(text.trim());
+    else if (current.custom && typed) current.choose(typed);
     else return false;
 
     return true;
   };
 
+  // the filter input reports its empty text when it mounts, which must not move the selection off `current`
   const changeQuery = (text: string) => {
+    if (text === queryRef.current) return;
+
     setQuery(text);
     setSelection(0);
   };
 
   const moveSelection = (key: Key) => {
-    const current = Math.min(
-      selectionRef.current,
-      Math.max(0, choices.length - 1),
-    );
+    const current = viewRef.current;
 
-    if (key.upArrow) setSelection(Math.max(0, current - 1));
+    if (current.kind !== 'picker' || !drawnRows.current) return;
 
-    if (key.downArrow)
-      setSelection(Math.max(0, Math.min(choices.length - 1, current + 1)));
+    // the filter a key earlier in this read changed is not rendered yet
+    const count = filter(current.choices, queryRef.current).length;
+    const at = Math.min(selectionRef.current, Math.max(0, count - 1));
+
+    if (key.upArrow) setSelection(Math.max(0, at - 1));
+
+    if (key.downArrow) setSelection(Math.max(0, Math.min(count - 1, at + 1)));
   };
 
   const close = () => {
@@ -151,6 +174,9 @@ export function usePicker({
     pickerInput,
     chosenInRead,
     moveSelection,
+    drawRows: (rows: number) => {
+      drawnRows.current = rows;
+    },
     close,
   };
 }

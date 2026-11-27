@@ -12,6 +12,7 @@ import {
   ENTER,
   SHIFT_ENTER,
   DOWN,
+  CTRL_P,
   openCommand,
   commands,
 } from '../fixtures/ui.js';
@@ -991,9 +992,11 @@ test('/jobs without jobs or with none listed says none are running', async () =>
       await commands(ui);
       ui.stdin.write(`jobs${ENTER}`);
 
-      await until('the empty picker', () =>
-        ui.text().includes('No jobs are running'),
+      await until('the jobs page', () =>
+        ui.text().includes('No jobs are running.'),
       );
+
+      assert.doesNotMatch(ui.text(), /Filter, then Enter|ENTER SELECT/);
     } finally {
       ui.unmount();
     }
@@ -1061,6 +1064,147 @@ test('/compact discards multiline prose without sending a prompt', async () => {
     ui.stdin.write(ENTER);
     await until('local compaction', () => calls.length > 0);
     assert.deepEqual(calls, [['compact']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('/model starts on and marks the live model, and Keep names its effort', async () => {
+  const { app } = fake({
+    native: {
+      id: 'session',
+      agent: 'a',
+      model: 'n',
+      effort: 'high',
+      permissionMode: 'on-request',
+      hasHistory: false,
+    },
+    models: [
+      { agent: 'a', id: 'm', label: 'Model M', efforts: ['low', 'high'] },
+      { agent: 'a', id: 'n', label: 'Model N', efforts: ['low', 'high'] },
+    ],
+  });
+
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+
+  try {
+    await delay(60);
+    await openCommand(ui, '/model', 'Model N');
+    await until('the marked model', () => /Model N · current/.test(ui.text()));
+    ui.stdin.write(ENTER);
+
+    await until('the effort picker', () =>
+      ui.text().includes('Reasoning for n'),
+    );
+
+    assert.match(ui.text(), /Keep current effort \(high\)/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a picker with no drawn choice row takes only a typed command', async () => {
+  const { app, calls } = fake({});
+
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    80,
+    1,
+  );
+
+  try {
+    await delay(60);
+    ui.stdin.write(CTRL_P);
+    await delay(60);
+    ui.stdin.write(ENTER);
+    await delay(60);
+    assert.ok(!calls.some(([call]) => call === 'newConversation'));
+    ui.stdin.write(`new${ENTER}`);
+
+    await until('the typed command', () =>
+      calls.some(([call]) => call === 'newConversation'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('Down after a cleared filter in the same read moves through the unfiltered choices', async () => {
+  const { app, calls } = fake({
+    models: [
+      { agent: 'a', id: 'm', label: 'Model M', efforts: [] },
+      { agent: 'a', id: 'n', label: 'Model N', efforts: [] },
+    ],
+  });
+
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+
+  try {
+    await delay(60);
+    await openCommand(ui, '/model', 'Model M');
+    ui.stdin.write('zzz');
+    await until('the empty filter', () => !ui.text().includes('Model M'));
+    ui.stdin.write(`\u0015${DOWN}${ENTER}`);
+
+    await until('the selection', () =>
+      calls.some(([call]) => call === 'selectModel'),
+    );
+
+    assert.deepEqual(calls.at(-1), [
+      'selectModel',
+      { agent: 'a', id: 'n', effort: undefined },
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('the command picker names each command and says when a filter matches none', async () => {
+  const { app } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+
+  try {
+    await delay(60);
+    await commands(ui);
+    assert.match(ui.text(), /\/new +New conversation/);
+    assert.match(ui.text(), /\/exit, \/quit +Exit/);
+    ui.stdin.write('zzz');
+    await until('the empty result', () => ui.text().includes('No matches'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a note history that finishes after Escape opens no picker', async () => {
+  const { app } = fake({});
+
+  const history =
+    Promise.withResolvers<{ revision: string; subject: string }[]>();
+
+  Object.assign(app, {
+    memoryView: async () => ({ revision: 'r', scope: [], root: '/m' }),
+  });
+
+  Object.assign(app.memory, {
+    catalog: async () => [{ path: 'global/note.md' }],
+    read: async () => 'note body',
+    history: () => history.promise,
+  });
+
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+
+  try {
+    await delay(60);
+    await openCommand(ui, '/memory', 'global/note.md');
+    ui.stdin.write(`note${ENTER}`);
+    await until('the note page', () => ui.text().includes('e EDIT'));
+    ui.stdin.write('h');
+    await delay(30);
+    ui.stdin.write('\u001b');
+    await until('the chat', () => !ui.text().includes('e EDIT'));
+    history.resolve([{ revision: 'past1234', subject: 'old entry' }]);
+    await delay(120);
+    assert.doesNotMatch(ui.text(), /Restore a memory version/);
   } finally {
     ui.unmount();
   }

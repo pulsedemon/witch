@@ -815,3 +815,52 @@ test('↑ onto an earlier prompt keeps saving the draft typed before it', async 
     ui.unmount();
   }
 });
+
+/** like `launched`, in a terminal too short to draw the completion list. */
+async function short(snapshot: Partial<Snapshot>) {
+  const context = fake({ skills, ...snapshot, phase: 'starting' });
+
+  const ui = show(
+    createElement(App, { coordinator: context.app, onExit: () => {} }),
+    80,
+    4,
+  );
+
+  await delay(60);
+  context.coordinator.publish({ phase: snapshot.phase ?? 'idle' });
+  await delay(60);
+
+  return { ...context, ui };
+}
+
+for (const [name, key] of [
+  ['Down', DOWN],
+  ['Tab', TAB],
+] as const)
+  test(`a completion list too short to draw leaves ${name} and Enter to the composer`, async () => {
+    const { ui, calls } = await short({});
+
+    try {
+      ui.stdin.write(`/${key}${ENTER}`);
+      await until('the send', () => calls.length > 0);
+      assert.deepEqual(calls, [['send', '/', { composer: true }]]);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+test('Escape with a completion list too short to draw interrupts the turn', async () => {
+  const { ui, calls } = await short({ phase: 'running' });
+
+  try {
+    ui.stdin.write('/');
+    await delay(30);
+    ui.stdin.write('\u001b');
+
+    await until('the interrupt', () =>
+      calls.some(([call]) => call === 'interrupt'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});

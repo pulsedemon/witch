@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Box, Text, flushSync } from 'ink';
 import type { Key } from 'ink';
 import { dirname, join } from 'node:path';
@@ -59,6 +59,7 @@ export function useCommandViews({
     pickerInput,
     chosenInRead,
     moveSelection,
+    drawRows,
     close,
   } = usePicker({
     view,
@@ -173,8 +174,14 @@ export function useCommandViews({
 
     if (!active()) return false;
 
+    if (!found.length) {
+      openPage({ kind: 'page', title: 'Jobs', text: 'No jobs are running.' });
+
+      return true;
+    }
+
     return picker(
-      found.length ? 'Jobs · choose one to stop' : 'No jobs are running',
+      'Jobs · choose one to stop',
       found.map((job) => ({
         id: String(job.group),
         label: `${Math.round(job.cpu)}% CPU · ${elapsed(Date.now() - job.startedAt)} · ${job.command}`,
@@ -254,7 +261,7 @@ export function useCommandViews({
 
         break;
 
-      case 'model':
+      case 'model': {
         if (argument) {
           const [id, effort] = argument.split(/\s+/);
           await selectModel(id!, effort);
@@ -264,16 +271,25 @@ export function useCommandViews({
 
         if (!(await coordinator.refreshModels()) || !active()) return false;
 
+        const { native, conversation, models } = coordinator.snapshot;
+        const agent = native?.agent ?? conversation!.agent;
+
+        // claude reports its resolved id, which the catalog may list only by the alias the session stores
+        const current = [native?.model, conversation!.sessions[agent]?.model]
+          .map((id) => id && modelKey({ agent, id }))
+          .find((key) => models.some((model) => modelKey(model) === key));
+
         return picker(
           'Models · type an ID or choose one',
-          coordinator.snapshot.models.map((model) => ({
+          models.map((model) => ({
             id: modelKey(model),
             label: `${agentLabel(coordinator.snapshot.agents, model.agent)} · ${model.label}`,
             exact: model.id,
           })),
           (id) => selectModel(id, undefined, active),
-          { custom: true },
+          { custom: true, current },
         );
+      }
 
       case 'delegation': {
         const text = await delegation(argument, policy, coordinator);
@@ -354,8 +370,8 @@ export function useCommandViews({
         }
 
         if (input === 'h') {
-          void showHistory(view.note).catch((error: unknown) =>
-            coordinator.report(error),
+          void showHistory(view.note, () => viewRef.current === view).catch(
+            (error: unknown) => coordinator.report(error),
           );
         }
       }
@@ -378,6 +394,7 @@ export function useCommandViews({
     chosenInRead,
     choices,
     selected,
+    drawRows,
     changeQuery,
     choose,
     dismissPicker,
@@ -385,7 +402,14 @@ export function useCommandViews({
     /** renders the picker before the rest of Ctrl+P's read, so the keys after it reach the picker. */
     showCommands: () =>
       flushSync(() =>
-        picker('Commands', commands, (id) => command(id as CommandName)),
+        picker(
+          'Commands',
+          commands.map(({ id, label, aliases = [] }) => ({
+            id,
+            label: `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`,
+          })),
+          (id) => command(id as CommandName),
+        ),
       ),
     submit: (commands: readonly WitchCommand[]) =>
       batches.submit(commands, executeCommand),
@@ -455,6 +479,7 @@ export function CommandView({
     pickerInput,
     changeQuery,
     choose,
+    drawRows,
   } = views;
 
   const pageCoordination =
@@ -489,16 +514,22 @@ export function CommandView({
     />
   );
 
+  const heading = Number(bodyHeight >= 4);
+  const hint = Number(bodyHeight >= 3);
+
+  const count = Math.max(
+    0,
+    bodyHeight - 1 - heading - hint - Number(bodyHeight >= 5),
+  );
+
+  // a layout effect, so the rest of the read that opened the picker sees its rows
+  useLayoutEffect(() => {
+    drawRows(view.kind === 'picker' ? count : 0);
+  });
+
   if (view.kind === 'picker') {
-    const heading = Number(bodyHeight >= 4);
-    const hint = Number(bodyHeight >= 3);
-
-    const count = Math.max(
-      0,
-      bodyHeight - 1 - heading - hint - Number(bodyHeight >= 5),
-    );
-
     const first = Math.max(0, selected - count + 1);
+    const empty = count > 0 && !choices.length;
 
     return (
       <Box flexDirection="column" height={bodyHeight}>
@@ -508,9 +539,10 @@ export function CommandView({
           </Text>
         </Box>
         <Box height={count} flexDirection="column" overflow="hidden">
+          {empty && <Text dimColor> No matches</Text>}
           {choices.slice(first, first + count).map((choice, index) => {
             // a note name can hold a line break
-            const label = ` ${oneLine(choice.label)} `;
+            const label = ` ${oneLine(choice.label)}${choice.id === view.current ? ' · current' : ''} `;
 
             return (
               <Text

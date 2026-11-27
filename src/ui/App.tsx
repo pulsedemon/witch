@@ -335,6 +335,15 @@ export function App({
   const bodyHeight = height - phaseRows - status.length - errorRows.length;
   const fitted = chatLayout(bodyHeight, bodyWidth, { ...controls, yielded });
   const { list: listRows, transcript: minimumTranscriptRows } = fitted;
+
+  // from the height rather than the last render, so a key read with the `/` that opens a list sees it
+  const completionFits =
+    chatLayout(bodyHeight, bodyWidth, { ...controls, yielded, list: 1 }).list >
+    0;
+
+  const shownList = (current: InputBuffer) =>
+    completionFits ? completion.liveList(current) : undefined;
+
   const composerWidth = bodyWidth - (fitted.border ? 4 : 0);
 
   const wrappedInputRows = useMemo(
@@ -550,7 +559,7 @@ export function App({
   const arrow = (direction: 'up' | 'down', current: InputBuffer) =>
     // arrows while tools are focused move through tools, even in the same read as Tab
     toolFocus.focusedRef.current ||
-    completion.move(direction, current) ||
+    (completionFits && completion.move(direction, current)) ||
     (direction === 'up'
       ? !current.value.slice(0, current.cursor).includes('\n') &&
         (coordinator.snapshot.queue.length
@@ -564,7 +573,7 @@ export function App({
     // the Enter that follows a picker choice in one read was typed before the chosen command's view could open
     if (commandViews.chosenInRead.current) return false;
 
-    const open = completion.liveList(bufferRef.current);
+    const open = shownList(bufferRef.current);
 
     if (open?.kind === 'file') {
       completion.complete(open);
@@ -722,7 +731,7 @@ export function App({
       return;
     }
 
-    const open = completion.liveList(bufferRef.current);
+    const open = shownList(bufferRef.current);
 
     if (open && (key.tab || key.escape)) {
       if (key.tab) completion.complete(open);
@@ -730,6 +739,9 @@ export function App({
 
       return;
     }
+
+    // a list too short to draw takes Tab, so it neither completes unseen nor focuses tools
+    if (key.tab && completion.liveList(bufferRef.current)) return;
 
     if (key.escape) {
       if (viewRef.current.kind !== 'chat') dismissPicker();

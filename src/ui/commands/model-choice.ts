@@ -49,8 +49,19 @@ export function chooseModel(
         },
       ];
 
-      if (conversation!.sessions[selection.agent]?.contextWindow === 'maximum')
-        choices.reverse();
+      const { native, usage } = coordinator.snapshot;
+
+      const shown =
+        native?.agent === selection.agent && native.model === selection.id;
+
+      // with no stored choice the window is the configured one, which matches a choice's usable tokens or neither
+      const current =
+        conversation!.sessions[selection.agent]?.contextWindow ??
+        (shown && usage.contextWindow === windows.maximum
+          ? 'maximum'
+          : shown && usage.contextWindow === windows.default
+            ? 'default'
+            : undefined);
 
       return picker(
         `Context window for ${selection.id}`,
@@ -64,6 +75,7 @@ export function chooseModel(
             contextWindow: id === 'maximum' ? 'maximum' : 'default',
           });
         },
+        { current },
       );
     }
 
@@ -93,6 +105,9 @@ export function chooseModel(
     );
   };
 
+  const { native } = coordinator.snapshot;
+  const currentEffort = native?.effort ?? native?.nativeEffort;
+
   if (live && efforts.length)
     return picker(
       `Reasoning for ${selection.id}`,
@@ -101,7 +116,7 @@ export function chooseModel(
           id: '',
           label:
             selection.agent === active
-              ? 'Keep current effort'
+              ? `Keep current effort${currentEffort ? ` (${currentEffort})` : ''}`
               : `Use ${agentLabel(agents, selection.agent)}'s current/default effort`,
         },
         ...efforts.map((effort) => ({ id: effort, label: effort })),
