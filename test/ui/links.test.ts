@@ -1367,3 +1367,33 @@ test('streaming links retain their targets and unresolved controls across chunks
     }
   }
 });
+
+test('a bare name directly followed by a call paren is code, not a file link', () => {
+  for (const text of [
+    'console.log("x")',
+    'res.json(data)',
+    'mutex.lock()',
+    '$(el).html(x)',
+  ])
+    assert.deepEqual(linkSpans(linkify(text, '/work')), [], text);
+
+  for (const [text, spans] of [
+    [
+      'README.md:3(see)',
+      [{ text: 'README.md:3', target: 'vscode://file/work/README.md:3' }],
+    ],
+    ['file.sh(1)', [{ text: 'file.sh', target: 'vscode://file/work/file.sh' }]],
+    [
+      'see notes.md now',
+      [{ text: 'notes.md', target: 'vscode://file/work/notes.md' }],
+    ],
+  ] as const)
+    assert.deepEqual(
+      linkSpans(linkify(text, '/work')).map(({ text, target }) => ({
+        text,
+        target,
+      })),
+      spans,
+      text,
+    );
+});
