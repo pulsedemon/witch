@@ -275,3 +275,58 @@ test('a refused Codex window choice stops the remaining command batch', async ()
     ui.unmount();
   }
 });
+
+for (const [contextWindow, choice] of [
+  [828400, 'maximum'],
+  [228000, 'default'],
+] as const)
+  test(`with no saved mode and the live model at ${contextWindow} tokens, Enter keeps ${choice}`, async () => {
+    const { app, calls, coordinator } = fake({
+      native: {
+        id: 'n',
+        agent: 'a',
+        model: 'm',
+        permissionMode: 'on-request',
+        hasHistory: false,
+      },
+      models: [
+        {
+          agent: 'a',
+          id: 'm',
+          label: 'Model M',
+          efforts: ['high'],
+          contextWindows: { default: 258400, maximum: 828400 },
+        },
+      ],
+    });
+
+    coordinator.publish({ usage: { contextWindow } });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+
+    try {
+      await openModels(ui);
+      ui.stdin.write(ENTER);
+
+      await until('effort picker', () =>
+        ui.text().includes('Keep current effort'),
+      );
+
+      ui.stdin.write(ENTER);
+
+      await until('context picker', () =>
+        ui.text().includes('Context window for m'),
+      );
+
+      // a configured window that matches neither choice marks none
+      assert.equal(/· current/.test(ui.text()), choice === 'maximum');
+      ui.stdin.write(ENTER);
+      await until('complete model selection', () => calls.length === 2);
+
+      assert.deepEqual(calls[1], [
+        'selectModel',
+        { agent: 'a', id: 'm', effort: undefined, contextWindow: choice },
+      ]);
+    } finally {
+      ui.unmount();
+    }
+  });

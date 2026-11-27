@@ -10,7 +10,8 @@ export type Picker = (
   title: string,
   choices: readonly Choice[],
   choose: (id: string) => void | boolean | Promise<void | boolean>,
-  options?: { custom?: boolean },
+  /** `current` names the choice in effect, which the picker starts on and marks. */
+  options?: { custom?: boolean; current?: string },
 ) => Promise<boolean>;
 
 export type View =
@@ -22,6 +23,7 @@ export type View =
       choices: Choice[];
       choose(id: string): void;
       custom?: boolean;
+      current?: string;
     }
   | {
       kind: 'page';
