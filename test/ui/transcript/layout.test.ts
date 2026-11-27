@@ -1195,3 +1195,66 @@ test('a link sequence in agent or tool text cannot make a copy carry its destina
     ['visible'],
   );
 });
+
+test('a table pads each column to its widest cell, bolds the header and copies without the padding', () => {
+  const text =
+    '| File | Note |\n|---|---|\n| README.md | [a](https://example.com/x) |\n| SKILL.md | Skill instructions |';
+
+  const layout = new TranscriptLayout().render(
+    [{ id: 'a', kind: 'assistant', text, cwd: '/work' }],
+    80,
+    new Map(),
+  );
+
+  const rows = layout.lines.slice().map(stripAnsi).slice(1, 4);
+
+  assert.deepEqual(
+    rows.map((row) => stringWidth(row.slice(0, row.indexOf('│')))),
+    [10, 10, 10],
+  );
+
+  assert.ok(layout.lines.at(1)!.includes('\u001b[1mFile\u001b[22m'));
+
+  assert.equal(
+    bodyCopy(text),
+    'File\tNote\nREADME.md\ta (https://example.com/x)\nSKILL.md\tSkill instructions',
+  );
+});
+
+test('a table with a long middle column wraps within the width and copies without padding', () => {
+  const text = `| a | ${'word '.repeat(30).trim()} | z |\n|---|---|---|\n| longer cell | y | zz |`;
+
+  for (const width of [80, 14, 9]) {
+    const layout = new TranscriptLayout().render(
+      [{ id: 'a', kind: 'assistant', text, cwd: '/work' }],
+      width,
+      new Map(),
+    );
+
+    for (const line of layout.lines.slice())
+      assert.ok(stringWidth(stripAnsi(line)) <= width, `${width}: ${line}`);
+
+    assert.ok(!bodyCopy(text, width).includes(' '), String(width));
+  }
+
+  assert.equal(
+    bodyCopy(text),
+    `a\t${'word '.repeat(30).trim()}\tz\nlonger cell\ty\tzz`,
+  );
+});
+
+test('a header holding inline code, bold or a link still draws bold and aligned', () => {
+  const text =
+    '| `code` | **b** | [l](https://example.com/x) |\n|---|---|---|\n| 1 | 2 | 3 |';
+
+  const layout = new TranscriptLayout().render(
+    [{ id: 'a', kind: 'assistant', text, cwd: '/work' }],
+    80,
+    new Map(),
+  );
+
+  const [header, row] = layout.lines.slice().slice(1, 3).map(stripAnsi);
+  assert.equal(header!.indexOf('│'), row!.indexOf('│'));
+  assert.equal(header!.lastIndexOf('│'), row!.lastIndexOf('│'));
+  assert.equal(bodyCopy(text), 'code\tb\tl (https://example.com/x)\n1\t2\t3');
+});

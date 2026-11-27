@@ -1,6 +1,7 @@
 import { decodeHTMLStrict } from 'entities';
 import { Marked, Parser, Renderer } from 'marked';
 import type { Token } from 'marked';
+import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import { markdownLink, linkify, plain } from '../links.js';
 import { tabbed, uncopied } from '../selection.js';
@@ -108,8 +109,30 @@ function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
       })
       .join('\n')}\n\n`;
 
-  renderer.table = ({ header, rows }) =>
-    `${[header, ...rows].map((row) => row.map((cell) => renderer.parser.parseInline(cell.tokens)).join(` ${tabbed}│ `)).join('\n')}\n\n`;
+  /** padding is no-break spaces so a wrap keeps it with its cell; a copy strips it. */
+  renderer.table = ({ header, rows }) => {
+    const cells = [header, ...rows].map((row) =>
+      row.map((cell) => renderer.parser.parseInline(cell.tokens)),
+    );
+
+    const widths = cells[0]!.map((_, column) =>
+      Math.max(...cells.map((row) => stringWidth(row[column] ?? ''))),
+    );
+
+    return `${cells
+      .map((row, index) =>
+        row
+          .map((cell, column) => {
+            const text = index === 0 ? colors.bold(cell) : cell;
+
+            return column === row.length - 1
+              ? text
+              : text + '\u00a0'.repeat(widths[column]! - stringWidth(cell));
+          })
+          .join(` ${tabbed}│ `),
+      )
+      .join('\n')}\n\n`;
+  };
 
   return renderer;
 }

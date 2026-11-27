@@ -302,6 +302,8 @@ export function selectedText(
       // a rule's padding goes here, not row by row: a wrap can trim it and the join puts it back
       .replaceAll(`${uncopied} `, '')
       .replaceAll(uncopied, '')
+      // a table cell's no-break padding before its rule; ordinary spaces stay
+      .replace(/(?<!\u00a0)\u00a0[\u00a0 ]*\t/g, '\t')
       .replace(/ ?\t ?/g, '\t')
       // starting only at a run's first space keeps a long run of spaces before text linear
       .replace(/(?<! ) +$/gm, '')
