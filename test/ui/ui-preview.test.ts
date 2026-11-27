@@ -546,3 +546,73 @@ test('horizontal clipping retains every fitting cell instead of wrapping whole w
     ui.unmount();
   }
 });
+
+test('the wheel over a request preview scrolls its frame', async () => {
+  const f = fixture(24);
+
+  try {
+    f.owner.show(tall(48));
+    f.coordinator.publish({ requests: [question] });
+
+    await until(
+      'request placement',
+      () => f.owner.snapshot?.status.placement?.request === 'q',
+    );
+
+    const before = range(f.ui)!;
+    const [, first] = /rows (\d+)–/u.exec(before)!;
+
+    const frame = f.ui
+      .text()
+      .split('\n')
+      .findIndex((line) => line.includes('frame row 0'));
+
+    f.ui.stdin.write(wheel(65, frame));
+    await until('one step', () => range(f.ui) !== before);
+
+    assert.equal(
+      /rows (\d+)–/u.exec(range(f.ui)!)![1],
+      String(Number(first) + 1),
+    );
+  } finally {
+    f.ui.unmount();
+  }
+});
+
+test('the wheel still scrolls a long question whose preview has no room', async () => {
+  const f = fixture();
+
+  const visible = () =>
+    [...f.ui.text().matchAll(/Read question line (\d+)/gu)].map((match) =>
+      Number(match[1]),
+    );
+
+  try {
+    f.owner.show(tall(48));
+
+    f.coordinator.publish({
+      requests: [
+        {
+          ...question,
+          questions: [
+            {
+              ...question.questions[0]!,
+              title: Array.from(
+                { length: 40 },
+                (_, index) => `Read question line ${index}`,
+              ).join('\n'),
+            },
+          ],
+        },
+      ],
+    });
+
+    await until('selected option', () => f.ui.text().includes('Keep it'));
+    f.ui.stdin.write('\u001b[5~'.repeat(3));
+    await until('question start', () => visible()[0] === 0);
+    f.ui.stdin.write(wheel(65, 5));
+    await until('one wheel step', () => visible()[0] === 1);
+  } finally {
+    f.ui.unmount();
+  }
+});

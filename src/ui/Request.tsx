@@ -7,6 +7,7 @@ import type { UserRequest, UserResponse } from '../agents/types.js';
 import { errorMessage } from '../errors.js';
 import type { Preview as PreviewOwner } from '../core/preview.js';
 import { Preview } from './Preview.js';
+import type { PreviewHandle } from './Preview.js';
 import { usePreview } from './usePreview.js';
 import { previewLayout } from './preview-layout.js';
 import { Input } from './input/Input.js';
@@ -65,6 +66,7 @@ export function Request({
   const [full, setFull] = useState(false);
   const ready = useKeysReady(active);
   const previewSnapshot = usePreview(preview);
+  const previewHandle = useRef<PreviewHandle>(null);
   const question = request.questions?.[questionIndex];
   const options = question?.options ?? approvals.map(({ label }) => label);
   const expandable = !!request.diff && canExpandDiff(request.diff);
@@ -338,6 +340,7 @@ export function Request({
         width={width}
         height={allocation.preview}
         request={request.id}
+        ref={previewHandle}
       />
       <ScrollPage
         width={width}
@@ -351,6 +354,7 @@ export function Request({
         height={bodyHeight}
         scroll={scroll}
         setScroll={setScroll}
+        wheel={(rows, cell) => !!previewHandle.current?.wheel(rows, cell)}
       />
       <Box height={hintRows} flexShrink={0} overflow="hidden">
         <Text dimColor>{hints.slice(0, hintRows).join('\n')}</Text>
