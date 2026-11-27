@@ -452,7 +452,8 @@ test('wrapped tool hints and completions preserve the composer, reading line and
     24,
   );
 
-  const intact = (draft: string) => {
+  /** `reading` false once Tab has scrolled the focused tool into view. */
+  const intact = (draft: string, reading = true) => {
     assert.equal(lines(ui).length, 24);
     const composer = composerRow(ui);
     assert.ok(lines(ui)[composer + 1]!.trim().startsWith(`┃ ${draft}`));
@@ -466,7 +467,9 @@ test('wrapped tool hints and completions preserve the composer, reading line and
     assert.match(ui.text(), /Pending: \/compact/);
     assert.match(ui.text(), /[A-Z]+ \| \d+S/);
     assert.match(windowText(ui), /current/);
-    assert.match(ui.text(), /source line \d+/);
+
+    if (reading) assert.match(ui.text(), /source line \d+/);
+    else assert.match(ui.text(), /\+ … current/);
   };
 
   try {
@@ -491,15 +494,15 @@ test('wrapped tool hints and completions preserve the composer, reading line and
       ui.text().includes('ESC LEAVE TOOLS'),
     );
 
-    intact('draft');
+    intact('draft', false);
     ui.stdin.write('\t');
     await until('composer focus', () => !ui.text().includes('ESC LEAVE TOOLS'));
     ui.stdin.write('\u007f'.repeat(5) + '/');
     await until('first completion', () => ui.text().includes('/new'));
-    intact('/');
+    intact('/', false);
     ui.stdin.write('\u001b[B');
     await until('next completion', () => ui.text().includes('/sessions'));
-    intact('/');
+    intact('/', false);
   } finally {
     ui.unmount();
   }

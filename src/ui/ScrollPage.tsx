@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { Box, Text, measureElement, useInput } from 'ink';
 import type { DOMElement } from 'ink';
 import { usePointer, useWheel } from './terminal/mouse.js';
+import type { Cell } from './terminal/mouse.js';
 import { useSelection } from './useSelection.js';
 import { pageSelection } from './page-selection.js';
 import { highlightRow } from './selection.js';
@@ -17,11 +18,14 @@ interface Props {
   copy?(text: string): void;
 
   current?(): boolean;
+
   height: number;
   scroll: PagePosition;
   setScroll: Dispatch<SetStateAction<PagePosition>>;
   arrows?: boolean;
   active?: boolean;
+  /** takes a wheel step before the page does, returning true when it scrolled something else. */
+  wheel?(rows: number, cell: Cell): boolean;
 }
 
 export function ScrollPage({
@@ -35,6 +39,7 @@ export function ScrollPage({
   setScroll,
   arrows = false,
   active = true,
+  wheel,
 }: Props) {
   const source = useMemo(() => pageSelection(lines), [lines]);
   const rows = source.lines;
@@ -85,7 +90,8 @@ export function ScrollPage({
 
   // request input guards do not block scrolling.
   useWheel((rows, cell) => {
-    if (shown() && scrollBy(rows)) selection.point('wheel', cell);
+    if (shown() && !wheel?.(rows, cell) && scrollBy(rows))
+      selection.point('wheel', cell);
   });
 
   useInput((input, key) => {
