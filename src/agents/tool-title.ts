@@ -118,6 +118,19 @@ const controlActions = new Set([
   'route',
 ]);
 
+/** the script of a `sh|bash|zsh -c|-lc <script>` wrapper, or undefined for any other command. */
+export function shellScript(command: string): string | undefined {
+  const parsed = shellWords(command.trim());
+
+  if (
+    parsed?.words.length === 3 &&
+    ['sh', 'bash', 'zsh'].includes(basename(parsed.words[0]!)) &&
+    ['-c', '-lc'].includes(parsed.words[1]!) &&
+    !parsed.rest.trim()
+  )
+    return parsed.words[2];
+}
+
 /** recognizes the invocation supplied by Witch, without interpreting arbitrary shell scripts. */
 export function boundCommandTitle(
   command: string,
@@ -125,20 +138,9 @@ export function boundCommandTitle(
 ): ToolTitle | undefined {
   if (!prefixes) return;
 
-  let parsed = shellWords(command.trim());
+  const parsed = shellWords((shellScript(command) ?? command).trim());
 
   if (!parsed) return;
-
-  if (
-    parsed.words.length === 3 &&
-    ['sh', 'bash', 'zsh'].includes(basename(parsed.words[0]!)) &&
-    ['-c', '-lc'].includes(parsed.words[1]!) &&
-    !parsed.rest.trim()
-  ) {
-    parsed = shellWords(parsed.words[2]!.trim());
-
-    if (!parsed) return;
-  }
 
   if (!inputOnly(parsed.rest)) return;
 

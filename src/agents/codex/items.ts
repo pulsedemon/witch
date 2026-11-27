@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { hunks, wholeFile } from '../file-diff.js';
-import { boundCommandTitle, shortPath, toolTitle } from '../tool-title.js';
+import {
+  boundCommandTitle,
+  shellScript,
+  shortPath,
+  toolTitle,
+} from '../tool-title.js';
 import type { CommandPrefixes, ToolTitle } from '../tool-title.js';
 import type { AgentEvent, FileDiff } from '../types.js';
 
@@ -88,8 +93,15 @@ export function itemTitle(
 ): ToolTitle {
   if (type === 'commandExecution' && typeof item.command === 'string') {
     const bound = boundCommandTitle(item.command, prefixes);
+    const script = shellScript(item.command);
 
-    return { ...(bound ?? { title: item.command }), command: true };
+    return {
+      ...(bound ??
+        (script === undefined
+          ? { title: item.command }
+          : { title: script, expandedTitle: item.command })),
+      command: true,
+    };
   }
 
   if (typeof item.command === 'string') return { title: item.command };

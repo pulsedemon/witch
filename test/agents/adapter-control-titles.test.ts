@@ -101,6 +101,40 @@ test('Codex command lifecycle events preserve bound titles, original commands an
   }
 });
 
+test('a Codex command run through a shell wrapper titles as its script and keeps the wrapper on expansion', async () => {
+  const f = await controlledFixture('brews', prefixes);
+  const command = "/bin/zsh -lc 'cat README.md'";
+
+  try {
+    await f.emit({
+      method: 'item/started',
+      params: {
+        threadId: 'native-thread',
+        turnId: 'command-turn',
+        item: {
+          id: 'wrapped',
+          type: 'commandExecution',
+          command,
+          source: 'unifiedExecStartup',
+          processId: null,
+          cwd: '/work',
+          commandActions: [],
+          status: 'inProgress',
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      },
+    });
+
+    const row = project(f.events).find((row) => row.id === 'wrapped');
+    assert.equal(row?.title, 'cat README.md');
+    assert.equal(row?.expandedTitle, command);
+  } finally {
+    await f.session.close();
+  }
+});
+
 test('Claude Bash results retain bound titles and multiline commands after replacing input', async () => {
   const events: AgentEvent[] = [];
   const f = await launcher('background');
