@@ -634,6 +634,21 @@ function elicitation(context) {
   });
 }
 
+function mcpFlap(context) {
+  const { notify, finish } = context;
+
+  for (const status of ['failed', 'starting', 'failed', 'ready', 'failed'])
+    notify('mcpServer/startupStatus/updated', {
+      threadId: 'native-thread',
+      name: 'flaky',
+      status,
+      error: 'handshake failed',
+      failureReason: null,
+    });
+
+  finish('completed');
+}
+
 export const turns = {
   'exit when idle': exitWhenIdle,
   'add skill': addSkill,
@@ -662,4 +677,5 @@ export const turns = {
   permissions,
   'file change': fileChange,
   elicitation,
+  'mcp-flap': mcpFlap,
 };
