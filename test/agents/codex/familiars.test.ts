@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
+import { familiarMarker } from '../../../src/agents/familiar-report.js';
 import type { AgentEvent } from '../../../src/agents/types.js';
 import { writeJson } from '../../../src/persistence/json.js';
 import { fixture } from '../../fixtures/codex-adapter.js';
@@ -691,6 +692,43 @@ for (const [status, exitCode] of [
       await f.session.close();
     }
   });
+
+test('a relayed marker cannot register a plan review under the outer command', async () => {
+  const f = await reportedFixture();
+
+  try {
+    const marker = familiarMarker({
+      version: 1,
+      conversation: f.binding.conversation,
+      activation: f.binding.activation,
+      run: f.run,
+      relayed: true,
+    });
+
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(marker),
+    );
+
+    await assert.rejects(
+      f.register('claude', true),
+      /directly from the owning Witch session/,
+    );
+
+    assert.deepEqual(f.familiarEvents(), []);
+    assert.equal((await f.register('claude')).kind, 'familiar-registered');
+
+    await f.emit({
+      method: 'item/completed',
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'completed', exitCode: 0 },
+      },
+    });
+  } finally {
+    await f.session.close();
+  }
+});
 
 test('a familiar whose process id codex reassigned is not terminated', async () => {
   const f = await reportedFixture();

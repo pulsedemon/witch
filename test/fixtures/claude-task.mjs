@@ -77,6 +77,16 @@ const result = {
       : [],
 };
 
+if (existsSync('review-reply.txt') && mode !== 'claude-unreported-model')
+  emit({
+    type: 'assistant',
+    ...(mode !== 'claude-missing-answer-id' && { session_id }),
+    message: {
+      model: 'claude-response',
+      content: [{ type: 'text', text: result.result }],
+    },
+  });
+
 emit(result);
 
 if (mode === 'claude-denied-then-result')

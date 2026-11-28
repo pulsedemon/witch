@@ -2,6 +2,7 @@ import { isUtf8 } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { realpath } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type {
@@ -98,6 +99,23 @@ export function createPlanReview(
           return 'The plan draft changed during review.';
       } catch (error) {
         return `Could not reread the plan draft: ${errorMessage(error)}`;
+      }
+    },
+    async receiptError(path: string, receipt: FileHandle) {
+      try {
+        const saved = await receipt.stat();
+        const { file } = await openReviewFile(path, [scratch]);
+
+        try {
+          const visible = await file.stat();
+
+          if (visible.dev !== saved.dev || visible.ino !== saved.ino)
+            return 'The plan review receipt was replaced.';
+        } finally {
+          await file.close();
+        }
+      } catch (error) {
+        return `Could not verify the plan review receipt: ${errorMessage(error)}`;
       }
     },
     finish(progress: FamiliarProgress, answer: string) {

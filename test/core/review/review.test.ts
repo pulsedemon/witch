@@ -74,6 +74,16 @@ test('parseFindings reads only the last json block and normalizes paths, and say
     [],
   );
 
+  assert.deepEqual(
+    parseFindings(
+      ['```an inline code span```', '', json({ findings: [] })].join('\n'),
+      '/w/repo',
+      [],
+      { requireEnd: true },
+    ),
+    [],
+  );
+
   const invalid = (report: string) => {
     const parsed = parseFindings(report, '/w/repo', ['plan.md']);
     assert.ok('invalid' in parsed, JSON.stringify(parsed));

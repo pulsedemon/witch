@@ -246,7 +246,7 @@ export async function runClaudeFamiliar(
 
         progress = {
           ...terminal,
-          model: result?.model ?? terminal.model,
+          model: result?.model,
           ...(reason && { status: 'failed', report: reason }),
           exhausted: task.pendingExhaustion,
         };
@@ -254,6 +254,7 @@ export async function runClaudeFamiliar(
 
       terminal = await settlePlanReview(
         file,
+        reportFile,
         review,
         progress,
         result?.text ?? '',
@@ -291,6 +292,7 @@ export async function runClaudeFamiliar(
       if (review) {
         const result = await settlePlanReview(
           file,
+          reportFile,
           review,
           progress,
           '',

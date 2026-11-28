@@ -3,6 +3,26 @@ import type { SessionInfo } from '../types.js';
 
 const activePermissionProfile = z.object({ id: z.string() }).nullish();
 
+export const readOnlySettings = [
+  'sandbox_mode="read-only"',
+  'approval_policy="never"',
+] as const;
+
+const readOnlySession = z.object({
+  approvalPolicy: z.literal('never'),
+  sandbox: z.object({
+    type: z.literal('readOnly'),
+    networkAccess: z.literal(false),
+  }),
+});
+
+export function requireReadOnlySession(value: unknown): void {
+  if (!readOnlySession.safeParse(value).success)
+    throw new Error(
+      'Codex did not grant read-only permissions without network or approvals.',
+    );
+}
+
 const session = z.object({
   thread: z.object({ id: z.string() }),
   model: z.string(),

@@ -120,12 +120,14 @@ export class ClaudeTask {
 
       if (
         this.planReview &&
-        message.type === 'system' &&
-        message.subtype === 'session_state_changed' &&
+        (message.type === 'assistant' ||
+          message.type === 'result' ||
+          (message.type === 'system' &&
+            message.subtype === 'session_state_changed')) &&
         !message.session_id
       )
         throw new Error(
-          'Claude did not identify the session for a state event.',
+          `Claude did not identify the session for ${message.subtype === 'session_state_changed' ? 'a state event' : `its ${message.type} event`}.`,
         );
 
       if (this.identity && message.session_id !== this.identity.session_id)
@@ -239,7 +241,11 @@ export class ClaudeTask {
 
           this.latest = {
             text,
-            model: this.draftModel ?? this.identity?.model,
+            model: this.planReview
+              ? text === this.draft
+                ? this.draftModel
+                : undefined
+              : (this.draftModel ?? this.identity?.model),
           };
 
           if (text) this.final = this.latest;

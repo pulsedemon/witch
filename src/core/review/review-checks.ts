@@ -820,7 +820,7 @@ interface Repository {
 
 const repositoryValue = (cwd: string, ...args: string[]) =>
   execute('git', ['-C', cwd, ...args]).then(
-    ({ stdout }) => stdout.trim(),
+    ({ stdout }) => stdout.replace(/\n$/, ''),
     (error: { stderr?: unknown }) => {
       // no repository means the working directory is the root, and no origin leaves blob links unchecked.
       if (/not a git repository|No such remote/.test(String(error.stderr)))

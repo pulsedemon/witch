@@ -433,8 +433,15 @@ test('a Codex familiar relays only live bound command markers', async () => {
     run: randomUUID(),
   });
 
-  const valid = familiarMarker(marker());
-  const recovered = familiarMarker(marker());
+  const first = marker();
+  const second = marker();
+  const valid = familiarMarker(first);
+  const recovered = familiarMarker(second);
+
+  const relayed = [first, second].map((value) =>
+    familiarMarker({ ...value, relayed: true }),
+  );
+
   const foreign = familiarMarker({ ...marker(), activation: randomUUID() });
   const noncommand = familiarMarker(marker());
   const discarded = familiarMarker(marker());
@@ -448,10 +455,10 @@ test('a Codex familiar relays only live bound command markers', async () => {
     f.child.stdin.end();
 
     await until('bound markers before command completion', () =>
-      f.output().stdout.includes(recovered),
+      f.output().stdout.includes(relayed[1]!),
     );
 
-    assert.equal(f.output().stdout.split(valid).length - 1, 1);
+    assert.equal(f.output().stdout.split(relayed[0]!).length - 1, 1);
     assert.equal(f.child.exitCode, null);
     assert.equal(f.output().stdout.includes('Saved report:'), false);
     assert.equal(f.output().stdout.includes('ordinary command output'), false);
@@ -462,7 +469,7 @@ test('a Codex familiar relays only live bound command markers', async () => {
     await writeFile(join(f.root, 'release'), 'finish');
     assert.equal(await within(f.closed, 8000, 'nested marker completion'), 0);
 
-    for (const expected of [valid, recovered])
+    for (const expected of relayed)
       assert.equal(
         f
           .output()

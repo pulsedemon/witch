@@ -8,7 +8,11 @@ import {
   withContextWindows,
 } from './compaction-policy.js';
 import type { CodexSelection } from './compaction-policy.js';
-import { permissionProfile, sessionInfo } from './session-info.js';
+import {
+  permissionProfile,
+  requireReadOnlySession,
+  sessionInfo,
+} from './session-info.js';
 import { spawn } from 'node:child_process';
 import { nativeLaunch } from '../native-launch.js';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -197,6 +201,8 @@ class CodexSession implements AgentSession {
       string,
       { text: string; model?: string; explicit: boolean }
     >;
+    reviewModels?: Map<string, string>;
+    reviewInitialModel?: string;
     completedId?: string;
     interrupted: boolean;
     id?: string;
@@ -347,17 +353,18 @@ class CodexSession implements AgentSession {
       ...(this.options.resume ? { threadId: this.options.resume } : {}),
     };
 
-    this.updateInfo(
-      await this.rpc.request(
-        this.options.resume
-          ? answer
-            ? 'thread/fork'
-            : 'thread/resume'
-          : 'thread/start',
-        parameters,
-      ),
+    const started = await this.rpc.request(
+      this.options.resume
+        ? answer
+          ? 'thread/fork'
+          : 'thread/resume'
+        : 'thread/start',
+      parameters,
     );
 
+    if (answer || this.options.readOnlyReview) requireReadOnlySession(started);
+
+    this.updateInfo(started);
     const holder = answer ? 'a peer answer' : isolated && 'a familiar';
 
     if (holder) await checkNoMcpTools(this.rpc, this.info.id, holder);
@@ -472,7 +479,11 @@ class CodexSession implements AgentSession {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
       messages: new TurnText(),
-      ...(this.options.planReview && { reviewAnswers: new Map() }),
+      ...(this.options.planReview && {
+        reviewAnswers: new Map(),
+        reviewModels: new Map(),
+        reviewInitialModel: this.info.model,
+      }),
       interrupted: false,
     };
 
@@ -547,11 +558,15 @@ class CodexSession implements AgentSession {
         }),
       );
 
+      if (this.options.planReview && !response.turn.id)
+        throw new Error('Codex did not identify the dispatched review turn.');
+
       turn.started.resolve(response.turn.id);
       turn.id = response.turn.id;
       this.setInfo({ ...this.info, hasHistory: true });
     } catch (error) {
       if (this.turn === turn) this.finish('failed', errorMessage(error));
+      else if (this.options.planReview) throw error;
     }
 
     const result = await turn.finished.promise;
@@ -1162,23 +1177,45 @@ class CodexSession implements AgentSession {
         break;
       }
 
-      case 'model/rerouted':
-        if (
-          this.options.planReview &&
-          (typeof data.toModel !== 'string' || !data.toModel)
-        )
-          this.malformedNotice(
-            'model/rerouted',
-            'Witch could not read the model in Codex’s reroute.',
-          );
-        else if (typeof data.toModel === 'string') {
-          if (data.toModel !== this.info.model)
+      case 'model/rerouted': {
+        const { threadId, turnId, toModel } = data;
+        const active = this.turn;
+
+        if (this.options.planReview) {
+          if (typeof toModel !== 'string' || !toModel)
+            throw new Error(
+              'Witch could not read the model in Codex’s reroute.',
+            );
+
+          if (
+            typeof threadId !== 'string' ||
+            !threadId ||
+            typeof turnId !== 'string' ||
+            !turnId
+          )
+            throw new Error(
+              'Codex did not identify the thread and turn for its reroute.',
+            );
+
+          if (
+            !active ||
+            threadId !== this.info.id ||
+            (active.id && turnId !== active.id)
+          )
+            break;
+
+          active.reviewModels?.set(turnId, toModel);
+        }
+
+        if (typeof toModel === 'string') {
+          if (toModel !== this.info.model)
             this.report({ context: undefined, contextWindow: undefined });
 
-          this.setInfo({ ...this.info, model: data.toModel });
+          this.setInfo({ ...this.info, model: toModel });
         }
 
         break;
+      }
 
       case 'mcpServer/startupStatus/updated': {
         const { name, status, error } = mcpStartup.parse(data);
@@ -1252,7 +1289,7 @@ class CodexSession implements AgentSession {
       )
         turn.reviewAnswers.set(turnId, {
           text,
-          model: this.info.model,
+          model: turn.reviewModels?.get(turnId) ?? turn.reviewInitialModel,
           explicit: phase === 'final_answer',
         });
     }

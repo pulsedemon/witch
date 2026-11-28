@@ -1,6 +1,7 @@
 import { isAbsolute, normalize, relative } from 'node:path';
 import { formatPatch, structuredPatch } from 'diff';
 import { z } from 'zod';
+import { readOnlySettings } from '../../agents/codex/session-info.js';
 import { errorMessage, issuesText } from '../../errors.js';
 import { quote } from '../../shell.js';
 import type { CheckFailure } from './review-checks.js';
@@ -64,6 +65,8 @@ export function parseFindings(
     const after = fence.index + fence[0].length;
 
     if (!open) {
+      if (marker === '`' && info.includes('`')) continue;
+
       open = {
         start: after,
         marker,
@@ -373,10 +376,7 @@ export function reviewerArguments(
     : [
         '-c',
         `model=${JSON.stringify(model)}`,
-        '-c',
-        'sandbox_mode="read-only"',
-        '-c',
-        'approval_policy="never"',
+        ...readOnlySettings.flatMap((setting) => ['-c', setting]),
         '-c',
         'features.hooks=false',
         '-c',

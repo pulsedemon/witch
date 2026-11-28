@@ -108,6 +108,7 @@ const familiarMarkerSchema = z.object({
   conversation: z.string().min(1),
   activation: z.string().uuid(),
   run: z.string().uuid(),
+  relayed: z.literal(true).optional(),
 });
 
 export type FamiliarMarker = z.infer<typeof familiarMarkerSchema>;
@@ -186,6 +187,7 @@ export function checkReporting(deadline: number, available: boolean): void {
 /** a familiar run a command's output named; one command can start several. */
 export interface FamiliarSlot {
   run: string;
+  relayed?: true;
   familiar?: FamiliarRun;
 }
 
@@ -194,7 +196,7 @@ export function addFamiliar(
   marker: FamiliarMarker,
 ): void {
   if (!slots.some(({ run }) => run === marker.run))
-    slots.push({ run: marker.run });
+    slots.push({ run: marker.run, relayed: marker.relayed });
 }
 
 export function admitted(slots: readonly FamiliarSlot[]): FamiliarRun[] {
@@ -238,6 +240,11 @@ export function admitFamiliar(
 ): FamiliarOutcome {
   if (action.kind === 'familiar-register') {
     if (done) throw new Error('The familiar command has already ended.');
+
+    if (action.planReview && slot.relayed)
+      throw new Error(
+        'Launch a plan reviewer directly from the owning Witch session.',
+      );
 
     if (slot.familiar) {
       if (slot.familiar.subagent.name !== action.name)

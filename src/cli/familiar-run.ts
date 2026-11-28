@@ -148,6 +148,7 @@ export async function saveFinalReport(
 
 export async function settlePlanReview(
   file: FileHandle | undefined,
+  reportFile: string,
   review: PlanReview,
   progress: FamiliarProgress,
   answer: string,
@@ -190,10 +191,22 @@ export async function settlePlanReview(
       );
   };
 
+  const checkReceipt = async () => {
+    if (!file || terminal.status !== 'completed') return;
+
+    const reason = await review.receiptError(reportFile, file);
+
+    if (reason)
+      terminal = review.finish(
+        { ...progress, status: 'failed', report: reason },
+        '',
+      );
+  };
+
   const save = async () => {
     if (!file) return;
 
-    const report = terminal.report ?? '';
+    const report = terminal.report;
     await saveReport(file, report);
     saved = report;
   };
@@ -212,6 +225,7 @@ export async function settlePlanReview(
     checkStop();
     await save();
     await checkDraft();
+    await checkReceipt();
     checkStop();
 
     if (saved !== terminal.report) await save();
@@ -225,6 +239,7 @@ export async function settlePlanReview(
 
     if (completed) {
       await checkDraft();
+      await checkReceipt();
       checkStop();
 
       if (terminal.status !== 'completed') await reports?.finish(terminal);

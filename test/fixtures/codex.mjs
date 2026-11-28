@@ -55,6 +55,7 @@ let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 let answering = false;
+let reviewMode;
 
 const notify = (method, params) =>
   send({
@@ -84,9 +85,20 @@ const session = () => ({
   thread: { id: answering ? 'answer-thread' : mainThreadId },
   model: run.model,
   cwd: process.cwd(),
-  approvalPolicy: 'on-request',
+  approvalPolicy: answering || reviewMode ? 'never' : 'on-request',
   approvalsReviewer: 'user',
   reasoningEffort: effort,
+  ...((answering || reviewMode) &&
+    reviewMode !== 'missing-policy' && {
+      sandbox: {
+        type:
+          reviewMode === 'writable-policy' ||
+          (answering && mode === 'writable-answer')
+            ? 'workspaceWrite'
+            : 'readOnly',
+        networkAccess: false,
+      },
+    }),
   ...(mode === 'named-profile'
     ? { activePermissionProfile: { id: 'owner' } }
     : {}),
@@ -720,6 +732,12 @@ for await (const line of lines) {
       mainThreadId = `native-thread-${threadStarts}`;
 
     answering = request.params.ephemeral === true;
+
+    reviewMode =
+      familiar === 'plan-review'
+        ? readFileSync(file('review-mode'), 'utf8')
+        : undefined;
+
     effort = request.params.config?.model_reasoning_effort ?? effort;
     record(answering ? 'answer-connect.json' : 'connect.json', request);
 
@@ -1010,7 +1028,7 @@ for await (const line of lines) {
       continue;
     }
 
-    reply({ turn: { id: 'turn-1' } });
+    if (reviewMode !== 'bad-start-reply') reply({ turn: { id: 'turn-1' } });
 
     if (familiar === 'plan-review') {
       const mode = readFileSync(file('review-mode'), 'utf8');
@@ -1060,6 +1078,28 @@ for await (const line of lines) {
             toModel: 'later-model',
           });
 
+        if (
+          mode === 'different-turn-reroute' ||
+          mode === 'missing-turn-reroute'
+        )
+          notify('model/rerouted', {
+            threadId: 'native-thread',
+            ...(mode === 'different-turn-reroute' && { turnId: 'older-turn' }),
+            toModel: 'later-model',
+          });
+
+        if (mode === 'different-turn-completion' || mode === 'bad-start-reply')
+          notify('turn/started', {
+            threadId: 'native-thread',
+            turn: { id: 'turn-1' },
+          });
+
+        if (mode === 'different-turn-completion')
+          notify('turn/completed', {
+            threadId: 'native-thread',
+            turn: { id: 'older-turn', status: 'completed', error: null },
+          });
+
         notify(mode === 'started-only' ? 'item/started' : 'item/completed', {
           ...(mode !== 'missing-thread' && { threadId: 'native-thread' }),
           turnId: mode === 'different-turn' ? 'older-turn' : 'turn-1',
@@ -1070,9 +1110,11 @@ for await (const line of lines) {
             phase:
               mode === 'legacy-answer'
                 ? null
-                : mode === 'commentary-only'
-                  ? 'commentary'
-                  : 'final_answer',
+                : mode === 'partial-only'
+                  ? 'partial_answer'
+                  : mode === 'commentary-only'
+                    ? 'commentary'
+                    : 'final_answer',
             ...(mode === 'malformed-question' && {
               questions: [{ options: [123] }],
             }),
@@ -1124,6 +1166,8 @@ for await (const line of lines) {
           });
 
         finish('completed');
+
+        if (mode === 'bad-start-reply') reply({ turn: {} });
       }
 
       continue;

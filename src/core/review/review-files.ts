@@ -86,10 +86,17 @@ export async function withTargetSnapshots<T>(
 
   try {
     const files: [string, string][] = [];
+    const copies = new Map<string, string>();
 
     for (const [name, text] of Object.entries(texts)) {
-      const path = join(staged, `target-${files.length}.txt`);
-      await writeFile(path, text, { mode: 0o600 });
+      let path = copies.get(text);
+
+      if (!path) {
+        path = join(staged, `target-${copies.size}.txt`);
+        await writeFile(path, text, { mode: 0o600 });
+        copies.set(text, path);
+      }
+
       files.push([name, path]);
     }
 

@@ -109,6 +109,16 @@ type Fault =
   | 'missing-thread'
   | 'explicit-then-legacy'
   | 'claude-missing-state-id'
+  | 'claude-unreported-model'
+  | 'claude-missing-answer-id'
+  | 'writable-policy'
+  | 'missing-policy'
+  | 'partial-only'
+  | 'different-turn-reroute'
+  | 'different-turn-completion'
+  | 'missing-turn-reroute'
+  | 'bad-start-reply'
+  | 'remove-receipt-at-publication'
   | 'missing-draft-and-write'
   | 'edit-at-publication'
   | 'missing-draft-and-reply';
@@ -299,7 +309,9 @@ async function launch(
           fault === 'missing-draft-and-reply' ||
           fault === 'missing-draft-and-write') &&
           action.progress.activity === 'Checking plan review receipt') ||
-        ((fault === 'stop-at-publication' || fault === 'edit-at-publication') &&
+        ((fault === 'stop-at-publication' ||
+          fault === 'edit-at-publication' ||
+          fault === 'remove-receipt-at-publication') &&
           completed)
       ) {
         pending.resolve();
@@ -377,9 +389,12 @@ async function launch(
   );
 
   let log = '';
+  let stderr = '';
 
   for (const stream of [child.stdout, child.stderr])
     stream.on('data', (chunk: Buffer) => (log += chunk.toString()));
+
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
 
   const closed = new Promise<number | null>((resolve) => {
     child.once('close', (code) => {
@@ -413,6 +428,11 @@ async function launch(
       assert.equal(await closed, code, log);
 
       return log;
+    },
+    async errors(code: number) {
+      assert.equal(await closed, code, log);
+
+      return stderr;
     },
     forwarded,
     status: () => familiar?.subagent.status,
@@ -470,6 +490,10 @@ for (const runtime of ['claude', 'codex'] as const) {
       );
 
       prompt = turn.params.input[0].text;
+
+      await assert.rejects(access(join(checkout, 'skills.json')), {
+        code: 'ENOENT',
+      });
     }
 
     assert.match(prompt, /Use only the authorized files/);
@@ -519,9 +543,9 @@ test('an unreadable brief leaves a failed receipt tied to the readable draft', a
 test('an empty Claude result cannot borrow an earlier answer from a different model', async (t) => {
   const { outcome } = await launch(t, 'claude', 'claude-empty-turn');
   const result = await outcome(1);
-  assert.equal(result.model, 'claude-observed');
+  assert.equal(result.model, null);
   assert.equal(result.status, 'failed');
-  assert.match(result.reason, /no closed json block/);
+  assert.match(result.reason, /ran on an unreported model/);
 });
 
 for (const [fault, reason] of [
@@ -599,6 +623,11 @@ for (const [fault, reason] of [
   ['claude-started-turn', /final plan review turn returned/],
   ['claude-bad-state', /Invalid Claude task stream/],
   ['claude-missing-state-id', /did not identify the session for a state event/],
+  ['claude-unreported-model', /ran on an unreported model/],
+  [
+    'claude-missing-answer-id',
+    /did not identify the session for its assistant event/,
+  ],
   ['claude-denied', /Permission denied: Read .*plan\.md/],
   ['claude-denied-then-result', /Permission denied: Read .*plan\.md/],
 ] as const) {
@@ -626,6 +655,7 @@ for (const [fault, reason] of [
   ['bad-notification', /could not read Codex's item\/completed notification/],
   ['bad-final', /could not read Codex’s completed agent message/],
   ['bad-reroute', /could not read the model in Codex’s reroute/],
+  ['missing-turn-reroute', /did not identify the thread and turn/],
   ['missing-thread', /could not read Codex’s completed agent message/],
 ] as const) {
   test(`a Codex plan review surfaces ${fault} without forwarding a request`, async (t) => {
@@ -634,6 +664,18 @@ for (const [fault, reason] of [
     assert.equal(result.status, 'failed');
     assert.match(result.reason, reason);
     assert.deepEqual(forwarded, []);
+  });
+}
+
+for (const fault of ['missing-policy', 'writable-policy'] as const) {
+  test(`${fault} prevents Codex from receiving the frozen draft`, async (t) => {
+    const { checkout, outcome } = await launch(t, 'codex', fault);
+    const receipt = await outcome(1);
+    assert.match(receipt.reason, /did not grant read-only permissions/);
+
+    await assert.rejects(readFile(join(checkout, 'prompt.json')), {
+      code: 'ENOENT',
+    });
   });
 }
 
@@ -704,6 +746,7 @@ for (const fault of [
   'commentary-only',
   'started-only',
   'different-turn',
+  'partial-only',
 ] as const) {
   test(`Codex ${fault} cannot supply a completed review answer`, async (t) => {
     const { outcome } = await launch(t, 'codex', fault);
@@ -720,6 +763,8 @@ for (const fault of [
   'model-after-answer',
   'partial-and-final',
   'explicit-then-legacy',
+  'different-turn-reroute',
+  'different-turn-completion',
 ] as const) {
   test(`${fault} retains the completed Codex answer and its model`, async (t) => {
     const { outcome } = await launch(t, 'codex', fault);
@@ -736,8 +781,16 @@ test('a reroute before the Codex answer attributes the answer to the new model',
   assert.match(result.reason, /ran on later-model, expected model-a/);
 });
 
+test('a malformed Codex start reply cannot confirm a completed review', async (t) => {
+  const { outcome } = await launch(t, 'codex', 'bad-start-reply');
+  const receipt = await outcome(1);
+  assert.equal(receipt.status, 'failed');
+  assert.match(receipt.reason, /expected string/);
+  assert.equal(receipt.findings, undefined);
+});
+
 test('a failed receipt write preserves the draft reread diagnostic on stderr', async (t) => {
-  const { root, pending, release, output } = await launch(
+  const { root, pending, release, errors } = await launch(
     t,
     'codex',
     'missing-draft-and-write',
@@ -746,13 +799,33 @@ test('a failed receipt write preserves the draft reread diagnostic on stderr', a
   await pending;
   await unlink(join(root, 'plan.md'));
   release();
-  const log = await output(1);
+  const log = await errors(1);
   assert.match(log, /Could not reread the plan draft: ENOENT/);
 
   assert.match(
     log,
     /Could not save the plan review receipt: Fixture receipt sync failed/,
   );
+});
+
+test('removing a staged receipt prevents publication after the host reply', async (t) => {
+  const { receipt, pending, release, output, status } = await launch(
+    t,
+    'codex',
+    'remove-receipt-at-publication',
+  );
+
+  await pending;
+  assert.equal(status(), 'running');
+  await unlink(receipt);
+  release();
+
+  assert.match(
+    await output(1),
+    /Could not verify the plan review receipt: ENOENT/,
+  );
+
+  assert.equal(status(), 'failed');
 });
 
 test('editing the draft during the staged reply prevents publication', async (t) => {

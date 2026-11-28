@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import {
   chmod,
+  access,
   mkdir,
   readFile,
   realpath,
@@ -11,8 +12,14 @@ import {
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'vitest';
-import { checkTargets } from '../../../src/core/review/review-checks.js';
-import { snapshotTargets } from '../../../src/core/review/review-files.js';
+import {
+  checkTargets,
+  reviewRoot,
+} from '../../../src/core/review/review-checks.js';
+import {
+  snapshotTargets,
+  withTargetSnapshots,
+} from '../../../src/core/review/review-files.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { identity } from '../../fixtures/git.js';
 
@@ -39,6 +46,47 @@ async function check(
 }
 
 const a = 'function a() {\n  b();\n  c();\n}\n';
+
+test('the review root retains the exact checkout name from Git', async () => {
+  const root = await scratch('witch-review-');
+  const checkout = join(root, 'checkout ');
+  await mkdir(checkout);
+  await mkdir(checkout.trimEnd());
+  await execute('git', ['init', '--quiet', checkout]);
+  assert.equal(await reviewRoot(checkout), checkout);
+});
+
+test('reviewers share one staged copy for targets with the same text', async () => {
+  const root = await scratch('witch-review-');
+
+  await withTargetSnapshots(
+    root,
+    { 'target.md': '# Shared', 'alias.md': '# Shared', 'other.md': '# Other' },
+    async (paths) => {
+      assert.equal(paths['target.md'], paths['alias.md']);
+      assert.equal(await readFile(paths['target.md']!, 'utf8'), '# Shared');
+      assert.equal(await readFile(paths['other.md']!, 'utf8'), '# Other');
+    },
+  );
+});
+
+test('a reviewer dispatch failure removes its staged target', async () => {
+  const root = await scratch('witch-review-');
+  const failed = new Error('Reviewer dispatch failed.');
+  let staged: string | undefined;
+
+  await assert.rejects(
+    withTargetSnapshots(root, { 'target.md': '# Selected' }, async (paths) => {
+      staged = paths['target.md'];
+      assert.equal(await readFile(staged!, 'utf8'), '# Selected');
+
+      throw failed;
+    }),
+    failed,
+  );
+
+  await assert.rejects(access(staged!), { code: 'ENOENT' });
+});
 
 test('mechanical checks use the selected snapshot instead of rereading their target', async () => {
   const cwd = await scratch('witch-review-snapshot-');

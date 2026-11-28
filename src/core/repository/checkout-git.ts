@@ -17,7 +17,7 @@ export const gitIn =
         env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
         ...(signal ? { signal } : {}),
       })
-    ).stdout.trim();
+    ).stdout.replace(/\n$/, '');
 
 export type Git = ReturnType<typeof gitIn>;
 

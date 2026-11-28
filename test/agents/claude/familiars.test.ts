@@ -135,6 +135,14 @@ function commands() {
   };
 }
 
+const completedReceipt = {
+  status: 'completed',
+  runtime: 'claude',
+  model: 'observed',
+  planSha256: 'a'.repeat(64),
+  findings: [],
+};
+
 test('a plan review stays running until the Claude command completes', async () => {
   const f = commands();
   f.start();
@@ -150,14 +158,17 @@ test('a plan review stays running until the Claude command completes', async () 
     /did not supply a completed receipt/,
   );
 
-  const report = JSON.stringify({
-    status: 'completed',
-    runtime: 'claude',
-    model: 'observed',
-    planSha256: 'a'.repeat(64),
-    findings: [],
-  });
+  for (const change of [{ runtime: 'codex' }, { model: 'different' }])
+    await assert.rejects(
+      f.update(
+        0,
+        'completed',
+        JSON.stringify({ ...completedReceipt, ...change }),
+      ),
+      /did not supply a completed receipt/,
+    );
 
+  const report = JSON.stringify(completedReceipt);
   await f.update(0, 'completed', report);
   assert.equal(f.familiars().at(-1)!.status, 'running');
 
@@ -203,7 +214,7 @@ test('a plan review cannot stage its first completion after native exit', async 
   });
 
   await assert.rejects(
-    f.update(0, 'completed'),
+    f.update(0, 'completed', JSON.stringify(completedReceipt)),
     /familiar run has already ended/,
   );
 

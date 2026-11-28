@@ -4,6 +4,7 @@ import { open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from '../agents/codex/adapter.js';
+import { readOnlySettings } from '../agents/codex/session-info.js';
 import { nativeExecutable } from '../agents/executable.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import type {
@@ -198,7 +199,7 @@ export async function runCodexFamiliar(
     if (!output) return;
 
     scanMarkers(output, event.text, binding, (marker) =>
-      process.stdout.write(familiarMarker(marker)),
+      process.stdout.write(familiarMarker({ ...marker, relayed: true })),
     );
   };
 
@@ -359,6 +360,8 @@ export async function runCodexFamiliar(
       memoryDirectories: [],
       withoutMcp: lean,
       ...(review && { planReview: true }),
+      readOnlyReview:
+        lean && readOnlySettings.every((setting) => args.includes(setting)),
       signal: abort.signal,
       onEvent: receive,
       onProcess: async () => {},
@@ -367,9 +370,12 @@ export async function runCodexFamiliar(
     if (stopped || failure)
       throw new Error(failure ?? 'Codex familiar stopped before its turn.');
 
-    waiting = 'the spell listing';
-    // only to recognize the spells it casts, so a failed listing costs only that
-    await session.skills().catch(() => {});
+    if (!review) {
+      waiting = 'the spell listing';
+      // only to recognize the spells it casts, so a failed listing costs only that
+      await session.skills().catch(() => {});
+    }
+
     clearTimeout(startup);
 
     for (;;) {
@@ -469,6 +475,7 @@ export async function runCodexFamiliar(
     const result = review
       ? await settlePlanReview(
           file,
+          reportFile,
           review,
           terminal,
           answer,

@@ -485,6 +485,8 @@ export interface SessionOptions {
   withoutMcp?: boolean;
   /** Codex only: label completed answer items for a plan reviewer. */
   planReview?: boolean;
+  /** require native confirmation of the isolated review's permissions before submitting input. */
+  readOnlyReview?: boolean;
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
 
