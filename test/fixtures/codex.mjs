@@ -1041,7 +1041,7 @@ for await (const line of lines) {
             params: {},
           });
 
-        notify('item/completed', {
+        notify(mode === 'started-only' ? 'item/started' : 'item/completed', {
           turnId: 'turn-1',
           item: {
             type: 'agentMessage',
@@ -1071,6 +1071,24 @@ for await (const line of lines) {
             threadId: 'native-thread',
             turnId: 'turn-1',
             item: { type: 'agentMessage' },
+          });
+
+        if (mode === 'bad-final')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'bad-final',
+              phase: 'final_answer',
+            },
+          });
+
+        if (mode === 'bad-reroute')
+          notify('model/rerouted', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            toModel: null,
           });
 
         finish('completed');

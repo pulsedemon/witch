@@ -869,10 +869,7 @@ class CodexSession implements AgentSession {
       else if (!child && message.method === 'thread/settings/updated')
         this.settings?.reject(new Error(text));
 
-      if (this.malformed.has(message.method!)) return;
-
-      this.malformed.add(message.method!);
-      this.options.onEvent({ type: 'notice', text, protocolError: true });
+      this.malformedNotice(message.method!, text);
     }
   }
 
@@ -1025,56 +1022,7 @@ class CodexSession implements AgentSession {
             this.options.onEvent({ type: 'compacted' });
           }
         } else if (type === 'agentMessage') {
-          if (typeof item.text === 'string') {
-            this.turn?.messages.replace(id, item.text);
-
-            this.options.onEvent({
-              type: 'text',
-              id,
-              text: item.text,
-              replace: true,
-              ...(this.options.planReview &&
-              message.method === 'item/completed' &&
-              (item.phase == null || item.phase === 'final_answer')
-                ? { finalAnswer: true }
-                : {}),
-            });
-          }
-
-          if (message.method === 'item/completed' && item.questions != null) {
-            const parsed = messageQuestions.safeParse(item.questions);
-
-            if (!parsed.success) {
-              const text = `Witch could not read Codex's item/completed questions: ${errorMessage(parsed.error)}`;
-
-              this.options.onEvent({
-                type: 'notice',
-                text,
-                protocolError: true,
-              });
-
-              return;
-            }
-
-            const questions = parsed.data.map((question, index) => ({
-              id: String(index),
-              title: question.title,
-              options: question.options ?? [],
-            }));
-
-            if (questions.length)
-              this.options.onEvent({
-                type: 'request',
-                request: {
-                  id: `question/${id}`,
-                  kind: 'question',
-                  title: 'Questions',
-                  detail: '',
-                  questions,
-                  replyAsPrompt: true,
-                },
-              });
-          }
+          this.agentMessage(item, id, message.method === 'item/completed');
         } else if (type === 'reasoning') {
           // Codex reports a reasoning step only when it ends
           if (message.method === 'item/completed')
@@ -1191,7 +1139,15 @@ class CodexSession implements AgentSession {
       }
 
       case 'model/rerouted':
-        if (typeof data.toModel === 'string') {
+        if (
+          this.options.planReview &&
+          (typeof data.toModel !== 'string' || !data.toModel)
+        )
+          this.malformedNotice(
+            'model/rerouted',
+            'Witch could not read the model in Codex’s reroute.',
+          );
+        else if (typeof data.toModel === 'string') {
           if (data.toModel !== this.info.model)
             this.report({ context: undefined, contextWindow: undefined });
 
@@ -1233,6 +1189,81 @@ class CodexSession implements AgentSession {
             text: stringValue.parse(object.parse(data.error).message),
           });
     }
+  }
+
+  private agentMessage(
+    item: Record<string, unknown>,
+    id: string,
+    completed: boolean,
+  ): void {
+    const { text, phase } = item;
+    const planCompletion = completed && this.options.planReview;
+
+    if (
+      planCompletion &&
+      (typeof text !== 'string' ||
+        (phase != null && phase !== 'commentary' && phase !== 'final_answer'))
+    ) {
+      this.malformedNotice(
+        'item/completed',
+        'Witch could not read Codex’s completed agent message.',
+      );
+
+      return;
+    }
+
+    if (typeof text === 'string') {
+      this.turn?.messages.replace(id, text);
+
+      this.options.onEvent({
+        type: 'text',
+        id,
+        text,
+        replace: true,
+        ...(planCompletion && phase !== 'commentary'
+          ? { finalAnswer: true }
+          : {}),
+      });
+    }
+
+    if (!completed || item.questions == null) return;
+
+    const parsed = messageQuestions.safeParse(item.questions);
+
+    if (!parsed.success) {
+      this.malformedNotice(
+        'item/completed',
+        `Witch could not read Codex's item/completed questions: ${errorMessage(parsed.error)}`,
+      );
+
+      return;
+    }
+
+    const questions = parsed.data.map((question, index) => ({
+      id: String(index),
+      title: question.title,
+      options: question.options ?? [],
+    }));
+
+    if (questions.length)
+      this.options.onEvent({
+        type: 'request',
+        request: {
+          id: `question/${id}`,
+          kind: 'question',
+          title: 'Questions',
+          detail: '',
+          questions,
+          replyAsPrompt: true,
+        },
+      });
+  }
+
+  private malformedNotice(method: string, text: string): void {
+    if (this.malformed.has(method)) return;
+
+    this.malformed.add(method);
+    this.options.onEvent({ type: 'notice', text, protocolError: true });
   }
 
   private requestInput(message: RpcMessage): void {

@@ -3,6 +3,7 @@ import type {
   FamiliarOutcome,
   FamiliarProgress,
 } from './familiar-report.js';
+import { readCompletedReceipt } from '../core/review/review.js';
 import { terminateGraceMs } from './shutdown.js';
 import type { AgentEvent, Subagent, UserResponse } from './types.js';
 
@@ -101,7 +102,7 @@ export class FamiliarRun {
   private sequence = -1;
   /** when the carrying command ended. */
   private endedAt?: number;
-  /** set by the familiar's own terminal update, which may arrive after its command ended. */
+  /** whether the terminal report has been published. */
   private reported = false;
   readonly planReview: boolean;
   /** a plan review can be acknowledged before the carrying command's exit confirms it. */
@@ -155,6 +156,17 @@ export class FamiliarRun {
       (late && performance.now() - this.endedAt! > lateProgressMs)
     )
       throw new Error('The familiar run has already ended.');
+
+    if (stagesCompletion) {
+      const receipt = readCompletedReceipt(action.progress.report);
+
+      if (
+        !receipt ||
+        receipt.runtime !== this.subagent.runtime ||
+        receipt.model !== action.progress.model
+      )
+        throw new Error('The plan review did not supply a completed receipt.');
+    }
 
     this.sequence = action.sequence;
 

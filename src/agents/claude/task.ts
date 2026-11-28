@@ -29,7 +29,9 @@ const modelChange = z.object({
   fallback_model: z.string().min(1),
 });
 
-const runningState = z.object({ state: z.literal('running') });
+const sessionState = z.object({
+  state: z.enum(['idle', 'running', 'requires_action']),
+});
 
 const assistant = z.object({
   session_id: z.string(),
@@ -100,6 +102,7 @@ export class ClaudeTask {
   constructor(
     private readonly cwd: string,
     private readonly emit: (progress: FamiliarProgress) => void,
+    private readonly planReview = false,
   ) {}
 
   message(value: unknown): void {
@@ -141,7 +144,11 @@ export class ClaudeTask {
         message.type === 'system' &&
         message.subtype === 'session_state_changed'
       ) {
-        if (runningState.safeParse(value).success) this.open = true;
+        const state = sessionState.safeParse(value);
+
+        if (!state.success && this.planReview) throw state.error;
+
+        if (state.data && state.data.state !== 'idle') this.open = true;
       } else if (message.type === 'rate_limit_event') {
         // only advisory: a frame of another shape is skipped rather than failing the task
         const event = rateLimitEvent.safeParse(value).data;

@@ -1,3 +1,4 @@
+import { quote } from '../../src/shell.js';
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { once } from 'node:events';
@@ -45,7 +46,7 @@ async function check(
 
   await writeFile(
     join(bin, runtime),
-    `#!/bin/sh\nexec '${process.execPath}' '${fixture}' '${mode}' ${runtime === 'codex' && action === 'exit' ? '--ignore-term' : ''} "$@"\n`,
+    `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(fixture)} ${quote(mode)} ${runtime === 'codex' && action === 'exit' ? '--ignore-term' : ''} "$@"\n`,
     { mode: 0o755 },
   );
 
@@ -219,22 +220,14 @@ async function check(
         return !!current.process && !sameProcess(current.process, native);
       });
 
-      const probe = `shutdown-ready-${randomUUID()}`;
-
+      // the next prompt carries this prefix, so the probe needs no clearing keystroke.
       await wait('replacement composer accepts input', async () => {
-        if ((await record()).draft === probe) return true;
+        if ((await record()).draft?.includes('x')) return true;
 
-        child.stdin.write(`\x15${probe}`);
+        child.stdin.write('x');
 
         return false;
       });
-
-      child.stdin.write('\x15');
-
-      await wait(
-        'replacement composer clears its probe',
-        async () => !(await record()).draft,
-      );
     }
 
     if (action !== 'exit') {

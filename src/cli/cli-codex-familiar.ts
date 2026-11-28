@@ -291,7 +291,11 @@ export async function runCodexFamiliar(
 
     registered = true;
 
-    if (review) file = await review.openReport(reportFile, scope);
+    const attempt = review
+      ? await review.openReport(reportFile, scope)
+      : undefined;
+
+    if (attempt) file = attempt.file;
 
     startup = setTimeout(() => {
       if (failure || stopped) return;
@@ -307,7 +311,7 @@ export async function runCodexFamiliar(
 
     reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);
-    const prepared = await review?.prepare(scope);
+    const prepared = await attempt?.prepare();
     let prompt = prepared?.prompt ?? '';
 
     if (!review) {
@@ -490,10 +494,7 @@ export async function runCodexFamiliar(
       process.stdout.write(
         `${result.report ?? ''}\n\nSaved report: ${reportFile}\n`,
       );
-    else
-      process.stderr.write(
-        `witch: ${failure ?? 'Plan review did not start.'}\n`,
-      );
+    else process.stderr.write(`${result.report ?? ''}\n`);
 
     return exitCode(result.status);
   } finally {

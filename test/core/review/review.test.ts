@@ -96,6 +96,16 @@ test('parseFindings reads only the last json block and normalizes paths, and say
     'no closed json block',
   );
 
+  assert.equal(
+    invalid('````markdown\n```json\n{"findings":[]}\n```\n````\n'),
+    'no closed json block',
+  );
+
+  assert.equal(
+    invalid('````json\n{"findings":[]}\n```\n'),
+    'no closed json block',
+  );
+
   assert.match(
     invalid(
       `${json({ findings: [] })}\n\n\`\`\`json\n{"findings": [\n\`\`\`\n`,

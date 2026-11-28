@@ -1,9 +1,14 @@
 import { execFile } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { decodeHTMLStrict } from 'entities';
-import { unlessGone } from '../../persistence/json.js';
+import { gone, unlessGone } from '../../persistence/json.js';
+import {
+  insideDirectory,
+  openReviewFile,
+  ReviewInputError,
+} from './review-files.js';
 import type { TargetSnapshot } from './review-files.js';
 
 const execute = promisify(execFile);
@@ -48,6 +53,7 @@ export async function checkTargets(
   snapshot: TargetSnapshot,
 ): Promise<CheckFailure[]> {
   const repository = await repositoryOf(cwd);
+  const root = await realpath(repository.root);
 
   const cache = new Map<string, Promise<string | undefined>>(
     Object.entries(snapshot.canonical).map(([path, text]) => [
@@ -62,9 +68,19 @@ export async function checkTargets(
   const local = (path: string) => {
     let text = cache.get(path);
 
-    if (!text) cache.set(path, (text = readText(path)));
+    if (!text) cache.set(path, (text = readText(path, root)));
 
     return text;
+  };
+
+  const reference = async (target: string) => {
+    if (cache.has(target)) return target;
+
+    const resolved = await unlessGone(realpath(target));
+
+    if (resolved) return insideDirectory(root, resolved) ? resolved : undefined;
+
+    return insideDirectory(repository.root, target) ? target : undefined;
   };
 
   const failures: CheckFailure[] = [];
@@ -123,10 +139,14 @@ export async function checkTargets(
 
           content = read.text;
         } else {
-          const read = await local(target.path);
+          const path = await reference(target.path);
+
+          if (!path) continue;
+
+          const read = await local(path);
 
           if (read === undefined) {
-            if (!(await isDirectory(target.path)))
+            if (!(await isDirectory(path)))
               fail(number, `link target ${shown} does not exist`);
 
             continue;
@@ -157,7 +177,11 @@ export async function checkTargets(
         if (!cited) continue;
 
         const target = resolve(cwd, cited[1]!);
-        const content = await local(target);
+        const path = await reference(target);
+
+        if (!path) continue;
+
+        const content = await local(path);
 
         if (content === undefined) continue;
 
@@ -830,10 +854,21 @@ async function show(
 }
 
 /** undefined for a missing path or a directory; other read failures throw, so no check passes unread. */
-async function readText(path: string): Promise<string | undefined> {
-  if (!(await unlessGone(stat(path)))?.isFile()) return;
+async function readText(
+  path: string,
+  root: string,
+): Promise<string | undefined> {
+  try {
+    const opened = await openReviewFile(path, [root]);
 
-  return unlessGone(readFile(path, 'utf8'));
+    try {
+      return await opened.file.readFile('utf8');
+    } finally {
+      await opened.file.close();
+    }
+  } catch (error) {
+    if (!gone(error) && !(error instanceof ReviewInputError)) throw error;
+  }
 }
 
 async function isDirectory(path: string): Promise<boolean> {

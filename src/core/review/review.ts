@@ -20,6 +20,23 @@ const findingsSchema = z.strictObject({
 
 export type Finding = z.infer<typeof findingsSchema>['findings'][number];
 
+const completedReceipt = findingsSchema.extend({
+  status: z.literal('completed'),
+  runtime: z.enum(['claude', 'codex']),
+  model: z.string().min(1),
+  planSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+export function readCompletedReceipt(report: string | undefined) {
+  if (!report) return;
+
+  try {
+    return completedReceipt.safeParse(JSON.parse(report)).data;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+}
+
 export const findingsFormat = [
   '```json',
   '{"findings":[{"file":"path","line":1,"blocking":true,"summary":"what is wrong","correction":"the minimal fix"}]}',
@@ -33,25 +50,37 @@ export function parseFindings(
   files: readonly string[],
   { requireEnd = false }: { requireEnd?: boolean } = {},
 ): Finding[] | { invalid: string } {
-  let open: { start: number; ticks: number } | undefined;
+  let open:
+    { start: number; marker: string; size: number; json: boolean } | undefined;
+
   let last: { start: number; end: number; after: number } | undefined;
 
   for (const fence of report.matchAll(
-    /^[ \t]{0,3}(`{3,})(?:(json[^\r\n]*)|[ \t]*)\r?$/gm,
+    /^[ \t]{0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/gm,
   )) {
-    const ticks = fence[1]!.length;
+    const run = fence[1]!;
+    const marker = run[0]!;
+    const info = fence[2]!.trim();
     const after = fence.index + fence[0].length;
 
-    if (fence[2]) open = { start: after, ticks };
-    else if (open && ticks >= open.ticks) {
-      last = { start: open.start, end: fence.index, after };
+    if (!open) {
+      open = {
+        start: after,
+        marker,
+        size: run.length,
+        json: /^json(?:\s|$)/.test(info),
+      };
+    } else if (!info && marker === open.marker && run.length >= open.size) {
+      if (open.json) last = { start: open.start, end: fence.index, after };
+
       open = undefined;
     }
   }
 
   if (!last) return { invalid: 'no closed json block' };
 
-  if (open) return { invalid: 'a json block opens after the last closed one' };
+  if (open?.json)
+    return { invalid: 'a json block opens after the last closed one' };
 
   if (requireEnd && report.slice(last.after).trim())
     return { invalid: 'the findings block must end the final answer' };

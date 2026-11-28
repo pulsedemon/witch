@@ -1,3 +1,4 @@
+import { quote } from '../../src/shell.js';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -56,7 +57,7 @@ async function fixture(
 
   await writeFile(
     join(bin, 'codex'),
-    `#!/bin/sh\nexec '${process.execPath}' '${join(root, 'codex.mjs')}' "$@"\n`,
+    `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root, 'codex.mjs'))} "$@"\n`,
   );
 
   await chmod(join(bin, 'codex'), 0o700);

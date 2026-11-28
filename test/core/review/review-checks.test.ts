@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  readFile,
+  realpath,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'vitest';
@@ -48,26 +55,36 @@ test('mechanical checks use the selected snapshot instead of rereading their tar
   );
 });
 
-test('a link to the selected snapshot’s canonical name uses the captured text', async () => {
+test('a link through another alias uses the canonical target snapshot', async () => {
   const cwd = await scratch('witch-review-alias-');
   const canonicalFile = join(cwd, 'plan.md');
+  await writeFile(canonicalFile, 'see [the target](second.md#target)\n');
+  await symlink(canonicalFile, join(cwd, 'alias.md'));
+  await symlink(canonicalFile, join(cwd, 'second.md'));
+  const snapshot = await snapshotTargets(cwd, ['alias.md'], [cwd]);
   await writeFile(canonicalFile, '# Target\n');
 
-  assert.deepEqual(
-    (
-      await checkTargets(cwd, {
-        texts: { 'alias.md': 'see [the target](plan.md#target)\n' },
-        canonical: { [canonicalFile]: '# Earlier draft\n' },
-      })
-    ).map(({ file, line, message }) => ({ file, line, message })),
-    [
-      {
-        file: 'alias.md',
-        line: 1,
-        message: 'no heading in plan.md has the anchor #target',
-      },
-    ],
+  assert.deepEqual(await checkTargets(cwd, snapshot), [
+    {
+      file: 'alias.md',
+      line: 1,
+      message: 'no heading in second.md has the anchor #target',
+    },
+  ]);
+});
+
+test('links and citations cannot check text beyond the checkout', async () => {
+  const cwd = await scratch('witch-review-references-');
+  const outside = join(await scratch('witch-review-outside-'), 'outside.md');
+  await writeFile(outside, '# Outside\n');
+  await symlink(outside, join(cwd, 'link.md'));
+
+  await writeFile(
+    join(cwd, 'plan.md'),
+    'see [linked file](link.md#missing) and `link.md:500`\n',
   );
+
+  assert.deepEqual(await checkFiles(cwd, ['plan.md']), []);
 });
 
 test('link to a missing heading fails', async () => {

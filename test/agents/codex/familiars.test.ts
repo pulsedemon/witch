@@ -648,12 +648,20 @@ for (const [status, exitCode] of [
         'familiar-registered',
       );
 
+      const report = JSON.stringify({
+        status: 'completed',
+        runtime: 'claude',
+        model: 'observed',
+        planSha256: 'b'.repeat(64),
+        findings: [],
+      });
+
       await f.session.familiar!.report(
         {
           kind: 'familiar-update',
           run: f.run,
           sequence: 0,
-          progress: { status: 'completed', report: 'Validated receipt' },
+          progress: { status: 'completed', model: 'observed', report },
         },
         Date.now() + 5000,
       );
@@ -673,7 +681,7 @@ for (const [status, exitCode] of [
 
       assert.equal(
         f.familiarEvents().at(-1)!.report,
-        exitCode === 0 ? 'Validated receipt' : undefined,
+        exitCode === 0 ? report : undefined,
       );
 
       await f.session.close();

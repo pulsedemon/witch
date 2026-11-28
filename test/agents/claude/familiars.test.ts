@@ -91,7 +91,11 @@ function commands() {
       Date.now() + 5000,
     );
 
-  const update = (sequence: number, status: TaskStatus = 'running') =>
+  const update = (
+    sequence: number,
+    status: TaskStatus = 'running',
+    report = status === 'completed' ? 'Full report' : undefined,
+  ) =>
     owner.report(
       {
         kind: 'familiar-update',
@@ -101,7 +105,7 @@ function commands() {
           status,
           tools: 3,
           model: 'observed',
-          report: status === 'completed' ? 'Full report' : undefined,
+          report,
           notices: ['MCP down'],
         },
       },
@@ -141,7 +145,20 @@ test('a plan review stays running until the Claude command completes', async () 
       (await f.register('claude', true)).kind === 'familiar-registered',
   );
 
-  await f.update(0, 'completed');
+  await assert.rejects(
+    f.update(0, 'completed'),
+    /did not supply a completed receipt/,
+  );
+
+  const report = JSON.stringify({
+    status: 'completed',
+    runtime: 'claude',
+    model: 'observed',
+    planSha256: 'a'.repeat(64),
+    findings: [],
+  });
+
+  await f.update(0, 'completed', report);
   assert.equal(f.familiars().at(-1)!.status, 'running');
 
   f.emit({
@@ -152,7 +169,7 @@ test('a plan review stays running until the Claude command completes', async () 
   });
 
   assert.equal(f.familiars().at(-1)!.status, 'completed');
-  assert.equal(f.familiars().at(-1)!.report, 'Full report');
+  assert.equal(f.familiars().at(-1)!.report, report);
 });
 
 test('an ordinary familiar cannot acquire plan-review scope on retry', async () => {
@@ -165,6 +182,7 @@ test('an ordinary familiar cannot acquire plan-review scope on retry', async () 
   );
 
   await assert.rejects(f.register('claude', true), /review mode changed/);
+  await assert.rejects(f.register('codex'), /runtime changed/);
 });
 
 test('a plan review cannot stage its first completion after native exit', async () => {

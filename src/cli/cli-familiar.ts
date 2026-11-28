@@ -140,14 +140,24 @@ export async function runClaudeFamiliar(
 
     registered = true;
 
-    if (review) file = await review.openReport(reportFile, scope);
+    const attempt = review
+      ? await review.openReport(reportFile, scope)
+      : undefined;
 
-    const prepared = await review?.prepare(scope);
+    if (attempt) file = attempt.file;
+
+    const prepared = await attempt?.prepare();
 
     if (stopped) throw new Error('Familiar stopped before launch.');
 
     const cwd = prepared?.cwd ?? process.cwd();
-    const task = new ClaudeTask(cwd, (progress) => reports.push(progress));
+
+    const task = new ClaudeTask(
+      cwd,
+      (progress) => reports.push(progress),
+      !!review,
+    );
+
     activeTask = task;
     const claude = nativeExecutable('claude');
 
@@ -269,23 +279,30 @@ export async function runClaudeFamiliar(
     return exitCode(terminal.status);
   } catch (error) {
     const message = errorMessage(error);
-    process.stderr.write(`witch: ${message}\n`);
 
     const progress: FamiliarProgress = {
       status: stopped ? 'stopped' : 'failed',
       report: message,
     };
 
-    if (review)
-      await settlePlanReview(
-        file,
-        review,
-        progress,
-        '',
-        () => !!stopped,
-        registered ? reports : undefined,
-      );
-    else await saveFinalReport(file!, progress, '');
+    let diagnostic = message;
+
+    try {
+      if (review) {
+        const result = await settlePlanReview(
+          file,
+          review,
+          progress,
+          '',
+          () => !!stopped,
+          registered ? reports : undefined,
+        );
+
+        diagnostic = result.reason ?? message;
+      } else await saveFinalReport(file!, progress, '');
+    } finally {
+      process.stderr.write(`witch: ${diagnostic}\n`);
+    }
 
     if (file) process.stderr.write(`Saved report: ${reportFile}\n`);
 

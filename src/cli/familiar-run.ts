@@ -153,7 +153,7 @@ export async function settlePlanReview(
   answer: string,
   stopped: () => boolean,
   reports?: FamiliarReports,
-): Promise<FamiliarProgress> {
+) {
   let terminal = review.finish(progress, answer);
   let saved: string | undefined;
 

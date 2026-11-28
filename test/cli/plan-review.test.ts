@@ -1,3 +1,4 @@
+import { quote } from '../../src/shell.js';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -96,6 +97,12 @@ type Fault =
   | 'model-after-answer'
   | 'trailing-failure'
   | 'bad-notification'
+  | 'bad-final'
+  | 'bad-reroute'
+  | 'started-only'
+  | 'claude-bad-state'
+  | 'wrong-mailbox'
+  | 'receipt-conflict-and-reply'
   | 'edit-at-publication'
   | 'missing-draft-and-reply';
 
@@ -104,7 +111,7 @@ async function stageInputs(
   draftFile: string,
   fault: Fault | undefined,
 ) {
-  if (fault === 'fifo' || fault === 'existing-receipt') {
+  if (fault === 'fifo' || fault === 'existing-receipt' || fault === 'stale') {
     execFileSync('mkfifo', [draftFile]);
   } else if (fault === 'outside-draft') {
     const external = join(await scratch('witch-outside-review-'), 'plan.md');
@@ -131,90 +138,27 @@ async function stageInputs(
         : 'Use only the authorized files.\n',
     );
 
-  if (fault === 'existing-receipt')
+  if (fault === 'existing-receipt' || fault === 'receipt-conflict-and-reply')
     await writeFile(join(root, 'attempt.json'), 'Earlier receipt.');
 }
 
-async function instrumentation(
-  root: string,
-  draftFile: string,
-  fault: Fault | undefined,
-) {
-  if (!fault) return [];
-
-  const script = join(root, 'probe.mjs');
-
-  const source = new Map<Fault, readonly string[]>([
-    ...(['stop-at-check', 'stop-at-publication'] as const).map(
-      (name) =>
-        [
-          name,
-          [
-            "import { writeFileSync } from 'node:fs';",
-            `process.on('SIGTERM', () => setImmediate(() => writeFileSync(${JSON.stringify(join(root, 'stop-observed'))}, 'yes')));`,
-          ],
-        ] as const,
-    ),
-    ...(
-      ['lost-report', 'lost-after-stage', 'missing-draft-and-reply'] as const
-    ).map(
-      (name) =>
-        [
-          name,
-          [
-            "import { existsSync } from 'node:fs';",
-            'const now = Date.now;',
-            `Date.now = () => now() + (existsSync(${JSON.stringify(join(root, 'mail-timeout'))}) ? 31000 : 0);`,
-          ],
-        ] as const,
-    ),
-    [
-      'draft-after-save',
-      [
-        "import { open, readFile, writeFile } from 'node:fs/promises';",
-        `const handle = await open(${JSON.stringify(draftFile)});`,
-        'const prototype = Object.getPrototypeOf(handle);',
-        'const sync = prototype.sync;',
-        'await handle.close();',
-        'prototype.sync = async function () {',
-        '  await sync.call(this);',
-        `  if ((await readFile(${JSON.stringify(join(root, 'attempt.json'))}, 'utf8').catch(() => '')).includes('"status":"completed"')) {`,
-        '    prototype.sync = sync;',
-        `    await writeFile(${JSON.stringify(draftFile)}, 'Edited during receipt sync');`,
-        '  }',
-        '};',
-      ],
-    ],
-    [
-      'grow-on-read',
-      [
-        "import { open, appendFile } from 'node:fs/promises';",
-        `const handle = await open(${JSON.stringify(draftFile)});`,
-        'const prototype = Object.getPrototypeOf(handle);',
-        'const read = prototype.read;',
-        'await handle.close();',
-        'prototype.read = async function (...args) {',
-        '  prototype.read = read;',
-        `  await appendFile(${JSON.stringify(draftFile)}, 'X');`,
-        '  return read.apply(this, args);',
-        '};',
-      ],
-    ],
-  ]).get(fault);
-
-  if (!source) return [];
-
-  await writeFile(script, source.join('\n'));
-
-  return ['--import', script];
-}
+const probeFaults = new Set<Fault>([
+  'stop-at-check',
+  'stop-at-publication',
+  'lost-report',
+  'lost-after-stage',
+  'missing-draft-and-reply',
+  'receipt-conflict-and-reply',
+  'draft-after-save',
+  'grow-on-read',
+]);
 
 async function launch(
   t: { onTestFinished: (cleanup: () => Promise<void>) => void },
   runtime: Runtime,
   fault?: Fault,
 ) {
-  const root = await scratch('witch-plan-review-');
+  const root = await scratch("witch-plan-review-'");
   const checkout = await scratch('witch-review-checkout-');
 
   const cwd =
@@ -240,7 +184,7 @@ async function launch(
 
     await writeFile(
       native,
-      `#!/bin/sh\nexec "${process.execPath}" "${join(root, 'codex.mjs')}" "$@"\n`,
+      `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root, 'codex.mjs'))} "$@"\n`,
     );
   } else {
     await copyFile(fixture('claude-task.mjs'), native);
@@ -258,7 +202,7 @@ async function launch(
   );
 
   await stageInputs(root, draftFile, fault);
-  const preload = await instrumentation(root, draftFile, fault);
+  const probe = fault && probeFaults.has(fault);
 
   if (fault === 'aliased-receipt')
     await symlink(checkout, join(root, 'receipt-link'));
@@ -331,7 +275,8 @@ async function launch(
 
       if (
         (fault === 'lost-report' && completed) ||
-        (fault === 'missing-draft-and-reply' &&
+        ((fault === 'missing-draft-and-reply' ||
+          fault === 'receipt-conflict-and-reply') &&
           action.progress.status === 'failed')
       ) {
         await writeFile(join(root, 'mail-timeout'), '');
@@ -388,7 +333,7 @@ async function launch(
   const child = spawn(
     process.execPath,
     [
-      ...preload,
+      ...(probe ? ['--import', fixture('plan-review-probe.mjs')] : []),
       await compiledCli(),
       '--control-dir',
       control,
@@ -410,7 +355,10 @@ async function launch(
       cwd,
       env: {
         ...process.env,
-        TMPDIR: root,
+        TMPDIR: fault === 'wrong-mailbox' ? checkout : root,
+        ...(probe && {
+          WITCH_TEST_PLAN_REVIEW: JSON.stringify({ fault, root, draftFile }),
+        }),
         [`WITCH_${runtime.toUpperCase()}_EXECUTABLE`]: native,
         WITCH_CODEX_FAMILIAR_FIXTURE: 'plan-review',
         WITCH_FAMILIAR_FIXTURE: claudeMode,
@@ -595,6 +543,7 @@ for (const [fault, reason] of [
   ['stale', /Stale activation/],
   ['no-scope', /did not authorize the plan review inputs/],
   ['wrong-scratch', /different review scratch directory/],
+  ['wrong-mailbox', /bound Witch familiar mailbox/],
 ] as const) {
   test(`${fault} fails before creating a receipt or launching a reviewer`, async (t) => {
     const { checkout, receipt, output } = await launch(t, 'codex', fault);
@@ -639,6 +588,7 @@ for (const [runtime, fault] of [
 for (const [fault, reason] of [
   ['claude-unfinished-turn', /final plan review turn returned/],
   ['claude-started-turn', /final plan review turn returned/],
+  ['claude-bad-state', /Invalid Claude task stream/],
   ['claude-denied', /Permission denied: Read .*plan\.md/],
   ['claude-denied-then-result', /Permission denied: Read .*plan\.md/],
 ] as const) {
@@ -664,6 +614,8 @@ for (const [fault, reason] of [
   ['unknown-request', /Unsupported native request: review\/unknown/],
   ['malformed-question', /could not read Codex's item\/completed questions/],
   ['bad-notification', /could not read Codex's item\/completed notification/],
+  ['bad-final', /could not read Codex’s completed agent message/],
+  ['bad-reroute', /could not read the model in Codex’s reroute/],
 ] as const) {
   test(`a Codex plan review surfaces ${fault} without forwarding a request`, async (t) => {
     const { outcome, forwarded } = await launch(t, 'codex', fault);
@@ -737,14 +689,16 @@ test('a lost failure update retains the draft reread diagnostic', async (t) => {
   assert.match(result.reason, /host did not reply before the deadline/);
 });
 
-test('Codex commentary cannot supply a completed review answer', async (t) => {
-  const { outcome } = await launch(t, 'codex', 'commentary-only');
-  const result = await outcome(1);
-  assert.equal(result.status, 'failed');
-  assert.equal(result.model, model.codex);
-  assert.match(result.reason, /without a final answer/);
-  assert.equal(result.findings, undefined);
-});
+for (const fault of ['commentary-only', 'started-only'] as const) {
+  test(`Codex ${fault} cannot supply a completed review answer`, async (t) => {
+    const { outcome } = await launch(t, 'codex', fault);
+    const result = await outcome(1);
+    assert.equal(result.status, 'failed');
+    assert.equal(result.model, model.codex);
+    assert.match(result.reason, /without a final answer/);
+    assert.equal(result.findings, undefined);
+  });
+}
 
 for (const fault of ['legacy-answer', 'model-after-answer'] as const) {
   test(`${fault} retains the completed Codex answer and its model`, async (t) => {
@@ -783,6 +737,19 @@ test('editing the submitted draft invalidates its review', async (t) => {
 });
 
 for (const runtime of ['claude', 'codex'] as const) {
+  test(`${runtime} reports both errors when receipt creation and reporting fail`, async (t) => {
+    const { output, receipt } = await launch(
+      t,
+      runtime,
+      'receipt-conflict-and-reply',
+    );
+
+    const log = await output(1);
+    assert.match(log, /EEXIST:.*attempt\.json/);
+    assert.match(log, /host did not reply before the deadline/);
+    assert.equal(await readFile(receipt, 'utf8'), 'Earlier receipt.');
+  });
+
   for (const fault of ['stop-at-check', 'stop-at-publication'] as const) {
     test(`${fault} leaves ${runtime}, Witch and the receipt stopped`, async (t) => {
       const { root, child, outcome, pending, release, status } = await launch(
