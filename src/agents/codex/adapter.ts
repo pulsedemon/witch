@@ -1235,7 +1235,7 @@ class CodexSession implements AgentSession {
     } catch (error) {
       const text = `Witch could not read Codex's ${message.method} request: ${errorMessage(error)}`;
       this.rpc.reject(message.id!, text);
-      this.options.onEvent({ type: 'notice', text });
+      this.options.onEvent({ type: 'notice', text, rejectedRequest: true });
 
       return;
     }
@@ -1243,7 +1243,7 @@ class CodexSession implements AgentSession {
     if (!request) {
       const text = `Unsupported native request: ${message.method}`;
       this.rpc.reject(message.id!, text);
-      this.options.onEvent({ type: 'notice', text });
+      this.options.onEvent({ type: 'notice', text, rejectedRequest: true });
 
       return;
     }

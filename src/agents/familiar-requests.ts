@@ -1,4 +1,8 @@
-import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
+import type {
+  FamiliarAction,
+  FamiliarOutcome,
+  FamiliarProgress,
+} from './familiar-report.js';
 import { terminateGraceMs } from './shutdown.js';
 import type { AgentEvent, Subagent, UserResponse } from './types.js';
 
@@ -99,6 +103,8 @@ export class FamiliarRun {
   private endedAt?: number;
   /** set by the familiar's own terminal update, which may arrive after its command ended. */
   private reported = false;
+  /** a plan review can be acknowledged before the carrying command's exit confirms it. */
+  private completion?: FamiliarProgress;
 
   constructor(
     action: Extract<FamiliarAction, { kind: 'familiar-register' }>,
@@ -147,6 +153,13 @@ export class FamiliarRun {
 
     if (late) return { kind: 'familiar-updated' };
 
+    if (action.completeOnExit && action.progress.status === 'completed') {
+      this.completion = action.progress;
+
+      return { kind: 'familiar-updated' };
+    }
+
+    this.completion = undefined;
     this.subagent = { ...this.subagent, ...action.progress };
 
     if (this.subagent.status !== 'running') {
@@ -160,13 +173,24 @@ export class FamiliarRun {
   }
 
   /** ends the run with the command that carried it, marking a familiar that hasn't reported its own end; a later terminal report replaces that mark. */
-  end(status: 'stopped' | 'failed'): void {
+  end(status: 'completed' | 'stopped' | 'failed'): void {
     this.endedAt ??= performance.now();
     this.requests.resolveAll();
 
     if (this.subagent.status !== 'running') return;
 
-    this.subagent = { ...this.subagent, status };
+    const completed = status === 'completed' && this.completion;
+    this.completion = undefined;
+
+    if (completed) this.reported = true;
+
+    this.subagent = completed
+      ? { ...this.subagent, ...completed }
+      : {
+          ...this.subagent,
+          status: status === 'stopped' ? 'stopped' : 'failed',
+        };
+
     this.emit({ type: 'subagent', subagent: this.subagent });
   }
 

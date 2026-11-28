@@ -148,7 +148,6 @@ export class ClaudeTask {
         this.open = true;
       } else if (message.type === 'assistant') {
         this.open = true;
-        this.latest = undefined;
 
         if (!this.identity)
           throw new Error('Claude activity arrived before initialization.');
@@ -240,7 +239,11 @@ export class ClaudeTask {
   }
 
   get latestAnswer() {
-    return this.latest;
+    return this.open ? undefined : this.latest;
+  }
+
+  get pendingExhaustion() {
+    return this.open ? this.rejection() : undefined;
   }
 
   get permissionDenials(): readonly string[] {

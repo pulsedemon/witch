@@ -420,6 +420,7 @@ test('brief carries the diff for a diff round and asks for the full text in a fu
 
   const diffed = brief({
     files: ['plan.md', 'docs/b.md'],
+    snapshot: '/scratch/targets.json',
     scope: 'diff',
     diff: '@@ -1 +1 @@\n-a\n+b\n',
     known,
@@ -429,8 +430,16 @@ test('brief carries the diff for a diff round and asks for the full text in a fu
   assert.match(diffed, /^- docs\/b\.md$/m);
   assert.match(diffed, /^\+b$/m);
   assert.match(diffed, /changes since the last round/);
+  assert.match(diffed, /frozen target text.*\/scratch\/targets\.json/);
   assert.match(diffed, /^- plan\.md:4: em dash in prose$/m);
-  const full = brief({ files: ['plan.md'], scope: 'full', known: [] });
+
+  const full = brief({
+    files: ['plan.md'],
+    snapshot: '/scratch/targets.json',
+    scope: 'full',
+    known: [],
+  });
+
   assert.match(full, /full text of every file/);
   assert.doesNotMatch(full, /changes since the last round/);
   assert.doesNotMatch(full, /already reported/);

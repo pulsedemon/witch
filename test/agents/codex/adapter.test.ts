@@ -631,6 +631,7 @@ test('an unsupported native request gets an error reply and the turn continues',
       {
         type: 'notice',
         text: 'Unsupported native request: item/unknown/request',
+        rejectedRequest: true,
       },
     ]);
   } finally {

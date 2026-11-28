@@ -19,7 +19,7 @@ import type { PlanReview } from './plan-review.js';
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
 export class FamiliarReports {
   private sequence = 0;
-  private pending?: FamiliarProgress;
+  private pending?: { progress: FamiliarProgress; completeOnExit: boolean };
   private sending?: Promise<void>;
   error?: Error;
 
@@ -29,10 +29,10 @@ export class FamiliarReports {
     private readonly failed: (error: Error) => void,
   ) {}
 
-  push(progress: FamiliarProgress): void {
+  push(progress: FamiliarProgress, completeOnExit = false): void {
     if (this.error) return;
 
-    this.pending = progress;
+    this.pending = { progress, completeOnExit };
 
     this.sending ??= this.send()
       .catch((error: unknown) => {
@@ -45,12 +45,16 @@ export class FamiliarReports {
       .finally(() => {
         this.sending = undefined;
 
-        if (this.pending && !this.error) this.push(this.pending);
+        if (this.pending && !this.error)
+          this.push(this.pending.progress, this.pending.completeOnExit);
       });
   }
 
-  async finish(progress: FamiliarProgress): Promise<void> {
-    this.push(progress);
+  async finish(
+    progress: FamiliarProgress,
+    completeOnExit = false,
+  ): Promise<void> {
+    this.push(progress, completeOnExit);
 
     while (this.sending) await this.sending;
 
@@ -59,7 +63,7 @@ export class FamiliarReports {
 
   private async send(): Promise<void> {
     while (this.pending) {
-      const progress = this.pending;
+      const { progress, completeOnExit } = this.pending;
       this.pending = undefined;
       let outcome: ControlResult;
 
@@ -69,6 +73,7 @@ export class FamiliarReports {
           run: this.run,
           sequence: this.sequence++,
           progress,
+          ...(completeOnExit && { completeOnExit: true as const }),
         });
       } catch (error) {
         if (
@@ -154,7 +159,7 @@ export async function settlePlanReview(
   stopped: () => boolean,
   reports?: FamiliarReports,
 ): Promise<FamiliarProgress> {
-  let terminal = await review.finish(progress, answer);
+  let terminal = review.finish(progress, answer);
   let saved: string | undefined;
 
   const failure = (error: unknown) =>
@@ -169,13 +174,25 @@ export async function settlePlanReview(
       answer,
     );
 
-  const checkStop = async () => {
+  const checkStop = () => {
     if (!stopped() || terminal.status === 'stopped') return;
 
-    terminal = await review.finish(
+    terminal = review.finish(
       { ...progress, status: 'stopped', report: 'Plan review stopped.' },
       answer,
     );
+  };
+
+  const checkDraft = async () => {
+    if (terminal.status !== 'completed') return;
+
+    const reason = await review.draftError();
+
+    if (reason)
+      terminal = review.finish(
+        { ...progress, status: 'failed', report: reason },
+        '',
+      );
   };
 
   const save = async () => {
@@ -193,26 +210,32 @@ export async function settlePlanReview(
         activity: 'Checking plan review receipt',
       });
 
-      terminal = await review.finish(progress, answer);
+      await checkDraft();
     }
 
-    await checkStop();
+    checkStop();
     await save();
-
-    if (terminal.status === 'completed')
-      terminal = await review.finish(progress, answer);
-
-    await checkStop();
+    await checkDraft();
+    checkStop();
 
     if (saved !== terminal.report) await save();
   } catch (error) {
-    terminal = await failure(error);
+    terminal = failure(error);
   }
 
   try {
-    await reports?.finish(terminal);
+    const completeOnExit = terminal.status === 'completed';
+    await reports?.finish(terminal, completeOnExit);
+
+    if (completeOnExit) {
+      await checkDraft();
+      checkStop();
+
+      if (terminal.status !== 'completed') await reports?.finish(terminal);
+    }
   } catch (error) {
-    terminal = await failure(error);
+    terminal = failure(error);
+    checkStop();
   }
 
   if (saved !== terminal.report) await save();
@@ -230,7 +253,8 @@ export async function registerFamiliar(
   name: string,
   runtime: Extract<FamiliarAction, { kind: 'familiar-register' }>['runtime'],
   stopped: () => boolean,
-): Promise<void> {
+  planReview = false,
+) {
   const marker = familiarMarker({
     version: 1,
     conversation: binding.conversation,
@@ -250,13 +274,23 @@ export async function registerFamiliar(
 
     const outcome = await callControl(
       binding,
-      { kind: 'familiar-register', run, name, runtime },
+      {
+        kind: 'familiar-register',
+        run,
+        name,
+        runtime,
+        ...(planReview && { planReview: true as const }),
+      },
       deadline,
     );
 
     if (outcome.kind === 'error') throw new Error(outcome.message);
 
-    if (outcome.kind === 'familiar-registered') break;
+    if (outcome.kind === 'familiar-registered') {
+      if (stopped()) throw new Error('Familiar stopped before launch.');
+
+      return outcome.reviewScope;
+    }
 
     if (outcome.kind !== 'familiar-pending')
       throw new Error(
@@ -265,8 +299,6 @@ export async function registerFamiliar(
 
     await delay(100);
   }
-
-  if (stopped()) throw new Error('Familiar stopped before launch.');
 }
 
 const suspendedGapMs = 30_000;

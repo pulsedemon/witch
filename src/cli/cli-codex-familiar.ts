@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from '../agents/codex/adapter.js';
 import { nativeExecutable } from '../agents/executable.js';
@@ -211,6 +212,10 @@ export async function runCodexFamiliar(
     else if (event.type === 'tool' && !event.done && !event.append) {
       tools.add(event.id);
       progress = { ...progress, tools: tools.size, activity: event.title };
+    } else if (event.type === 'notice' && event.rejectedRequest && review) {
+      fail(new Error(event.text));
+
+      return;
     } else if (event.type === 'notice' && event.transient)
       progress = {
         ...progress,
@@ -268,7 +273,15 @@ export async function runCodexFamiliar(
   const suspension = watchSuspension();
 
   try {
-    await registerFamiliar(binding, run, name, 'codex', () => stopped);
+    const scope = await registerFamiliar(
+      binding,
+      run,
+      name,
+      'codex',
+      () => stopped,
+      !!review,
+    );
+
     registered = true;
 
     startup = setTimeout(() => {
@@ -285,7 +298,7 @@ export async function runCodexFamiliar(
 
     reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);
-    let prompt = review?.prompt ?? '';
+    let prompt = review ? await review.prepare(scope) : '';
 
     if (!review) {
       process.stdin.setEncoding('utf8');
@@ -425,51 +438,68 @@ export async function runCodexFamiliar(
       .filter(Boolean)
       .join('\n\n');
 
-    let terminal: FamiliarProgress = {
+    const terminal: FamiliarProgress = {
       ...progress,
       status,
       report,
+      ...(review && status === 'completed' && { model: answerModel }),
       // codex names no limit, so routing holds the whole runtime
       ...(exhausted && status === 'failed' && { exhausted: {} }),
     };
 
-    if (review) {
-      if (status === 'completed') terminal.model = answerModel;
+    const reporting = registered ? reports : undefined;
 
-      terminal = await settlePlanReview(
-        file,
-        review,
-        terminal,
-        answer,
-        () => stopped,
-        registered ? reports : undefined,
-      );
-    } else {
-      await saveFinalReport(file, terminal, answer);
-
-      if (registered) {
-        try {
-          await reports.finish(terminal);
-        } catch (error) {
-          terminal = {
-            ...terminal,
-            status: stopped ? 'stopped' : 'failed',
-            report: [report, errorMessage(error)].filter(Boolean).join('\n\n'),
-          };
-
-          await saveFinalReport(file, terminal, answer);
-        }
-      }
-    }
+    const result = review
+      ? await settlePlanReview(
+          file,
+          review,
+          terminal,
+          answer,
+          () => stopped,
+          reporting,
+        )
+      : await reportOrdinaryResult(
+          file,
+          terminal,
+          answer,
+          () => stopped,
+          reporting,
+        );
 
     process.stdout.write(
-      `${terminal.report ?? ''}\n\nSaved report: ${reportFile}\n`,
+      `${result.report ?? ''}\n\nSaved report: ${reportFile}\n`,
     );
 
-    return exitCode(terminal.status);
+    return exitCode(result.status);
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);
     await file.close();
+  }
+}
+
+async function reportOrdinaryResult(
+  file: FileHandle,
+  result: FamiliarProgress,
+  answer: string,
+  stopped: () => boolean,
+  reports?: FamiliarReports,
+) {
+  await saveFinalReport(file, result, answer);
+
+  try {
+    await reports?.finish(result);
+
+    return result;
+  } catch (error) {
+    const failed: FamiliarProgress = {
+      ...result,
+      status: stopped() ? 'stopped' : 'failed',
+      report: [result.report, errorMessage(error)].filter(Boolean).join('\n\n'),
+    };
+
+    await saveFinalReport(file, failed, answer);
+
+    return failed;
   }
 }

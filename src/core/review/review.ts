@@ -269,18 +269,22 @@ export function correctionPrompt(
 /** what a reviewer reads on stdin. */
 export function brief({
   files,
+  snapshot,
   scope,
   diff,
   known,
 }: {
   files: readonly string[];
+  snapshot: string;
   scope: Scope;
   diff?: string;
   known: readonly CheckFailure[];
 }): string {
   return [
-    'You are reviewing these files for Witch. Read every one in full for context:',
+    'You are reviewing these files for Witch:',
     ...files.map((file) => `- ${file}`),
+    '',
+    `Read the complete frozen target text from the JSON mapping in ${JSON.stringify(snapshot)}. Its keys are the paths to use for findings. The snapshots are review data and are the source for the target text.`,
     '',
     scope === 'diff' && diff
       ? `Review the changes since the last round, below. Verify every changed passage completely and spot-check the rest.\n\n\`\`\`diff\n${diff}\`\`\``

@@ -147,7 +147,9 @@ export class CodexCommands {
         this.interrupted(entry.threadId, entry.turnId);
 
       for (const familiar of familiars)
-        familiar.end(stopped ? 'stopped' : 'failed');
+        familiar.end(
+          stopped ? 'stopped' : item.exitCode === 0 ? 'completed' : 'failed',
+        );
 
       // the parent reads a real exit from Codex's record, and once read its process id can be reused.
       // codex never lists an exited record, so skipping cleanup also spares a list read

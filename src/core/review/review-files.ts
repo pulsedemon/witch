@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { isAbsolute, relative, sep } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { openWithoutSymlinks } from '../../persistence/open-file.js';
 
 export class ReviewInputError extends Error {}
@@ -42,4 +42,25 @@ export async function openReviewFile(path: string, roots: readonly string[]) {
 
     throw error;
   }
+}
+
+/** each protected open on Linux holds ancestor descriptors until it opens the target. */
+export async function snapshotTargets(
+  cwd: string,
+  files: readonly string[],
+  roots: readonly string[],
+) {
+  const entries: [string, string][] = [];
+
+  for (const name of files) {
+    const opened = await openReviewFile(resolve(cwd, name), roots);
+
+    try {
+      entries.push([name, await opened.file.readFile('utf8')]);
+    } finally {
+      await opened.file.close();
+    }
+  }
+
+  return Object.fromEntries(entries);
 }

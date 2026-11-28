@@ -9,6 +9,7 @@ import {
   insideDirectory,
   openReviewFile,
   ReviewInputError,
+  snapshotTargets,
 } from './review-files.js';
 import {
   afterCorrection,
@@ -21,7 +22,7 @@ import {
   scopeFor,
 } from './review.js';
 import type { Finding, Review, SitOut, Texts } from './review.js';
-import { checkTargets } from './review-checks.js';
+import { checkTargets, repositoryOf } from './review-checks.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Reviewer, ReviewerResult, Reviewers } from './reviewers.js';
 import type { Routed } from '../runtime/routing.js';
@@ -174,7 +175,7 @@ async function runReview(
     return;
   }
 
-  const roots = [await realpath(cwd)];
+  const roots = [await realpath((await repositoryOf(cwd)).root)];
   const files = await reviewTargets(argument, cwd, roots);
 
   if ('refused' in files) {
@@ -203,21 +204,7 @@ async function runReview(
 
   const directory = await mkdtemp(join(tmpdir(), 'review-'));
   const run = randomBytes(4).toString('hex');
-
-  const read = async (): Promise<Texts> =>
-    Object.fromEntries(
-      await Promise.all(
-        files.map(async (file) => {
-          const opened = await openReviewFile(resolve(cwd, file), roots);
-
-          try {
-            return [file, await opened.file.readFile('utf8')] as const;
-          } finally {
-            await opened.file.close();
-          }
-        }),
-      ),
-    );
+  const read = () => snapshotTargets(cwd, files, roots);
 
   const same = (a: Texts, b: Texts) =>
     files.every((file) => a[file] === b[file]);
@@ -261,7 +248,7 @@ async function runReview(
     const number = next.number;
     const incomplete = `round ${number} did not complete`;
     let texts = await read();
-    let failures = await checkTargets(cwd, files);
+    let failures = await checkTargets(cwd, files, texts);
 
     // a second pass sends failures the first correction introduced
     for (let pass = 0; pass < 2; pass++) {
@@ -277,7 +264,7 @@ async function runReview(
         return stopped(incomplete);
 
       texts = await read();
-      failures = await checkTargets(cwd, files);
+      failures = await checkTargets(cwd, files, texts);
     }
 
     known = failures;
@@ -338,11 +325,14 @@ async function runReview(
     );
 
     const briefFile = join(directory, `round-${number}-brief.md`);
+    const snapshot = join(directory, `round-${number}-targets.json`);
+    await writeFile(snapshot, JSON.stringify(texts), { mode: 0o600 });
 
     await writeFile(
       briefFile,
       brief({
         files,
+        snapshot,
         scope,
         ...(scope === 'diff' && delta ? { diff: delta.diff } : {}),
         known: reported,
@@ -413,7 +403,9 @@ async function runReview(
     const corrected = await read();
 
     const remaining = async () =>
-      findings.length ? (await checkTargets(cwd, files)).length : known.length;
+      findings.length
+        ? (await checkTargets(cwd, files, corrected)).length
+        : known.length;
 
     if ('stop' in decided)
       return outcome(decided.stop, true, await remaining());

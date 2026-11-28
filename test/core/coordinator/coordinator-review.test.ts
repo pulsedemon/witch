@@ -5,6 +5,7 @@ import {
   readFile,
   rm,
   symlink,
+  unlink,
   writeFile,
 } from 'node:fs/promises';
 import { getEventListeners } from 'node:events';
@@ -574,7 +575,29 @@ test('manual review refuses a checkout link to an outside file before routing', 
     /outside the allowed directories/,
   );
 
+  assert.equal(h.actions.length, 0);
   assert.equal(h.rounds.length, 0);
+});
+
+test('reviewers receive the checked snapshot even when a target is redirected during dispatch', async (t) => {
+  const h = await harness(t);
+  const outside = join(h.cwd, '..', 'outside.md');
+  await writeFile(outside, 'Outside the checkout.\n');
+
+  h.state.during = async () => {
+    await unlink(join(h.cwd, 'plan.md'));
+    await symlink(outside, join(h.cwd, 'plan.md'));
+    const [, snapshot] = /JSON mapping in "([^"]+)"/.exec(h.rounds[0]!.brief)!;
+    const texts = JSON.parse(await readFile(snapshot!, 'utf8'));
+    assert.deepEqual(texts, { 'plan.md': `${target.join('\n')}\n` });
+  };
+
+  await assert.rejects(
+    h.coordinator.review('plan.md'),
+    /outside the allowed directories/,
+  );
+
+  assert.equal(h.correctionPrompts().length, 0);
 });
 
 test('quotes or a backslash keep a space inside a target name', async (t) => {

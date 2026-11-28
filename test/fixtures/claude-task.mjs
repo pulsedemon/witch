@@ -46,7 +46,10 @@ for (const id of ['read-a', 'read-a', 'read-b'])
 process.stderr.write('native stderr\n');
 const answer = '{"verdict":"final"}';
 
-emit({
+const deniedRead =
+  mode === 'claude-denied' || mode === 'claude-denied-then-result';
+
+const result = {
   type: 'result',
   subtype: 'success',
   session_id,
@@ -57,9 +60,9 @@ emit({
       ? answer
       : 'Full review.\n'.repeat(7000),
   permission_denials:
-    mode === 'denied' || mode === 'claude-denied'
+    mode === 'denied' || deniedRead
       ? [
-          mode === 'claude-denied'
+          deniedRead
             ? {
                 tool_name: 'Read',
                 tool_use_id: 'denied-read',
@@ -72,7 +75,23 @@ emit({
               },
         ]
       : [],
-});
+};
+
+emit(result);
+
+if (mode === 'claude-denied-then-result')
+  emit({ ...result, permission_denials: [] });
+
+if (mode === 'claude-rate-after')
+  emit({
+    type: 'rate_limit_event',
+    session_id,
+    rate_limit_info: {
+      status: 'rejected',
+      rateLimitType: 'seven_day',
+      resetsAt: Math.floor(Date.now() / 1000) + 3600,
+    },
+  });
 
 writeFileSync('result-sent', 'yes');
 

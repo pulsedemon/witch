@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
 import { test, vi } from 'vitest';
 import type { FamiliarAction } from '../../src/agents/familiar-report.js';
 import { familiarMarker } from '../../src/agents/familiar-report.js';
@@ -111,6 +112,21 @@ test('familiar reports bypass a blocked task mailbox and preserve active-session
     );
 
     assert.equal(client.coordinator.snapshot.subagents[0]!.tools, 7);
+
+    const review = await callControl(binding, {
+      kind: 'familiar-register',
+      run: randomUUID(),
+      name: 'Plan review',
+      runtime: 'codex',
+      planReview: true,
+    });
+
+    assert.equal(review.kind, 'familiar-registered');
+
+    assert.deepEqual(review.reviewScope, {
+      cwd: client.coordinator.snapshot.conversation!.cwd,
+      scratch: dirname(dirname(binding.directory)),
+    });
 
     const stale = await callControl(
       { ...binding, activation: randomUUID() },

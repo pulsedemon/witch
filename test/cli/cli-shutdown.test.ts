@@ -218,6 +218,10 @@ async function check(
 
         return !!current.process && !sameProcess(current.process, native);
       });
+
+      await wait('replacement terminal input', () =>
+        exists(`${restartGate}.input-ready`),
+      );
     }
 
     if (action !== 'exit') {

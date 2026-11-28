@@ -30,7 +30,7 @@ function settings(lean: boolean) {
   });
 }
 
-/** the report file keeps only the latest result, and native output can't tell an acknowledgement from an answer. */
+/** a later successful nonempty result replaces the saved answer, and native output cannot identify an acknowledgement. */
 export const repeatAnswerInstruction =
   'Your last reply is saved as your final answer. If a background task notification starts a turn after you have answered, end that turn by repeating your complete answer exactly, with nothing else.';
 
@@ -120,18 +120,31 @@ export async function runClaudeFamiliar(
   process.on('SIGINT', interrupt);
   process.on('SIGTERM', stop);
   const suspension = watchSuspension();
+  let registered = false;
+
+  const reports = new FamiliarReports(binding, run, (error) => {
+    task.failed(error.message);
+    terminate('SIGTERM');
+  });
+
+  const task = new ClaudeTask(process.cwd(), (progress) =>
+    reports.push(progress),
+  );
 
   try {
-    await registerFamiliar(binding, run, name, 'claude', () => !!stopped);
-
-    const reports = new FamiliarReports(binding, run, (error) => {
-      task.failed(error.message);
-      terminate('SIGTERM');
-    });
-
-    const task = new ClaudeTask(process.cwd(), (progress) =>
-      reports.push(progress),
+    const scope = await registerFamiliar(
+      binding,
+      run,
+      name,
+      'claude',
+      () => !!stopped,
+      !!review,
     );
+
+    registered = true;
+    const prompt = await review?.prepare(scope);
+
+    if (stopped) throw new Error('Familiar stopped before launch.');
 
     const claude = nativeExecutable('claude');
 
@@ -165,7 +178,7 @@ export async function runClaudeFamiliar(
         task.failed(`Could not send the plan draft: ${error.message}`),
       );
 
-      child.stdin!.end(review.prompt);
+      child.stdin!.end(prompt);
     }
 
     child.once('exit', () => {
@@ -218,6 +231,7 @@ export async function runClaudeFamiliar(
           ...terminal,
           model: result?.model ?? terminal.model,
           ...(reason && { status: 'failed', report: reason }),
+          exhausted: task.pendingExhaustion,
         };
       }
 
@@ -256,7 +270,14 @@ export async function runClaudeFamiliar(
     };
 
     if (review)
-      await settlePlanReview(file, review, progress, '', () => !!stopped);
+      await settlePlanReview(
+        file,
+        review,
+        progress,
+        '',
+        () => !!stopped,
+        registered ? reports : undefined,
+      );
     else await saveFinalReport(file, progress, '');
 
     process.stderr.write(`Saved report: ${reportFile}\n`);

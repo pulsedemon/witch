@@ -43,12 +43,14 @@ export const familiarActionSchema = z.discriminatedUnion('kind', [
     name: z.string().trim().min(1),
     /** the wrapper's runtime, since either runtime's session can launch either wrapper. */
     runtime: z.enum(['claude', 'codex']),
+    planReview: z.literal(true).optional(),
   }),
   z.object({
     kind: z.literal('familiar-update'),
     run: z.string().uuid(),
     sequence: z.number().int().nonnegative(),
     progress: familiarProgressSchema,
+    completeOnExit: z.literal(true).optional(),
   }),
   z.object({
     kind: z.literal('familiar-request'),
@@ -69,10 +71,20 @@ export const familiarActionSchema = z.discriminatedUnion('kind', [
 
 export type FamiliarAction = z.infer<typeof familiarActionSchema>;
 
+const reviewScopeSchema = z.object({
+  cwd: z.string().min(1),
+  scratch: z.string().min(1),
+});
+
+export type ReviewScope = z.infer<typeof reviewScopeSchema>;
+
 export const familiarOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({
+    kind: z.literal('familiar-registered'),
+    reviewScope: reviewScopeSchema.optional(),
+  }),
+  z.object({
     kind: z.enum([
-      'familiar-registered',
       'familiar-pending',
       'familiar-updated',
       'familiar-request-pending',

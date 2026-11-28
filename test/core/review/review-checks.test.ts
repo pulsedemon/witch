@@ -29,6 +29,20 @@ async function check(
 
 const a = 'function a() {\n  b();\n  c();\n}\n';
 
+test('mechanical checks use the selected snapshot instead of rereading their target', async () => {
+  const cwd = await scratch('witch-review-snapshot-');
+  await writeFile(join(cwd, 'plan.md'), '# On disk\n');
+
+  const failures = await checkTargets(cwd, ['plan.md'], {
+    'plan.md': 'see [rules](missing.md#target)\n',
+  });
+
+  assert.deepEqual(
+    failures.map(({ message }) => message),
+    ['link target missing.md does not exist'],
+  );
+});
+
 test('link to a missing heading fails', async () => {
   assert.deepEqual(
     await check({

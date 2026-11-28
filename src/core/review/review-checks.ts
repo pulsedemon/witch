@@ -45,9 +45,16 @@ type Fail = (line: number, message: string) => void;
 export async function checkTargets(
   cwd: string,
   files: readonly string[],
+  snapshot: Readonly<Record<string, string>> = {},
 ): Promise<CheckFailure[]> {
   const repository = await repositoryOf(cwd);
-  const cache = new Map<string, Promise<string | undefined>>();
+
+  const cache = new Map<string, Promise<string | undefined>>(
+    Object.entries(snapshot).map(([file, text]) => [
+      resolve(cwd, file),
+      Promise.resolve(text),
+    ]),
+  );
 
   const local = (path: string) => {
     let text = cache.get(path);
@@ -773,7 +780,7 @@ interface Repository {
   slug?: string;
 }
 
-async function repositoryOf(cwd: string): Promise<Repository> {
+export async function repositoryOf(cwd: string): Promise<Repository> {
   const git = (...args: string[]) =>
     execute('git', ['-C', cwd, ...args]).then(
       ({ stdout }) => stdout.trim(),

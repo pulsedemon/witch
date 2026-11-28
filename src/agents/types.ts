@@ -299,7 +299,12 @@ export type AgentEvent =
   /** confirmed exhaustion in a native continuation outside the dispatched turn. */
   | { type: 'exhausted'; limit?: ExhaustedLimit }
   /** a transient notice is a diagnostic of this connection, shown but not saved. */
-  | { type: 'notice'; text: string; transient?: boolean };
+  | {
+      type: 'notice';
+      text: string;
+      transient?: boolean;
+      rejectedRequest?: true;
+    };
 
 export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';

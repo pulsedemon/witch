@@ -191,7 +191,7 @@ export class ClaudeCommands {
     entry.status = status;
 
     for (const familiar of admitted(entry.familiars))
-      familiar.end(status === 'stopped' ? 'stopped' : 'failed');
+      familiar.end(status === 'running' ? 'failed' : status);
 
     this.publish(entry);
 

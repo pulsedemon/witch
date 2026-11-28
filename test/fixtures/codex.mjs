@@ -1034,6 +1034,13 @@ for await (const line of lines) {
           },
         });
       } else {
+        if (mode === 'unknown-request')
+          send({
+            id: 'review-unsupported',
+            method: 'review/unknown',
+            params: {},
+          });
+
         notify('item/completed', {
           turnId: 'turn-1',
           item: {
