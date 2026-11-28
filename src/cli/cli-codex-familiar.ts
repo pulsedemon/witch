@@ -35,7 +35,7 @@ import type { ControlBinding } from '../persistence/control.js';
 import { elapsed } from '../ui/status/elapsed.js';
 import type { PlanReview } from './plan-review.js';
 
-/** bounds registration to the turn being sent; a running turn can stay silent for minutes. */
+/** bounds preparation and connection through the initial spell listing. */
 const startupDeadlineMs = 180_000;
 
 /** the wrapper owns transport and input; native configuration remains Codex's. */
@@ -305,7 +305,7 @@ export async function runCodexFamiliar(
 
     reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);
-    const prepared = await attempt?.prepare();
+    const prepared = await attempt?.prepare(abort.signal);
     let prompt = prepared?.prompt ?? '';
 
     if (!review) {
@@ -314,6 +314,7 @@ export async function runCodexFamiliar(
       for await (const chunk of process.stdin) prompt += chunk as string;
     }
 
+    abort.signal.throwIfAborted();
     waiting = 'Codex to start';
     const codex = nativeExecutable('codex');
 

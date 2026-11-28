@@ -105,8 +105,7 @@ export class FamiliarRun {
   private sequence = -1;
   /** when the carrying command ended. */
   private endedAt?: number;
-  /** whether the terminal report has been published. */
-  private reported = false;
+  private progressClosed = false;
   readonly planReview: boolean;
   /** a plan review can be acknowledged before the carrying command's exit confirms it. */
   private completion?: {
@@ -158,7 +157,7 @@ export class FamiliarRun {
       this.planReview && action.progress.status === 'completed';
 
     if (
-      this.reported ||
+      this.progressClosed ||
       (stagesCompletion && this.endedAt !== undefined) ||
       (late && performance.now() - this.endedAt! > lateProgressMs)
     )
@@ -195,7 +194,7 @@ export class FamiliarRun {
     this.subagent = { ...this.subagent, ...action.progress };
 
     if (this.subagent.status !== 'running') {
-      this.reported = true;
+      this.progressClosed = true;
       this.requests.resolveAll();
     }
 
@@ -204,11 +203,8 @@ export class FamiliarRun {
     return { kind: 'familiar-updated' };
   }
 
-  /** a successful command exit confirms a staged plan review. an ordinary terminal report can still arrive after its command ends. */
+  /** a zero exit starts receipt verification. ordinary terminal reports can arrive after command exit. */
   end(status: 'completed' | 'stopped' | 'failed'): void {
-    if (this.planReview && this.endedAt !== undefined && status === 'completed')
-      return;
-
     this.endedAt ??= performance.now();
     this.requests.resolveAll();
 
@@ -218,7 +214,7 @@ export class FamiliarRun {
     this.completion = undefined;
 
     if (completed) {
-      this.reported = true;
+      this.progressClosed = true;
       void this.confirm(completed.progress, completed.receipt);
 
       return;

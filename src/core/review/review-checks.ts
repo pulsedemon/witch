@@ -4,6 +4,7 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { decodeHTMLStrict } from 'entities';
 import { gone, unlessGone } from '../../persistence/json.js';
+import { runCommand } from '../repository/command.js';
 import {
   insideDirectory,
   openReviewFile,
@@ -818,8 +819,8 @@ interface Repository {
   slug?: string;
 }
 
-const repositoryValue = (cwd: string, ...args: string[]) =>
-  execute('git', ['-C', cwd, ...args]).then(
+const repositoryValue = (cwd: string, args: string[], signal?: AbortSignal) =>
+  runCommand('git', args, { cwd, signal, timeout: 60_000 }).then(
     ({ stdout }) => stdout.replace(/\n$/, ''),
     (error: { stderr?: unknown }) => {
       // no repository means the working directory is the root, and no origin leaves blob links unchecked.
@@ -830,14 +831,17 @@ const repositoryValue = (cwd: string, ...args: string[]) =>
     },
   );
 
-export async function reviewRoot(cwd: string) {
-  return (await repositoryValue(cwd, 'rev-parse', '--show-toplevel')) ?? cwd;
+export async function reviewRoot(cwd: string, signal?: AbortSignal) {
+  return (
+    (await repositoryValue(cwd, ['rev-parse', '--show-toplevel'], signal)) ??
+    cwd
+  );
 }
 
 async function repositoryOf(cwd: string): Promise<Repository> {
   const [root, origin] = await Promise.all([
     reviewRoot(cwd),
-    repositoryValue(cwd, 'remote', 'get-url', 'origin'),
+    repositoryValue(cwd, ['remote', 'get-url', 'origin']),
   ]);
 
   const match =

@@ -92,6 +92,7 @@ export async function runClaudeFamiliar(
   const argv = claudeArguments(args, lean);
   let file = review ? undefined : await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
+  const preparation = new AbortController();
   let stopped: NodeJS.Signals | undefined;
   let child: ReturnType<typeof spawn> | undefined;
   let escalation: ReturnType<typeof setTimeout> | undefined;
@@ -109,11 +110,13 @@ export async function runClaudeFamiliar(
 
   const interrupt = () => {
     stopped = 'SIGINT';
+    preparation.abort();
     terminate('SIGINT');
   };
 
   const stop = () => {
     stopped = 'SIGTERM';
+    preparation.abort();
     terminate('SIGTERM');
   };
 
@@ -146,7 +149,7 @@ export async function runClaudeFamiliar(
 
     if (attempt) file = attempt.file;
 
-    const prepared = await attempt?.prepare();
+    const prepared = await attempt?.prepare(preparation.signal);
 
     if (stopped) throw new Error('Familiar stopped before launch.');
 

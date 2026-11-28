@@ -8,6 +8,7 @@ import {
   copyFile,
   mkdir,
   readFile,
+  rename,
   symlink,
   unlink,
   writeFile,
@@ -123,6 +124,7 @@ type Fault =
   | 'bad-start-reply'
   | 'receipt-at-publication'
   | 'hold-carrying-exit'
+  | 'stalled-checkout'
   | 'draft-and-receipt-removed'
   | 'legacy-then-blank'
   | 'missing-draft-and-write'
@@ -175,6 +177,7 @@ const probeFaults = new Set<Fault>([
   'missing-draft-and-write',
   'draft-after-save',
   'grow-on-read',
+  'stalled-checkout',
 ]);
 
 async function launch(
@@ -186,16 +189,21 @@ async function launch(
   const checkout = await scratch('witch-review-checkout-');
 
   const cwd =
-    fault === 'checkout-input'
+    fault === 'checkout-input' || fault === 'stalled-checkout'
       ? join(checkout, 'nested')
       : fault === 'outside-cwd-input'
         ? await scratch('witch-review-caller-')
         : checkout;
 
-  if (fault === 'checkout-input') {
+  if (fault === 'checkout-input' || fault === 'stalled-checkout') {
     execFileSync('git', ['init', '--quiet', checkout]);
     await mkdir(cwd);
   }
+
+  if (fault === 'stalled-checkout')
+    await writeFile(join(root, 'git'), '#!/bin/sh\nexec /bin/sleep 1000\n', {
+      mode: 0o700,
+    });
 
   const native = join(root, runtime);
 
@@ -384,6 +392,9 @@ async function launch(
       env: {
         ...process.env,
         TMPDIR: fault === 'wrong-mailbox' ? checkout : root,
+        ...(fault === 'stalled-checkout' && {
+          PATH: `${root}:${process.env.PATH ?? ''}`,
+        }),
         ...(probe && {
           WITCH_TEST_PLAN_REVIEW: JSON.stringify({ fault, root, draftFile }),
         }),
@@ -558,18 +569,51 @@ test('an unreadable brief leaves a failed receipt tied to the readable draft', a
   });
 });
 
-test('Witch refuses completion when the receipt disappears after the wrapper exits', async (t) => {
-  const { end, outcome, receipt, status } = await launch(
-    t,
-    'codex',
-    'hold-carrying-exit',
-  );
+for (const change of [
+  'remove',
+  'replace',
+  'edit',
+  'move outside scratch',
+] as const) {
+  test(`${change} after the wrapper exits prevents host completion`, async (t) => {
+    const { end, outcome, receipt, status } = await launch(
+      t,
+      'codex',
+      'hold-carrying-exit',
+    );
 
-  assert.equal((await outcome(0)).status, 'completed');
-  assert.equal(status(), 'running');
-  await unlink(receipt);
-  end(0);
-  await until('the missing receipt failure', () => status() === 'failed');
+    assert.equal((await outcome(0)).status, 'completed');
+    assert.equal(status(), 'running');
+    const original = await readFile(receipt);
+
+    if (change === 'edit')
+      await writeFile(receipt, Buffer.alloc(original.length, 65));
+    else if (change === 'move outside scratch') {
+      const outside = join(
+        await scratch('witch-receipt-outside-'),
+        'receipt.json',
+      );
+
+      await rename(receipt, outside);
+      await symlink(outside, receipt);
+    } else if (change === 'replace') {
+      await rename(receipt, `${receipt}.original`);
+      await writeFile(receipt, original);
+    } else await unlink(receipt);
+
+    end(0);
+    await until('the failed receipt verification', () => status() === 'failed');
+  });
+}
+
+test('Codex startup timeout stops a stalled checkout lookup before launch', async (t) => {
+  const { checkout, outcome } = await launch(t, 'codex', 'stalled-checkout');
+  const receipt = await outcome(1);
+  assert.match(receipt.reason, /waiting for the plan draft and brief/);
+
+  await assert.rejects(access(join(checkout, 'launched.json')), {
+    code: 'ENOENT',
+  });
 });
 
 test('draft failure keeps its diagnostic when the receipt disappears too', async (t) => {

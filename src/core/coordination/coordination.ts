@@ -371,7 +371,7 @@ export class SessionCoordination {
               ...outcome,
               reviewScope: {
                 cwd: active.conversation.cwd,
-                scratch: dirname(directory),
+                scratch: dirname(coordination.host.directory),
               },
             };
 

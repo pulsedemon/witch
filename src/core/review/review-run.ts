@@ -67,6 +67,14 @@ interface ReviewOutcome {
   directory: string;
 }
 
+function isReviewAbort(error: unknown, signal: AbortSignal): boolean {
+  return (
+    signal.aborted &&
+    (error === signal.reason ||
+      (error instanceof Error && error.cause === signal.reason))
+  );
+}
+
 /** `/review`'s rounds as one operation; true once they settle or stop at a regression and the operation settles cleanly. */
 export async function runReviewCommand(
   argument: string,
@@ -75,7 +83,11 @@ export async function runReviewCommand(
   let outcome: ReviewOutcome | undefined;
 
   await host.operate(async () => {
-    outcome = await runReview(argument, host);
+    outcome = await runReview(argument, host).catch((error: unknown) => {
+      if (!isReviewAbort(error, host.signal)) throw error;
+
+      return undefined;
+    });
   });
 
   if (!outcome?.ok || host.signal.aborted || !host.idle()) return false;
@@ -93,6 +105,7 @@ async function reviewTargets(
   argument: string,
   cwd: string,
   roots: readonly string[],
+  signal: AbortSignal,
 ): Promise<string[] | { refused: string }> {
   // quotes or a backslash keep a space inside one name
   const named = [
@@ -110,6 +123,7 @@ async function reviewTargets(
   const files: string[] = [];
 
   for (const file of named) {
+    signal.throwIfAborted();
     // file completion inserts `@path`
     const path = resolve(cwd, file.replace(/^@/, ''));
     const inside = relative(cwd, path);
@@ -176,8 +190,8 @@ async function runReview(
     return;
   }
 
-  const roots = [await realpath(await reviewRoot(cwd))];
-  const files = await reviewTargets(argument, cwd, roots);
+  const roots = [await realpath(await reviewRoot(cwd, signal))];
+  const files = await reviewTargets(argument, cwd, roots, signal);
 
   if ('refused' in files) {
     host.notice(files.refused);
@@ -205,7 +219,7 @@ async function runReview(
 
   const directory = await mkdtemp(join(tmpdir(), 'review-'));
   const run = randomBytes(4).toString('hex');
-  const read = () => snapshotTargets(cwd, files, roots);
+  const read = () => snapshotTargets(cwd, files, roots, signal);
 
   const same = (a: Texts, b: Texts) =>
     files.every((file) => a[file] === b[file]);
@@ -367,12 +381,7 @@ async function runReview(
       },
       signal,
     ).catch((error: unknown) => {
-      if (
-        signal.aborted &&
-        (error === signal.reason ||
-          (error instanceof Error && error.cause === signal.reason))
-      )
-        return undefined;
+      if (isReviewAbort(error, signal)) return undefined;
 
       throw error;
     });

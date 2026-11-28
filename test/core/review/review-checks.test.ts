@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import {
   chmod,
   access,
   mkdir,
+  open,
   readFile,
   realpath,
+  rename,
   symlink,
+  unlink,
   writeFile,
 } from 'node:fs/promises';
 import type * as NativeFiles from 'node:fs/promises';
@@ -20,9 +24,12 @@ import {
 import {
   snapshotTargets,
   withTargetSnapshots,
+  receiptFile,
+  verifyReviewReceipt,
 } from '../../../src/core/review/review-files.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { identity } from '../../fixtures/git.js';
+import { within } from '../../fixtures/within.js';
 
 const execute = promisify(execFile);
 vi.mock('node:fs/promises', { spy: true });
@@ -48,6 +55,94 @@ async function check(
 }
 
 const a = 'function a() {\n  b();\n  c();\n}\n';
+
+test('mechanical checks skip a Unix socket citation', async () => {
+  const root = await scratch('witch-review-socket-');
+
+  const child = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      "import { createServer } from 'node:net'; createServer().listen('n.sock', () => console.log('ready'));",
+    ],
+    { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+
+  const closed = once(child, 'close');
+
+  try {
+    await within(once(child.stdout, 'data'), 3000, 'the socket');
+    await writeFile(join(root, 'plan.md'), '`n.sock:1`\n');
+    assert.deepEqual(await checkFiles(root, ['plan.md']), []);
+  } finally {
+    child.kill();
+    await closed;
+  }
+});
+
+test('receipt verification keeps the original canonical scratch root', async () => {
+  const root = await scratch('witch-receipt-scope-');
+  const bound = join(root, 'bound');
+  const moved = join(root, 'moved');
+  await mkdir(bound);
+  const path = join(bound, 'receipt.json');
+  const handle = await open(path, 'wx');
+  const expected = '{"findings":[]}';
+
+  try {
+    await handle.writeFile(expected);
+    const receipt = await receiptFile(path, handle);
+    await rename(bound, moved);
+    await symlink(moved, bound);
+
+    await assert.rejects(
+      verifyReviewReceipt(receipt, expected, bound),
+      /outside the allowed directories/,
+    );
+  } finally {
+    await handle.close();
+  }
+});
+
+test('receipt verification checks the name again after reading the original file', async () => {
+  const root = await scratch('witch-receipt-recheck-');
+  const path = join(root, 'receipt.json');
+  const expected = '{"findings":[]}';
+  const handle = await open(path, 'wx');
+
+  try {
+    await handle.writeFile(expected);
+    const receipt = await receiptFile(path, handle);
+    const prototype = Object.getPrototypeOf(handle) as NativeFiles.FileHandle;
+    const read = prototype.read;
+
+    const spy = vi
+      .spyOn(prototype, 'read')
+      .mockImplementationOnce(async function (
+        this: NativeFiles.FileHandle,
+        ...args: Parameters<NativeFiles.FileHandle['read']>
+      ) {
+        const result = (await Reflect.apply(read, this, args)) as Awaited<
+          ReturnType<NativeFiles.FileHandle['read']>
+        >;
+
+        await unlink(path);
+
+        return result;
+      });
+
+    try {
+      await assert.rejects(verifyReviewReceipt(receipt, expected, root), {
+        code: 'ENOENT',
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  } finally {
+    await handle.close();
+  }
+});
 
 test('the review root retains the exact checkout name from Git', async () => {
   const root = await scratch('witch-review-');

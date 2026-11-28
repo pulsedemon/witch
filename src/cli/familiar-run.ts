@@ -200,8 +200,7 @@ export async function settlePlanReview(
 
     try {
       receipt ??= await receiptFile(reportFile, file);
-
-      return await review.receiptError(receipt, terminal.report);
+      await review.verifyReceipt(receipt, terminal.report);
     } catch (error) {
       return `Could not verify the plan review receipt: ${errorMessage(error)}`;
     }

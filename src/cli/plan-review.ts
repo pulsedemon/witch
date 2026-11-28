@@ -67,7 +67,7 @@ export function createPlanReview(
           'Plan review requires the bound Witch familiar mailbox.',
         );
 
-      if ((await realpath(scope.scratch)) !== scratch)
+      if (scope.scratch !== scratch)
         throw new Error('Witch reported a different review scratch directory.');
 
       const destination = join(await realpath(dirname(path)), basename(path));
@@ -83,7 +83,10 @@ export function createPlanReview(
         0o600,
       );
 
-      return { file, prepare: () => prepare(scope) };
+      return {
+        file,
+        prepare: (signal?: AbortSignal) => prepare(scope, signal),
+      };
     },
     async draftError() {
       try {
@@ -93,12 +96,8 @@ export function createPlanReview(
         return `Could not reread the plan draft: ${errorMessage(error)}`;
       }
     },
-    async receiptError(receipt: ReviewReceiptFile, expected: string) {
-      try {
-        await verifyReviewReceipt(receipt, expected, scratch);
-      } catch (error) {
-        return `Could not verify the plan review receipt: ${errorMessage(error)}`;
-      }
+    verifyReceipt(receipt: ReviewReceiptFile, expected: string) {
+      return verifyReviewReceipt(receipt, expected, scratch);
     },
     finish(progress: FamiliarProgress, answer: string) {
       const findings =
@@ -133,14 +132,21 @@ export function createPlanReview(
     },
   } as const;
 
-  async function prepare(scope: ReviewScope) {
+  async function prepare(scope: ReviewScope, signal?: AbortSignal) {
     const [cwd, caller] = await Promise.all([
       realpath(scope.cwd),
       realpath(process.cwd()),
     ]);
 
+    if (cwd !== scope.cwd)
+      throw new Error(
+        'The admitted review directory changed after registration.',
+      );
+
+    signal?.throwIfAborted();
+
     if (cwd !== caller) {
-      const checkout = await realpath(await reviewRoot(caller));
+      const checkout = await realpath(await reviewRoot(caller, signal));
 
       if (
         !insideDirectory(cwd, caller) ||

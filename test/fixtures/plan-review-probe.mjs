@@ -8,7 +8,12 @@ const { fault, root, draftFile } = JSON.parse(
   process.env.WITCH_TEST_PLAN_REVIEW,
 );
 
-if (fault === 'stop-at-check' || fault === 'stop-at-publication') {
+if (fault === 'stalled-checkout') {
+  const timer = globalThis.setTimeout;
+
+  globalThis.setTimeout = (callback, milliseconds, ...args) =>
+    timer(callback, milliseconds === 180_000 ? 500 : milliseconds, ...args);
+} else if (fault === 'stop-at-check' || fault === 'stop-at-publication') {
   process.on('SIGTERM', () =>
     setImmediate(() => writeFileSync(join(root, 'stop-observed'), 'yes')),
   );
