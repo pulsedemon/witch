@@ -6,6 +6,7 @@ import { errorMessage } from './errors.js';
 import { parseCommand, runControl, writeControl } from './cli/cli-control.js';
 import { runClaudeFamiliar } from './cli/cli-familiar.js';
 import { runCodexFamiliar } from './cli/cli-codex-familiar.js';
+import { preparePlanReview } from './cli/plan-review.js';
 
 const defaultState = join(homedir(), '.witch');
 
@@ -112,9 +113,7 @@ if (familiar) {
     const { runtime, binding, name, reportFile, args, lean, review } = familiar;
 
     const planReview = review
-      ? await (
-          await import('./cli/plan-review.js')
-        ).preparePlanReview(runtime, review, reportFile)
+      ? await preparePlanReview(runtime, review, reportFile, binding)
       : undefined;
 
     process.exitCode = await (

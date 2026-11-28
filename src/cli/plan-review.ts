@@ -1,42 +1,89 @@
 import { isUtf8 } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { realpath, writeFile } from 'node:fs/promises';
+import { basename, dirname } from 'node:path';
 import type { FamiliarProgress } from '../agents/familiar-report.js';
+import { openReviewFile } from '../core/review/review-files.js';
 import { findingsFormat, parseFindings } from '../core/review/review.js';
 import { errorMessage } from '../errors.js';
+import type { ControlBinding } from '../persistence/control.js';
 
 const digest = (bytes: Buffer) =>
   createHash('sha256').update(bytes).digest('hex');
+
+const inputLimit = 2 * 1024 * 1024;
+
+async function readInput(path: string, roots: readonly string[]) {
+  const { file, size } = await openReviewFile(path, roots);
+
+  try {
+    if (size > inputLimit)
+      throw new Error(`Plan review inputs must fit within 2 MiB: ${path}`);
+
+    const buffer = Buffer.allocUnsafe(size + 1);
+    let offset = 0;
+
+    while (offset < buffer.length) {
+      const { bytesRead } = await file.read(
+        buffer,
+        offset,
+        buffer.length - offset,
+      );
+
+      if (!bytesRead) return buffer.subarray(0, offset);
+
+      offset += bytesRead;
+    }
+
+    throw new Error(`Plan review input grew while being read: ${path}`);
+  } finally {
+    await file.close();
+  }
+}
 
 export async function preparePlanReview(
   runtime: 'claude' | 'codex',
   input: { plan: string; brief: string; model: string },
   reportFile: string,
+  binding: ControlBinding,
 ) {
   let planSha256: string | null = null;
   let draft: Buffer;
   let context: Buffer;
+  let roots: string[];
 
   try {
-    draft = await readFile(input.plan);
+    // the familiar mailbox is nested under the session's scratch/control directory
+    roots = await Promise.all([
+      realpath(process.cwd()),
+      realpath(dirname(dirname(binding.directory))),
+    ]);
+    draft = await readInput(input.plan, roots);
     planSha256 = digest(draft);
-    context = await readFile(input.brief);
+    context = await readInput(input.brief, roots);
 
     if (!isUtf8(draft) || !isUtf8(context))
       throw new Error('The plan draft and brief must use UTF-8.');
   } catch (error) {
-    await writeFile(
-      reportFile,
-      JSON.stringify({
-        planSha256,
-        runtime,
-        model: null,
-        status: 'failed',
-        reason: errorMessage(error),
-      }),
-      { flag: 'wx', mode: 0o600 },
-    );
+    const reason = errorMessage(error);
+
+    try {
+      await writeFile(
+        reportFile,
+        JSON.stringify({
+          planSha256,
+          runtime,
+          model: null,
+          status: 'failed',
+          reason,
+        }),
+        { flag: 'wx', mode: 0o600 },
+      );
+    } catch (writeError) {
+      throw new Error(
+        `${reason}\nCould not save the receipt: ${errorMessage(writeError)}`,
+      );
+    }
 
     throw error;
   }
@@ -98,7 +145,7 @@ export async function preparePlanReview(
       };
 
     try {
-      if (digest(await readFile(input.plan)) !== planSha256)
+      if (digest(await readInput(input.plan, roots)) !== planSha256)
         return { invalid: 'The plan draft changed during review.' };
     } catch (error) {
       return {

@@ -205,11 +205,21 @@ export async function runClaudeFamiliar(
 
     if (review) {
       const result = task.latestAnswer;
+      let progress = terminal;
 
-      const progress =
-        terminal.status === 'completed'
-          ? { ...terminal, model: result?.model }
-          : terminal;
+      if (terminal.status === 'completed') {
+        const reason = task.permissionDenials.length
+          ? task.permissionDenials.join('\n')
+          : !result
+            ? 'Claude exited before the final plan review turn returned a result.'
+            : undefined;
+
+        progress = {
+          ...terminal,
+          model: result?.model ?? terminal.model,
+          ...(reason && { status: 'failed', report: reason }),
+        };
+      }
 
       terminal = await settlePlanReview(
         file,
@@ -238,6 +248,7 @@ export async function runClaudeFamiliar(
     return exitCode(terminal.status);
   } catch (error) {
     const message = errorMessage(error);
+    process.stderr.write(`witch: ${message}\n`);
 
     const progress: FamiliarProgress = {
       status: stopped ? 'stopped' : 'failed',
@@ -248,7 +259,7 @@ export async function runClaudeFamiliar(
       await settlePlanReview(file, review, progress, '', () => !!stopped);
     else await saveFinalReport(file, progress, '');
 
-    process.stderr.write(`witch: ${message}\nSaved report: ${reportFile}\n`);
+    process.stderr.write(`Saved report: ${reportFile}\n`);
 
     return stopped ? 130 : 1;
   } finally {

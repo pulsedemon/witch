@@ -1,9 +1,15 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { unlessGone } from '../../persistence/json.js';
+import { join, relative, resolve } from 'node:path';
+import { errorMessage } from '../../errors.js';
+import { gone } from '../../persistence/json.js';
 import type { SessionCoordination } from '../coordination/coordination.js';
+import {
+  insideDirectory,
+  openReviewFile,
+  ReviewInputError,
+} from './review-files.js';
 import {
   afterCorrection,
   brief,
@@ -84,6 +90,7 @@ export async function runReviewCommand(
 async function reviewTargets(
   argument: string,
   cwd: string,
+  roots: readonly string[],
 ): Promise<string[] | { refused: string }> {
   // quotes or a backslash keep a space inside one name
   const named = [
@@ -104,15 +111,7 @@ async function reviewTargets(
     // file completion inserts `@path`
     const path = resolve(cwd, file.replace(/^@/, ''));
     const inside = relative(cwd, path);
-    const exists = (await unlessGone(stat(path)))?.isFile() ?? false;
-
-    if (
-      !inside ||
-      inside === '..' ||
-      inside.startsWith(`..${sep}`) ||
-      isAbsolute(inside) ||
-      !exists
-    )
+    if (!insideDirectory(cwd, path))
       return { refused: `Review refused: ${file} is not a file in ${cwd}` };
 
     // the brief and the correction prompt list targets one per line
@@ -120,6 +119,17 @@ async function reviewTargets(
       return {
         refused: `Review refused: ${JSON.stringify(inside)} has a line break in its name`,
       };
+
+    try {
+      const opened = await openReviewFile(path, roots);
+      await opened.file.close();
+    } catch (error) {
+      if (!gone(error) && !(error instanceof ReviewInputError)) throw error;
+
+      return {
+        refused: `Review refused: ${file} is not a file in ${cwd}. ${errorMessage(error)}`,
+      };
+    }
 
     files.push(inside);
   }
@@ -163,7 +173,8 @@ async function runReview(
     return;
   }
 
-  const files = await reviewTargets(argument, cwd);
+  const roots = [await realpath(cwd)];
+  const files = await reviewTargets(argument, cwd, roots);
 
   if ('refused' in files) {
     host.notice(files.refused);
@@ -195,10 +206,15 @@ async function runReview(
   const read = async (): Promise<Texts> =>
     Object.fromEntries(
       await Promise.all(
-        files.map(
-          async (file) =>
-            [file, await readFile(resolve(cwd, file), 'utf8')] as const,
-        ),
+        files.map(async (file) => {
+          const opened = await openReviewFile(resolve(cwd, file), roots);
+
+          try {
+            return [file, await opened.file.readFile('utf8')] as const;
+          } finally {
+            await opened.file.close();
+          }
+        }),
       ),
     );
 

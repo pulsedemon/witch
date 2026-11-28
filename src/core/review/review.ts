@@ -331,6 +331,10 @@ export function reviewerArguments(
         'sandbox_mode="read-only"',
         '-c',
         'approval_policy="never"',
+        '-c',
+        'features.hooks=false',
+        '-c',
+        'notify=[]',
       ];
 }
 

@@ -446,21 +446,23 @@ export async function runCodexFamiliar(
       );
     } else {
       await saveFinalReport(file, terminal, answer);
-    }
 
-    if (!review && registered) {
-      try {
-        await reports.finish(terminal);
-      } catch (error) {
-        status = stopped ? 'stopped' : 'failed';
-        report = [report, errorMessage(error)].filter(Boolean).join('\n\n');
-        terminal = { ...terminal, status, report };
-        await save();
+      if (registered) {
+        try {
+          await reports.finish(terminal);
+        } catch (error) {
+          terminal = {
+            ...terminal,
+            status: stopped ? 'stopped' : 'failed',
+            report: [report, errorMessage(error)].filter(Boolean).join('\n\n'),
+          };
+          await saveFinalReport(file, terminal, answer);
+        }
       }
     }
 
     process.stdout.write(
-      `${review ? terminal.report : report}\n\nSaved report: ${reportFile}\n`,
+      `${terminal.report ?? ''}\n\nSaved report: ${reportFile}\n`,
     );
 
     return exitCode(terminal.status);

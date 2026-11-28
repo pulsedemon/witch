@@ -155,14 +155,10 @@ export async function settlePlanReview(
   reports?: FamiliarReports,
 ): Promise<FamiliarProgress> {
   let terminal = await review.finish(progress, answer);
+  let saved: string | undefined;
 
-  try {
-    await reports?.finish(terminal);
-
-    if (terminal.status === 'completed')
-      terminal = await review.finish(progress, answer);
-  } catch (error) {
-    terminal = await review.finish(
+  const failure = (error: unknown) =>
+    review.finish(
       {
         ...progress,
         status: 'failed',
@@ -172,23 +168,53 @@ export async function settlePlanReview(
       },
       answer,
     );
-  }
 
-  const stoppedResult = () =>
-    review.finish(
+  const checkStop = async () => {
+    if (!stopped() || terminal.status === 'stopped') return;
+
+    terminal = await review.finish(
       { ...progress, status: 'stopped', report: 'Plan review stopped.' },
       answer,
     );
+  };
 
-  if (stopped() && terminal.status !== 'stopped')
-    terminal = await stoppedResult();
+  const save = async () => {
+    const report = terminal.report ?? '';
+    await saveReport(file, report);
+    saved = report;
+  };
 
-  await saveReport(file, terminal.report ?? '');
+  try {
+    if (terminal.status === 'completed') {
+      // Witch treats terminal updates as final, so keep the row running through receipt checks.
+      await reports?.finish({
+        ...progress,
+        status: 'running',
+        activity: 'Checking plan review receipt',
+      });
 
-  if (stopped() && terminal.status !== 'stopped') {
-    terminal = await stoppedResult();
-    await saveReport(file, terminal.report ?? '');
+      terminal = await review.finish(progress, answer);
+    }
+
+    await checkStop();
+    await save();
+
+    if (terminal.status === 'completed')
+      terminal = await review.finish(progress, answer);
+
+    await checkStop();
+    if (saved !== terminal.report) await save();
+  } catch (error) {
+    terminal = await failure(error);
   }
+
+  try {
+    await reports?.finish(terminal);
+  } catch (error) {
+    terminal = await failure(error);
+  }
+
+  if (saved !== terminal.report) await save();
 
   return terminal;
 }

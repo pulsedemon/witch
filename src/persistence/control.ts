@@ -29,6 +29,7 @@ import {
 import { pauseSchema, pauseStatusSchema } from '../core/coordination/pauses.js';
 import { checkDeadline } from './coordination.js';
 import { writeJson } from './json.js';
+import { noFollowAny, openWithoutSymlinks } from './open-file.js';
 
 const execute = promisify(execFile);
 
@@ -52,8 +53,6 @@ const idSchema = z.string().uuid();
 const renotify = 100;
 /** how soon a failed read retries, and how often an inbox without a watch is read. */
 const interval = 250;
-// macOS O_NOFOLLOW_ANY, which Node doesn't export
-const noFollowAny = 0x20000000;
 
 export const controlBindingSchema = z.object({
   directory: z.string().min(1),
@@ -141,59 +140,6 @@ export type ControlOutcome = z.infer<typeof controlOutcomeSchema>;
 
 export type ControlResult = z.infer<typeof controlResultSchema>;
 
-/** each held directory anchors the next lookup while a parent can be renamed. */
-async function openControlFile(
-  file: string,
-  flags: number,
-  mode?: number,
-): Promise<FileHandle> {
-  if (process.platform !== 'linux')
-    return files.open(file, flags | noFollowAny, mode);
-
-  const parts = file.split('/').filter(Boolean);
-  const name = parts.pop()!;
-
-  const directories = [
-    await files.open('/', constants.O_RDONLY | constants.O_DIRECTORY),
-  ];
-
-  const directory = async (handle: FileHandle) => {
-    if (!(await handle.stat()).isDirectory())
-      throw Object.assign(new Error(`Not a directory: ${file}`), {
-        code: 'ENOTDIR',
-        path: file,
-      });
-  };
-
-  try {
-    for (const part of parts) {
-      const handle = await files.open(
-        `/proc/self/fd/${directories.at(-1)!.fd}/${part}`,
-        constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-      );
-
-      directories.push(handle);
-      await directory(handle);
-    }
-
-    const handle = await files.open(
-      `/proc/self/fd/${directories.at(-1)!.fd}/${name}`,
-      (flags & ~constants.O_DIRECTORY) | constants.O_NOFOLLOW,
-      mode,
-    );
-
-    directories.push(handle);
-
-    if (flags & constants.O_DIRECTORY) await directory(handle);
-
-    directories.pop();
-
-    return handle;
-  } finally {
-    await Promise.all(directories.map((handle) => handle.close()));
-  }
-}
-
 async function read(
   file: string,
   protectedRead = false,
@@ -202,7 +148,7 @@ async function read(
 
   try {
     if (protectedRead)
-      handle = await openControlFile(
+      handle = await openWithoutSymlinks(
         file,
         constants.O_RDONLY | constants.O_NONBLOCK,
       );
@@ -421,7 +367,7 @@ export class ControlHost {
       try {
         for (const part of ['replies', 'inbox'])
           directories.push(
-            await openControlFile(
+            await openWithoutSymlinks(
               join(this.directory, part),
               constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NONBLOCK,
             ),
@@ -511,7 +457,7 @@ export class ControlHost {
       if (answered) continue;
 
       // a fresh descriptor cannot follow a redirected parent or overwrite an existing file.
-      const file = await openControlFile(
+      const file = await openWithoutSymlinks(
         reply,
         constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
         0o600,

@@ -304,12 +304,12 @@ test('only a supporting session receives familiar instructions and the exact use
 
   assert.match(
     rule,
-    /every route of your latest routing has a matching completed report for the draft being reviewed and no other reviewer failed, stopped or was interrupted/,
+    /every route of your latest routing has a matching completed report for the draft being reviewed and every earlier failure was a confirmed usage refusal on a route superseded by that routing/,
   );
 
   assert.match(
     rule,
-    /if routing is refused or the review isn't complete, say the plan's review is incomplete and never call it reviewed/,
+    /If routing is refused or any other attempt failed, stopped, was interrupted or has no matching report, say the plan's review is incomplete and never call it reviewed/,
   );
 
   await client.coordinator.send(prompt);

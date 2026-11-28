@@ -63,6 +63,11 @@ const result = z.object({
   ),
 });
 
+interface Answer {
+  readonly text: string;
+  readonly model?: string;
+}
+
 /**
  * every native result adds to the report; the answer is the latest successful non-empty one, since a finished
  * background task can start a turn after the answer and the wrapper tells the familiar to repeat it there. only the
@@ -74,8 +79,9 @@ export class ClaudeTask {
   private spells?: Cast[];
   private activity?: string;
   private readonly reports: string[] = [];
-  private final?: { text: string; model?: string };
-  private latest?: { text: string; model?: string };
+  private final?: Answer;
+  private latest?: Answer;
+  private readonly denials: string[] = [];
   private draftModel?: string;
   /** the current turn's latest text, its report if the turn ends without a result. */
   private draft = '';
@@ -142,6 +148,7 @@ export class ClaudeTask {
         this.open = true;
       } else if (message.type === 'assistant') {
         this.open = true;
+        this.latest = undefined;
 
         if (!this.identity)
           throw new Error('Claude activity arrived before initialization.');
@@ -197,13 +204,14 @@ export class ClaudeTask {
             `Permission denied: ${claudeTitle(denial.tool_name, denial.tool_input, this.cwd).title}`,
         );
 
+        this.denials.push(...denials);
         this.reports.push(
           finished.result ?? finished.errors?.join('\n') ?? this.draft,
           ...denials,
         );
 
         if (this.success) {
-          const text = finished.result ?? '';
+          const text = finished.result!;
 
           this.latest = {
             text,
@@ -232,6 +240,10 @@ export class ClaudeTask {
 
   get latestAnswer() {
     return this.latest;
+  }
+
+  get permissionDenials(): readonly string[] {
+    return this.denials;
   }
 
   failed(message: string): void {

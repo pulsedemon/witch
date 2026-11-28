@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { getEventListeners } from 'node:events';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
@@ -553,6 +560,20 @@ test('an empty or bad target refuses', async (t) => {
 
   await runs.idle();
   assert.deepEqual(runs.ran, ['review', 'review', 'review', 'clear']);
+});
+
+test('manual review refuses a checkout link to an outside file before routing', async (t) => {
+  const h = await harness(t);
+  const outside = join(h.cwd, '..', 'outside.md');
+  await writeFile(outside, 'Outside the checkout.\n');
+  await symlink(outside, join(h.cwd, 'link.md'));
+
+  assert.equal(await h.coordinator.review('link.md'), false);
+  assert.match(
+    h.notice('Review refused: link.md') ?? '',
+    /outside the allowed directories/,
+  );
+  assert.equal(h.rounds.length, 0);
 });
 
 test('quotes or a backslash keep a space inside a target name', async (t) => {

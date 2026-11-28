@@ -57,34 +57,41 @@ emit({
       ? answer
       : 'Full review.\n'.repeat(7000),
   permission_denials:
-    mode === 'denied'
+    mode === 'denied' || mode === 'claude-denied'
       ? [
-          {
-            tool_name: 'Write',
-            tool_use_id: 'denied-write',
-            tool_input: { file_path: join(process.cwd(), 'forbidden.txt') },
-          },
+          mode === 'claude-denied'
+            ? {
+                tool_name: 'Read',
+                tool_use_id: 'denied-read',
+                tool_input: { file_path: join(process.cwd(), 'plan.md') },
+              }
+            : {
+                tool_name: 'Write',
+                tool_use_id: 'denied-write',
+                tool_input: { file_path: join(process.cwd(), 'forbidden.txt') },
+              },
         ]
       : [],
 });
 
 writeFileSync('result-sent', 'yes');
 
-if (mode === 'review-empty-turn') {
+if (mode === 'review-empty-turn' || mode === 'claude-unfinished-turn') {
   emit({
     type: 'assistant',
     session_id,
     message: { model: 'claude-observed', content: [] },
   });
 
-  emit({
-    type: 'result',
-    subtype: 'success',
-    session_id,
-    is_error: false,
-    result: '',
-    permission_denials: [],
-  });
+  if (mode === 'review-empty-turn')
+    emit({
+      type: 'result',
+      subtype: 'success',
+      session_id,
+      is_error: false,
+      result: '',
+      permission_denials: [],
+    });
 }
 
 if (mode === 'nonzero') process.exitCode = 2;

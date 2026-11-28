@@ -1018,6 +1018,21 @@ for await (const line of lines) {
       if (Object.hasOwn(limitTurns, mode)) {
         const [status, codexErrorInfo] = limitTurns[mode];
         finish(status, { message: 'Review unavailable', codexErrorInfo });
+      } else if (mode === 'question') {
+        notify('item/completed', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          item: {
+            type: 'agentMessage',
+            id: 'review-question',
+            text: 'Which target?',
+            phase: 'final_answer',
+            delivery: 'async',
+            questions: [
+              { title: 'Which target?', options: ['draft', 'brief'] },
+            ],
+          },
+        });
       } else {
         notify('item/completed', {
           turnId: 'turn-1',

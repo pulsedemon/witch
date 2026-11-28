@@ -408,6 +408,10 @@ test("reviewerCommand builds each wrapper's command", () => {
     'sandbox_mode="read-only"',
     '-c',
     'approval_policy="never"',
+    '-c',
+    'features.hooks=false',
+    '-c',
+    'notify=[]',
   ]);
 });
 
