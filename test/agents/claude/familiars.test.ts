@@ -155,6 +155,43 @@ test('a plan review stays running until the Claude command completes', async () 
   assert.equal(f.familiars().at(-1)!.report, 'Full report');
 });
 
+test('an ordinary familiar cannot acquire plan-review scope on retry', async () => {
+  const f = commands();
+  f.start();
+
+  await until(
+    'ordinary registration',
+    async () => (await f.register('claude')).kind === 'familiar-registered',
+  );
+
+  await assert.rejects(f.register('claude', true), /review mode changed/);
+});
+
+test('a plan review cannot stage its first completion after native exit', async () => {
+  const f = commands();
+  f.start();
+
+  await until(
+    'plan review registration',
+    async () =>
+      (await f.register('claude', true)).kind === 'familiar-registered',
+  );
+
+  f.emit({
+    subtype: 'task_notification',
+    task_id: 'review',
+    run_id: '2',
+    status: 'completed',
+  });
+
+  await assert.rejects(
+    f.update(0, 'completed'),
+    /familiar run has already ended/,
+  );
+
+  assert.equal(f.familiars().at(-1)!.status, 'failed');
+});
+
 test('a Claude background command registers after the parent turn and closes only its native task', async () => {
   const events: AgentEvent[] = [];
   const f = await launcher('background');

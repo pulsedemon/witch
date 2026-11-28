@@ -92,6 +92,11 @@ type Fault =
   | 'claude-started-turn'
   | 'malformed-question'
   | 'commentary-only'
+  | 'legacy-answer'
+  | 'model-after-answer'
+  | 'trailing-failure'
+  | 'bad-notification'
+  | 'edit-at-publication'
   | 'missing-draft-and-reply';
 
 async function stageInputs(
@@ -267,8 +272,7 @@ async function launch(
 
   await writeFile(join(checkout, 'review-mode'), fault ?? 'ok');
 
-  await writeFile(
-    join(checkout, 'review-reply.txt'),
+  const replyText =
     fault === 'malformed'
       ? 'No structured findings.'
       : [
@@ -279,7 +283,13 @@ async function launch(
             ],
           }),
           '```',
-        ].join('\n'),
+        ].join('\n');
+
+  await writeFile(
+    join(checkout, 'review-reply.txt'),
+    fault === 'trailing-failure'
+      ? `${replyText}\nI could not complete the review.`
+      : replyText,
   );
 
   const activation = randomUUID();
@@ -335,7 +345,8 @@ async function launch(
           fault === 'stop-at-check' ||
           fault === 'missing-draft-and-reply') &&
           action.progress.activity === 'Checking plan review receipt') ||
-        (fault === 'stop-at-publication' && completed)
+        ((fault === 'stop-at-publication' || fault === 'edit-at-publication') &&
+          completed)
       ) {
         pending.resolve();
         await release.promise;
@@ -399,6 +410,7 @@ async function launch(
       cwd,
       env: {
         ...process.env,
+        TMPDIR: root,
         [`WITCH_${runtime.toUpperCase()}_EXECUTABLE`]: native,
         WITCH_CODEX_FAMILIAR_FIXTURE: 'plan-review',
         WITCH_FAMILIAR_FIXTURE: claudeMode,
@@ -511,7 +523,7 @@ for (const runtime of ['claude', 'codex'] as const) {
 
 for (const [fault, reason] of [
   ['malformed', /no closed json block/],
-  ['stale', /Stale activation/],
+  ['trailing-failure', /findings block must end the final answer/],
   ['model', /expected other-model/],
   ['lost-report', /host did not reply before the deadline/],
   ['wrong-line', /outside the frozen plan/],
@@ -519,15 +531,10 @@ for (const [fault, reason] of [
   test(`a ${fault} review leaves no completed receipt`, async (t) => {
     const { checkout, outcome } = await launch(t, 'codex', fault);
     const result = await outcome(1);
-    assert.equal(result.planSha256, fault === 'stale' ? null : planSha256);
+    assert.equal(result.planSha256, planSha256);
     assert.equal(result.status, 'failed');
     assert.equal(result.findings, undefined);
     assert.match(result.reason, reason);
-
-    if (fault === 'stale')
-      await assert.rejects(access(join(checkout, 'launched.json')), {
-        code: 'ENOENT',
-      });
 
     if (fault === 'model') {
       const launched = JSON.parse(
@@ -571,8 +578,6 @@ for (const [fault, reason] of [
   ['fifo', /not a regular file/],
   ['large', /must fit within 2 MiB/],
   ['grow-on-read', /grew while being read/],
-  ['no-scope', /did not authorize the plan review inputs/],
-  ['wrong-scratch', /different review scratch directory/],
 ] as const) {
   test(`a ${fault} input fails before the reviewer starts`, async (t) => {
     const { checkout, outcome } = await launch(t, 'codex', fault);
@@ -586,11 +591,27 @@ for (const [fault, reason] of [
   });
 }
 
+for (const [fault, reason] of [
+  ['stale', /Stale activation/],
+  ['no-scope', /did not authorize the plan review inputs/],
+  ['wrong-scratch', /different review scratch directory/],
+] as const) {
+  test(`${fault} fails before creating a receipt or launching a reviewer`, async (t) => {
+    const { checkout, receipt, output } = await launch(t, 'codex', fault);
+    assert.match(await output(1), reason);
+    await assert.rejects(access(receipt), { code: 'ENOENT' });
+
+    await assert.rejects(access(join(checkout, 'launched.json')), {
+      code: 'ENOENT',
+    });
+  });
+}
+
 test('an existing receipt refuses a new attempt before opening the inputs', async (t) => {
   const { root, output, status } = await launch(t, 'codex', 'existing-receipt');
   const log = await output(1);
   assert.match(log, /EEXIST:.*attempt\.json/);
-  assert.equal(status(), undefined);
+  assert.equal(status(), 'failed');
 
   assert.equal(
     await readFile(join(root, 'attempt.json'), 'utf8'),
@@ -642,6 +663,7 @@ for (const [fault, reason] of [
   ['question', /plan reviewer cannot request input/],
   ['unknown-request', /Unsupported native request: review\/unknown/],
   ['malformed-question', /could not read Codex's item\/completed questions/],
+  ['bad-notification', /could not read Codex's item\/completed notification/],
 ] as const) {
   test(`a Codex plan review surfaces ${fault} without forwarding a request`, async (t) => {
     const { outcome, forwarded } = await launch(t, 'codex', fault);
@@ -719,7 +741,34 @@ test('Codex commentary cannot supply a completed review answer', async (t) => {
   const { outcome } = await launch(t, 'codex', 'commentary-only');
   const result = await outcome(1);
   assert.equal(result.status, 'failed');
+  assert.equal(result.model, model.codex);
+  assert.match(result.reason, /without a final answer/);
   assert.equal(result.findings, undefined);
+});
+
+for (const fault of ['legacy-answer', 'model-after-answer'] as const) {
+  test(`${fault} retains the completed Codex answer and its model`, async (t) => {
+    const { outcome } = await launch(t, 'codex', fault);
+    const receipt = await outcome(0);
+    assert.equal(receipt.model, model.codex);
+    assert.deepEqual(receipt.findings, [finding]);
+  });
+}
+
+test('editing the draft during the staged reply prevents publication', async (t) => {
+  const { root, outcome, pending, release, status } = await launch(
+    t,
+    'codex',
+    'edit-at-publication',
+  );
+
+  await pending;
+  assert.equal(status(), 'running');
+  await writeFile(join(root, 'plan.md'), 'Edited during the staged reply');
+  release();
+  const result = await outcome(1);
+  assert.match(result.reason, /plan draft changed/);
+  assert.equal(status(), 'failed');
 });
 
 test('editing the submitted draft invalidates its review', async (t) => {

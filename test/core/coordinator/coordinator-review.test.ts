@@ -610,18 +610,23 @@ test('manual review checks the same target text it dispatches after a disk edit'
   const original = checks.checkTargets;
   const plan = join(h.cwd, 'plan.md');
   const content = await readFile(plan, 'utf8');
+  const edited = 'see [changed](missing-file.md#test)\n';
 
   const check = vi
     .spyOn(checks, 'checkTargets')
-    .mockImplementation(async (cwd, files, snapshot) => {
-      await writeFile(plan, 'see [changed](missing-file.md#test)\n');
+    .mockImplementation(async (cwd, snapshot) => {
+      await writeFile(plan, edited);
 
-      try {
-        return await original(cwd, files, snapshot);
-      } finally {
-        await writeFile(plan, content);
-      }
+      return original(cwd, snapshot);
     });
+
+  h.state.during = async () => {
+    const [, json] = /^Target snapshots: (.+)$/m.exec(h.rounds[0]!.brief)!;
+    const paths = JSON.parse(json!) as Record<string, string>;
+    assert.equal(await readFile(plan, 'utf8'), edited);
+    assert.equal(await readFile(paths['plan.md']!, 'utf8'), content);
+    await writeFile(plan, content);
+  };
 
   try {
     assert.equal(await h.coordinator.review('plan.md'), true);

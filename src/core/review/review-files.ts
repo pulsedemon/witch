@@ -55,15 +55,17 @@ export async function snapshotTargets(
   roots: readonly string[],
 ): Promise<TargetSnapshot> {
   const entries: [string, string][] = [];
-  const canonical: [string, string][] = [];
+  const canonical = new Map<string, string>();
 
   for (const name of files) {
     const opened = await openReviewFile(resolve(cwd, name), roots);
 
     try {
-      const text = await opened.file.readFile('utf8');
+      const text =
+        canonical.get(opened.path) ?? (await opened.file.readFile('utf8'));
+
       entries.push([name, text]);
-      canonical.push([opened.path, text]);
+      canonical.set(opened.path, text);
     } finally {
       await opened.file.close();
     }

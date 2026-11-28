@@ -1047,12 +1047,31 @@ for await (const line of lines) {
             type: 'agentMessage',
             id: 'review-report',
             text: readFileSync(file('review-reply.txt'), 'utf8'),
-            phase: mode === 'commentary-only' ? 'commentary' : 'final_answer',
+            phase:
+              mode === 'legacy-answer'
+                ? null
+                : mode === 'commentary-only'
+                  ? 'commentary'
+                  : 'final_answer',
             ...(mode === 'malformed-question' && {
               questions: [{ options: [123] }],
             }),
           },
         });
+
+        if (mode === 'model-after-answer')
+          notify('model/rerouted', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            toModel: 'later-model',
+          });
+
+        if (mode === 'bad-notification')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: { type: 'agentMessage' },
+          });
 
         finish('completed');
       }

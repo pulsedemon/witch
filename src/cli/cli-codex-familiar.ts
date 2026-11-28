@@ -78,10 +78,7 @@ export async function runCodexFamiliar(
     lean ? ['-c', 'skills.include_instructions=false', ...args] : args,
   );
 
-  const file = await (review
-    ? review.openReport(reportFile)
-    : open(reportFile, 'wx', 0o600));
-
+  let file = review ? undefined : await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
   const abort = new AbortController();
   let session: AgentSession | undefined;
@@ -222,7 +219,7 @@ export async function runCodexFamiliar(
     else if (event.type === 'tool' && !event.done && !event.append) {
       tools.add(event.id);
       progress = { ...progress, tools: tools.size, activity: event.title };
-    } else if (event.type === 'notice' && event.rejectedRequest && review) {
+    } else if (event.type === 'notice' && event.protocolError && review) {
       fail(new Error(event.text));
 
       return;
@@ -275,10 +272,11 @@ export async function runCodexFamiliar(
   let report = '';
   /** the last turn's final message: a follow-up turn only carries the reply to the familiar's own question. */
   let answer = '';
+  let answerModel: string | undefined;
   let status: FamiliarProgress['status'] = 'failed';
   let exhausted = false;
   let registered = false;
-  const save = () => saveReport(file, report);
+  const save = () => saveReport(file!, report);
   const suspension = watchSuspension();
 
   try {
@@ -292,6 +290,8 @@ export async function runCodexFamiliar(
     );
 
     registered = true;
+
+    if (review) file = await review.openReport(reportFile, scope);
 
     startup = setTimeout(() => {
       if (failure || stopped) return;
@@ -361,6 +361,7 @@ export async function runCodexFamiliar(
       cwd: prepared?.cwd ?? process.cwd(),
       memoryDirectories: [],
       withoutMcp: lean,
+      ...(review && { planReview: true }),
       signal: abort.signal,
       onEvent: receive,
       onProcess: async () => {},
@@ -377,12 +378,22 @@ export async function runCodexFamiliar(
     for (;;) {
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
-      answer = (review ? reviewAnswer?.text : result.final) ?? '';
       status = result.status === 'interrupted' ? 'stopped' : result.status;
       exhausted = !!result.exhausted;
 
+      if (review) {
+        answer = reviewAnswer?.text ?? '';
+        answerModel = reviewAnswer?.model;
+
+        if (status === 'completed' && !answer)
+          failure ??= 'Codex completed without a final answer.';
+
+        break;
+      }
+
+      answer = result.final ?? '';
       // a checkpoint: the familiar can still await a question's reply or run another turn
-      if (!review) await save();
+      await save();
 
       if (result.status !== 'completed') break;
 
@@ -451,7 +462,7 @@ export async function runCodexFamiliar(
       ...progress,
       status,
       report,
-      ...(review && status === 'completed' && { model: reviewAnswer?.model }),
+      ...(review && answer && { model: answerModel }),
       // codex names no limit, so routing holds the whole runtime
       ...(exhausted && status === 'failed' && { exhausted: {} }),
     };
@@ -468,22 +479,27 @@ export async function runCodexFamiliar(
           reporting,
         )
       : await reportOrdinaryResult(
-          file,
+          file!,
           terminal,
           answer,
           () => stopped,
           reporting,
         );
 
-    process.stdout.write(
-      `${result.report ?? ''}\n\nSaved report: ${reportFile}\n`,
-    );
+    if (file)
+      process.stdout.write(
+        `${result.report ?? ''}\n\nSaved report: ${reportFile}\n`,
+      );
+    else
+      process.stderr.write(
+        `witch: ${failure ?? 'Plan review did not start.'}\n`,
+      );
 
     return exitCode(result.status);
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);
-    await file.close();
+    await file?.close();
   }
 }
 

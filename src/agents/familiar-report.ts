@@ -243,6 +243,12 @@ export function admitFamiliar(
       if (slot.familiar.subagent.name !== action.name)
         throw new Error('The familiar name changed.');
 
+      if (slot.familiar.subagent.runtime !== action.runtime)
+        throw new Error('The familiar runtime changed.');
+
+      if (slot.familiar.planReview !== (action.planReview === true))
+        throw new Error('The familiar review mode changed.');
+
       return { kind: 'familiar-registered' };
     }
 

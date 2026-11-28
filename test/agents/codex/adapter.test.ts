@@ -601,8 +601,8 @@ test('an unparseable native request gets an error reply and the turn continues',
 
     assert.ok(
       notices.some(
-        ({ text, rejectedRequest }) =>
-          rejectedRequest &&
+        ({ text, protocolError }) =>
+          protocolError &&
           /could not read Codex's item\/tool\/requestUserInput request/.test(
             text,
           ),
@@ -636,7 +636,7 @@ test('an unsupported native request gets an error reply and the turn continues',
       {
         type: 'notice',
         text: 'Unsupported native request: item/unknown/request',
-        rejectedRequest: true,
+        protocolError: true,
       },
     ]);
   } finally {

@@ -249,7 +249,7 @@ async function runReview(
     const number = next.number;
     const incomplete = `round ${number} did not complete`;
     let snapshot = await read();
-    let failures = await checkTargets(cwd, files, snapshot);
+    let failures = await checkTargets(cwd, snapshot);
 
     // a second pass sends failures the first correction introduced
     for (let pass = 0; pass < 2; pass++) {
@@ -265,7 +265,7 @@ async function runReview(
         return stopped(incomplete);
 
       snapshot = await read();
-      failures = await checkTargets(cwd, files, snapshot);
+      failures = await checkTargets(cwd, snapshot);
     }
 
     known = failures;
@@ -409,7 +409,7 @@ async function runReview(
 
     const remaining = async () =>
       findings.length
-        ? (await checkTargets(cwd, files, corrected)).length
+        ? (await checkTargets(cwd, corrected)).length
         : known.length;
 
     if ('stop' in decided)

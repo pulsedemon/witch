@@ -103,7 +103,7 @@ export class FamiliarRun {
   private endedAt?: number;
   /** set by the familiar's own terminal update, which may arrive after its command ended. */
   private reported = false;
-  private readonly planReview: boolean;
+  readonly planReview: boolean;
   /** a plan review can be acknowledged before the carrying command's exit confirms it. */
   private completion?: FamiliarProgress;
 

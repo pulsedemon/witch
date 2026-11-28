@@ -219,8 +219,21 @@ async function check(
         return !!current.process && !sameProcess(current.process, native);
       });
 
-      await wait('replacement terminal input', () =>
-        exists(`${restartGate}.input-ready`),
+      const probe = `shutdown-ready-${randomUUID()}`;
+
+      await wait('replacement composer accepts input', async () => {
+        if ((await record()).draft === probe) return true;
+
+        child.stdin.write(`\x15${probe}`);
+
+        return false;
+      });
+
+      child.stdin.write('\x15');
+
+      await wait(
+        'replacement composer clears its probe',
+        async () => !(await record()).draft,
       );
     }
 

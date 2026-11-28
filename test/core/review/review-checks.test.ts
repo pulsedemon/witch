@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'vitest';
 import { checkTargets } from '../../../src/core/review/review-checks.js';
+import { snapshotTargets } from '../../../src/core/review/review-files.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { identity } from '../../fixtures/git.js';
 
 const execute = promisify(execFile);
+
+const checkFiles = async (cwd: string, files: readonly string[]) =>
+  checkTargets(cwd, await snapshotTargets(cwd, files, [await realpath(cwd)]));
 
 /** the failures for `plan.md`, or `target`, among the given files, as `line: message` rows. */
 async function check(
@@ -22,7 +26,7 @@ async function check(
     await writeFile(join(root, path), content);
   }
 
-  return (await checkTargets(root, [target])).map(
+  return (await checkFiles(root, [target])).map(
     ({ line, message }) => `${line}: ${message}`,
   );
 }
@@ -33,7 +37,7 @@ test('mechanical checks use the selected snapshot instead of rereading their tar
   const cwd = await scratch('witch-review-snapshot-');
   await writeFile(join(cwd, 'plan.md'), '# On disk\n');
 
-  const failures = await checkTargets(cwd, ['plan.md'], {
+  const failures = await checkTargets(cwd, {
     texts: { 'plan.md': 'see [rules](missing.md#target)\n' },
     canonical: {},
   });
@@ -47,15 +51,22 @@ test('mechanical checks use the selected snapshot instead of rereading their tar
 test('a link to the selected snapshot’s canonical name uses the captured text', async () => {
   const cwd = await scratch('witch-review-alias-');
   const canonicalFile = join(cwd, 'plan.md');
-  await writeFile(canonicalFile, '# Revised on disk\n');
-  const text = 'see [the target](plan.md#target)\n\n# Target\n';
+  await writeFile(canonicalFile, '# Target\n');
 
   assert.deepEqual(
-    await checkTargets(cwd, ['alias.md'], {
-      texts: { 'alias.md': text },
-      canonical: { [canonicalFile]: text },
-    }),
-    [],
+    (
+      await checkTargets(cwd, {
+        texts: { 'alias.md': 'see [the target](plan.md#target)\n' },
+        canonical: { [canonicalFile]: '# Earlier draft\n' },
+      })
+    ).map(({ file, line, message }) => ({ file, line, message })),
+    [
+      {
+        file: 'alias.md',
+        line: 1,
+        message: 'no heading in plan.md has the anchor #target',
+      },
+    ],
   );
 });
 
@@ -342,7 +353,7 @@ test('a git failure other than a missing repository or origin stops the checks',
   await execute('git', ['init', '-q'], { cwd: root });
   await writeFile(join(root, '.git', 'config'), '[core\n');
   await writeFile(join(root, 'plan.md'), 'x\n');
-  await assert.rejects(checkTargets(root, ['plan.md']), /bad config/);
+  await assert.rejects(checkFiles(root, ['plan.md']), /bad config/);
 });
 
 test('a target that is not markdown gets no checks', async () => {
@@ -387,7 +398,7 @@ test('a leading slash resolves from the repository root', async () => {
   );
 
   assert.deepEqual(
-    (await checkTargets(join(root, 'docs'), ['plan.md'])).map(
+    (await checkFiles(join(root, 'docs'), ['plan.md'])).map(
       ({ message }) => message,
     ),
     ['link target ../MISSING.md does not exist'],
@@ -455,7 +466,7 @@ test('a blob link to a missing path fails and an unreadable revision is skipped'
   );
 
   assert.deepEqual(
-    (await checkTargets(root, ['plan.md'])).map(
+    (await checkFiles(root, ['plan.md'])).map(
       ({ line, message }) => `${line}: ${message}`,
     ),
     ['1: link target gone.ts does not exist'],
@@ -480,7 +491,7 @@ test('a blob revision that looks like an option reads nothing and writes nothing
     '[a](https://github.com/owner/repo/blob/--output=written/x.ts)\n',
   );
 
-  assert.deepEqual(await checkTargets(root, ['plan.md']), []);
+  assert.deepEqual(await checkFiles(root, ['plan.md']), []);
 
   await assert.rejects(readFile(join(root, 'written:x.ts')), {
     code: 'ENOENT',
@@ -502,7 +513,7 @@ test('blob link to this repository reads the cited revision', async () => {
     `[\`close()\`](https://github.com/owner/repo/blob/${commit}/src/x.ts#L2)\n`,
   );
 
-  assert.deepEqual(await checkTargets(root, ['plan.md']), []);
+  assert.deepEqual(await checkFiles(root, ['plan.md']), []);
 });
 
 test('range that stops inside its block fails', async () => {
@@ -648,7 +659,7 @@ test('a cited file that cannot be read stops the checks', async () => {
   await writeFile(join(root, 'plan.md'), '`close()` at `src/x.ts:2`\n');
   await writeFile(join(root, 'src/x.ts'), 'one\nclosed();\n');
   await chmod(join(root, 'src/x.ts'), 0o000);
-  await assert.rejects(checkTargets(root, ['plan.md']), { code: 'EACCES' });
+  await assert.rejects(checkFiles(root, ['plan.md']), { code: 'EACCES' });
 });
 
 test('identifier missing from its cited line fails', async () => {

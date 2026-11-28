@@ -309,7 +309,7 @@ export type AgentEvent =
       type: 'notice';
       text: string;
       transient?: boolean;
-      rejectedRequest?: true;
+      protocolError?: true;
     };
 
 export interface TurnResult {
@@ -482,6 +482,8 @@ export interface SessionOptions {
   automaticCompaction?: true;
   /** Codex only: starts the thread with no MCP server and fails if Codex still exposes one. */
   withoutMcp?: boolean;
+  /** Codex only: label completed answer items for a plan reviewer. */
+  planReview?: boolean;
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
 

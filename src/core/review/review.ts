@@ -31,23 +31,35 @@ export function parseFindings(
   report: string,
   cwd: string,
   files: readonly string[],
+  { requireEnd = false }: { requireEnd?: boolean } = {},
 ): Finding[] | { invalid: string } {
-  // a fence opens a line, indented at most three spaces, so a mention in prose isn't one
-  const last = [
-    ...report.matchAll(
-      /^[ \t]{0,3}```json[^\n]*\n([\s\S]*?)\n[ \t]*```[ \t]*(?=\r?$)/gm,
-    ),
-  ].at(-1);
+  let open: { start: number; ticks: number } | undefined;
+  let last: { start: number; end: number; after: number } | undefined;
+
+  for (const fence of report.matchAll(
+    /^[ \t]{0,3}(`{3,})(?:(json[^\r\n]*)|[ \t]*)\r?$/gm,
+  )) {
+    const ticks = fence[1]!.length;
+    const after = fence.index + fence[0].length;
+
+    if (fence[2]) open = { start: after, ticks };
+    else if (open && ticks >= open.ticks) {
+      last = { start: open.start, end: fence.index, after };
+      open = undefined;
+    }
+  }
 
   if (!last) return { invalid: 'no closed json block' };
 
-  if (/^[ \t]{0,3}```json/m.test(report.slice(last.index + last[0].length)))
-    return { invalid: 'a json block opens after the last closed one' };
+  if (open) return { invalid: 'a json block opens after the last closed one' };
+
+  if (requireEnd && report.slice(last.after).trim())
+    return { invalid: 'the findings block must end the final answer' };
 
   let parsed: unknown;
 
   try {
-    parsed = JSON.parse(last[1]!);
+    parsed = JSON.parse(report.slice(last.start, last.end));
   } catch (error) {
     return { invalid: errorMessage(error) };
   }

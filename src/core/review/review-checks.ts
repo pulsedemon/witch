@@ -45,19 +45,18 @@ type Fail = (line: number, message: string) => void;
 /** link anchors, cited ranges, quoted identifiers and the fixed writing rules in each markdown target, before any reviewer reads it. */
 export async function checkTargets(
   cwd: string,
-  files: readonly string[],
-  snapshot?: TargetSnapshot,
+  snapshot: TargetSnapshot,
 ): Promise<CheckFailure[]> {
   const repository = await repositoryOf(cwd);
 
   const cache = new Map<string, Promise<string | undefined>>(
-    Object.entries(snapshot?.canonical ?? {}).map(([path, text]) => [
+    Object.entries(snapshot.canonical).map(([path, text]) => [
       path,
       Promise.resolve(text),
     ]),
   );
 
-  for (const [file, text] of Object.entries(snapshot?.texts ?? {}))
+  for (const [file, text] of Object.entries(snapshot.texts))
     cache.set(resolve(cwd, file), Promise.resolve(text));
 
   const local = (path: string) => {
@@ -70,14 +69,10 @@ export async function checkTargets(
 
   const failures: CheckFailure[] = [];
 
-  for (const file of files) {
+  for (const [file, text] of Object.entries(snapshot.texts)) {
     if (extname(file) !== '.md') continue;
 
     const path = resolve(cwd, file);
-    const text = await local(path);
-
-    if (text === undefined) continue;
-
     const lines = text.split('\n');
     const prose = proseLines(lines);
 

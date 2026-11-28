@@ -90,11 +90,7 @@ export async function runClaudeFamiliar(
   review?: PlanReview,
 ): Promise<number> {
   const argv = claudeArguments(args, lean);
-
-  const file = await (review
-    ? review.openReport(reportFile)
-    : open(reportFile, 'wx', 0o600));
-
+  let file = review ? undefined : await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
   let stopped: NodeJS.Signals | undefined;
   let child: ReturnType<typeof spawn> | undefined;
@@ -143,6 +139,9 @@ export async function runClaudeFamiliar(
     );
 
     registered = true;
+
+    if (review) file = await review.openReport(reportFile, scope);
+
     const prepared = await review?.prepare(scope);
 
     if (stopped) throw new Error('Familiar stopped before launch.');
@@ -157,6 +156,9 @@ export async function runClaudeFamiliar(
     child = nativeLaunch(claude, (executable) =>
       spawn(executable, argv, {
         cwd,
+        ...(review && {
+          env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+        }),
         stdio: [review ? 'pipe' : 'inherit', 'pipe', 'pipe'],
         detached: false,
       }),
@@ -249,14 +251,14 @@ export async function runClaudeFamiliar(
         reports,
       );
     } else {
-      await saveFinalReport(file, terminal, task.answer);
+      await saveFinalReport(file!, terminal, task.answer);
 
       try {
         await reports.finish(terminal);
       } catch (error) {
         task.failed(errorMessage(error));
         terminal = closed(stopped ?? null);
-        await saveFinalReport(file, terminal, task.answer);
+        await saveFinalReport(file!, terminal, task.answer);
       }
     }
 
@@ -283,9 +285,9 @@ export async function runClaudeFamiliar(
         () => !!stopped,
         registered ? reports : undefined,
       );
-    else await saveFinalReport(file, progress, '');
+    else await saveFinalReport(file!, progress, '');
 
-    process.stderr.write(`Saved report: ${reportFile}\n`);
+    if (file) process.stderr.write(`Saved report: ${reportFile}\n`);
 
     return stopped ? 130 : 1;
   } finally {
@@ -293,6 +295,6 @@ export async function runClaudeFamiliar(
     clearTimeout(drain);
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', stop);
-    await file.close();
+    await file?.close();
   }
 }

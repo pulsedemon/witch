@@ -69,6 +69,11 @@ test('parseFindings reads only the last json block and normalizes paths, and say
     [],
   );
 
+  assert.deepEqual(
+    parseFindings('```json\n{"findings": []}\n````\n', '/w/repo', []),
+    [],
+  );
+
   const invalid = (report: string) => {
     const parsed = parseFindings(report, '/w/repo', ['plan.md']);
     assert.ok('invalid' in parsed, JSON.stringify(parsed));

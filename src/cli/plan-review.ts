@@ -2,6 +2,7 @@ import { isUtf8 } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type {
   FamiliarProgress,
@@ -61,16 +62,21 @@ export function createPlanReview(
   const file = basename(input.plan);
 
   return {
-    async openReport(path: string) {
-      const resolved = await realpath(mailbox);
-      const control = dirname(resolved);
+    async openReport(path: string, scope: ReviewScope | undefined) {
+      if (!scope)
+        throw new Error('Witch did not authorize the plan review inputs.');
 
-      if (basename(resolved) !== 'familiars' || basename(control) !== 'control')
+      const resolved = await realpath(mailbox);
+      scratch = await realpath(tmpdir());
+
+      if (resolved !== join(scratch, 'control', 'familiars'))
         throw new Error(
           'Plan review requires the bound Witch familiar mailbox.',
         );
 
-      scratch = dirname(control);
+      if ((await realpath(scope.scratch)) !== scratch)
+        throw new Error('Witch reported a different review scratch directory.');
+
       const destination = join(await realpath(dirname(path)), basename(path));
 
       if (!insideDirectory(scratch, destination))
@@ -88,14 +94,10 @@ export function createPlanReview(
       if (!scope)
         throw new Error('Witch did not authorize the plan review inputs.');
 
-      const [cwd, boundScratch, caller] = await Promise.all([
+      const [cwd, caller] = await Promise.all([
         realpath(scope.cwd),
-        realpath(scope.scratch),
         realpath(process.cwd()),
       ]);
-
-      if (boundScratch !== scratch)
-        throw new Error('Witch reported a different review scratch directory.');
 
       if (cwd !== caller) {
         const checkout = await realpath((await repositoryOf(caller)).root);
@@ -182,7 +184,9 @@ export function createPlanReview(
         invalid: `Reviewer ran on ${actual ?? 'an unreported model'}, expected ${input.model}.`,
       };
 
-    const findings = parseFindings(answer, process.cwd(), [file]);
+    const findings = parseFindings(answer, process.cwd(), [file], {
+      requireEnd: true,
+    });
 
     if (Array.isArray(findings) && findings.some(({ line }) => line > lines))
       return { invalid: 'A finding cites a line outside the frozen plan.' };

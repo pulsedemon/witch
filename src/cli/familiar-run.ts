@@ -147,7 +147,7 @@ export async function saveFinalReport(
 }
 
 export async function settlePlanReview(
-  file: FileHandle,
+  file: FileHandle | undefined,
   review: PlanReview,
   progress: FamiliarProgress,
   answer: string,
@@ -191,6 +191,8 @@ export async function settlePlanReview(
   };
 
   const save = async () => {
+    if (!file) return;
+
     const report = terminal.report ?? '';
     await saveReport(file, report);
     saved = report;
@@ -198,7 +200,7 @@ export async function settlePlanReview(
 
   try {
     if (terminal.status === 'completed') {
-      // Witch treats terminal updates as final, so keep the row running through receipt checks.
+      // show draft validation while the wrapper is still checking the receipt.
       await reports?.finish({
         ...progress,
         status: 'running',
