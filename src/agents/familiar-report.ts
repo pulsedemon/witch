@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reviewReceiptFileSchema } from '../core/review/review-files.js';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
 import { FamiliarRun } from './familiar-requests.js';
@@ -16,6 +17,7 @@ const familiarProgressSchema = z.object({
   activity: z.string().optional(),
   tools: z.number().int().nonnegative().optional(),
   report: z.string().optional(),
+  receiptFile: reviewReceiptFileSchema.optional(),
   /** the transient notices its native session posted, oldest first. */
   notices: z.array(z.string()).optional(),
   spells: z.array(z.object({ id: z.string(), name: z.string() })).optional(),

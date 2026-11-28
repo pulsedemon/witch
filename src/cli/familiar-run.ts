@@ -6,6 +6,8 @@ import type {
   FamiliarProgress,
 } from '../agents/familiar-report.js';
 import type { TaskStatus } from '../agents/types.js';
+import { receiptFile } from '../core/review/review-files.js';
+import type { ReviewReceiptFile } from '../core/review/review-files.js';
 import { errorMessage } from '../errors.js';
 import {
   callControl,
@@ -158,6 +160,7 @@ export async function settlePlanReview(
   let terminal = review.finish(progress, answer);
   let saved: string | undefined;
   let receiptAvailable = !!file;
+  let receipt: ReviewReceiptFile | undefined;
 
   const failure = (error: unknown) =>
     review.finish(
@@ -192,10 +195,22 @@ export async function settlePlanReview(
       );
   };
 
-  const checkReceipt = async () => {
-    if (!file || terminal.status !== 'completed') return;
+  const receiptError = async () => {
+    if (!file) return;
 
-    const reason = await review.receiptError(reportFile, file, terminal.report);
+    try {
+      receipt ??= await receiptFile(reportFile, file);
+
+      return await review.receiptError(receipt, terminal.report);
+    } catch (error) {
+      return `Could not verify the plan review receipt: ${errorMessage(error)}`;
+    }
+  };
+
+  const checkReceipt = async () => {
+    if (terminal.status !== 'completed') return;
+
+    const reason = await receiptError();
 
     if (reason) {
       receiptAvailable = false;
@@ -239,7 +254,10 @@ export async function settlePlanReview(
 
   try {
     const completed = terminal.status === 'completed';
-    await reports?.finish(terminal);
+
+    await reports?.finish(
+      completed ? { ...terminal, receiptFile: receipt } : terminal,
+    );
 
     if (completed) {
       await checkDraft();
@@ -267,6 +285,9 @@ export async function settlePlanReview(
       throw new Error(detail, { cause: error });
     }
   }
+
+  if (receiptAvailable && terminal.status !== 'completed')
+    receiptAvailable = !(await receiptError());
 
   return { ...terminal, receiptAvailable };
 }

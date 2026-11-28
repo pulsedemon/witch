@@ -1,22 +1,25 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { open, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { test, vi } from 'vitest';
 import { ClaudeCommands } from '../../../src/agents/claude/commands.js';
 import { familiarMarker } from '../../../src/agents/familiar-report.js';
 import type { AgentEvent, TaskStatus } from '../../../src/agents/types.js';
+import { receiptFile } from '../../../src/core/review/review-files.js';
+import type { ReviewReceiptFile } from '../../../src/core/review/review-files.js';
 import {
   frameWriter,
   jsonLines,
   launcher,
 } from '../../fixtures/claude-adapter.js';
 import { until } from '../../fixtures/within.js';
+import { scratch } from '../../fixtures/scratch.js';
 
-function commands() {
+function commands(root?: string) {
   const binding = {
-    directory: '/control',
+    directory: root ? join(root, 'control', 'familiars') : '/control',
     conversation: 'owner',
     activation: randomUUID(),
   };
@@ -95,6 +98,7 @@ function commands() {
     sequence: number,
     status: TaskStatus = 'running',
     report = status === 'completed' ? 'Full report' : undefined,
+    receipt?: ReviewReceiptFile,
   ) =>
     owner.report(
       {
@@ -106,6 +110,7 @@ function commands() {
           tools: 3,
           model: 'observed',
           report,
+          receiptFile: receipt,
           notices: ['MCP down'],
         },
       },
@@ -143,45 +148,93 @@ const completedReceipt = {
   findings: [],
 };
 
-test('a plan review stays running until the Claude command completes', async () => {
-  const f = commands();
-  f.start();
+for (const code of [0, 1, undefined]) {
+  test(`Claude confirms a staged plan review only with an observed zero exit (exit ${code})`, async () => {
+    const root = await scratch('witch-review-exit-');
+    const f = commands(root);
+    f.start();
 
-  await until(
-    'plan review registration',
-    async () =>
-      (await f.register('claude', true)).kind === 'familiar-registered',
-  );
+    await until(
+      'plan review registration',
+      async () =>
+        (await f.register('claude', true)).kind === 'familiar-registered',
+    );
 
-  await assert.rejects(
-    f.update(0, 'completed'),
-    /did not supply a completed receipt/,
-  );
-
-  for (const change of [{ runtime: 'codex' }, { model: 'different' }])
     await assert.rejects(
-      f.update(
-        0,
-        'completed',
-        JSON.stringify({ ...completedReceipt, ...change }),
-      ),
+      f.update(0, 'completed'),
       /did not supply a completed receipt/,
     );
 
-  const report = JSON.stringify(completedReceipt);
-  await f.update(0, 'completed', report);
-  assert.equal(f.familiars().at(-1)!.status, 'running');
+    const report = JSON.stringify(completedReceipt);
+    const path = join(root, 'receipt.json');
+    const file = await open(path, 'wx');
 
-  f.emit({
-    subtype: 'task_notification',
-    task_id: 'review',
-    run_id: '2',
-    status: 'completed',
+    const receipt = await (async () => {
+      try {
+        await file.writeFile(report);
+
+        return await receiptFile(path, file);
+      } finally {
+        await file.close();
+      }
+    })();
+
+    for (const change of [{ runtime: 'codex' }, { model: 'different' }])
+      await assert.rejects(
+        f.update(
+          0,
+          'completed',
+          JSON.stringify({ ...completedReceipt, ...change }),
+          receipt,
+        ),
+        /did not supply a completed receipt/,
+      );
+
+    await f.update(0, 'completed', report, receipt);
+    assert.equal(f.familiars().at(-1)!.status, 'running');
+    f.start('other');
+
+    f.emit({
+      subtype: 'task_notification',
+      task_id: 'other',
+      run_id: '2',
+      status: 'completed',
+      summary: 'Background command "other" completed (exit code 0)',
+    });
+
+    f.emit({
+      subtype: 'task_updated',
+      task_id: 'review',
+      run_id: '2',
+      patch: { status: 'completed' },
+    });
+
+    assert.equal(f.familiars().at(-1)!.status, 'running');
+
+    f.emit({
+      subtype: 'task_notification',
+      task_id: 'review',
+      run_id: '2',
+      status: 'completed',
+      summary:
+        code === undefined
+          ? 'review'
+          : `Background command "review" completed (exit code ${code})`,
+    });
+
+    await until(
+      'the carrying shell exit',
+      () => f.familiars().at(-1)!.status !== 'running',
+    );
+
+    assert.equal(
+      f.familiars().at(-1)!.status,
+      code === 0 ? 'completed' : 'failed',
+    );
+
+    assert.equal(f.familiars().at(-1)!.report, code === 0 ? report : undefined);
   });
-
-  assert.equal(f.familiars().at(-1)!.status, 'completed');
-  assert.equal(f.familiars().at(-1)!.report, report);
-});
+}
 
 test('an ordinary familiar cannot acquire plan-review scope on retry', async () => {
   const f = commands();

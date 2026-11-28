@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dirname } from 'node:path';
 import type { ControlBinding } from '../../persistence/control.js';
 import {
   addFamiliar,
@@ -231,6 +232,7 @@ export class CodexCommands {
           action,
           this.emit,
           entry.threadId === this.mainThread() ? undefined : entry.threadId,
+          dirname(dirname(this.binding!.directory)),
         );
       },
       (run) => {

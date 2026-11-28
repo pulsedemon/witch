@@ -445,11 +445,19 @@ test('a Codex familiar relays only live bound command markers', async () => {
   const foreign = familiarMarker({ ...marker(), activation: randomUUID() });
   const noncommand = familiarMarker(marker());
   const discarded = familiarMarker(marker());
+  const late = familiarMarker(marker());
 
   try {
     await writeFile(
       join(f.root, 'marker-input.json'),
-      JSON.stringify({ valid, recovered, foreign, noncommand, discarded }),
+      JSON.stringify({
+        valid,
+        recovered,
+        foreign,
+        noncommand,
+        discarded,
+        late,
+      }),
     );
 
     f.child.stdin.end();

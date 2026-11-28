@@ -4,6 +4,9 @@ import type {
   FamiliarProgress,
 } from './familiar-report.js';
 import { readCompletedReceipt } from '../core/review/review.js';
+import { verifyReviewReceipt } from '../core/review/review-files.js';
+import type { ReviewReceiptFile } from '../core/review/review-files.js';
+import { errorMessage } from '../errors.js';
 import { terminateGraceMs } from './shutdown.js';
 import type { AgentEvent, Subagent, UserResponse } from './types.js';
 
@@ -106,12 +109,16 @@ export class FamiliarRun {
   private reported = false;
   readonly planReview: boolean;
   /** a plan review can be acknowledged before the carrying command's exit confirms it. */
-  private completion?: FamiliarProgress;
+  private completion?: {
+    progress: FamiliarProgress & { report: string };
+    receipt: ReviewReceiptFile;
+  };
 
   constructor(
     action: Extract<FamiliarAction, { kind: 'familiar-register' }>,
     private readonly emit: (event: AgentEvent) => void,
     parent?: string,
+    private readonly reviewScratch?: string,
   ) {
     this.planReview = action.planReview === true;
 
@@ -158,25 +165,31 @@ export class FamiliarRun {
       throw new Error('The familiar run has already ended.');
 
     if (stagesCompletion) {
-      const receipt = readCompletedReceipt(action.progress.report);
+      const { receiptFile, ...progress } = action.progress;
+      const report = progress.report;
+      const receipt = readCompletedReceipt(report);
 
       if (
         !receipt ||
+        !report ||
+        !receiptFile ||
+        !this.reviewScratch ||
         receipt.runtime !== this.subagent.runtime ||
         receipt.model !== action.progress.model
       )
         throw new Error('The plan review did not supply a completed receipt.');
+
+      this.completion = {
+        progress: { ...progress, report },
+        receipt: receiptFile,
+      };
     }
 
     this.sequence = action.sequence;
 
     if (late) return { kind: 'familiar-updated' };
 
-    if (stagesCompletion) {
-      this.completion = action.progress;
-
-      return { kind: 'familiar-updated' };
-    }
+    if (stagesCompletion) return { kind: 'familiar-updated' };
 
     this.completion = undefined;
     this.subagent = { ...this.subagent, ...action.progress };
@@ -193,6 +206,9 @@ export class FamiliarRun {
 
   /** a successful command exit confirms a staged plan review. an ordinary terminal report can still arrive after its command ends. */
   end(status: 'completed' | 'stopped' | 'failed'): void {
+    if (this.planReview && this.endedAt !== undefined && status === 'completed')
+      return;
+
     this.endedAt ??= performance.now();
     this.requests.resolveAll();
 
@@ -201,15 +217,38 @@ export class FamiliarRun {
     const completed = status === 'completed' && this.completion;
     this.completion = undefined;
 
-    if (completed) this.reported = true;
+    if (completed) {
+      this.reported = true;
+      void this.confirm(completed.progress, completed.receipt);
 
-    this.subagent = completed
-      ? { ...this.subagent, ...completed }
-      : {
-          ...this.subagent,
-          status: status === 'stopped' ? 'stopped' : 'failed',
-        };
+      return;
+    }
 
+    this.subagent = {
+      ...this.subagent,
+      status: status === 'stopped' ? 'stopped' : 'failed',
+    };
+
+    this.emit({ type: 'subagent', subagent: this.subagent });
+  }
+
+  private async confirm(
+    progress: FamiliarProgress & { report: string },
+    receipt: ReviewReceiptFile,
+  ): Promise<void> {
+    try {
+      await verifyReviewReceipt(receipt, progress.report, this.reviewScratch!);
+    } catch (error) {
+      progress = {
+        ...progress,
+        status: 'failed',
+        report: `Could not verify the plan review receipt at command exit: ${errorMessage(error)}`,
+      };
+    }
+
+    if (this.subagent.status !== 'running') return;
+
+    this.subagent = { ...this.subagent, ...progress };
     this.emit({ type: 'subagent', subagent: this.subagent });
   }
 

@@ -1,4 +1,5 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { dirname } from 'node:path';
 import { z } from 'zod';
 import type { ControlBinding } from '../../persistence/control.js';
 import { beforeDeadline } from '../../persistence/coordination.js';
@@ -108,7 +109,13 @@ export class ClaudeCommands {
       if (!entry || this.late(entry, message.run_id)) return;
 
       if (message.subtype === 'task_notification') {
-        this.end(entry, message.status);
+        this.end(
+          entry,
+          message.status,
+          message.run_id === entry.run &&
+            message.summary ===
+              `Background command "${entry.description}" completed (exit code 0)`,
+        );
       } else {
         const { status, is_backgrounded: background } = message.patch;
 
@@ -118,7 +125,10 @@ export class ClaudeCommands {
         }
 
         if (
-          status === 'completed' ||
+          (status === 'completed' &&
+            !admitted(entry.familiars).some(
+              (familiar) => familiar.planReview,
+            )) ||
           status === 'failed' ||
           status === 'killed'
         )
@@ -185,12 +195,21 @@ export class ClaudeCommands {
     });
   }
 
-  private end(entry: Command, status: Exclude<TaskStatus, 'running'>): void {
+  private end(
+    entry: Command,
+    status: Exclude<TaskStatus, 'running'>,
+    zeroExit = false,
+  ): void {
     if (entry.status !== 'running') return;
 
     entry.status = status;
 
-    for (const familiar of admitted(entry.familiars)) familiar.end(status);
+    for (const familiar of admitted(entry.familiars))
+      familiar.end(
+        familiar.planReview && status === 'completed' && !zeroExit
+          ? 'failed'
+          : status,
+      );
 
     this.publish(entry);
 
@@ -268,6 +287,7 @@ export class ClaudeCommands {
           entry.parent && this.knownParent(entry.parent)
             ? entry.parent
             : undefined,
+          dirname(dirname(this.binding!.directory)),
         ),
       () => this.publish(entry),
     );

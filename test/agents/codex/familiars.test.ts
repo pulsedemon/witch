@@ -1,19 +1,21 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { open, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { familiarMarker } from '../../../src/agents/familiar-report.js';
 import type { AgentEvent } from '../../../src/agents/types.js';
+import { receiptFile } from '../../../src/core/review/review-files.js';
 import { writeJson } from '../../../src/persistence/json.js';
 import { fixture } from '../../fixtures/codex-adapter.js';
+import { scratch } from '../../fixtures/scratch.js';
 import { until, within } from '../../fixtures/within.js';
 
-async function reportedFixture() {
+async function reportedFixture(root?: string) {
   const events: AgentEvent[] = [];
 
   const binding = {
-    directory: '/control/familiars',
+    directory: root ? join(root, 'control', 'familiars') : '/control/familiars',
     conversation: 'conversation',
     activation: randomUUID(),
   };
@@ -634,9 +636,11 @@ test('closing a native connection reports stopped even when command completion a
 for (const [status, exitCode] of [
   ['completed', 0],
   ['failed', 1],
+  ['failed', null],
 ] as const)
   test(`a familiar command that exited ${exitCode} leaves its native terminal for the parent to read`, async () => {
-    const f = await reportedFixture();
+    const root = await scratch('witch-review-exit-');
+    const f = await reportedFixture(root);
 
     try {
       await f.emit(
@@ -657,28 +661,74 @@ for (const [status, exitCode] of [
         findings: [],
       });
 
+      const path = join(root, 'receipt.json');
+      const file = await open(path, 'wx');
+
+      const receipt = await (async () => {
+        try {
+          await file.writeFile(report);
+
+          return await receiptFile(path, file);
+        } finally {
+          await file.close();
+        }
+      })();
+
       await f.session.familiar!.report(
         {
           kind: 'familiar-update',
           run: f.run,
           sequence: 0,
-          progress: { status: 'completed', model: 'observed', report },
+          progress: {
+            status: 'completed',
+            model: 'observed',
+            report,
+            receiptFile: receipt,
+          },
         },
         Date.now() + 5000,
       );
 
       assert.equal(f.familiarEvents().at(-1)!.status, 'running');
+      const other = { ...f.item, id: 'other-command' };
+
+      await f.emit(
+        { method: 'item/started', params: { ...f.params, item: other } },
+        {
+          method: 'item/completed',
+          params: {
+            ...f.params,
+            item: { ...other, status: 'completed', exitCode: 0 },
+          },
+        },
+      );
+
+      assert.equal(f.familiarEvents().at(-1)!.status, 'running');
+
+      if (exitCode === null) await f.list(1);
 
       await f.emit({
         method: 'item/completed',
-        params: { ...f.params, item: { ...f.item, status, exitCode } },
+        params: {
+          ...f.params,
+          item: { ...f.item, status: 'completed', exitCode },
+        },
       });
 
       // a model read follows any cleanup request the completion sent, so the fixture has recorded it
       await f.session.models();
-      assert.deepEqual(await listRequests(f.cwd), []);
+
+      assert.equal(
+        (await listRequests(f.cwd)).length,
+        exitCode === null ? 1 : 0,
+      );
+
       assert.deepEqual(await terminateRequests(f.cwd), []);
-      assert.equal(f.familiarEvents().at(-1)!.status, status);
+
+      await until(
+        'the carrying command result',
+        () => f.familiarEvents().at(-1)!.status === status,
+      );
 
       assert.equal(
         f.familiarEvents().at(-1)!.report,
@@ -686,7 +736,12 @@ for (const [status, exitCode] of [
       );
 
       await f.session.close();
-      assert.deepEqual(await listRequests(f.cwd), []);
+
+      assert.equal(
+        (await listRequests(f.cwd)).length,
+        exitCode === null ? 1 : 0,
+      );
+
       assert.deepEqual(await terminateRequests(f.cwd), []);
     } finally {
       await f.session.close();

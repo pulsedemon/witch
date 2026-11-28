@@ -290,6 +290,7 @@ export async function runClaudeFamiliar(
     };
 
     let diagnostic = message;
+    let receiptAvailable = !!file;
 
     try {
       if (review) {
@@ -304,12 +305,13 @@ export async function runClaudeFamiliar(
         );
 
         diagnostic = result.reason ?? message;
+        receiptAvailable = result.receiptAvailable;
       } else await saveFinalReport(file!, progress, '');
     } finally {
       process.stderr.write(`witch: ${diagnostic}\n`);
     }
 
-    if (file) process.stderr.write(`Saved report: ${reportFile}\n`);
+    if (receiptAvailable) process.stderr.write(`Saved report: ${reportFile}\n`);
 
     return stopped ? 130 : 1;
   } finally {

@@ -2,7 +2,6 @@ import { isUtf8 } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type {
@@ -13,7 +12,10 @@ import { reviewRoot } from '../core/review/review-checks.js';
 import {
   insideDirectory,
   openReviewFile,
+  readBytes,
+  verifyReviewReceipt,
 } from '../core/review/review-files.js';
+import type { ReviewReceiptFile } from '../core/review/review-files.js';
 import { findingsFormat, parseFindings } from '../core/review/review.js';
 import { errorMessage } from '../errors.js';
 import { openWithoutSymlinks } from '../persistence/open-file.js';
@@ -22,21 +24,6 @@ const digest = (bytes: Buffer) =>
   createHash('sha256').update(bytes).digest('hex');
 
 const inputLimit = 2 * 1024 * 1024;
-
-async function readBytes(file: FileHandle, capacity: number) {
-  const buffer = Buffer.allocUnsafe(capacity);
-  let offset = 0;
-
-  while (offset < capacity) {
-    const { bytesRead } = await file.read(buffer, offset, capacity - offset);
-
-    if (!bytesRead) break;
-
-    offset += bytesRead;
-  }
-
-  return buffer.subarray(0, offset);
-}
 
 async function readInput(path: string, roots: readonly string[]) {
   const { file, size } = await openReviewFile(path, roots);
@@ -106,24 +93,9 @@ export function createPlanReview(
         return `Could not reread the plan draft: ${errorMessage(error)}`;
       }
     },
-    async receiptError(path: string, receipt: FileHandle, expected: string) {
+    async receiptError(receipt: ReviewReceiptFile, expected: string) {
       try {
-        const saved = await receipt.stat();
-        const { file } = await openReviewFile(path, [scratch]);
-
-        try {
-          const visible = await file.stat();
-
-          if (visible.dev !== saved.dev || visible.ino !== saved.ino)
-            return 'The plan review receipt was replaced.';
-
-          const bytes = Buffer.from(expected);
-
-          if (!(await readBytes(file, bytes.length + 1)).equals(bytes))
-            return 'The plan review receipt contents changed.';
-        } finally {
-          await file.close();
-        }
+        await verifyReviewReceipt(receipt, expected, scratch);
       } catch (error) {
         return `Could not verify the plan review receipt: ${errorMessage(error)}`;
       }

@@ -1252,6 +1252,8 @@ for await (const line of lines) {
             },
           });
 
+        output('nested-a', markers.late);
+
         notify('item/completed', {
           threadId: 'native-thread',
           turnId: 'turn-1',

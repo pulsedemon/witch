@@ -20,7 +20,7 @@ import { parseCommand } from '../../src/cli/cli-control.js';
 import { ControlHost } from '../../src/persistence/control.js';
 import { compiledCli } from '../fixtures/compiled-cli.js';
 import { scratch } from '../fixtures/scratch.js';
-import { appears } from '../fixtures/within.js';
+import { appears, until } from '../fixtures/within.js';
 
 const draft = '# Review probe\n\nCheck exact bytes.\n';
 
@@ -122,6 +122,8 @@ type Fault =
   | 'missing-turn-reroute'
   | 'bad-start-reply'
   | 'receipt-at-publication'
+  | 'hold-carrying-exit'
+  | 'draft-and-receipt-removed'
   | 'legacy-then-blank'
   | 'missing-draft-and-write'
   | 'edit-at-publication'
@@ -273,7 +275,7 @@ async function launch(
         if (fault === 'stale')
           return { kind: 'error', message: 'Stale activation' };
 
-        familiar = new FamiliarRun(action, () => {});
+        familiar = new FamiliarRun(action, () => {}, undefined, root);
 
         if (!action.planReview || fault === 'no-scope')
           return { kind: 'familiar-registered' };
@@ -315,7 +317,8 @@ async function launch(
           action.progress.activity === 'Checking plan review receipt') ||
         ((fault === 'stop-at-publication' ||
           fault === 'edit-at-publication' ||
-          fault === 'receipt-at-publication') &&
+          fault === 'receipt-at-publication' ||
+          fault === 'draft-and-receipt-removed') &&
           completed)
       ) {
         pending.resolve();
@@ -400,13 +403,23 @@ async function launch(
 
   child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
 
-  const closed = new Promise<number | null>((resolve) => {
-    child.once('close', (code) => {
-      familiar?.end(
-        code === 0 ? 'completed' : code === 130 ? 'stopped' : 'failed',
-      );
+  const end = (code: number | null) =>
+    familiar?.end(
+      code === 0 ? 'completed' : code === 130 ? 'stopped' : 'failed',
+    );
 
-      resolve(code);
+  const closed = new Promise<number | null>((resolve, reject) => {
+    child.once('close', (code) => {
+      if (fault === 'hold-carrying-exit') return resolve(code);
+
+      end(code);
+
+      if (code === 0)
+        void until(
+          'the published plan review',
+          () => familiar?.subagent.status === 'completed',
+        ).then(() => resolve(code), reject);
+      else resolve(code);
     });
   });
 
@@ -428,6 +441,7 @@ async function launch(
     receipt,
     child,
     outcome,
+    end,
     async output(code: number) {
       assert.equal(await closed, code, log);
 
@@ -542,6 +556,37 @@ test('an unreadable brief leaves a failed receipt tied to the readable draft', a
   await assert.rejects(access(join(checkout, 'launched.json')), {
     code: 'ENOENT',
   });
+});
+
+test('Witch refuses completion when the receipt disappears after the wrapper exits', async (t) => {
+  const { end, outcome, receipt, status } = await launch(
+    t,
+    'codex',
+    'hold-carrying-exit',
+  );
+
+  assert.equal((await outcome(0)).status, 'completed');
+  assert.equal(status(), 'running');
+  await unlink(receipt);
+  end(0);
+  await until('the missing receipt failure', () => status() === 'failed');
+});
+
+test('draft failure keeps its diagnostic when the receipt disappears too', async (t) => {
+  const { root, receipt, pending, release, output, status } = await launch(
+    t,
+    'codex',
+    'draft-and-receipt-removed',
+  );
+
+  await pending;
+  await unlink(join(root, 'plan.md'));
+  await unlink(receipt);
+  release();
+  const log = await output(1);
+  assert.match(log, /Could not reread the plan draft: ENOENT/);
+  assert.doesNotMatch(log, /Saved report:/);
+  assert.equal(status(), 'failed');
 });
 
 test('an empty Claude result cannot borrow an earlier answer from a different model', async (t) => {

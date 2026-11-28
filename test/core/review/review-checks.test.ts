@@ -9,9 +9,10 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import type * as NativeFiles from 'node:fs/promises';
+import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import {
   checkTargets,
   reviewRoot,
@@ -24,6 +25,7 @@ import { scratch } from '../../fixtures/scratch.js';
 import { identity } from '../../fixtures/git.js';
 
 const execute = promisify(execFile);
+vi.mock('node:fs/promises', { spy: true });
 
 const checkFiles = async (cwd: string, files: readonly string[]) =>
   checkTargets(cwd, await snapshotTargets(cwd, files, [await realpath(cwd)]));
@@ -85,6 +87,38 @@ test('a reviewer dispatch failure removes its staged target', async () => {
     failed,
   );
 
+  await assert.rejects(access(staged!), { code: 'ENOENT' });
+});
+
+test('cancellation interrupts target staging between copies and cleans up', async () => {
+  const root = await scratch('witch-review-');
+  const abort = new AbortController();
+  const native = await vi.importActual<typeof NativeFiles>('node:fs/promises');
+  const writer = vi.mocked(writeFile);
+  const dispatch = vi.fn(async () => []);
+  let staged: string | undefined;
+  writer.mockClear();
+
+  writer.mockImplementationOnce(async (path, data, options) => {
+    assert.ok(options && typeof options === 'object');
+    assert.equal(options.signal, abort.signal);
+    await native.writeFile(path, data, options);
+    staged = dirname(String(path));
+    abort.abort();
+  });
+
+  await assert.rejects(
+    withTargetSnapshots(
+      root,
+      { 'first.md': 'first', 'second.md': 'second' },
+      dispatch,
+      abort.signal,
+    ),
+    { name: 'AbortError' },
+  );
+
+  assert.equal(writer.mock.calls.length, 1);
+  assert.equal(dispatch.mock.calls.length, 0);
   await assert.rejects(access(staged!), { code: 'ENOENT' });
 });
 
