@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import { open, writeFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { test, vi } from 'vitest';
@@ -14,7 +16,7 @@ import {
   jsonLines,
   launcher,
 } from '../../fixtures/claude-adapter.js';
-import { until } from '../../fixtures/within.js';
+import { until, within } from '../../fixtures/within.js';
 import { scratch } from '../../fixtures/scratch.js';
 
 function commands(root?: string) {
@@ -68,7 +70,7 @@ function commands(root?: string) {
       task_type: 'local_bash',
       parent_task_id: 'parent',
       tool_use_id: `toolu_${id}`,
-      description: 'review',
+      description: id,
       is_backgrounded: background,
     });
 
@@ -272,6 +274,165 @@ test('a plan review cannot stage its first completion after native exit', async 
   );
 
   assert.equal(f.familiars().at(-1)!.status, 'failed');
+});
+
+test('a confirmed Claude exit settles its receipt before publishing connection closure', async () => {
+  const f = await launcher('background');
+
+  const binding = {
+    directory: join(f.cwd, 'control', 'familiars'),
+    conversation: 'owner',
+    activation: randomUUID(),
+  };
+
+  const events: AgentEvent[] = [];
+
+  const session = await f.connect({
+    familiarBinding: binding,
+    onEvent: (e) => events.push(e),
+  });
+
+  const child = f.children[0]!;
+
+  const saw = (name: string) =>
+    events.some((e) => e.type === 'skills' && e.skills[0]?.name === name);
+
+  const emit = frameWriter(f.cwd, saw, child);
+  const run = randomUUID();
+  const report = JSON.stringify(completedReceipt);
+
+  try {
+    const turn = session.send('initial');
+    await until('parent reply', () => saw('result-1'));
+
+    await emit({
+      type: 'system',
+      subtype: 'session_state_changed',
+      state: 'idle',
+    });
+
+    assert.equal((await turn).status, 'completed');
+
+    await writeFile(
+      join(f.cwd, 'task-outputs.json'),
+      JSON.stringify({
+        review: familiarMarker({ version: 1, ...binding, run }),
+      }),
+    );
+
+    await emit({
+      type: 'system',
+      subtype: 'background_tasks_changed',
+      tasks: [
+        {
+          task_id: 'review',
+          run_id: '1',
+          task_type: 'local_bash',
+          description: 'review',
+        },
+      ],
+    });
+
+    assert.equal(
+      (
+        await session.familiar!.report(
+          {
+            kind: 'familiar-register',
+            run,
+            name: 'check',
+            runtime: 'claude',
+            planReview: true,
+          },
+          Date.now() + 5000,
+        )
+      ).kind,
+      'familiar-registered',
+    );
+
+    const path = join(f.cwd, 'receipt.json');
+    const file = await open(path, 'wx');
+    const prototype = Object.getPrototypeOf(file) as FileHandle;
+
+    const receipt = await (async () => {
+      try {
+        await file.writeFile(report);
+
+        return await receiptFile(path, file);
+      } finally {
+        await file.close();
+      }
+    })();
+
+    await session.familiar!.report(
+      {
+        kind: 'familiar-update',
+        run,
+        sequence: 0,
+        progress: {
+          status: 'completed',
+          model: completedReceipt.model,
+          tools: 0,
+          report,
+          receiptFile: receipt,
+        },
+      },
+      Date.now() + 5000,
+    );
+
+    const reading = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const original = prototype.read;
+
+    const read = vi
+      .spyOn(prototype, 'read')
+      .mockImplementationOnce(async function (
+        this: FileHandle,
+        ...args: Parameters<FileHandle['read']>
+      ) {
+        reading.resolve();
+        await release.promise;
+
+        return (await Reflect.apply(original, this, args)) as Awaited<
+          ReturnType<FileHandle['read']>
+        >;
+      });
+
+    try {
+      await emit({
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'review',
+        run_id: '1',
+        status: 'completed',
+        summary: 'Background command "review" completed (exit code 0)',
+      });
+
+      await within(reading.promise, 1500, 'host receipt read');
+      const closed = once(child, 'close');
+      assert.equal(child.kill(), true);
+      await closed;
+      release.resolve();
+
+      await until('native connection close', () =>
+        events.some(({ type }) => type === 'closed'),
+      );
+
+      const verified = events.findIndex(
+        (event) =>
+          event.type === 'subagent' &&
+          event.subagent.status === 'completed' &&
+          event.subagent.report === report,
+      );
+
+      const closure = events.findIndex(({ type }) => type === 'closed');
+      assert.ok(verified >= 0 && verified < closure);
+    } finally {
+      release.resolve();
+      read.mockRestore();
+    }
+  } finally {
+    await session.close();
+  }
 });
 
 test('a Claude background command registers after the parent turn and closes only its native task', async () => {

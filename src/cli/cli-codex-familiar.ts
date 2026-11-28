@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { open } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from '../agents/codex/adapter.js';
@@ -283,6 +283,7 @@ export async function runCodexFamiliar(
     );
 
     registered = true;
+    const readOnlyReview = !!review || registration.readOnlyReview === true;
 
     const attempt = review
       ? await review.openReport(reportFile, registration.reviewScope)
@@ -359,8 +360,9 @@ export async function runCodexFamiliar(
       cwd: prepared?.cwd ?? process.cwd(),
       memoryDirectories: [],
       withoutMcp: lean,
-      ...(review && { planReview: true }),
-      readOnlyReview: !!review || registration.readOnlyReview === true,
+      ...(readOnlyReview && {
+        reviewMailbox: await realpath(binding.directory),
+      }),
       signal: abort.signal,
       onEvent: receive,
       onProcess: async () => {},
@@ -383,7 +385,7 @@ export async function runCodexFamiliar(
       status = result.status === 'interrupted' ? 'stopped' : result.status;
       exhausted = !!result.exhausted;
 
-      if (review) {
+      if (readOnlyReview) {
         answer = result.reviewAnswer?.text ?? '';
         answerModel = result.reviewAnswer?.model;
 
@@ -464,7 +466,7 @@ export async function runCodexFamiliar(
       ...progress,
       status,
       report,
-      ...(review && answer && { model: answerModel }),
+      ...(answerModel && { model: answerModel }),
       // codex names no limit, so routing holds the whole runtime
       ...(exhausted && status === 'failed' && { exhausted: {} }),
     };

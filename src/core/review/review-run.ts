@@ -102,24 +102,11 @@ export async function runReviewCommand(
 }
 
 async function reviewTargets(
-  argument: string,
+  named: readonly string[],
   cwd: string,
   roots: readonly string[],
   signal: AbortSignal,
 ): Promise<string[] | { refused: string }> {
-  // quotes or a backslash keep a space inside one name
-  const named = [
-    ...argument.matchAll(/(?:[^\s"'\\]|\\[^]|"[^"]*"|'[^']*')+/g),
-  ].map(([name]) =>
-    name.replace(
-      /\\([^])|"([^"]*)"|'([^']*)'/g,
-      (_, escaped?: string, double?: string, single?: string) =>
-        escaped ?? double ?? single!,
-    ),
-  );
-
-  if (!named.length) return { refused: 'Use /review <files>.' };
-
   const files: string[] = [];
 
   for (const file of named) {
@@ -190,9 +177,26 @@ async function runReview(
     return;
   }
 
+  // quotes or a backslash keep a space inside one name
+  const named = [
+    ...argument.matchAll(/(?:[^\s"'\\]|\\[^]|"[^"]*"|'[^']*')+/g),
+  ].map(([name]) =>
+    name.replace(
+      /\\([^])|"([^"]*)"|'([^']*)'/g,
+      (_, escaped?: string, double?: string, single?: string) =>
+        escaped ?? double ?? single!,
+    ),
+  );
+
+  if (!named.length) {
+    host.notice('Use /review <files>.');
+
+    return;
+  }
+
   const root = await realpath(await reviewRoot(cwd, signal));
   const roots = [root];
-  const files = await reviewTargets(argument, cwd, roots, signal);
+  const files = await reviewTargets(named, cwd, roots, signal);
 
   if ('refused' in files) {
     host.notice(files.refused);

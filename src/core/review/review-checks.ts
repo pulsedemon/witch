@@ -853,7 +853,7 @@ async function repositoryOf(
   };
 }
 
-/** a file at a revision; `missing` when the revision lacks the path, undefined when the revision can't be read. */
+/** missing paths produce a finding. unavailable revisions are skipped; failed command bounds stop the check. */
 async function show(
   cwd: string,
   revision: string,
@@ -870,8 +870,10 @@ async function show(
     return { text: stdout };
   } catch (error) {
     signal?.throwIfAborted();
+    const failure = error as { killed?: boolean; code?: unknown };
 
-    if ((error as { killed?: boolean }).killed) throw error;
+    if (failure.killed || failure.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')
+      throw error;
 
     return /does not exist in|exists on disk, but not in/.test(
       String((error as { stderr?: unknown }).stderr ?? ''),

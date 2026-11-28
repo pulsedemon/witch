@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import type { ExecFileException, ExecFileOptions } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { StringDecoder } from 'node:string_decoder';
 import { promisify } from 'node:util';
 import { running, signalGroup } from '../../agents/shutdown.js';
 import { ps } from '../../persistence/process.js';
@@ -79,12 +80,12 @@ async function cancellable(
 
   for (const name of ['stdout', 'stderr'] as const) {
     let size = 0;
-    child[name].setEncoding('utf8');
+    const decoder = new StringDecoder('utf8');
 
-    child[name].on('data', (text: string) => {
+    child[name].on('data', (chunk: Buffer) => {
       if (failure) return;
 
-      size += Buffer.byteLength(text);
+      size += chunk.length;
 
       if (size > limit) {
         failure = Object.assign(
@@ -95,8 +96,10 @@ async function cancellable(
         );
 
         interrupt();
-      } else output[name] += text;
+      } else output[name] += decoder.write(chunk);
     });
+
+    child[name].once('end', () => (output[name] += decoder.end()));
   }
 
   signal.addEventListener('abort', interrupt, { once: true });

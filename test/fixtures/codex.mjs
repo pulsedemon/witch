@@ -56,6 +56,7 @@ const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 let answering = false;
 let reviewMode;
+let permissionProfile;
 
 const readOnlyReview =
   process.argv.includes('sandbox_mode="read-only"') &&
@@ -111,7 +112,13 @@ const session = () => ({
     }),
   ...(mode === 'named-profile'
     ? { activePermissionProfile: { id: 'owner' } }
-    : {}),
+    : permissionProfile && reviewMode !== 'missing-profile'
+      ? {
+          activePermissionProfile: {
+            id: reviewMode === 'wrong-profile' ? 'owner' : permissionProfile,
+          },
+        }
+      : {}),
 });
 
 const finish = (status, error = null) =>
@@ -748,6 +755,7 @@ for await (const line of lines) {
         ? readFileSync(file('review-mode'), 'utf8')
         : undefined;
 
+    permissionProfile = request.params.permissions;
     effort = request.params.config?.model_reasoning_effort ?? effort;
     record(answering ? 'answer-connect.json' : 'connect.json', request);
 
@@ -1285,9 +1293,33 @@ for await (const line of lines) {
       continue;
     }
 
+    if (familiar === 'review-model-after-answer') {
+      notify('item/completed', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        item: {
+          type: 'agentMessage',
+          id: 'review-answer',
+          text: 'Reviewed.',
+          phase: 'final_answer',
+        },
+      });
+
+      notify('model/rerouted', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        toModel: 'later-model',
+      });
+
+      finish('completed');
+
+      continue;
+    }
+
     if (familiar && prompt !== 'hold') {
       notify('model/rerouted', {
         threadId: 'native-thread',
+        turnId: 'turn-1',
         toModel: 'observed-codex',
       });
 

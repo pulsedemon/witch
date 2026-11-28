@@ -8,6 +8,7 @@ import {
   copyFile,
   mkdir,
   readFile,
+  realpath,
   rename,
   symlink,
   unlink,
@@ -116,6 +117,8 @@ type Fault =
   | 'claude-missing-answer-id'
   | 'writable-policy'
   | 'missing-policy'
+  | 'missing-profile'
+  | 'wrong-profile'
   | 'approval-policy'
   | 'network-policy'
   | 'partial-only'
@@ -488,7 +491,10 @@ async function launch(
 
 for (const runtime of ['claude', 'codex'] as const) {
   test(`${runtime} reviews the frozen draft with read-only settings and reports validated findings`, async (t) => {
-    const { checkout, outcome, receipt, stdout } = await launch(t, runtime);
+    const { checkout, outcome, receipt, stdout, root } = await launch(
+      t,
+      runtime,
+    );
 
     assert.deepEqual(await outcome(0), {
       planSha256,
@@ -535,6 +541,19 @@ for (const runtime of ['claude', 'codex'] as const) {
       assert.ok(launched.argv.includes('skills.include_instructions=false'));
       assert.ok(launched.argv.includes('features.hooks=false'));
       assert.ok(launched.argv.includes('notify=[]'));
+
+      const { params } = JSON.parse(
+        await readFile(join(checkout, 'connect.json'), 'utf8'),
+      );
+
+      const profile = params.config.permissions[params.permissions];
+      assert.equal(profile.extends, ':read-only');
+      assert.equal(profile.network.enabled, false);
+      assert.equal(params.approvalPolicy, 'never');
+
+      assert.deepEqual(profile.filesystem, {
+        [await realpath(join(root, 'control', 'familiars'))]: 'deny',
+      });
 
       const turn = JSON.parse(
         await readFile(join(checkout, 'prompt.json'), 'utf8'),
@@ -808,6 +827,8 @@ for (const [fault, reason] of [
 
 for (const fault of [
   'missing-policy',
+  'missing-profile',
+  'wrong-profile',
   'writable-policy',
   'approval-policy',
   'network-policy',

@@ -60,8 +60,9 @@ Delegated tasks (use the familiar prefix supplied in the current Witch context):
                       report a native Claude task as a familiar
   --familiar-codex <name> --report-file <file> [--lean] -- <native app-server options>
                       report a Codex task as a familiar; read its prompt from stdin
-  --review-plan <file> --review-brief <file> --review-model <model>
-                      use a read-only plan-review preset with either familiar command
+  --familiar-codex <name> --report-file <file> --review-plan <file>
+      --review-brief <file> --review-model <model>
+                      use the read-only preset; --familiar-claude also accepts this form
                       --lean starts either familiar without MCP servers or the spell catalog, and on Claude without hooks
 
 Every word that starts with - is read as an option, so quote a prompt that

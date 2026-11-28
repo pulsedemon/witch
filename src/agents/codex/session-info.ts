@@ -3,16 +3,41 @@ import type { SessionInfo } from '../types.js';
 
 const activePermissionProfile = z.object({ id: z.string() }).nullish();
 
+export function reviewPermissionSettings(mailbox: string) {
+  const permissions = 'witch-read-only-review';
+
+  return {
+    permissions,
+    approvalPolicy: 'never',
+    config: {
+      permissions: {
+        [permissions]: {
+          extends: ':read-only',
+          // saved command grants keep the sandbox when the thread restricts reads
+          filesystem: { [mailbox]: 'deny' },
+          network: { enabled: false },
+        },
+      },
+    },
+  };
+}
+
 const readOnlySession = z.object({
   approvalPolicy: z.literal('never'),
   sandbox: z.object({
     type: z.literal('readOnly'),
     networkAccess: z.literal(false),
   }),
+  activePermissionProfile,
 });
 
-export function requireReadOnlySession(value: unknown): void {
-  if (!readOnlySession.safeParse(value).success)
+export function requireReadOnlySession(value: unknown, profile?: string): void {
+  const result = readOnlySession.safeParse(value);
+
+  if (
+    !result.success ||
+    (profile && result.data.activePermissionProfile?.id !== profile)
+  )
     throw new Error(
       'Codex did not grant read-only permissions without network or approvals.',
     );

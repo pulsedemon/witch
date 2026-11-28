@@ -71,45 +71,49 @@ test('mechanical checks retain the admitted checkout root after it moves', async
   assert.deepEqual(await checkTargets(root, target, { root }), []);
 });
 
-test('a blob lookup timeout reaches the mechanical review caller', async () => {
-  const { root, commit } = await committed('https://github.com/owner/repo', {
-    'source.ts': 'one\n',
-  });
+test.each([
+  ['timeout', { killed: true }],
+  ['output limit', { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }],
+] as const)(
+  'a blob lookup %s reaches the mechanical review caller',
+  async (name, code) => {
+    const { root, commit } = await committed('https://github.com/owner/repo', {
+      'source.ts': 'one\n',
+    });
 
-  const command = vi.mocked(runCommand);
+    const command = vi.mocked(runCommand);
 
-  const native = await vi.importActual<{ runCommand: typeof runCommand }>(
-    '../../../src/core/repository/command.js',
-  );
-
-  const timeout = Object.assign(new Error('Timed out reading the Git blob'), {
-    killed: true,
-  });
-
-  command.mockImplementation((program, args, options) =>
-    args[0] === 'show'
-      ? Promise.reject(timeout)
-      : native.runCommand(program, args, options),
-  );
-
-  try {
-    await assert.rejects(
-      checkTargets(
-        root,
-        {
-          texts: {
-            'plan.md': `[source](https://github.com/owner/repo/blob/${commit}/source.ts#L1)\n`,
-          },
-          canonical: {},
-        },
-        { root, signal: new AbortController().signal },
-      ),
-      timeout,
+    const native = await vi.importActual<{ runCommand: typeof runCommand }>(
+      '../../../src/core/repository/command.js',
     );
-  } finally {
-    command.mockReset();
-  }
-});
+
+    const failure = Object.assign(new Error(`Git blob lookup ${name}`), code);
+
+    command.mockImplementation((program, args, options) =>
+      args[0] === 'show'
+        ? Promise.reject(failure)
+        : native.runCommand(program, args, options),
+    );
+
+    try {
+      await assert.rejects(
+        checkTargets(
+          root,
+          {
+            texts: {
+              'plan.md': `[source](https://github.com/owner/repo/blob/${commit}/source.ts#L1)\n`,
+            },
+            canonical: {},
+          },
+          { root, signal: new AbortController().signal },
+        ),
+        failure,
+      );
+    } finally {
+      command.mockReset();
+    }
+  },
+);
 
 test('mechanical checks skip a Unix socket citation', async () => {
   const root = await scratch('witch-review-socket-');
@@ -160,7 +164,7 @@ test('receipt verification keeps the original canonical scratch root', async () 
   }
 });
 
-for (const change of ['unlink', 'chmod'] as const) {
+for (const change of ['unlink', 'chmod', 'replace'] as const) {
   test(`receipt verification rejects ${change} during its read`, async () => {
     const root = await scratch('witch-receipt-recheck-');
     const path = join(root, 'receipt.json');
@@ -184,7 +188,11 @@ for (const change of ['unlink', 'chmod'] as const) {
           >;
 
           if (change === 'unlink') await unlink(path);
-          else await chmod(path, 0o400);
+          else if (change === 'chmod') await chmod(path, 0o400);
+          else {
+            await rename(path, join(root, 'original.json'));
+            await writeFile(path, expected);
+          }
 
           return result;
         });
@@ -194,7 +202,9 @@ for (const change of ['unlink', 'chmod'] as const) {
           verifyReviewReceipt(receipt, expected, root),
           change === 'unlink'
             ? { code: 'ENOENT' }
-            : /receipt changed while being read/,
+            : change === 'chmod'
+              ? /receipt changed while being read/
+              : /receipt was replaced/,
         );
       } finally {
         spy.mockRestore();
@@ -292,6 +302,44 @@ test('reviewers share one staged copy for targets with the same text', async () 
       assert.equal(await readFile(paths['other.md']!, 'utf8'), '# Other');
     },
   );
+});
+
+test('cancellation closes the target being read and skips the next target', async () => {
+  const root = await realpath(await scratch('witch-review-'));
+  const path = join(root, 'first.md');
+  await writeFile(path, 'first');
+  const probe = await open(path);
+  const prototype = Object.getPrototypeOf(probe) as NativeFiles.FileHandle;
+  await probe.close();
+  const abort = new AbortController();
+  const fault = new Error('Stop while reading the target');
+  let descriptor: (() => number) | undefined;
+
+  const spy = vi
+    .spyOn(prototype, 'readFile')
+    .mockImplementationOnce(async function (
+      this: NativeFiles.FileHandle,
+      options,
+    ) {
+      assert.ok(options && typeof options === 'object');
+      assert.equal(options.signal, abort.signal);
+      descriptor = () => this.fd;
+      abort.abort(fault);
+      options.signal.throwIfAborted();
+
+      return '';
+    });
+
+  try {
+    await assert.rejects(
+      snapshotTargets(root, ['first.md', 'unread.md'], [root], abort.signal),
+      fault,
+    );
+
+    assert.equal(descriptor?.(), -1);
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 test('a reviewer dispatch failure removes its staged target', async () => {

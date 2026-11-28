@@ -359,20 +359,7 @@ export class SessionLink {
 
     const conversationId = this.host.record()?.id;
     const session = this.connected;
-    this.connection = undefined;
     this.connected = undefined;
-    const owned = this.reviewers.owns;
-    const ended = this.ended();
-    const snapshot = this.host.snapshot();
-
-    this.host.publish({
-      ...ended,
-      skills: [],
-      subagents: snapshot.subagents.filter(({ id }) => owned(id)),
-      requests: keepQuestions
-        ? snapshot.requests.filter((request) => request.replyAsPrompt)
-        : [],
-    });
 
     try {
       await session?.close(stop);
@@ -383,8 +370,20 @@ export class SessionLink {
       delete record.process;
       await this.host.save();
     } finally {
-      // discard questions delivered while the old process was closing
-      if (!keepQuestions) this.host.publish({ requests: [] });
+      this.connection = undefined;
+      const ended = this.ended();
+      const snapshot = this.host.snapshot();
+
+      this.host.publish({
+        ...ended,
+        skills: [],
+        subagents: snapshot.subagents.filter(({ id }) =>
+          this.reviewers.owns(id),
+        ),
+        requests: keepQuestions
+          ? snapshot.requests.filter((request) => request.replyAsPrompt)
+          : [],
+      });
 
       if (conversationId)
         this.host.retain(conversationId, session?.takeUnreadContext?.());

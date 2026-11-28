@@ -756,6 +756,19 @@ for (const [status, exitCode] of [
 
       assert.equal(f.familiarEvents().at(-1)!.status, 'running');
 
+      for (const turnId of ['another-turn', undefined]) {
+        await f.emit({
+          method: 'item/completed',
+          params: {
+            ...f.params,
+            turnId,
+            item: { ...f.item, status: 'completed', exitCode: 0 },
+          },
+        });
+
+        assert.equal(f.familiarEvents().at(-1)!.status, 'running');
+      }
+
       if (exitCode === null) await f.list(1);
 
       await f.emit({
@@ -859,8 +872,15 @@ test('a confirmed Codex exit settles its staged receipt before publishing connec
         f.events.some(({ type }) => type === 'closed'),
       );
 
-      assert.equal(f.familiarEvents().at(-1)!.report, report);
-      assert.equal(f.familiarEvents().at(-1)!.status, 'completed');
+      const verified = f.events.findIndex(
+        (event) =>
+          event.type === 'subagent' &&
+          event.subagent.status === 'completed' &&
+          event.subagent.report === report,
+      );
+
+      const closure = f.events.findIndex(({ type }) => type === 'closed');
+      assert.ok(verified >= 0 && verified < closure);
     } finally {
       release.resolve();
       read.mockRestore();

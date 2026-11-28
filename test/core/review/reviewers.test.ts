@@ -229,6 +229,27 @@ test('a Witch-launched Codex reviewer refuses a writable native policy before di
   }
 });
 
+test('a Witch-launched Codex reviewer reports the model that finished its answer', async (t) => {
+  const { coordinator, root, reviewer } = await setup(t.onTestFinished);
+  const routed = await reviewer('review-model-codex', 'codex');
+  vi.stubEnv('WITCH_CODEX_FAMILIAR_FIXTURE', 'review-model-after-answer');
+
+  try {
+    const [result] = await coordinator.reviewers.run({
+      cwd: root,
+      reviewers: [routed],
+      signal: new AbortController().signal,
+    });
+
+    assert.equal(result!.code, 0);
+    assert.equal(result!.status, 'completed');
+    assert.equal(result!.report, 'Reviewed.');
+    assert.equal(result!.model, 'model-a');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 test('a reviewer that cannot spawn ends the run with its launch error', async () => {
   const root = await scratch('witch-reviewers-');
 

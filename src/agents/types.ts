@@ -483,10 +483,8 @@ export interface SessionOptions {
   automaticCompaction?: true;
   /** Codex only: starts the thread with no MCP server and fails if Codex still exposes one. */
   withoutMcp?: boolean;
-  /** Codex only: label completed answer items for a plan reviewer. */
-  planReview?: boolean;
-  /** require native confirmation of the isolated review's permissions before submitting input. */
-  readOnlyReview?: boolean;
+  /** Codex only: require isolated review permissions and keep the control mailbox private. */
+  reviewMailbox?: string;
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
 

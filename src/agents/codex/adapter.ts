@@ -11,6 +11,7 @@ import type { CodexSelection } from './compaction-policy.js';
 import {
   permissionProfile,
   requireReadOnlySession,
+  reviewPermissionSettings,
   sessionInfo,
 } from './session-info.js';
 import { spawn } from 'node:child_process';
@@ -320,6 +321,10 @@ class CodexSession implements AgentSession {
 
     const isolated = !answer && this.options.withoutMcp;
 
+    const review = this.options.reviewMailbox
+      ? reviewPermissionSettings(this.options.reviewMailbox)
+      : undefined;
+
     const base = {
       cwd: this.options.cwd,
       // an omitted selection restores the thread's saved workspace roots
@@ -331,6 +336,7 @@ class CodexSession implements AgentSession {
         ...answer?.config,
         ...(isolated &&
           withoutMcp(await readConfig(this.rpc, this.options.cwd))),
+        ...review?.config,
         ...Object.fromEntries(
           Object.entries(this.options.mark?.environment ?? {}).map(
             ([key, value]) => [`shell_environment_policy.set.${key}`, value],
@@ -348,6 +354,7 @@ class CodexSession implements AgentSession {
 
     const parameters = {
       ...answer,
+      ...review,
       ...(answer && this.options.resume ? { excludeTurns: true } : {}),
       ...base,
       model: this.options.model,
@@ -367,7 +374,7 @@ class CodexSession implements AgentSession {
       parameters,
     );
 
-    if (answer || this.options.readOnlyReview) requireReadOnlySession(started);
+    if (answer || review) requireReadOnlySession(started, review?.permissions);
 
     this.updateInfo(started);
     const holder = answer ? 'a peer answer' : isolated && 'a familiar';
@@ -484,7 +491,7 @@ class CodexSession implements AgentSession {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
       messages: new TurnText(),
-      ...(this.options.planReview && {
+      ...(this.options.reviewMailbox && {
         reviewAnswers: new Map(),
         reviewModels: new Map(),
         reviewInitialModel: this.info.model,
@@ -563,7 +570,7 @@ class CodexSession implements AgentSession {
         }),
       );
 
-      if (this.options.planReview && !response.turn.id)
+      if (this.options.reviewMailbox && !response.turn.id)
         throw new Error('Codex did not identify the dispatched review turn.');
 
       turn.started.resolve(response.turn.id);
@@ -571,7 +578,7 @@ class CodexSession implements AgentSession {
       this.setInfo({ ...this.info, hasHistory: true });
     } catch (error) {
       if (this.turn === turn) this.finish('failed', errorMessage(error));
-      else if (this.options.planReview) throw error;
+      else if (this.options.reviewMailbox) throw error;
     }
 
     const result = await turn.finished.promise;
@@ -889,7 +896,7 @@ class CodexSession implements AgentSession {
         item: item ? object.parse(params.item) : undefined,
       };
 
-      if (this.options.planReview && message.method === 'turn/completed') {
+      if (this.options.reviewMailbox && message.method === 'turn/completed') {
         const id = turnId.parse(params).turn.id;
 
         if (typeof params.threadId !== 'string' || !params.threadId || !id)
@@ -1165,7 +1172,9 @@ class CodexSession implements AgentSession {
 
         if (
           (this.turn?.compaction && turn.id !== this.turn.id) ||
-          (this.options.planReview && this.turn?.id && turn.id !== this.turn.id)
+          (this.options.reviewMailbox &&
+            this.turn?.id &&
+            turn.id !== this.turn.id)
         )
           break;
 
@@ -1195,7 +1204,7 @@ class CodexSession implements AgentSession {
         const { threadId, turnId, toModel } = data;
         const active = this.turn;
 
-        if (this.options.planReview) {
+        if (this.options.reviewMailbox) {
           if (typeof toModel !== 'string' || !toModel)
             throw new Error(
               'Witch could not read the model in Codex’s reroute.',

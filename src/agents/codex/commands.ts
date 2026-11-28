@@ -136,6 +136,12 @@ export class CodexCommands {
 
     const familiars = admitted(entry.familiars);
 
+    if (
+      params.turnId !== entry.turnId &&
+      familiars.some((familiar) => familiar.planReview)
+    )
+      return;
+
     const status =
       entry.command && !familiars.length
         ? commandStatus.parse(item.status)

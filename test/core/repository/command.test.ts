@@ -80,6 +80,23 @@ test('a cancellable command counts bytes across stream chunks', async () => {
   );
 });
 
+test('a cancellable command counts bytes before decoding malformed UTF-8', async () => {
+  const cwd = await scratch('witch-command-');
+
+  const { stdout } = await runCommand(
+    process.execPath,
+    ['-e', 'process.stdout.write(Buffer.alloc(16, 255))'],
+    {
+      cwd,
+      timeout: 5000,
+      signal: new AbortController().signal,
+      maxBuffer: 16,
+    },
+  );
+
+  assert.equal(stdout, '�'.repeat(16));
+});
+
 for (const killSignal of [undefined, 'SIGKILL'] as const) {
   test(`native timeout failures retain their output and metadata (${killSignal ?? 'default signal'})`, async () => {
     const cwd = await scratch('witch-command-');
