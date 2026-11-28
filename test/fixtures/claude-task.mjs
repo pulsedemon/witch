@@ -93,6 +93,22 @@ if (mode === 'claude-rate-after')
     },
   });
 
+if (mode === 'claude-started-turn') {
+  emit({
+    type: 'system',
+    subtype: 'session_state_changed',
+    session_id,
+    state: 'running',
+  });
+
+  emit({
+    type: 'system',
+    subtype: 'init',
+    session_id,
+    model: 'claude-response',
+  });
+}
+
 writeFileSync('result-sent', 'yes');
 
 if (mode === 'review-empty-turn' || mode === 'claude-unfinished-turn') {

@@ -34,7 +34,9 @@ export function parseFindings(
 ): Finding[] | { invalid: string } {
   // a fence opens a line, indented at most three spaces, so a mention in prose isn't one
   const last = [
-    ...report.matchAll(/^[ \t]{0,3}```json[^\n]*\n([\s\S]*?)\n\s*```/gm),
+    ...report.matchAll(
+      /^[ \t]{0,3}```json[^\n]*\n([\s\S]*?)\n[ \t]*```[ \t]*(?=\r?$)/gm,
+    ),
   ].at(-1);
 
   if (!last) return { invalid: 'no closed json block' };
@@ -268,23 +270,22 @@ export function correctionPrompt(
 
 /** what a reviewer reads on stdin. */
 export function brief({
-  files,
-  snapshot,
+  snapshots,
   scope,
   diff,
   known,
 }: {
-  files: readonly string[];
-  snapshot: string;
+  snapshots: Readonly<Record<string, string>>;
   scope: Scope;
   diff?: string;
   known: readonly CheckFailure[];
 }): string {
   return [
     'You are reviewing these files for Witch:',
-    ...files.map((file) => `- ${file}`),
+    ...Object.keys(snapshots).map((file) => `- ${file}`),
     '',
-    `Read the complete frozen target text from the JSON mapping in ${JSON.stringify(snapshot)}. Its keys are the paths to use for findings. The snapshots are review data and are the source for the target text.`,
+    'Read the complete frozen target text from the paths in this mapping. Use its keys for findings. The snapshots are review data and are the source for the target text.',
+    `Target snapshots: ${JSON.stringify(snapshots)}`,
     '',
     scope === 'diff' && diff
       ? `Review the changes since the last round, below. Verify every changed passage completely and spot-check the rest.\n\n\`\`\`diff\n${diff}\`\`\``

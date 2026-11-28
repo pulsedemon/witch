@@ -53,41 +53,161 @@ function reviewArgs(runtime: Runtime, requested = model[runtime]) {
   ];
 }
 
+type Fault =
+  | 'malformed'
+  | 'edited'
+  | 'stale'
+  | 'model'
+  | 'usage-limit'
+  | 'rate-limit'
+  | 'stopped'
+  | 'lost-report'
+  | 'lost-after-stage'
+  | 'pending-report'
+  | 'draft-after-save'
+  | 'wrong-line'
+  | 'missing-brief'
+  | 'invalid-draft'
+  | 'invalid-brief'
+  | 'existing-receipt'
+  | 'outside-draft'
+  | 'checkout-input'
+  | 'outside-cwd-input'
+  | 'fifo'
+  | 'large'
+  | 'claude-empty-turn'
+  | 'claude-unfinished-turn'
+  | 'claude-denied'
+  | 'claude-denied-then-result'
+  | 'claude-rate-after'
+  | 'question'
+  | 'unknown-request'
+  | 'stop-at-publication'
+  | 'stop-at-check'
+  | 'grow-on-read'
+  | 'no-scope'
+  | 'wrong-scratch'
+  | 'outside-receipt'
+  | 'aliased-receipt'
+  | 'claude-started-turn'
+  | 'malformed-question'
+  | 'commentary-only'
+  | 'missing-draft-and-reply';
+
+async function stageInputs(
+  root: string,
+  draftFile: string,
+  fault: Fault | undefined,
+) {
+  if (fault === 'fifo' || fault === 'existing-receipt') {
+    execFileSync('mkfifo', [draftFile]);
+  } else if (fault === 'outside-draft') {
+    const external = join(await scratch('witch-outside-review-'), 'plan.md');
+    await writeFile(external, draft);
+    await symlink(external, draftFile);
+  } else {
+    await writeFile(
+      draftFile,
+      fault === 'invalid-draft'
+        ? Buffer.from([0xff])
+        : fault === 'large'
+          ? Buffer.alloc(2 * 1024 * 1024 + 1, 'A')
+          : fault === 'grow-on-read'
+            ? Buffer.alloc(2 * 1024 * 1024, 'A')
+            : draft,
+    );
+  }
+
+  if (fault !== 'missing-brief' && fault !== 'existing-receipt')
+    await writeFile(
+      join(root, 'brief.md'),
+      fault === 'invalid-brief'
+        ? Buffer.from([0xff])
+        : 'Use only the authorized files.\n',
+    );
+
+  if (fault === 'existing-receipt')
+    await writeFile(join(root, 'attempt.json'), 'Earlier receipt.');
+}
+
+async function instrumentation(
+  root: string,
+  draftFile: string,
+  fault: Fault | undefined,
+) {
+  if (!fault) return [];
+
+  const script = join(root, 'probe.mjs');
+
+  const source = new Map<Fault, readonly string[]>([
+    ...(['stop-at-check', 'stop-at-publication'] as const).map(
+      (name) =>
+        [
+          name,
+          [
+            "import { writeFileSync } from 'node:fs';",
+            `process.on('SIGTERM', () => setImmediate(() => writeFileSync(${JSON.stringify(join(root, 'stop-observed'))}, 'yes')));`,
+          ],
+        ] as const,
+    ),
+    ...(
+      ['lost-report', 'lost-after-stage', 'missing-draft-and-reply'] as const
+    ).map(
+      (name) =>
+        [
+          name,
+          [
+            "import { existsSync } from 'node:fs';",
+            'const now = Date.now;',
+            `Date.now = () => now() + (existsSync(${JSON.stringify(join(root, 'mail-timeout'))}) ? 31000 : 0);`,
+          ],
+        ] as const,
+    ),
+    [
+      'draft-after-save',
+      [
+        "import { open, readFile, writeFile } from 'node:fs/promises';",
+        `const handle = await open(${JSON.stringify(draftFile)});`,
+        'const prototype = Object.getPrototypeOf(handle);',
+        'const sync = prototype.sync;',
+        'await handle.close();',
+        'prototype.sync = async function () {',
+        '  await sync.call(this);',
+        `  if ((await readFile(${JSON.stringify(join(root, 'attempt.json'))}, 'utf8').catch(() => '')).includes('"status":"completed"')) {`,
+        '    prototype.sync = sync;',
+        `    await writeFile(${JSON.stringify(draftFile)}, 'Edited during receipt sync');`,
+        '  }',
+        '};',
+      ],
+    ],
+    [
+      'grow-on-read',
+      [
+        "import { open, appendFile } from 'node:fs/promises';",
+        `const handle = await open(${JSON.stringify(draftFile)});`,
+        'const prototype = Object.getPrototypeOf(handle);',
+        'const read = prototype.read;',
+        'await handle.close();',
+        'prototype.read = async function (...args) {',
+        '  prototype.read = read;',
+        `  await appendFile(${JSON.stringify(draftFile)}, 'X');`,
+        '  return read.apply(this, args);',
+        '};',
+      ],
+    ],
+  ]).get(fault);
+
+  if (!source) return [];
+
+  await writeFile(script, source.join('\n'));
+
+  return ['--import', script];
+}
+
 async function launch(
   t: { onTestFinished: (cleanup: () => Promise<void>) => void },
   runtime: Runtime,
-  fault?:
-    | 'malformed'
-    | 'edited'
-    | 'stale'
-    | 'model'
-    | 'usage-limit'
-    | 'rate-limit'
-    | 'stopped'
-    | 'lost-report'
-    | 'lost-after-stage'
-    | 'pending-report'
-    | 'draft-after-save'
-    | 'wrong-line'
-    | 'missing-brief'
-    | 'invalid-draft'
-    | 'invalid-brief'
-    | 'existing-receipt'
-    | 'outside-draft'
-    | 'scratch-input'
-    | 'checkout-input'
-    | 'outside-cwd-input'
-    | 'fifo'
-    | 'large'
-    | 'claude-empty-turn'
-    | 'claude-unfinished-turn'
-    | 'claude-denied'
-    | 'claude-denied-then-result'
-    | 'claude-rate-after'
-    | 'question'
-    | 'unknown-request'
-    | 'stop-at-publication'
-    | 'stop-at-check',
+  fault?: Fault,
 ) {
   const root = await scratch('witch-plan-review-');
   const checkout = await scratch('witch-review-checkout-');
@@ -95,11 +215,14 @@ async function launch(
   const cwd =
     fault === 'checkout-input'
       ? join(checkout, 'nested')
-      : fault === 'scratch-input' || fault === 'outside-cwd-input'
+      : fault === 'outside-cwd-input'
         ? await scratch('witch-review-caller-')
-        : root;
+        : checkout;
 
-  if (fault === 'checkout-input') await mkdir(cwd);
+  if (fault === 'checkout-input') {
+    execFileSync('git', ['init', '--quiet', checkout]);
+    await mkdir(cwd);
+  }
 
   const native = join(root, runtime);
 
@@ -129,68 +252,23 @@ async function launch(
     'plan.md',
   );
 
-  if (fault === 'fifo') {
-    execFileSync('mkfifo', [draftFile]);
-  } else if (fault === 'outside-draft') {
-    const external = join(await scratch('witch-outside-review-'), 'plan.md');
-    await writeFile(external, draft);
-    await symlink(external, draftFile);
-  } else {
-    await writeFile(
-      draftFile,
-      fault === 'invalid-draft'
-        ? Buffer.from([0xff])
-        : fault === 'large'
-          ? Buffer.alloc(2 * 1024 * 1024 + 1, 'A')
-          : draft,
-    );
-  }
+  await stageInputs(root, draftFile, fault);
+  const preload = await instrumentation(root, draftFile, fault);
 
-  if (fault !== 'missing-brief' && fault !== 'existing-receipt')
-    await writeFile(
-      join(root, 'brief.md'),
-      fault === 'invalid-brief'
-        ? Buffer.from([0xff])
-        : 'Use only the authorized files.\n',
-    );
+  if (fault === 'aliased-receipt')
+    await symlink(checkout, join(root, 'receipt-link'));
 
-  if (fault === 'existing-receipt')
-    await writeFile(join(root, 'attempt.json'), 'Earlier receipt.');
+  const receipt =
+    fault === 'outside-receipt'
+      ? join(checkout, 'attempt.json')
+      : fault === 'aliased-receipt'
+        ? join(root, 'receipt-link', 'attempt.json')
+        : join(root, 'attempt.json');
 
-  const signalProbe = join(root, 'signal.mjs');
-
-  if (fault === 'stop-at-check' || fault === 'stop-at-publication')
-    await writeFile(
-      signalProbe,
-      [
-        "import { writeFileSync } from 'node:fs';",
-        "process.on('SIGTERM', () => setImmediate(() => writeFileSync('stop-observed', 'yes')));",
-      ].join('\n'),
-    );
-
-  if (fault === 'draft-after-save')
-    await writeFile(
-      signalProbe,
-      [
-        "import { open, readFile, writeFile } from 'node:fs/promises';",
-        "const handle = await open('plan.md');",
-        'const prototype = Object.getPrototypeOf(handle);',
-        'const sync = prototype.sync;',
-        'await handle.close();',
-        'prototype.sync = async function () {',
-        '  await sync.call(this);',
-        "  if ((await readFile('attempt.json', 'utf8').catch(() => '')).includes('\"status\":\"completed\"')) {",
-        '    prototype.sync = sync;',
-        "    await writeFile('plan.md', 'Edited during receipt sync');",
-        '  }',
-        '};',
-      ].join('\n'),
-    );
-
-  await writeFile(join(cwd, 'review-mode'), fault ?? 'ok');
+  await writeFile(join(checkout, 'review-mode'), fault ?? 'ok');
 
   await writeFile(
-    join(cwd, 'review-reply.txt'),
+    join(checkout, 'review-reply.txt'),
     fault === 'malformed'
       ? 'No structured findings.'
       : [
@@ -208,6 +286,7 @@ async function launch(
   const control = join(root, 'control', 'familiars');
   const pending = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
+  const dropReply = Promise.withResolvers<void>();
   const forwarded: string[] = [];
   let familiar: FamiliarRun | undefined;
 
@@ -220,9 +299,15 @@ async function launch(
 
         familiar = new FamiliarRun(action, () => {});
 
+        if (!action.planReview || fault === 'no-scope')
+          return { kind: 'familiar-registered' };
+
         return {
           kind: 'familiar-registered',
-          reviewScope: { cwd: checkout, scratch: root },
+          reviewScope: {
+            cwd: checkout,
+            scratch: fault === 'wrong-scratch' ? checkout : root,
+          },
         };
       }
 
@@ -232,16 +317,25 @@ async function launch(
         return { kind: 'error', message: 'Unexpected plan reviewer request' };
       }
 
-      if (fault === 'lost-report' && action.progress.status === 'completed')
-        return {
-          kind: 'error',
-          message: 'The terminal report did not arrive',
-        };
+      const completed = action.progress.status === 'completed';
 
       if (
-        ((fault === 'pending-report' || fault === 'stop-at-check') &&
+        (fault === 'lost-report' && completed) ||
+        (fault === 'missing-draft-and-reply' &&
+          action.progress.status === 'failed')
+      ) {
+        await writeFile(join(root, 'mail-timeout'), '');
+        await dropReply.promise;
+
+        return { kind: 'familiar-updated' };
+      }
+
+      if (
+        ((fault === 'pending-report' ||
+          fault === 'stop-at-check' ||
+          fault === 'missing-draft-and-reply') &&
           action.progress.activity === 'Checking plan review receipt') ||
-        (fault === 'stop-at-publication' && action.completeOnExit)
+        (fault === 'stop-at-publication' && completed)
       ) {
         pending.resolve();
         await release.promise;
@@ -249,8 +343,10 @@ async function launch(
 
       const reply = familiar!.report(action);
 
-      if (fault === 'lost-after-stage' && action.completeOnExit)
-        return { kind: 'error', message: 'Reply lost after staging' };
+      if (fault === 'lost-after-stage' && completed) {
+        await writeFile(join(root, 'mail-timeout'), '');
+        await dropReply.promise;
+      }
 
       return reply;
     },
@@ -259,6 +355,7 @@ async function launch(
 
   t.onTestFinished(() => {
     release.resolve();
+    dropReply.resolve();
 
     return host.close();
   });
@@ -280,11 +377,7 @@ async function launch(
   const child = spawn(
     process.execPath,
     [
-      ...(['stop-at-check', 'stop-at-publication', 'draft-after-save'].includes(
-        fault ?? '',
-      )
-        ? ['--import', signalProbe]
-        : []),
+      ...preload,
       await compiledCli(),
       '--control-dir',
       control,
@@ -295,9 +388,11 @@ async function launch(
       ...reviewArgs(runtime, requested).map((arg) =>
         arg === 'plan.md'
           ? draftFile
-          : arg === 'brief.md' || arg === 'attempt.json'
-            ? join(root, arg)
-            : arg,
+          : arg === 'attempt.json'
+            ? receipt
+            : arg === 'brief.md'
+              ? join(root, arg)
+              : arg,
       ),
     ],
     {
@@ -336,11 +431,13 @@ async function launch(
   const outcome = async (code: number) => {
     assert.equal(await closed, code, log);
 
-    return JSON.parse(await readFile(join(root, 'attempt.json'), 'utf8'));
+    return JSON.parse(await readFile(receipt, 'utf8'));
   };
 
   return {
     root,
+    checkout,
+    receipt,
     child,
     outcome,
     async output(code: number) {
@@ -357,7 +454,7 @@ async function launch(
 
 for (const runtime of ['claude', 'codex'] as const) {
   test(`${runtime} reviews the frozen draft with read-only settings and reports validated findings`, async (t) => {
-    const { root, outcome } = await launch(t, runtime);
+    const { checkout, outcome } = await launch(t, runtime);
 
     assert.deepEqual(await outcome(0), {
       planSha256,
@@ -368,7 +465,7 @@ for (const runtime of ['claude', 'codex'] as const) {
     });
 
     const launched = JSON.parse(
-      await readFile(join(root, 'launched.json'), 'utf8'),
+      await readFile(join(checkout, 'launched.json'), 'utf8'),
     );
 
     let prompt: string;
@@ -400,7 +497,7 @@ for (const runtime of ['claude', 'codex'] as const) {
       assert.ok(launched.argv.includes('notify=[]'));
 
       const turn = JSON.parse(
-        await readFile(join(root, 'prompt.json'), 'utf8'),
+        await readFile(join(checkout, 'prompt.json'), 'utf8'),
       );
 
       prompt = turn.params.input[0].text;
@@ -416,11 +513,11 @@ for (const [fault, reason] of [
   ['malformed', /no closed json block/],
   ['stale', /Stale activation/],
   ['model', /expected other-model/],
-  ['lost-report', /terminal report did not arrive/],
+  ['lost-report', /host did not reply before the deadline/],
   ['wrong-line', /outside the frozen plan/],
 ] as const) {
   test(`a ${fault} review leaves no completed receipt`, async (t) => {
-    const { root, outcome } = await launch(t, 'codex', fault);
+    const { checkout, outcome } = await launch(t, 'codex', fault);
     const result = await outcome(1);
     assert.equal(result.planSha256, fault === 'stale' ? null : planSha256);
     assert.equal(result.status, 'failed');
@@ -428,13 +525,13 @@ for (const [fault, reason] of [
     assert.match(result.reason, reason);
 
     if (fault === 'stale')
-      await assert.rejects(access(join(root, 'launched.json')), {
+      await assert.rejects(access(join(checkout, 'launched.json')), {
         code: 'ENOENT',
       });
 
     if (fault === 'model') {
       const launched = JSON.parse(
-        await readFile(join(root, 'launched.json'), 'utf8'),
+        await readFile(join(checkout, 'launched.json'), 'utf8'),
       );
 
       assert.ok(launched.argv.includes('model="other-model"'));
@@ -443,13 +540,16 @@ for (const [fault, reason] of [
 }
 
 test('an unreadable brief leaves a failed receipt tied to the readable draft', async (t) => {
-  const { root, outcome } = await launch(t, 'codex', 'missing-brief');
+  const { checkout, outcome } = await launch(t, 'codex', 'missing-brief');
   const result = await outcome(1);
   assert.equal(result.planSha256, planSha256);
   assert.equal(result.model, null);
   assert.equal(result.status, 'failed');
   assert.match(result.reason, /brief\.md/);
-  await assert.rejects(access(join(root, 'launched.json')), { code: 'ENOENT' });
+
+  await assert.rejects(access(join(checkout, 'launched.json')), {
+    code: 'ENOENT',
+  });
 });
 
 test('an empty Claude result cannot borrow an earlier answer from a different model', async (t) => {
@@ -464,17 +564,23 @@ for (const [fault, reason] of [
   ['invalid-draft', /must use UTF-8/],
   ['invalid-brief', /must use UTF-8/],
   ['outside-draft', /outside the allowed directories/],
-  ['outside-cwd-input', /outside the allowed directories/],
+  [
+    'outside-cwd-input',
+    /Launch the plan review from its admitted session directory/,
+  ],
   ['fifo', /not a regular file/],
   ['large', /must fit within 2 MiB/],
+  ['grow-on-read', /grew while being read/],
+  ['no-scope', /did not authorize the plan review inputs/],
+  ['wrong-scratch', /different review scratch directory/],
 ] as const) {
   test(`a ${fault} input fails before the reviewer starts`, async (t) => {
-    const { root, outcome } = await launch(t, 'codex', fault);
+    const { checkout, outcome } = await launch(t, 'codex', fault);
     const result = await outcome(1);
     assert.equal(result.status, 'failed');
     assert.match(result.reason, reason);
 
-    await assert.rejects(access(join(root, 'launched.json')), {
+    await assert.rejects(access(join(checkout, 'launched.json')), {
       code: 'ENOENT',
     });
   });
@@ -492,15 +598,26 @@ test('an existing receipt refuses a new attempt before opening the inputs', asyn
   );
 });
 
-for (const location of ['scratch-input', 'checkout-input'] as const) {
-  test(`the caller can use ${location} from outside the input directory`, async (t) => {
-    const { outcome } = await launch(t, 'codex', location);
-    assert.equal((await outcome(0)).planSha256, planSha256);
+test('a nested caller can review a file in the admitted checkout root', async (t) => {
+  const { checkout, outcome } = await launch(t, 'codex', 'checkout-input');
+  assert.equal((await outcome(0)).planSha256, planSha256);
+  await access(join(checkout, 'launched.json'));
+});
+
+for (const [runtime, fault] of [
+  ['codex', 'outside-receipt'],
+  ['claude', 'aliased-receipt'],
+] as const) {
+  test(`${runtime} refuses a ${fault} path beyond session scratch`, async (t) => {
+    const { output, receipt } = await launch(t, runtime, fault);
+    assert.match(await output(1), /receipt must be in session scratch/);
+    await assert.rejects(access(receipt), { code: 'ENOENT' });
   });
 }
 
 for (const [fault, reason] of [
   ['claude-unfinished-turn', /final plan review turn returned/],
+  ['claude-started-turn', /final plan review turn returned/],
   ['claude-denied', /Permission denied: Read .*plan\.md/],
   ['claude-denied-then-result', /Permission denied: Read .*plan\.md/],
 ] as const) {
@@ -524,6 +641,7 @@ test('an unanswered Claude usage rejection invalidates the earlier plan review',
 for (const [fault, reason] of [
   ['question', /plan reviewer cannot request input/],
   ['unknown-request', /Unsupported native request: review\/unknown/],
+  ['malformed-question', /could not read Codex's item\/completed questions/],
 ] as const) {
   test(`a Codex plan review surfaces ${fault} without forwarding a request`, async (t) => {
     const { outcome, forwarded } = await launch(t, 'codex', fault);
@@ -577,15 +695,38 @@ test('a draft edit during receipt sync invalidates the staged findings', async (
 test('a lost reply after staging completion leaves Witch and the receipt failed', async (t) => {
   const { outcome, status } = await launch(t, 'codex', 'lost-after-stage');
   const result = await outcome(1);
-  assert.match(result.reason, /Reply lost after staging/);
+  assert.match(result.reason, /host did not reply before the deadline/);
+  assert.equal(result.status, 'failed');
   assert.equal(status(), 'failed');
 });
 
+test('a lost failure update retains the draft reread diagnostic', async (t) => {
+  const { root, outcome, pending, release } = await launch(
+    t,
+    'codex',
+    'missing-draft-and-reply',
+  );
+
+  await pending;
+  await unlink(join(root, 'plan.md'));
+  release();
+  const result = await outcome(1);
+  assert.match(result.reason, /Could not reread the plan draft: ENOENT/);
+  assert.match(result.reason, /host did not reply before the deadline/);
+});
+
+test('Codex commentary cannot supply a completed review answer', async (t) => {
+  const { outcome } = await launch(t, 'codex', 'commentary-only');
+  const result = await outcome(1);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.findings, undefined);
+});
+
 test('editing the submitted draft invalidates its review', async (t) => {
-  const { root, outcome } = await launch(t, 'claude', 'edited');
-  await appears(join(root, 'result-sent'));
+  const { root, checkout, outcome } = await launch(t, 'claude', 'edited');
+  await appears(join(checkout, 'result-sent'));
   await writeFile(join(root, 'plan.md'), 'Changed draft');
-  await writeFile(join(root, 'exit'), 'yes');
+  await writeFile(join(checkout, 'exit'), 'yes');
   const result = await outcome(1);
   assert.equal(result.planSha256, planSha256);
   assert.equal(result.status, 'failed');
@@ -615,8 +756,8 @@ for (const runtime of ['claude', 'codex'] as const) {
 }
 
 test('interrupting a reviewer with a draft answer leaves a stopped receipt', async (t) => {
-  const { root, child, outcome } = await launch(t, 'claude', 'stopped');
-  await appears(join(root, 'result-sent'));
+  const { checkout, child, outcome } = await launch(t, 'claude', 'stopped');
+  await appears(join(checkout, 'result-sent'));
   child.kill('SIGTERM');
   const result = await outcome(130);
   assert.equal(result.status, 'stopped');

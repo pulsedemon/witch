@@ -90,7 +90,11 @@ export async function runClaudeFamiliar(
   review?: PlanReview,
 ): Promise<number> {
   const argv = claudeArguments(args, lean);
-  const file = await open(reportFile, 'wx', 0o600);
+
+  const file = await (review
+    ? review.openReport(reportFile)
+    : open(reportFile, 'wx', 0o600));
+
   const run = randomUUID();
   let stopped: NodeJS.Signals | undefined;
   let child: ReturnType<typeof spawn> | undefined;
@@ -121,15 +125,12 @@ export async function runClaudeFamiliar(
   process.on('SIGTERM', stop);
   const suspension = watchSuspension();
   let registered = false;
+  let activeTask: ClaudeTask | undefined;
 
   const reports = new FamiliarReports(binding, run, (error) => {
-    task.failed(error.message);
+    activeTask?.failed(error.message);
     terminate('SIGTERM');
   });
-
-  const task = new ClaudeTask(process.cwd(), (progress) =>
-    reports.push(progress),
-  );
 
   try {
     const scope = await registerFamiliar(
@@ -142,16 +143,20 @@ export async function runClaudeFamiliar(
     );
 
     registered = true;
-    const prompt = await review?.prepare(scope);
+    const prepared = await review?.prepare(scope);
 
     if (stopped) throw new Error('Familiar stopped before launch.');
 
+    const cwd = prepared?.cwd ?? process.cwd();
+    const task = new ClaudeTask(cwd, (progress) => reports.push(progress));
+    activeTask = task;
     const claude = nativeExecutable('claude');
 
     if (!claude) throw new Error('Native executable not found: claude');
 
     child = nativeLaunch(claude, (executable) =>
       spawn(executable, argv, {
+        cwd,
         stdio: [review ? 'pipe' : 'inherit', 'pipe', 'pipe'],
         detached: false,
       }),
@@ -178,7 +183,7 @@ export async function runClaudeFamiliar(
         task.failed(`Could not send the plan draft: ${error.message}`),
       );
 
-      child.stdin!.end(prompt);
+      child.stdin!.end(prepared!.prompt);
     }
 
     child.once('exit', () => {

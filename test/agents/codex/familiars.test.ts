@@ -64,13 +64,17 @@ async function reportedFixture() {
     params: { ...params, threadId, itemId: item.id, delta },
   });
 
-  const register = (runtime: 'claude' | 'codex' = 'claude') =>
+  const register = (
+    runtime: 'claude' | 'codex' = 'claude',
+    planReview = false,
+  ) =>
     session.familiar!.report(
       {
         kind: 'familiar-register',
         run,
         name: 'plan review',
         runtime,
+        ...(planReview && { planReview: true }),
       },
       Date.now() + 5000,
     );
@@ -639,18 +643,22 @@ for (const [status, exitCode] of [
         f.output(f.marker),
       );
 
-      assert.equal((await f.register()).kind, 'familiar-registered');
+      assert.equal(
+        (await f.register('claude', true)).kind,
+        'familiar-registered',
+      );
 
-      if (status === 'completed')
-        await f.session.familiar!.report(
-          {
-            kind: 'familiar-update',
-            run: f.run,
-            sequence: 0,
-            progress: { status },
-          },
-          Date.now() + 5000,
-        );
+      await f.session.familiar!.report(
+        {
+          kind: 'familiar-update',
+          run: f.run,
+          sequence: 0,
+          progress: { status: 'completed', report: 'Validated receipt' },
+        },
+        Date.now() + 5000,
+      );
+
+      assert.equal(f.familiarEvents().at(-1)!.status, 'running');
 
       await f.emit({
         method: 'item/completed',
@@ -662,6 +670,12 @@ for (const [status, exitCode] of [
       assert.deepEqual(await listRequests(f.cwd), []);
       assert.deepEqual(await terminateRequests(f.cwd), []);
       assert.equal(f.familiarEvents().at(-1)!.status, status);
+
+      assert.equal(
+        f.familiarEvents().at(-1)!.report,
+        exitCode === 0 ? 'Validated receipt' : undefined,
+      );
+
       await f.session.close();
       assert.deepEqual(await listRequests(f.cwd), []);
       assert.deepEqual(await terminateRequests(f.cwd), []);

@@ -1047,6 +1047,10 @@ for await (const line of lines) {
             type: 'agentMessage',
             id: 'review-report',
             text: readFileSync(file('review-reply.txt'), 'utf8'),
+            phase: mode === 'commentary-only' ? 'commentary' : 'final_answer',
+            ...(mode === 'malformed-question' && {
+              questions: [{ options: [123] }],
+            }),
           },
         });
 

@@ -261,7 +261,13 @@ export const userResponseSchema = z.object({
 export type UserResponse = z.infer<typeof userResponseSchema>;
 
 export type AgentEvent =
-  | { type: 'text'; id: string; text: string; replace?: boolean }
+  | {
+      type: 'text';
+      id: string;
+      text: string;
+      replace?: boolean;
+      finalAnswer?: true;
+    }
   /** the runtime withdrew the output of these earlier text and tool events; an id it never sent is ignored. */
   | { type: 'retracted'; ids: string[] }
   | (ToolTitle & {

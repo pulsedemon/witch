@@ -86,6 +86,11 @@ test('parseFindings reads only the last json block and normalizes paths, and say
     'no closed json block',
   );
 
+  assert.equal(
+    invalid('```json\n{"findings":[]}\n```json\n{"findings": [\n'),
+    'no closed json block',
+  );
+
   assert.match(
     invalid(
       `${json({ findings: [] })}\n\n\`\`\`json\n{"findings": [\n\`\`\`\n`,
@@ -419,8 +424,10 @@ test('brief carries the diff for a diff round and asks for the full text in a fu
   const known = [{ file: 'plan.md', line: 4, message: 'em dash in prose' }];
 
   const diffed = brief({
-    files: ['plan.md', 'docs/b.md'],
-    snapshot: '/scratch/targets.json',
+    snapshots: {
+      'plan.md': '/scratch/target-a',
+      'docs/b.md': '/scratch/target-b',
+    },
     scope: 'diff',
     diff: '@@ -1 +1 @@\n-a\n+b\n',
     known,
@@ -430,12 +437,11 @@ test('brief carries the diff for a diff round and asks for the full text in a fu
   assert.match(diffed, /^- docs\/b\.md$/m);
   assert.match(diffed, /^\+b$/m);
   assert.match(diffed, /changes since the last round/);
-  assert.match(diffed, /frozen target text.*\/scratch\/targets\.json/);
+  assert.match(diffed, /Target snapshots: .*\/scratch\/target-a/);
   assert.match(diffed, /^- plan\.md:4: em dash in prose$/m);
 
   const full = brief({
-    files: ['plan.md'],
-    snapshot: '/scratch/targets.json',
+    snapshots: { 'plan.md': '/scratch/target-a' },
     scope: 'full',
     known: [],
   });

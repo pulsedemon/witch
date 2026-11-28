@@ -103,6 +103,7 @@ export class FamiliarRun {
   private endedAt?: number;
   /** set by the familiar's own terminal update, which may arrive after its command ended. */
   private reported = false;
+  private readonly planReview: boolean;
   /** a plan review can be acknowledged before the carrying command's exit confirms it. */
   private completion?: FamiliarProgress;
 
@@ -111,6 +112,8 @@ export class FamiliarRun {
     private readonly emit: (event: AgentEvent) => void,
     parent?: string,
   ) {
+    this.planReview = action.planReview === true;
+
     this.subagent = {
       id: `${action.runtime}-familiar/${action.run}`,
       run: action.run,
@@ -143,8 +146,12 @@ export class FamiliarRun {
     const late =
       this.endedAt !== undefined && action.progress.status === 'running';
 
+    const stagesCompletion =
+      this.planReview && action.progress.status === 'completed';
+
     if (
       this.reported ||
+      (stagesCompletion && this.endedAt !== undefined) ||
       (late && performance.now() - this.endedAt! > lateProgressMs)
     )
       throw new Error('The familiar run has already ended.');
@@ -153,7 +160,7 @@ export class FamiliarRun {
 
     if (late) return { kind: 'familiar-updated' };
 
-    if (action.completeOnExit && action.progress.status === 'completed') {
+    if (stagesCompletion) {
       this.completion = action.progress;
 
       return { kind: 'familiar-updated' };
@@ -172,7 +179,7 @@ export class FamiliarRun {
     return { kind: 'familiar-updated' };
   }
 
-  /** ends the run with the command that carried it, marking a familiar that hasn't reported its own end; a later terminal report replaces that mark. */
+  /** a successful command exit confirms a staged plan review. an ordinary terminal report can still arrive after its command ends. */
   end(status: 'completed' | 'stopped' | 'failed'): void {
     this.endedAt ??= performance.now();
     this.requests.resolveAll();

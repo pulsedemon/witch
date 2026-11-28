@@ -34,12 +34,28 @@ test('mechanical checks use the selected snapshot instead of rereading their tar
   await writeFile(join(cwd, 'plan.md'), '# On disk\n');
 
   const failures = await checkTargets(cwd, ['plan.md'], {
-    'plan.md': 'see [rules](missing.md#target)\n',
+    texts: { 'plan.md': 'see [rules](missing.md#target)\n' },
+    canonical: {},
   });
 
   assert.deepEqual(
     failures.map(({ message }) => message),
     ['link target missing.md does not exist'],
+  );
+});
+
+test('a link to the selected snapshot’s canonical name uses the captured text', async () => {
+  const cwd = await scratch('witch-review-alias-');
+  const canonicalFile = join(cwd, 'plan.md');
+  await writeFile(canonicalFile, '# Revised on disk\n');
+  const text = 'see [the target](plan.md#target)\n\n# Target\n';
+
+  assert.deepEqual(
+    await checkTargets(cwd, ['alias.md'], {
+      texts: { 'alias.md': text },
+      canonical: { [canonicalFile]: text },
+    }),
+    [],
   );
 });
 

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  access,
   chmod,
   mkdir,
   readFile,
@@ -22,6 +23,7 @@ import type {
   ReviewerResult,
 } from '../../../src/core/review/reviewers.js';
 import type { Routed } from '../../../src/core/runtime/routing.js';
+import * as checks from '../../../src/core/review/review-checks.js';
 import { main } from '../../../src/memory/names.js';
 import { Workspace } from '../../../src/memory/workspace.js';
 import { ConversationStore } from '../../../src/persistence/store.js';
@@ -583,13 +585,15 @@ test('reviewers receive the checked snapshot even when a target is redirected du
   const h = await harness(t);
   const outside = join(h.cwd, '..', 'outside.md');
   await writeFile(outside, 'Outside the checkout.\n');
+  let staged: string | undefined;
 
   h.state.during = async () => {
     await unlink(join(h.cwd, 'plan.md'));
     await symlink(outside, join(h.cwd, 'plan.md'));
-    const [, snapshot] = /JSON mapping in "([^"]+)"/.exec(h.rounds[0]!.brief)!;
-    const texts = JSON.parse(await readFile(snapshot!, 'utf8'));
-    assert.deepEqual(texts, { 'plan.md': `${target.join('\n')}\n` });
+    const [, json] = /^Target snapshots: (.+)$/m.exec(h.rounds[0]!.brief)!;
+    const paths = JSON.parse(json!) as Record<string, string>;
+    staged = paths['plan.md']!;
+    assert.equal(await readFile(staged, 'utf8'), `${target.join('\n')}\n`);
   };
 
   await assert.rejects(
@@ -598,6 +602,34 @@ test('reviewers receive the checked snapshot even when a target is redirected du
   );
 
   assert.equal(h.correctionPrompts().length, 0);
+  await assert.rejects(access(staged!), { code: 'ENOENT' });
+});
+
+test('manual review checks the same target text it dispatches after a disk edit', async (t) => {
+  const h = await harness(t);
+  const original = checks.checkTargets;
+  const plan = join(h.cwd, 'plan.md');
+  const content = await readFile(plan, 'utf8');
+
+  const check = vi
+    .spyOn(checks, 'checkTargets')
+    .mockImplementation(async (cwd, files, snapshot) => {
+      await writeFile(plan, 'see [changed](missing-file.md#test)\n');
+
+      try {
+        return await original(cwd, files, snapshot);
+      } finally {
+        await writeFile(plan, content);
+      }
+    });
+
+  try {
+    assert.equal(await h.coordinator.review('plan.md'), true);
+    assert.equal(h.rounds.length, 1);
+    assert.deepEqual(h.correctionPrompts(), []);
+  } finally {
+    check.mockRestore();
+  }
 });
 
 test('quotes or a backslash keep a space inside a target name', async (t) => {

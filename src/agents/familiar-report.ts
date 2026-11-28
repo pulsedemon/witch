@@ -50,7 +50,6 @@ export const familiarActionSchema = z.discriminatedUnion('kind', [
     run: z.string().uuid(),
     sequence: z.number().int().nonnegative(),
     progress: familiarProgressSchema,
-    completeOnExit: z.literal(true).optional(),
   }),
   z.object({
     kind: z.literal('familiar-request'),

@@ -4,6 +4,7 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { decodeHTMLStrict } from 'entities';
 import { unlessGone } from '../../persistence/json.js';
+import type { TargetSnapshot } from './review-files.js';
 
 const execute = promisify(execFile);
 
@@ -45,16 +46,19 @@ type Fail = (line: number, message: string) => void;
 export async function checkTargets(
   cwd: string,
   files: readonly string[],
-  snapshot: Readonly<Record<string, string>> = {},
+  snapshot?: TargetSnapshot,
 ): Promise<CheckFailure[]> {
   const repository = await repositoryOf(cwd);
 
   const cache = new Map<string, Promise<string | undefined>>(
-    Object.entries(snapshot).map(([file, text]) => [
-      resolve(cwd, file),
+    Object.entries(snapshot?.canonical ?? {}).map(([path, text]) => [
+      path,
       Promise.resolve(text),
     ]),
   );
+
+  for (const [file, text] of Object.entries(snapshot?.texts ?? {}))
+    cache.set(resolve(cwd, file), Promise.resolve(text));
 
   const local = (path: string) => {
     let text = cache.get(path);

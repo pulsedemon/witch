@@ -19,7 +19,7 @@ import type { PlanReview } from './plan-review.js';
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
 export class FamiliarReports {
   private sequence = 0;
-  private pending?: { progress: FamiliarProgress; completeOnExit: boolean };
+  private pending?: FamiliarProgress;
   private sending?: Promise<void>;
   error?: Error;
 
@@ -29,10 +29,10 @@ export class FamiliarReports {
     private readonly failed: (error: Error) => void,
   ) {}
 
-  push(progress: FamiliarProgress, completeOnExit = false): void {
+  push(progress: FamiliarProgress): void {
     if (this.error) return;
 
-    this.pending = { progress, completeOnExit };
+    this.pending = progress;
 
     this.sending ??= this.send()
       .catch((error: unknown) => {
@@ -45,16 +45,12 @@ export class FamiliarReports {
       .finally(() => {
         this.sending = undefined;
 
-        if (this.pending && !this.error)
-          this.push(this.pending.progress, this.pending.completeOnExit);
+        if (this.pending && !this.error) this.push(this.pending);
       });
   }
 
-  async finish(
-    progress: FamiliarProgress,
-    completeOnExit = false,
-  ): Promise<void> {
-    this.push(progress, completeOnExit);
+  async finish(progress: FamiliarProgress): Promise<void> {
+    this.push(progress);
 
     while (this.sending) await this.sending;
 
@@ -63,7 +59,7 @@ export class FamiliarReports {
 
   private async send(): Promise<void> {
     while (this.pending) {
-      const { progress, completeOnExit } = this.pending;
+      const progress = this.pending;
       this.pending = undefined;
       let outcome: ControlResult;
 
@@ -73,7 +69,6 @@ export class FamiliarReports {
           run: this.run,
           sequence: this.sequence++,
           progress,
-          ...(completeOnExit && { completeOnExit: true as const }),
         });
       } catch (error) {
         if (
@@ -167,7 +162,7 @@ export async function settlePlanReview(
       {
         ...progress,
         status: 'failed',
-        report: [progress.report, errorMessage(error)]
+        report: [terminal.reason ?? progress.report, errorMessage(error)]
           .filter(Boolean)
           .join('\n\n'),
       },
@@ -224,10 +219,10 @@ export async function settlePlanReview(
   }
 
   try {
-    const completeOnExit = terminal.status === 'completed';
-    await reports?.finish(terminal, completeOnExit);
+    const completed = terminal.status === 'completed';
+    await reports?.finish(terminal);
 
-    if (completeOnExit) {
+    if (completed) {
       await checkDraft();
       checkStop();
 

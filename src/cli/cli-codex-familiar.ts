@@ -78,7 +78,10 @@ export async function runCodexFamiliar(
     lean ? ['-c', 'skills.include_instructions=false', ...args] : args,
   );
 
-  const file = await open(reportFile, 'wx', 0o600);
+  const file = await (review
+    ? review.openReport(reportFile)
+    : open(reportFile, 'wx', 0o600));
+
   const run = randomUUID();
   const abort = new AbortController();
   let session: AgentSession | undefined;
@@ -96,6 +99,7 @@ export async function runCodexFamiliar(
     | undefined;
 
   let progress: FamiliarProgress = { status: 'running', tools: 0 };
+  let reviewAnswer: { text: string; model?: string } | undefined;
   const tools = new Set<string>();
   const prompts: string[] = [];
 
@@ -205,6 +209,12 @@ export async function runCodexFamiliar(
   const receive = (event: AgentEvent) => {
     if (ending) return;
 
+    if (review && event.type === 'text' && event.finalAnswer) {
+      reviewAnswer = { text: event.text, model: progress.model };
+
+      return;
+    }
+
     if (event.type === 'tool') forwardMarkers(event);
 
     if (event.type === 'info')
@@ -265,7 +275,6 @@ export async function runCodexFamiliar(
   let report = '';
   /** the last turn's final message: a follow-up turn only carries the reply to the familiar's own question. */
   let answer = '';
-  let answerModel: string | undefined;
   let status: FamiliarProgress['status'] = 'failed';
   let exhausted = false;
   let registered = false;
@@ -298,7 +307,8 @@ export async function runCodexFamiliar(
 
     reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);
-    let prompt = review ? await review.prepare(scope) : '';
+    const prepared = await review?.prepare(scope);
+    let prompt = prepared?.prompt ?? '';
 
     if (!review) {
       process.stdin.setEncoding('utf8');
@@ -348,7 +358,7 @@ export async function runCodexFamiliar(
 
     session = await adapter.connect({
       executable: codex,
-      cwd: process.cwd(),
+      cwd: prepared?.cwd ?? process.cwd(),
       memoryDirectories: [],
       withoutMcp: lean,
       signal: abort.signal,
@@ -367,8 +377,7 @@ export async function runCodexFamiliar(
     for (;;) {
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
-      answer = result.final ?? '';
-      answerModel = session.info.model;
+      answer = (review ? reviewAnswer?.text : result.final) ?? '';
       status = result.status === 'interrupted' ? 'stopped' : result.status;
       exhausted = !!result.exhausted;
 
@@ -442,7 +451,7 @@ export async function runCodexFamiliar(
       ...progress,
       status,
       report,
-      ...(review && status === 'completed' && { model: answerModel }),
+      ...(review && status === 'completed' && { model: reviewAnswer?.model }),
       // codex names no limit, so routing holds the whole runtime
       ...(exhausted && status === 'failed' && { exhausted: {} }),
     };

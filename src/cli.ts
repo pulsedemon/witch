@@ -111,7 +111,9 @@ const { values, control, familiar, spawn } = command;
 if (familiar) {
   try {
     const { runtime, binding, name, reportFile, args, lean, review } = familiar;
-    const planReview = review && createPlanReview(runtime, review);
+
+    const planReview =
+      review && createPlanReview(runtime, review, binding.directory);
 
     process.exitCode = await (
       runtime === 'codex' ? runCodexFamiliar : runClaudeFamiliar

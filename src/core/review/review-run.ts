@@ -10,6 +10,7 @@ import {
   openReviewFile,
   ReviewInputError,
   snapshotTargets,
+  withTargetSnapshots,
 } from './review-files.js';
 import {
   afterCorrection,
@@ -247,12 +248,12 @@ async function runReview(
   for (;;) {
     const number = next.number;
     const incomplete = `round ${number} did not complete`;
-    let texts = await read();
-    let failures = await checkTargets(cwd, files, texts);
+    let snapshot = await read();
+    let failures = await checkTargets(cwd, files, snapshot);
 
     // a second pass sends failures the first correction introduced
     for (let pass = 0; pass < 2; pass++) {
-      const seen = identities(failures, texts);
+      const seen = identities(failures, snapshot.texts);
       const unsent = seen.filter((identity) => !sent.has(identity));
       const fresh = failures.filter((_, index) => !sent.has(seen[index]!));
 
@@ -263,11 +264,12 @@ async function runReview(
       if (!(await host.turn(correctionPrompt({ failures: fresh }))))
         return stopped(incomplete);
 
-      texts = await read();
-      failures = await checkTargets(cwd, files, texts);
+      snapshot = await read();
+      failures = await checkTargets(cwd, files, snapshot);
     }
 
     known = failures;
+    const { texts } = snapshot;
     const current = identities(failures, texts);
     sent = new Set(current.filter((identity) => sent.has(identity)));
     const reported = failures.filter((_, index) => sent.has(current[index]!));
@@ -325,19 +327,6 @@ async function runReview(
     );
 
     const briefFile = join(directory, `round-${number}-brief.md`);
-    const snapshot = join(directory, `round-${number}-targets.json`);
-    await writeFile(snapshot, JSON.stringify(texts), { mode: 0o600 });
-
-    await writeFile(
-      briefFile,
-      brief({
-        files,
-        snapshot,
-        scope,
-        ...(scope === 'diff' && delta ? { diff: delta.diff } : {}),
-        known: reported,
-      }),
-    );
 
     const reviewers: (Reviewer & { route: Routed })[] = routes.map((route) => {
       const name = `review-${run}-${number}-${route.runtime}`;
@@ -357,7 +346,23 @@ async function runReview(
       };
     });
 
-    const results = await host.reviewers.run({ cwd, reviewers, signal });
+    const results = await withTargetSnapshots(
+      directory,
+      texts,
+      async (snapshots) => {
+        await writeFile(
+          briefFile,
+          brief({
+            snapshots,
+            scope,
+            ...(scope === 'diff' && delta ? { diff: delta.diff } : {}),
+            known: reported,
+          }),
+        );
+
+        return host.reviewers.run({ cwd, reviewers, signal });
+      },
+    );
 
     if (signal.aborted) return stopped(incomplete);
 
@@ -378,7 +383,7 @@ async function runReview(
 
     if (failed.length) return stopped(failed.join('; '));
 
-    if (!same(await read(), texts))
+    if (!same((await read()).texts, texts))
       return stopped('the targets changed while reviewers read them');
 
     const round = {
@@ -415,7 +420,7 @@ async function runReview(
       blockers: decided.blockers.length,
       sittingOut: decided.sittingOut,
       ...(decided.stopAfter ? { stopAfter: decided.stopAfter } : {}),
-      changedDuring: !same(corrected, texts),
+      changedDuring: !same(corrected.texts, texts),
     });
 
     if ('stop' in after) {

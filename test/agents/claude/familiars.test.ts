@@ -76,9 +76,18 @@ function commands() {
     run,
   });
 
-  const register = (runtime: 'claude' | 'codex' = 'codex') =>
+  const register = (
+    runtime: 'claude' | 'codex' = 'codex',
+    planReview = false,
+  ) =>
     owner.report(
-      { kind: 'familiar-register', run, name: 'review', runtime },
+      {
+        kind: 'familiar-register',
+        run,
+        name: 'review',
+        runtime,
+        ...(planReview && { planReview: true }),
+      },
       Date.now() + 5000,
     );
 
@@ -121,6 +130,30 @@ function commands() {
     familiars,
   };
 }
+
+test('a plan review stays running until the Claude command completes', async () => {
+  const f = commands();
+  f.start();
+
+  await until(
+    'plan review registration',
+    async () =>
+      (await f.register('claude', true)).kind === 'familiar-registered',
+  );
+
+  await f.update(0, 'completed');
+  assert.equal(f.familiars().at(-1)!.status, 'running');
+
+  f.emit({
+    subtype: 'task_notification',
+    task_id: 'review',
+    run_id: '2',
+    status: 'completed',
+  });
+
+  assert.equal(f.familiars().at(-1)!.status, 'completed');
+  assert.equal(f.familiars().at(-1)!.report, 'Full report');
+});
 
 test('a Claude background command registers after the parent turn and closes only its native task', async () => {
   const events: AgentEvent[] = [];

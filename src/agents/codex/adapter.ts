@@ -1033,17 +1033,33 @@ class CodexSession implements AgentSession {
               id,
               text: item.text,
               replace: true,
+              ...(message.method === 'item/completed' &&
+              item.phase === 'final_answer'
+                ? { finalAnswer: true }
+                : {}),
             });
           }
 
           if (message.method === 'item/completed' && item.questions != null) {
-            const questions = messageQuestions
-              .parse(item.questions)
-              .map((question, index) => ({
-                id: String(index),
-                title: question.title,
-                options: question.options ?? [],
-              }));
+            const parsed = messageQuestions.safeParse(item.questions);
+
+            if (!parsed.success) {
+              const text = `Witch could not read Codex's item/completed questions: ${errorMessage(parsed.error)}`;
+
+              this.options.onEvent({
+                type: 'notice',
+                text,
+                rejectedRequest: true,
+              });
+
+              return;
+            }
+
+            const questions = parsed.data.map((question, index) => ({
+              id: String(index),
+              title: question.title,
+              options: question.options ?? [],
+            }));
 
             if (questions.length)
               this.options.onEvent({

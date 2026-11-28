@@ -185,13 +185,12 @@ export class ClaudeCommands {
     });
   }
 
-  private end(entry: Command, status: TaskStatus): void {
+  private end(entry: Command, status: Exclude<TaskStatus, 'running'>): void {
     if (entry.status !== 'running') return;
 
     entry.status = status;
 
-    for (const familiar of admitted(entry.familiars))
-      familiar.end(status === 'running' ? 'failed' : status);
+    for (const familiar of admitted(entry.familiars)) familiar.end(status);
 
     this.publish(entry);
 
