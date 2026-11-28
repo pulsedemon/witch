@@ -308,6 +308,8 @@ test('only a supporting session receives familiar instructions and the exact use
     /Require exit code 0 and a JSON report with status completed, the routed runtime and model, and planSha256 matching the exact draft you will present or carry out/,
   );
 
+  assert.match(rule, /The receipt file must match the command’s terminal JSON/);
+
   assert.match(
     rule,
     /Resolve verified findings about settled decisions by making the decision in the plan/,

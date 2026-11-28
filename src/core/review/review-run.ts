@@ -190,7 +190,8 @@ async function runReview(
     return;
   }
 
-  const roots = [await realpath(await reviewRoot(cwd, signal))];
+  const root = await realpath(await reviewRoot(cwd, signal));
+  const roots = [root];
   const files = await reviewTargets(argument, cwd, roots, signal);
 
   if ('refused' in files) {
@@ -220,6 +221,9 @@ async function runReview(
   const directory = await mkdtemp(join(tmpdir(), 'review-'));
   const run = randomBytes(4).toString('hex');
   const read = () => snapshotTargets(cwd, files, roots, signal);
+
+  const check = (snapshot: Awaited<ReturnType<typeof read>>) =>
+    checkTargets(cwd, snapshot, { root, signal });
 
   const same = (a: Texts, b: Texts) =>
     files.every((file) => a[file] === b[file]);
@@ -263,7 +267,7 @@ async function runReview(
     const number = next.number;
     const incomplete = `round ${number} did not complete`;
     let snapshot = await read();
-    let failures = await checkTargets(cwd, snapshot);
+    let failures = await check(snapshot);
 
     // a second pass sends failures the first correction introduced
     for (let pass = 0; pass < 2; pass++) {
@@ -279,7 +283,7 @@ async function runReview(
         return stopped(incomplete);
 
       snapshot = await read();
-      failures = await checkTargets(cwd, snapshot);
+      failures = await check(snapshot);
     }
 
     known = failures;
@@ -430,9 +434,7 @@ async function runReview(
     const corrected = await read();
 
     const remaining = async () =>
-      findings.length
-        ? (await checkTargets(cwd, corrected)).length
-        : known.length;
+      findings.length ? (await check(corrected)).length : known.length;
 
     if ('stop' in decided)
       return outcome(decided.stop, true, await remaining());

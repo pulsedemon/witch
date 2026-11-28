@@ -90,7 +90,9 @@ const session = () => ({
   model: run.model,
   cwd: process.cwd(),
   approvalPolicy:
-    (answering || readOnlyReview) && reviewMode !== 'approval-policy'
+    (answering || readOnlyReview) &&
+    reviewMode !== 'approval-policy' &&
+    familiar !== 'ordinary-overrides'
       ? 'never'
       : 'on-request',
   approvalsReviewer: 'user',
@@ -1183,7 +1185,19 @@ for await (const line of lines) {
             toModel: null,
           });
 
-        finish('completed');
+        if (
+          mode === 'empty-completed-thread' ||
+          mode === 'empty-completed-turn'
+        )
+          notify('turn/completed', {
+            threadId: mode === 'empty-completed-thread' ? '' : 'native-thread',
+            turn: {
+              id: mode === 'empty-completed-turn' ? '' : 'turn-1',
+              status: 'completed',
+              error: null,
+            },
+          });
+        else finish('completed');
 
         if (mode === 'bad-start-reply') reply({ turn: {} });
       }

@@ -3,11 +3,6 @@ import type { SessionInfo } from '../types.js';
 
 const activePermissionProfile = z.object({ id: z.string() }).nullish();
 
-export const readOnlySettings = [
-  'sandbox_mode="read-only"',
-  'approval_policy="never"',
-] as const;
-
 const readOnlySession = z.object({
   approvalPolicy: z.literal('never'),
   sandbox: z.object({

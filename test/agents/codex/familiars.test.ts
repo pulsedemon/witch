@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import type { FileHandle } from 'node:fs/promises';
 import { open, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { familiarMarker } from '../../../src/agents/familiar-report.js';
 import type { AgentEvent } from '../../../src/agents/types.js';
 import { receiptFile } from '../../../src/core/review/review-files.js';
@@ -636,6 +638,90 @@ test('closing a native connection reports stopped even when command completion a
 for (const [status, exitCode] of [
   ['completed', 0],
   ['failed', 1],
+] as const)
+  test(`an ordinary familiar command that exited ${exitCode} leaves its native terminal for the parent to read`, async () => {
+    const f = await reportedFixture();
+
+    try {
+      await f.emit(
+        { method: 'item/started', params: { ...f.params, item: f.item } },
+        f.output(f.marker),
+      );
+
+      assert.equal((await f.register()).kind, 'familiar-registered');
+
+      if (status === 'completed')
+        await f.session.familiar!.report(
+          {
+            kind: 'familiar-update',
+            run: f.run,
+            sequence: 0,
+            progress: { status },
+          },
+          Date.now() + 5000,
+        );
+
+      await f.emit({
+        method: 'item/completed',
+        params: { ...f.params, item: { ...f.item, status, exitCode } },
+      });
+
+      // a model read follows any cleanup request the completion sent, so the fixture has recorded it
+      await f.session.models();
+      assert.deepEqual(await listRequests(f.cwd), []);
+      assert.deepEqual(await terminateRequests(f.cwd), []);
+      assert.equal(f.familiarEvents().at(-1)!.status, status);
+      await f.session.close();
+      assert.deepEqual(await listRequests(f.cwd), []);
+      assert.deepEqual(await terminateRequests(f.cwd), []);
+    } finally {
+      await f.session.close();
+    }
+  });
+
+async function stageReviewReceipt(
+  f: Awaited<ReturnType<typeof reportedFixture>>,
+  root: string,
+) {
+  const report = JSON.stringify({
+    status: 'completed',
+    runtime: 'claude',
+    model: 'observed',
+    planSha256: 'b'.repeat(64),
+    findings: [],
+  });
+
+  const path = join(root, 'receipt.json');
+  const file = await open(path, 'wx');
+
+  try {
+    await file.writeFile(report);
+    const receipt = await receiptFile(path, file);
+
+    await f.session.familiar!.report(
+      {
+        kind: 'familiar-update',
+        run: f.run,
+        sequence: 0,
+        progress: {
+          status: 'completed',
+          model: 'observed',
+          report,
+          receiptFile: receipt,
+        },
+      },
+      Date.now() + 5000,
+    );
+
+    return { report, prototype: Object.getPrototypeOf(file) as FileHandle };
+  } finally {
+    await file.close();
+  }
+}
+
+for (const [status, exitCode] of [
+  ['completed', 0],
+  ['failed', 1],
   ['failed', null],
 ] as const)
   test(`a familiar command that exited ${exitCode} leaves its native terminal for the parent to read`, async () => {
@@ -653,42 +739,7 @@ for (const [status, exitCode] of [
         'familiar-registered',
       );
 
-      const report = JSON.stringify({
-        status: 'completed',
-        runtime: 'claude',
-        model: 'observed',
-        planSha256: 'b'.repeat(64),
-        findings: [],
-      });
-
-      const path = join(root, 'receipt.json');
-      const file = await open(path, 'wx');
-
-      const receipt = await (async () => {
-        try {
-          await file.writeFile(report);
-
-          return await receiptFile(path, file);
-        } finally {
-          await file.close();
-        }
-      })();
-
-      await f.session.familiar!.report(
-        {
-          kind: 'familiar-update',
-          run: f.run,
-          sequence: 0,
-          progress: {
-            status: 'completed',
-            model: 'observed',
-            report,
-            receiptFile: receipt,
-          },
-        },
-        Date.now() + 5000,
-      );
-
+      const { report } = await stageReviewReceipt(f, root);
       assert.equal(f.familiarEvents().at(-1)!.status, 'running');
       const other = { ...f.item, id: 'other-command' };
 
@@ -747,6 +798,77 @@ for (const [status, exitCode] of [
       await f.session.close();
     }
   });
+
+test('a confirmed Codex exit settles its staged receipt before publishing connection closure', async () => {
+  const root = await scratch('witch-review-shutdown-');
+  const f = await reportedFixture(root);
+  const reading = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+
+    assert.equal(
+      (await f.register('claude', true)).kind,
+      'familiar-registered',
+    );
+
+    const { report, prototype } = await stageReviewReceipt(f, root);
+    const original = prototype.read;
+
+    const read = vi
+      .spyOn(prototype, 'read')
+      .mockImplementationOnce(async function (
+        this: FileHandle,
+        ...args: Parameters<FileHandle['read']>
+      ) {
+        reading.resolve();
+        await release.promise;
+
+        return (await Reflect.apply(original, this, args)) as Awaited<
+          ReturnType<FileHandle['read']>
+        >;
+      });
+
+    try {
+      await f.emit({
+        method: 'item/completed',
+        params: {
+          ...f.params,
+          item: { ...f.item, status: 'completed', exitCode: 0 },
+        },
+      });
+
+      await within(reading.promise, 1500, 'host receipt read');
+      const closed = once(f.child, 'close');
+      assert.equal(f.child.kill(), true);
+      await closed;
+      assert.equal(f.familiarEvents().at(-1)!.status, 'running');
+
+      assert.equal(
+        f.events.some(({ type }) => type === 'closed'),
+        false,
+      );
+
+      release.resolve();
+
+      await until('native connection close', () =>
+        f.events.some(({ type }) => type === 'closed'),
+      );
+
+      assert.equal(f.familiarEvents().at(-1)!.report, report);
+      assert.equal(f.familiarEvents().at(-1)!.status, 'completed');
+    } finally {
+      release.resolve();
+      read.mockRestore();
+    }
+  } finally {
+    await f.session.close();
+  }
+});
 
 test('a relayed marker cannot register a plan review under the outer command', async () => {
   const f = await reportedFixture();

@@ -1,7 +1,6 @@
 import { isAbsolute, normalize, relative } from 'node:path';
 import { formatPatch, structuredPatch } from 'diff';
 import { z } from 'zod';
-import { readOnlySettings } from '../../agents/codex/session-info.js';
 import { errorMessage, issuesText } from '../../errors.js';
 import { quote } from '../../shell.js';
 import type { CheckFailure } from './review-checks.js';
@@ -376,7 +375,10 @@ export function reviewerArguments(
     : [
         '-c',
         `model=${JSON.stringify(model)}`,
-        ...readOnlySettings.flatMap((setting) => ['-c', setting]),
+        '-c',
+        'sandbox_mode="read-only"',
+        '-c',
+        'approval_policy="never"',
         '-c',
         'features.hooks=false',
         '-c',

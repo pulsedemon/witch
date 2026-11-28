@@ -40,6 +40,7 @@ async function fixture(
     reject?: boolean;
     existing?: boolean;
     lean?: boolean;
+    nativeOverrides?: string[];
     config?: Record<string, unknown>;
     tools?: unknown[];
   } = {},
@@ -187,6 +188,7 @@ syncBuiltinESMExports();
       '--',
       '-c',
       'model="requested-alias"',
+      ...(options.nativeOverrides ?? []).flatMap((setting) => ['-c', setting]),
       '-c',
       'approval_policy="on-request"',
     ],
@@ -493,6 +495,25 @@ test('a Codex familiar relays only live bound command markers', async () => {
     assert.equal(await readFile(f.report, 'utf8'), 'Nested markers finished.');
     assert.equal(f.updates().at(-1)!.status, 'completed');
     assert.equal(await identifyProcess((await f.launch()).pid), undefined);
+  } finally {
+    await f.close();
+  }
+});
+
+test('ordinary lean Codex familiars preserve a later native permission override', async () => {
+  const f = await fixture({
+    mode: 'ordinary-overrides',
+    lean: true,
+    nativeOverrides: ['sandbox_mode="read-only"', 'approval_policy="never"'],
+  });
+
+  try {
+    assert.equal(await f.closed, 0);
+
+    assert.match(
+      await readFile(join(f.root, 'prompt.json'), 'utf8'),
+      /implement/,
+    );
   } finally {
     await f.close();
   }

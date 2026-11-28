@@ -2,7 +2,7 @@ import process from 'node:process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { appendFile, open, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setImmediate } from 'node:timers';
+import { clearInterval, setImmediate, setInterval } from 'node:timers';
 
 const { fault, root, draftFile } = JSON.parse(
   process.env.WITCH_TEST_PLAN_REVIEW,
@@ -11,8 +11,18 @@ const { fault, root, draftFile } = JSON.parse(
 if (fault === 'stalled-checkout') {
   const timer = globalThis.setTimeout;
 
-  globalThis.setTimeout = (callback, milliseconds, ...args) =>
-    timer(callback, milliseconds === 180_000 ? 500 : milliseconds, ...args);
+  globalThis.setTimeout = (callback, milliseconds, ...args) => {
+    if (milliseconds !== 180_000) return timer(callback, milliseconds, ...args);
+
+    const startup = setInterval(() => {
+      if (!existsSync(join(root, 'git-started'))) return;
+
+      clearInterval(startup);
+      callback(...args);
+    }, 20);
+
+    return startup;
+  };
 } else if (fault === 'stop-at-check' || fault === 'stop-at-publication') {
   process.on('SIGTERM', () =>
     setImmediate(() => writeFileSync(join(root, 'stop-observed'), 'yes')),

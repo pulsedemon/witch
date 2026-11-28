@@ -285,11 +285,16 @@ class CodexSession implements AgentSession {
       // a turn or settings change in flight reports the exit itself
       const reported = !!(this.turn || this.settings);
       this.settings?.reject(error);
-      this.commands.stop();
+      const verifications = this.commands.stop();
       this.proposals.clear();
       this.closed = true;
 
-      if (this.connected) this.options.onEvent({ type: 'closed' });
+      if (this.connected) {
+        const closed = () => this.options.onEvent({ type: 'closed' });
+
+        if (verifications) void verifications.then(closed);
+        else closed();
+      }
 
       this.finish(
         this.turn?.interrupted ? 'interrupted' : 'failed',
@@ -755,7 +760,7 @@ class CodexSession implements AgentSession {
 
       this.reportStopTimeout();
       this.closing = true;
-      this.commands.stop();
+      void this.commands.stop();
       await this.rpc.close(options);
     }
   }
@@ -809,7 +814,7 @@ class CodexSession implements AgentSession {
 
       this.reportStopTimeout();
     } finally {
-      this.commands.stop();
+      void this.commands.stop();
 
       if (await this.rpc.close(options)) this.reportStopTimeout();
 
@@ -883,6 +888,15 @@ class CodexSession implements AgentSession {
         params,
         item: item ? object.parse(params.item) : undefined,
       };
+
+      if (this.options.planReview && message.method === 'turn/completed') {
+        const id = turnId.parse(params).turn.id;
+
+        if (typeof params.threadId !== 'string' || !params.threadId || !id)
+          throw new Error(
+            'Codex did not identify the completed review thread and turn.',
+          );
+      }
 
       const diff = this.fileChangeDiff(notification);
       this.commands.receive(notification);

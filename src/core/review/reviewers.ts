@@ -61,7 +61,8 @@ export class Reviewers {
 
       if (!expected) return;
 
-      if (expected.run === action.run) return { kind: 'familiar-registered' };
+      if (expected.run === action.run)
+        return { kind: 'familiar-registered', readOnlyReview: true };
 
       if (expected.run)
         throw new Error('This reviewer has already registered.');
@@ -75,7 +76,7 @@ export class Reviewers {
         }),
       );
 
-      return { kind: 'familiar-registered' };
+      return { kind: 'familiar-registered', readOnlyReview: true };
     }
 
     const run = this.runs.get(action.run);

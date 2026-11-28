@@ -37,6 +37,7 @@ import {
 } from '../../fixtures/coordination.js';
 import { png } from '../../fixtures/png.js';
 import { scratch } from '../../fixtures/scratch.js';
+import { withGit } from '../../fixtures/merged.js';
 import { until, within } from '../../fixtures/within.js';
 
 const claudeRoute: Routed = {
@@ -944,6 +945,39 @@ test('closing Witch during a review aborts its reviewers', async (t) => {
   held.resolve();
   await closing;
   assert.equal(await reviewing, false);
+});
+
+test('Escape stops a Git lookup in the mechanical checks', async (t) => {
+  const h = await harness(t);
+  const probe = await scratch('witch-review-git-');
+  const started = join(h.cwd, 'mechanical-git-started');
+
+  await withGit(
+    probe,
+    `if (args.join(' ') === 'remote get-url origin') {
+  writeFileSync('mechanical-git-started', String(process.pid));
+  setInterval(() => {}, 1000);
+  return;
+}`,
+    async () => {
+      const reviewing = h.coordinator.review('plan.md');
+
+      await until('mechanical Git lookup', async () => {
+        try {
+          return !!(await readFile(started, 'utf8'));
+        } catch {
+          return false;
+        }
+      });
+
+      const pid = Number(await readFile(started, 'utf8'));
+      await h.coordinator.interrupt();
+      assert.equal(await within(reviewing, 1500, 'interrupted review'), false);
+      assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    },
+  );
+
+  assert.equal(h.rounds.length, 0);
 });
 
 test('closing Witch as a round starts ends the review cleanly', async (t) => {

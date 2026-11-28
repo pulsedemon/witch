@@ -4,7 +4,6 @@ import { open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from '../agents/codex/adapter.js';
-import { readOnlySettings } from '../agents/codex/session-info.js';
 import { nativeExecutable } from '../agents/executable.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import type {
@@ -35,7 +34,7 @@ import type { ControlBinding } from '../persistence/control.js';
 import { elapsed } from '../ui/status/elapsed.js';
 import type { PlanReview } from './plan-review.js';
 
-/** bounds preparation and connection through the initial spell listing. */
+/** after receipt creation, expiry cancels startup and prevents dispatch. */
 const startupDeadlineMs = 180_000;
 
 /** the wrapper owns transport and input; native configuration remains Codex's. */
@@ -274,7 +273,7 @@ export async function runCodexFamiliar(
   const suspension = watchSuspension();
 
   try {
-    const scope = await registerFamiliar(
+    const registration = await registerFamiliar(
       binding,
       run,
       name,
@@ -286,7 +285,7 @@ export async function runCodexFamiliar(
     registered = true;
 
     const attempt = review
-      ? await review.openReport(reportFile, scope)
+      ? await review.openReport(reportFile, registration.reviewScope)
       : undefined;
 
     if (attempt) file = attempt.file;
@@ -361,8 +360,7 @@ export async function runCodexFamiliar(
       memoryDirectories: [],
       withoutMcp: lean,
       ...(review && { planReview: true }),
-      readOnlyReview:
-        lean && readOnlySettings.every((setting) => args.includes(setting)),
+      readOnlyReview: !!review || registration.readOnlyReview === true,
       signal: abort.signal,
       onEvent: receive,
       onProcess: async () => {},

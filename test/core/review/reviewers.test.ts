@@ -241,7 +241,7 @@ test('late updates never reopen a finished reviewer', () => {
       name: 'r',
       runtime: 'claude',
     }),
-    { kind: 'familiar-registered' },
+    { kind: 'familiar-registered', readOnlyReview: true },
   );
 
   const update = (sequence: number, status: 'running' | 'completed') =>
@@ -286,8 +286,16 @@ test('a repeated registration is acknowledged again but published once, and anot
       runtime: 'claude',
     });
 
-  assert.deepEqual(register(run), { kind: 'familiar-registered' });
-  assert.deepEqual(register(run), { kind: 'familiar-registered' });
+  assert.deepEqual(register(run), {
+    kind: 'familiar-registered',
+    readOnlyReview: true,
+  });
+
+  assert.deepEqual(register(run), {
+    kind: 'familiar-registered',
+    readOnlyReview: true,
+  });
+
   const other = randomUUID();
   assert.throws(() => register(other), /already registered/);
   assert.deepEqual(events, [`${run} running`]);

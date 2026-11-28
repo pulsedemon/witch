@@ -132,7 +132,7 @@ export async function runClaudeFamiliar(
   });
 
   try {
-    const scope = await registerFamiliar(
+    const { reviewScope } = await registerFamiliar(
       binding,
       run,
       name,
@@ -144,7 +144,7 @@ export async function runClaudeFamiliar(
     registered = true;
 
     const attempt = review
-      ? await review.openReport(reportFile, scope)
+      ? await review.openReport(reportFile, reviewScope)
       : undefined;
 
     if (attempt) file = attempt.file;

@@ -1,18 +1,15 @@
-import { execFile } from 'node:child_process';
-import { realpath, stat } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import { decodeHTMLStrict } from 'entities';
 import { gone, unlessGone } from '../../persistence/json.js';
 import { runCommand } from '../repository/command.js';
+import { gitIn, topLevel } from '../repository/checkout-git.js';
 import {
   insideDirectory,
   openReviewFile,
   ReviewInputError,
 } from './review-files.js';
 import type { TargetSnapshot } from './review-files.js';
-
-const execute = promisify(execFile);
 
 export interface CheckFailure {
   file: string;
@@ -52,12 +49,14 @@ type Fail = (line: number, message: string) => void;
 export async function checkTargets(
   cwd: string,
   snapshot: TargetSnapshot,
+  scope: { root?: string; signal?: AbortSignal } = {},
 ): Promise<CheckFailure[]> {
-  const repository = await repositoryOf(cwd);
+  const { signal } = scope;
+  const repository = await repositoryOf(cwd, scope);
   const root = await realpath(repository.root);
   const references = new Map<string, Promise<string | undefined>>();
 
-  const cache = new Map<string, Promise<string | undefined>>(
+  const cache = new Map<string, ReturnType<typeof readText>>(
     Object.entries(snapshot.canonical).map(([path, text]) => [
       path,
       Promise.resolve(text),
@@ -70,7 +69,7 @@ export async function checkTargets(
   const local = (path: string) => {
     let text = cache.get(path);
 
-    if (!text) cache.set(path, (text = readText(path, root)));
+    if (!text) cache.set(path, (text = readText(path, root, signal)));
 
     return text;
   };
@@ -102,6 +101,8 @@ export async function checkTargets(
   const failures: CheckFailure[] = [];
 
   for (const [file, text] of Object.entries(snapshot.texts)) {
+    signal?.throwIfAborted();
+
     if (extname(file) !== '.md') continue;
 
     const path = resolve(cwd, file);
@@ -133,6 +134,7 @@ export async function checkTargets(
       };
 
       for (const link of links(parts)) {
+        signal?.throwIfAborted();
         const target = resolveLink(link.target, path, repository);
 
         if (!target) continue;
@@ -143,7 +145,7 @@ export async function checkTargets(
         let content: string;
 
         if ('revision' in target) {
-          const read = await show(cwd, target.revision, target.path);
+          const read = await show(cwd, target.revision, target.path, signal);
 
           if (!read) continue;
 
@@ -161,8 +163,8 @@ export async function checkTargets(
 
           const read = await local(path);
 
-          if (read === undefined) {
-            if (!(await isDirectory(path)))
+          if (read == null) {
+            if (read === undefined)
               fail(number, `link target ${shown} does not exist`);
 
             continue;
@@ -188,6 +190,7 @@ export async function checkTargets(
       }
 
       for (const [position, part] of parts.entries()) {
+        signal?.throwIfAborted();
         const cited = part.code ? citation.exec(part.text) : null;
 
         if (!cited) continue;
@@ -199,7 +202,7 @@ export async function checkTargets(
 
         const content = await local(path);
 
-        if (content === undefined) continue;
+        if (content == null) continue;
 
         const start = Number(cited[2]);
         const end = Number(cited[3] ?? cited[2]);
@@ -819,29 +822,26 @@ interface Repository {
   slug?: string;
 }
 
-const repositoryValue = (cwd: string, args: string[], signal?: AbortSignal) =>
-  runCommand('git', args, { cwd, signal, timeout: 60_000 }).then(
-    ({ stdout }) => stdout.replace(/\n$/, ''),
-    (error: { stderr?: unknown }) => {
-      // no repository means the working directory is the root, and no origin leaves blob links unchecked.
-      if (/not a git repository|No such remote/.test(String(error.stderr)))
-        return undefined;
+const repositoryValue = (operation: Promise<string>) =>
+  operation.catch((error: { stderr?: unknown }) => {
+    // no repository means the working directory is the root, and no origin leaves blob links unchecked.
+    if (/not a git repository|No such remote/.test(String(error.stderr)))
+      return undefined;
 
-      throw error;
-    },
-  );
+    throw error;
+  });
 
 export async function reviewRoot(cwd: string, signal?: AbortSignal) {
-  return (
-    (await repositoryValue(cwd, ['rev-parse', '--show-toplevel'], signal)) ??
-    cwd
-  );
+  return (await repositoryValue(topLevel(gitIn(cwd, signal)))) ?? cwd;
 }
 
-async function repositoryOf(cwd: string): Promise<Repository> {
+async function repositoryOf(
+  cwd: string,
+  { root: knownRoot, signal }: { root?: string; signal?: AbortSignal },
+): Promise<Repository> {
   const [root, origin] = await Promise.all([
-    reviewRoot(cwd),
-    repositoryValue(cwd, ['remote', 'get-url', 'origin']),
+    knownRoot ?? reviewRoot(cwd, signal),
+    repositoryValue(gitIn(cwd, signal)('remote', 'get-url', 'origin')),
   ]);
 
   const match =
@@ -858,16 +858,19 @@ async function show(
   cwd: string,
   revision: string,
   path: string,
+  signal?: AbortSignal,
 ): Promise<{ text: string } | { missing: true } | undefined> {
   try {
-    const { stdout } = await execute(
+    const { stdout } = await runCommand(
       'git',
-      ['-C', cwd, 'show', '--end-of-options', `${revision}:${path}`],
-      { maxBuffer: 64 * 1024 * 1024 },
+      ['show', '--end-of-options', `${revision}:${path}`],
+      { cwd, signal, timeout: 60_000, maxBuffer: 64 * 1024 * 1024 },
     );
 
     return { text: stdout };
   } catch (error) {
+    signal?.throwIfAborted();
+
     return /does not exist in|exists on disk, but not in/.test(
       String((error as { stderr?: unknown }).stderr ?? ''),
     )
@@ -876,24 +879,23 @@ async function show(
   }
 }
 
-/** skips missing, nonregular and out-of-scope references; other filesystem failures reach the caller. */
+/** an absent file is undefined; null skips nonregular and out-of-scope references. */
 async function readText(
   path: string,
   root: string,
-): Promise<string | undefined> {
+  signal?: AbortSignal,
+): Promise<string | null | undefined> {
   try {
     const opened = await openReviewFile(path, [root]);
 
     try {
-      return await opened.file.readFile('utf8');
+      return await opened.file.readFile({ encoding: 'utf8', signal });
     } finally {
       await opened.file.close();
     }
   } catch (error) {
-    if (!gone(error) && !(error instanceof ReviewInputError)) throw error;
-  }
-}
+    if (error instanceof ReviewInputError) return null;
 
-async function isDirectory(path: string): Promise<boolean> {
-  return (await unlessGone(stat(path)))?.isDirectory() ?? false;
+    if (!gone(error)) throw error;
+  }
 }

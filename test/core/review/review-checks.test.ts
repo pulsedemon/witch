@@ -73,7 +73,7 @@ test('mechanical checks skip a Unix socket citation', async () => {
 
   try {
     await within(once(child.stdout, 'data'), 3000, 'the socket');
-    await writeFile(join(root, 'plan.md'), '`n.sock:1`\n');
+    await writeFile(join(root, 'plan.md'), '`n.sock:1`\n[socket](n.sock#L1)\n');
     assert.deepEqual(await checkFiles(root, ['plan.md']), []);
   } finally {
     child.kill();
@@ -105,44 +105,50 @@ test('receipt verification keeps the original canonical scratch root', async () 
   }
 });
 
-test('receipt verification checks the name again after reading the original file', async () => {
-  const root = await scratch('witch-receipt-recheck-');
-  const path = join(root, 'receipt.json');
-  const expected = '{"findings":[]}';
-  const handle = await open(path, 'wx');
-
-  try {
-    await handle.writeFile(expected);
-    const receipt = await receiptFile(path, handle);
-    const prototype = Object.getPrototypeOf(handle) as NativeFiles.FileHandle;
-    const read = prototype.read;
-
-    const spy = vi
-      .spyOn(prototype, 'read')
-      .mockImplementationOnce(async function (
-        this: NativeFiles.FileHandle,
-        ...args: Parameters<NativeFiles.FileHandle['read']>
-      ) {
-        const result = (await Reflect.apply(read, this, args)) as Awaited<
-          ReturnType<NativeFiles.FileHandle['read']>
-        >;
-
-        await unlink(path);
-
-        return result;
-      });
+for (const change of ['unlink', 'chmod'] as const) {
+  test(`receipt verification rejects ${change} during its read`, async () => {
+    const root = await scratch('witch-receipt-recheck-');
+    const path = join(root, 'receipt.json');
+    const expected = '{"findings":[]}';
+    const handle = await open(path, 'wx');
 
     try {
-      await assert.rejects(verifyReviewReceipt(receipt, expected, root), {
-        code: 'ENOENT',
-      });
+      await handle.writeFile(expected);
+      const receipt = await receiptFile(path, handle);
+      const prototype = Object.getPrototypeOf(handle) as NativeFiles.FileHandle;
+      const read = prototype.read;
+
+      const spy = vi
+        .spyOn(prototype, 'read')
+        .mockImplementationOnce(async function (
+          this: NativeFiles.FileHandle,
+          ...args: Parameters<NativeFiles.FileHandle['read']>
+        ) {
+          const result = (await Reflect.apply(read, this, args)) as Awaited<
+            ReturnType<NativeFiles.FileHandle['read']>
+          >;
+
+          if (change === 'unlink') await unlink(path);
+          else await chmod(path, 0o400);
+
+          return result;
+        });
+
+      try {
+        await assert.rejects(
+          verifyReviewReceipt(receipt, expected, root),
+          change === 'unlink'
+            ? { code: 'ENOENT' }
+            : /receipt changed while being read/,
+        );
+      } finally {
+        spy.mockRestore();
+      }
     } finally {
-      spy.mockRestore();
+      await handle.close();
     }
-  } finally {
-    await handle.close();
-  }
-});
+  });
+}
 
 test('the review root retains the exact checkout name from Git', async () => {
   const root = await scratch('witch-review-');

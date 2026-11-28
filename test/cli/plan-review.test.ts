@@ -125,6 +125,8 @@ type Fault =
   | 'receipt-at-publication'
   | 'hold-carrying-exit'
   | 'stalled-checkout'
+  | 'empty-completed-thread'
+  | 'empty-completed-turn'
   | 'draft-and-receipt-removed'
   | 'legacy-then-blank'
   | 'missing-draft-and-write'
@@ -201,9 +203,13 @@ async function launch(
   }
 
   if (fault === 'stalled-checkout')
-    await writeFile(join(root, 'git'), '#!/bin/sh\nexec /bin/sleep 1000\n', {
-      mode: 0o700,
-    });
+    await writeFile(
+      join(root, 'git'),
+      `#!/bin/sh\nprintf '%s\\n' "$$" > ${quote(join(root, 'git-started'))}\nexec /bin/sleep 1000\n`,
+      {
+        mode: 0o700,
+      },
+    );
 
   const native = join(root, runtime);
 
@@ -407,12 +413,14 @@ async function launch(
   );
 
   let log = '';
+  let stdout = '';
   let stderr = '';
 
   for (const stream of [child.stdout, child.stderr])
     stream.on('data', (chunk: Buffer) => (log += chunk.toString()));
 
   child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+  child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
 
   const end = (code: number | null) =>
     familiar?.end(
@@ -463,6 +471,7 @@ async function launch(
 
       return stderr;
     },
+    stdout: () => stdout,
     forwarded,
     status: () => familiar?.subagent.status,
     pending: pending.promise,
@@ -472,7 +481,7 @@ async function launch(
 
 for (const runtime of ['claude', 'codex'] as const) {
   test(`${runtime} reviews the frozen draft with read-only settings and reports validated findings`, async (t) => {
-    const { checkout, outcome } = await launch(t, runtime);
+    const { checkout, outcome, receipt, stdout } = await launch(t, runtime);
 
     assert.deepEqual(await outcome(0), {
       planSha256,
@@ -481,6 +490,12 @@ for (const runtime of ['claude', 'codex'] as const) {
       status: 'completed',
       findings: [finding],
     });
+
+    const terminal = stdout()
+      .split('\n')
+      .findLast((line) => line.startsWith('{'));
+
+    assert.equal(terminal, await readFile(receipt, 'utf8'));
 
     const launched = JSON.parse(
       await readFile(join(checkout, 'launched.json'), 'utf8'),
@@ -607,9 +622,17 @@ for (const change of [
 }
 
 test('Codex startup timeout stops a stalled checkout lookup before launch', async (t) => {
-  const { checkout, outcome } = await launch(t, 'codex', 'stalled-checkout');
+  const { root, checkout, outcome } = await launch(
+    t,
+    'codex',
+    'stalled-checkout',
+  );
+
   const receipt = await outcome(1);
   assert.match(receipt.reason, /waiting for the plan draft and brief/);
+  const pid = Number(await readFile(join(root, 'git-started'), 'utf8'));
+  assert.ok(Number.isInteger(pid) && pid > 0);
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
 
   await assert.rejects(access(join(checkout, 'launched.json')), {
     code: 'ENOENT',
@@ -750,6 +773,14 @@ for (const [fault, reason] of [
   ['bad-final', /could not read Codex’s completed agent message/],
   ['bad-reroute', /could not read the model in Codex’s reroute/],
   ['missing-turn-reroute', /did not identify the thread and turn/],
+  [
+    'empty-completed-thread',
+    /did not identify the completed review thread and turn/,
+  ],
+  [
+    'empty-completed-turn',
+    /did not identify the completed review thread and turn/,
+  ],
   ['missing-thread', /could not read Codex’s completed agent message/],
 ] as const) {
   test(`a Codex plan review surfaces ${fault} without forwarding a request`, async (t) => {

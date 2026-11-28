@@ -66,6 +66,7 @@ export class CodexCommands {
   private readonly entries = new Map<string, Command>();
   private stopped = false;
   private closing = false;
+  private finalizing?: Promise<void>;
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -261,16 +262,24 @@ export class CodexCommands {
         .map((entry) => this.collect(entry)),
     );
 
-    this.stop();
+    await this.stop();
   }
 
-  stop(): void {
+  stop(): Promise<void> | undefined {
+    if (this.stopped) return this.finalizing;
+
     this.stopped = true;
+    const checks: Promise<void>[] = [];
 
     for (const entry of this.entries.values()) {
       const familiars = admitted(entry.familiars);
 
-      for (const familiar of familiars) familiar.end('stopped');
+      for (const familiar of familiars) {
+        familiar.end('stopped');
+
+        if (familiar.pendingVerification)
+          checks.push(familiar.pendingVerification);
+      }
 
       if (!familiars.length && entry.command)
         this.emit({
@@ -280,6 +289,10 @@ export class CodexCommands {
     }
 
     this.entries.clear();
+
+    if (checks.length) this.finalizing = Promise.all(checks).then(() => {});
+
+    return this.finalizing;
   }
 
   /**

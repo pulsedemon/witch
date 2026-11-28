@@ -235,6 +235,7 @@ export async function settlePlanReview(
         ...progress,
         status: 'running',
         activity: 'Checking plan review receipt',
+        report: undefined,
       });
 
       await checkDraft();
@@ -337,7 +338,7 @@ export async function registerFamiliar(
     if (outcome.kind === 'familiar-registered') {
       if (stopped()) throw new Error('Familiar stopped before launch.');
 
-      return outcome.reviewScope;
+      return outcome;
     }
 
     if (outcome.kind !== 'familiar-pending')

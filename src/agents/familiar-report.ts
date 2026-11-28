@@ -83,6 +83,7 @@ export const familiarOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('familiar-registered'),
     reviewScope: reviewScopeSchema.optional(),
+    readOnlyReview: z.literal(true).optional(),
   }),
   z.object({
     kind: z.enum([

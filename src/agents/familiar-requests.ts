@@ -106,6 +106,7 @@ export class FamiliarRun {
   /** when the carrying command ended. */
   private endedAt?: number;
   private progressClosed = false;
+  private verification?: Promise<void>;
   readonly planReview: boolean;
   /** a plan review can be acknowledged before the carrying command's exit confirms it. */
   private completion?: {
@@ -208,14 +209,20 @@ export class FamiliarRun {
     this.endedAt ??= performance.now();
     this.requests.resolveAll();
 
-    if (this.subagent.status !== 'running') return;
+    if (this.progressClosed || this.subagent.status !== 'running') return;
 
     const completed = status === 'completed' && this.completion;
     this.completion = undefined;
 
     if (completed) {
       this.progressClosed = true;
-      void this.confirm(completed.progress, completed.receipt);
+
+      this.verification = this.confirm(
+        completed.progress,
+        completed.receipt,
+      ).finally(() => {
+        this.verification = undefined;
+      });
 
       return;
     }
@@ -226,6 +233,10 @@ export class FamiliarRun {
     };
 
     this.emit({ type: 'subagent', subagent: this.subagent });
+  }
+
+  get pendingVerification(): Promise<void> | undefined {
+    return this.verification;
   }
 
   private async confirm(
