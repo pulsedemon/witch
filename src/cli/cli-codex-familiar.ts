@@ -456,6 +456,7 @@ export async function runCodexFamiliar(
             status: stopped ? 'stopped' : 'failed',
             report: [report, errorMessage(error)].filter(Boolean).join('\n\n'),
           };
+
           await saveFinalReport(file, terminal, answer);
         }
       }

@@ -304,6 +304,7 @@ for (const runtime of ['claude', 'codex'] as const) {
         launched.argv[launched.argv.indexOf('--model') + 1],
         model[runtime],
       );
+
       assert.ok(launched.argv.includes('--strict-mcp-config'));
       assert.ok(launched.argv.includes('dontAsk'));
 
@@ -361,6 +362,7 @@ for (const [fault, reason] of [
       const launched = JSON.parse(
         await readFile(join(root, 'launched.json'), 'utf8'),
       );
+
       assert.ok(launched.argv.includes('model="other-model"'));
     }
   });
@@ -396,6 +398,7 @@ for (const [fault, reason] of [
     const result = await outcome(1);
     assert.equal(result.status, 'failed');
     assert.match(result.reason, reason);
+
     await assert.rejects(access(join(root, 'launched.json')), {
       code: 'ENOENT',
     });
@@ -407,6 +410,7 @@ test('a receipt write refusal keeps the input diagnostic and the previous receip
   const log = await output(1);
   assert.match(log, /ENOENT:.*brief\.md/);
   assert.match(log, /Could not save the receipt: EEXIST/);
+
   assert.equal(
     await readFile(join(root, 'attempt.json'), 'utf8'),
     'Earlier receipt.',
@@ -528,6 +532,7 @@ test('the review preset requires all three values and rejects a flag as a model 
   for (const option of ['--review-plan', '--review-brief', '--review-model']) {
     const args = reviewArgs('claude');
     args.splice(args.indexOf(option), 2);
+
     assert.throws(
       () => parseCommand([...binding, ...args]),
       /Plan review needs --review-plan/,

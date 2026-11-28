@@ -58,6 +58,7 @@ export async function preparePlanReview(
       realpath(process.cwd()),
       realpath(dirname(dirname(binding.directory))),
     ]);
+
     draft = await readInput(input.plan, roots);
     planSha256 = digest(draft);
     context = await readInput(input.brief, roots);
@@ -82,6 +83,7 @@ export async function preparePlanReview(
     } catch (writeError) {
       throw new Error(
         `${reason}\nCould not save the receipt: ${errorMessage(writeError)}`,
+        { cause: writeError },
       );
     }
 

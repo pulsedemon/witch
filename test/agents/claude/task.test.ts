@@ -99,6 +99,7 @@ test('native permission denials remain in the final report even when the review 
 test('Claude attributes saved text to the model that supplied it before a model change', () => {
   const task = new ClaudeTask('/work', () => {});
   task.message(init);
+
   task.message({
     ...read,
     message: {
@@ -106,9 +107,9 @@ test('Claude attributes saved text to the model that supplied it before a model 
       content: [{ type: 'text', text: success.result }],
     },
   });
+
   task.message({ ...init, model: 'later-model' });
   task.message(success);
-
   assert.equal(task.answer, success.result);
   assert.equal(task.closed(0, null).model, 'answer-model');
 });

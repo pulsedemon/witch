@@ -205,6 +205,7 @@ export class ClaudeTask {
         );
 
         this.denials.push(...denials);
+
         this.reports.push(
           finished.result ?? finished.errors?.join('\n') ?? this.draft,
           ...denials,

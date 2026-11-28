@@ -39,6 +39,7 @@ export async function openReviewFile(path: string, roots: readonly string[]) {
     return { file, size: stat.size };
   } catch (error) {
     await file.close();
+
     throw error;
   }
 }

@@ -203,6 +203,7 @@ export async function settlePlanReview(
       terminal = await review.finish(progress, answer);
 
     await checkStop();
+
     if (saved !== terminal.report) await save();
   } catch (error) {
     terminal = await failure(error);

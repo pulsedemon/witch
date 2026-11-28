@@ -567,12 +567,13 @@ test('manual review refuses a checkout link to an outside file before routing', 
   const outside = join(h.cwd, '..', 'outside.md');
   await writeFile(outside, 'Outside the checkout.\n');
   await symlink(outside, join(h.cwd, 'link.md'));
-
   assert.equal(await h.coordinator.review('link.md'), false);
+
   assert.match(
     h.notice('Review refused: link.md') ?? '',
     /outside the allowed directories/,
   );
+
   assert.equal(h.rounds.length, 0);
 });
 

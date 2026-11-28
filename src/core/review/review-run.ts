@@ -111,6 +111,7 @@ async function reviewTargets(
     // file completion inserts `@path`
     const path = resolve(cwd, file.replace(/^@/, ''));
     const inside = relative(cwd, path);
+
     if (!insideDirectory(cwd, path))
       return { refused: `Review refused: ${file} is not a file in ${cwd}` };
 
