@@ -142,7 +142,8 @@ test('an effective writable Codex policy prevents peer-answer dispatch', async (
     /did not grant read-only permissions/,
   );
 
-  await assert.rejects(access(join(cwd, 'prompt.json')), { code: 'ENOENT' });
+  for (const name of ['context.json', 'prompt.json'])
+    await assert.rejects(access(join(cwd, name)), { code: 'ENOENT' });
 });
 
 for (const history of [false, true]) {

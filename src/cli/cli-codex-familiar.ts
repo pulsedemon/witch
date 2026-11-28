@@ -490,10 +490,12 @@ export async function runCodexFamiliar(
           reporting,
         );
 
-    if (file)
-      process.stdout.write(
-        `${result.report ?? ''}\n\nSaved report: ${reportFile}\n`,
-      );
+    const savedPath =
+      !review || ('receiptAvailable' in result && result.receiptAvailable)
+        ? `\n\nSaved report: ${reportFile}`
+        : '';
+
+    if (file) process.stdout.write(`${result.report ?? ''}${savedPath}\n`);
     else process.stderr.write(`${result.report ?? ''}\n`);
 
     return exitCode(result.status);

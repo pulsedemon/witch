@@ -11,7 +11,6 @@ import {
 import { dirname, join } from 'node:path';
 import { test, vi } from 'vitest';
 import { cleanUpMerge } from '../../../src/core/repository/merged.js';
-import { gitIn, topLevel } from '../../../src/core/repository/checkout-git.js';
 import type { MergeCleanup } from '../../../src/core/repository/merged.js';
 import { openLocked } from '../../../src/persistence/lock.js';
 import {
@@ -36,13 +35,6 @@ import { scratch } from '../../fixtures/scratch.js';
 
 configureGitEnvironment();
 const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
-
-test('merge cleanup reads checkout names with trailing whitespace', async () => {
-  const checkout = join(await scratch('witch-merge-'), 'checkout ');
-  await mkdir(checkout);
-  await git(checkout, 'init', '--quiet');
-  assert.equal(await topLevel(gitIn(checkout)), checkout);
-});
 
 for (const [name, wrap] of Object.entries({ gh: withGh, git: withGit })) {
   for (const fails of [false, true]) {

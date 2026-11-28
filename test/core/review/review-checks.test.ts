@@ -591,14 +591,20 @@ test('blob link to this repository reads the cited revision', async () => {
     },
   );
 
-  await writeFile(join(root, 'src/x.ts'), 'changed\n');
+  await writeFile(join(root, 'src/x.ts'), 'changed\nonlyInWorktree();\n');
 
   await writeFile(
     join(root, 'plan.md'),
-    `[\`close()\`](https://github.com/owner/repo/blob/${commit}/src/x.ts#L2)\n`,
+    `[\`close()\`](https://github.com/owner/repo/blob/${commit}/src/x.ts#L2)\n[\`onlyInWorktree()\`](https://github.com/owner/repo/blob/${commit}/src/x.ts#L2)\n`,
   );
 
-  assert.deepEqual(await checkFiles(root, ['plan.md']), []);
+  assert.deepEqual(await checkFiles(root, ['plan.md']), [
+    {
+      file: 'plan.md',
+      line: 2,
+      message: '`onlyInWorktree()` does not appear at src/x.ts:2',
+    },
+  ]);
 });
 
 test('range that stops inside its block fails', async () => {

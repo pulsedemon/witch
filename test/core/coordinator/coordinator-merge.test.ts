@@ -133,8 +133,15 @@ test('a turn that ends with a prompt queued runs that prompt before the merge cl
   }
 });
 
-test("a merge cleanup waits for another Witch's turn in its directory, but not for one whose agent has exited or isn't recorded, or one elsewhere", async () => {
-  const { coordinator, store, memory, project } = await fixture();
+test('merge cleanup waits for an active peer in a checkout ending in whitespace', async () => {
+  const { coordinator, store, memory, project } = await fixture(
+    undefined,
+    undefined,
+    false,
+    undefined,
+    'project ',
+  );
+
   const agent = new FixtureAgent('a');
 
   const other = new Coordinator(store, memory, [

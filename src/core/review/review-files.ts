@@ -81,7 +81,9 @@ export async function withTargetSnapshots<T>(
   directory: string,
   texts: TargetSnapshot['texts'],
   run: (files: Readonly<Record<string, string>>) => Promise<T>,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const staged = await mkdtemp(join(directory, 'targets-'));
 
   try {
@@ -89,16 +91,19 @@ export async function withTargetSnapshots<T>(
     const copies = new Map<string, string>();
 
     for (const [name, text] of Object.entries(texts)) {
+      signal?.throwIfAborted();
       let path = copies.get(text);
 
       if (!path) {
         path = join(staged, `target-${copies.size}.txt`);
-        await writeFile(path, text, { mode: 0o600 });
+        await writeFile(path, text, { mode: 0o600, signal });
         copies.set(text, path);
       }
 
       files.push([name, path]);
     }
+
+    signal?.throwIfAborted();
 
     return await run(Object.fromEntries(files));
   } finally {

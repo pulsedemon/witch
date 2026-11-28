@@ -44,7 +44,7 @@ export const findingsFormat = [
   '```',
 ].join('\n');
 
-/** the findings in a report's last fenced json block, with each file normalized to a listed target; `invalid` says why there are none to read. */
+/** reads the last fenced json block and normalizes its paths to the targets. `requireEnd` permits only whitespace after it. */
 export function parseFindings(
   report: string,
   cwd: string,

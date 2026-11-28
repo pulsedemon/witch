@@ -110,15 +110,19 @@ type Fault =
   | 'explicit-then-legacy'
   | 'claude-missing-state-id'
   | 'claude-unreported-model'
+  | 'claude-mismatched-answer'
   | 'claude-missing-answer-id'
   | 'writable-policy'
   | 'missing-policy'
+  | 'approval-policy'
+  | 'network-policy'
   | 'partial-only'
   | 'different-turn-reroute'
   | 'different-turn-completion'
   | 'missing-turn-reroute'
   | 'bad-start-reply'
-  | 'remove-receipt-at-publication'
+  | 'receipt-at-publication'
+  | 'legacy-then-blank'
   | 'missing-draft-and-write'
   | 'edit-at-publication'
   | 'missing-draft-and-reply';
@@ -311,7 +315,7 @@ async function launch(
           action.progress.activity === 'Checking plan review receipt') ||
         ((fault === 'stop-at-publication' ||
           fault === 'edit-at-publication' ||
-          fault === 'remove-receipt-at-publication') &&
+          fault === 'receipt-at-publication') &&
           completed)
       ) {
         pending.resolve();
@@ -624,6 +628,7 @@ for (const [fault, reason] of [
   ['claude-bad-state', /Invalid Claude task stream/],
   ['claude-missing-state-id', /did not identify the session for a state event/],
   ['claude-unreported-model', /ran on an unreported model/],
+  ['claude-mismatched-answer', /ran on an unreported model/],
   [
     'claude-missing-answer-id',
     /did not identify the session for its assistant event/,
@@ -667,7 +672,12 @@ for (const [fault, reason] of [
   });
 }
 
-for (const fault of ['missing-policy', 'writable-policy'] as const) {
+for (const fault of [
+  'missing-policy',
+  'writable-policy',
+  'approval-policy',
+  'network-policy',
+] as const) {
   test(`${fault} prevents Codex from receiving the frozen draft`, async (t) => {
     const { checkout, outcome } = await launch(t, 'codex', fault);
     const receipt = await outcome(1);
@@ -760,6 +770,7 @@ for (const fault of [
 
 for (const fault of [
   'legacy-answer',
+  'legacy-then-blank',
   'model-after-answer',
   'partial-and-final',
   'explicit-then-legacy',
@@ -808,25 +819,37 @@ test('a failed receipt write preserves the draft reread diagnostic on stderr', a
   );
 });
 
-test('removing a staged receipt prevents publication after the host reply', async (t) => {
-  const { receipt, pending, release, output, status } = await launch(
-    t,
-    'codex',
-    'remove-receipt-at-publication',
-  );
+for (const [change, reason] of [
+  ['remove', /Could not verify the plan review receipt: ENOENT/],
+  ['replace', /plan review receipt was replaced/],
+  ['edit', /plan review receipt contents changed/],
+] as const) {
+  test(`${change} during the host reply prevents receipt publication`, async (t) => {
+    const { receipt, pending, release, output, status } = await launch(
+      t,
+      'codex',
+      'receipt-at-publication',
+    );
 
-  await pending;
-  assert.equal(status(), 'running');
-  await unlink(receipt);
-  release();
+    await pending;
+    assert.equal(status(), 'running');
+    const original = await readFile(receipt);
 
-  assert.match(
-    await output(1),
-    /Could not verify the plan review receipt: ENOENT/,
-  );
+    if (change === 'edit')
+      await writeFile(receipt, Buffer.alloc(original.length, 65));
+    else {
+      await unlink(receipt);
 
-  assert.equal(status(), 'failed');
-});
+      if (change === 'replace') await writeFile(receipt, original);
+    }
+
+    release();
+    const log = await output(1);
+    assert.match(log, reason);
+    assert.doesNotMatch(log, /Saved report:/);
+    assert.equal(status(), 'failed');
+  });
+}
 
 test('editing the draft during the staged reply prevents publication', async (t) => {
   const { root, outcome, pending, release, status } = await launch(

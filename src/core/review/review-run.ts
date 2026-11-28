@@ -358,13 +358,26 @@ async function runReview(
             ...(scope === 'diff' && delta ? { diff: delta.diff } : {}),
             known: reported,
           }),
+          { signal },
         );
+
+        signal.throwIfAborted();
 
         return host.reviewers.run({ cwd, reviewers, signal });
       },
-    );
+      signal,
+    ).catch((error: unknown) => {
+      if (
+        signal.aborted &&
+        (error === signal.reason ||
+          (error instanceof Error && error.cause === signal.reason))
+      )
+        return undefined;
 
-    if (signal.aborted) return stopped(incomplete);
+      throw error;
+    });
+
+    if (!results || signal.aborted) return stopped(incomplete);
 
     const reviews: Review[] = [];
     const failed: string[] = [];

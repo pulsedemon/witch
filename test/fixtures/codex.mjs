@@ -57,6 +57,10 @@ const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 let answering = false;
 let reviewMode;
 
+const readOnlyReview =
+  process.argv.includes('sandbox_mode="read-only"') &&
+  process.argv.includes('approval_policy="never"');
+
 const notify = (method, params) =>
   send({
     method,
@@ -85,10 +89,13 @@ const session = () => ({
   thread: { id: answering ? 'answer-thread' : mainThreadId },
   model: run.model,
   cwd: process.cwd(),
-  approvalPolicy: answering || reviewMode ? 'never' : 'on-request',
+  approvalPolicy:
+    (answering || readOnlyReview) && reviewMode !== 'approval-policy'
+      ? 'never'
+      : 'on-request',
   approvalsReviewer: 'user',
   reasoningEffort: effort,
-  ...((answering || reviewMode) &&
+  ...((answering || readOnlyReview) &&
     reviewMode !== 'missing-policy' && {
       sandbox: {
         type:
@@ -96,7 +103,7 @@ const session = () => ({
           (answering && mode === 'writable-answer')
             ? 'workspaceWrite'
             : 'readOnly',
-        networkAccess: false,
+        networkAccess: reviewMode === 'network-policy',
       },
     }),
   ...(mode === 'named-profile'
@@ -1107,14 +1114,13 @@ for await (const line of lines) {
             type: 'agentMessage',
             id: 'review-report',
             text: readFileSync(file('review-reply.txt'), 'utf8'),
-            phase:
-              mode === 'legacy-answer'
-                ? null
-                : mode === 'partial-only'
-                  ? 'partial_answer'
-                  : mode === 'commentary-only'
-                    ? 'commentary'
-                    : 'final_answer',
+            phase: mode.startsWith('legacy-')
+              ? null
+              : mode === 'partial-only'
+                ? 'partial_answer'
+                : mode === 'commentary-only'
+                  ? 'commentary'
+                  : 'final_answer',
             ...(mode === 'malformed-question' && {
               questions: [{ options: [123] }],
             }),
@@ -1137,6 +1143,18 @@ for await (const line of lines) {
               id: 'later-legacy',
               phase: null,
               text: 'Follow-up.',
+            },
+          });
+
+        if (mode === 'legacy-then-blank')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'blank-legacy',
+              phase: null,
+              text: '  ',
             },
           });
 

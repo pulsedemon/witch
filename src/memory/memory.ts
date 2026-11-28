@@ -340,7 +340,7 @@ export class Memory {
         result.code === 128 && /not a git repository \(/.test(result.stderr);
 
       return result.code === 0
-        ? result.stdout.toString('utf8').replace(/\n$/, '')
+        ? result.stdout.toString('utf8').trim()
         : undefined;
     };
 

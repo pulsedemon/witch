@@ -1285,7 +1285,9 @@ class CodexSession implements AgentSession {
 
       if (
         phase === 'final_answer' ||
-        (phase == null && !turn.reviewAnswers.get(turnId)?.explicit)
+        (phase == null &&
+          text.trim() &&
+          !turn.reviewAnswers.get(turnId)?.explicit)
       )
         turn.reviewAnswers.set(turnId, {
           text,

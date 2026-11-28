@@ -79,12 +79,13 @@ export async function fixture(
   prepare?: (a: FixtureAgent, b: FixtureAgent) => void,
   unit = false,
   changes?: ConstructorParameters<typeof Coordinator>[6],
+  projectName = 'project',
 ) {
   const root = await scratch('witch-coordinator-');
 
   if (unit) ephemeralFiles(root);
 
-  const project = join(root, 'project');
+  const project = join(root, projectName);
   await mkdir(project);
   const store = await StateStore.open(join(root, 'state'));
   const hook = { current: passThrough };

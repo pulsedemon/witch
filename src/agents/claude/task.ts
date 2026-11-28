@@ -73,9 +73,8 @@ interface Answer {
 }
 
 /**
- * every native result adds to the report; the answer is the latest successful non-empty one, since a finished
- * background task can start a turn after the answer and the wrapper tells the familiar to repeat it there. only the
- * child's exit can finish the task.
+ * every native result adds to the report. ordinary familiars save the latest successful nonempty answer because
+ * a background task can start a turn after it. only the child's exit can finish the task.
  */
 export class ClaudeTask {
   private identity?: z.infer<typeof init>;
@@ -268,6 +267,7 @@ export class ClaudeTask {
     return this.final?.text ?? '';
   }
 
+  /** plan review uses the latest result, including an empty result, once its turn closes. */
   get latestAnswer() {
     return this.open ? undefined : this.latest;
   }

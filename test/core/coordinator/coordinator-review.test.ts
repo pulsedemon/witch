@@ -949,6 +949,13 @@ test('closing Witch during a review aborts its reviewers', async (t) => {
 test('closing Witch as a round starts ends the review cleanly', async (t) => {
   const h = await harness(t);
   let closing: Promise<void> | undefined;
+  let dispatched = false;
+
+  h.coordinator.reviewers.run = async () => {
+    dispatched = true;
+
+    return [];
+  };
 
   const stop = h.coordinator.subscribe(() => {
     if (!closing && h.notice('Review round 1')) closing = h.coordinator.close();
@@ -959,6 +966,7 @@ test('closing Witch as a round starts ends the review cleanly', async (t) => {
   stop();
   await closing;
   assert.equal(await reviewing, false);
+  assert.equal(dispatched, false);
   assert.equal(h.notice('Review finished'), undefined);
 });
 

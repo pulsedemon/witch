@@ -232,6 +232,7 @@ export async function runClaudeFamiliar(
     };
 
     let terminal = closed(stopped ?? (reports.error ? null : signal));
+    let receiptAvailable = !!file;
 
     if (review) {
       const result = task.latestAnswer;
@@ -252,7 +253,7 @@ export async function runClaudeFamiliar(
         };
       }
 
-      terminal = await settlePlanReview(
+      const settled = await settlePlanReview(
         file,
         reportFile,
         review,
@@ -261,6 +262,9 @@ export async function runClaudeFamiliar(
         () => !!stopped,
         reports,
       );
+
+      terminal = settled;
+      receiptAvailable = settled.receiptAvailable;
     } else {
       await saveFinalReport(file!, terminal, task.answer);
 
@@ -273,9 +277,8 @@ export async function runClaudeFamiliar(
       }
     }
 
-    process.stdout.write(
-      `${terminal.report ?? ''}\n\nSaved report: ${reportFile}\n`,
-    );
+    const savedPath = receiptAvailable ? `\n\nSaved report: ${reportFile}` : '';
+    process.stdout.write(`${terminal.report ?? ''}${savedPath}\n`);
 
     return exitCode(terminal.status);
   } catch (error) {

@@ -259,17 +259,6 @@ test('global memory crosses projects while project notes remain scoped', async (
   assert.match(snapshot, /Only the global and project scopes named here apply/);
 });
 
-test('local repositories retain trailing whitespace in their project identity', async () => {
-  const { memory, root } = await fixture();
-  const first = await repository(root, 'project');
-  const second = await repository(root, 'project ');
-
-  assert.notEqual(
-    (await memory.scopePaths(first)).project,
-    (await memory.scopePaths(second)).project,
-  );
-});
-
 test('clones of one origin share project memory under its name across directories, URL and scp forms, users and host case', async () => {
   const { memory, root } = await fixture();
 

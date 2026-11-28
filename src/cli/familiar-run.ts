@@ -157,6 +157,7 @@ export async function settlePlanReview(
 ) {
   let terminal = review.finish(progress, answer);
   let saved: string | undefined;
+  let receiptAvailable = !!file;
 
   const failure = (error: unknown) =>
     review.finish(
@@ -194,13 +195,16 @@ export async function settlePlanReview(
   const checkReceipt = async () => {
     if (!file || terminal.status !== 'completed') return;
 
-    const reason = await review.receiptError(reportFile, file);
+    const reason = await review.receiptError(reportFile, file, terminal.report);
 
-    if (reason)
+    if (reason) {
+      receiptAvailable = false;
+
       terminal = review.finish(
         { ...progress, status: 'failed', report: reason },
         '',
       );
+    }
   };
 
   const save = async () => {
@@ -264,7 +268,7 @@ export async function settlePlanReview(
     }
   }
 
-  return terminal;
+  return { ...terminal, receiptAvailable };
 }
 
 export function exitCode(status: TaskStatus): number {

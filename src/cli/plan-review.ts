@@ -23,6 +23,21 @@ const digest = (bytes: Buffer) =>
 
 const inputLimit = 2 * 1024 * 1024;
 
+async function readBytes(file: FileHandle, capacity: number) {
+  const buffer = Buffer.allocUnsafe(capacity);
+  let offset = 0;
+
+  while (offset < capacity) {
+    const { bytesRead } = await file.read(buffer, offset, capacity - offset);
+
+    if (!bytesRead) break;
+
+    offset += bytesRead;
+  }
+
+  return buffer.subarray(0, offset);
+}
+
 async function readInput(path: string, roots: readonly string[]) {
   const { file, size } = await openReviewFile(path, roots);
 
@@ -30,22 +45,12 @@ async function readInput(path: string, roots: readonly string[]) {
     if (size > inputLimit)
       throw new Error(`Plan review inputs must fit within 2 MiB: ${path}`);
 
-    const buffer = Buffer.allocUnsafe(size + 1);
-    let offset = 0;
+    const bytes = await readBytes(file, size + 1);
 
-    while (offset < buffer.length) {
-      const { bytesRead } = await file.read(
-        buffer,
-        offset,
-        buffer.length - offset,
-      );
+    if (bytes.length > size)
+      throw new Error(`Plan review input grew while being read: ${path}`);
 
-      if (!bytesRead) return buffer.subarray(0, offset);
-
-      offset += bytesRead;
-    }
-
-    throw new Error(`Plan review input grew while being read: ${path}`);
+    return bytes;
   } finally {
     await file.close();
   }
@@ -101,7 +106,7 @@ export function createPlanReview(
         return `Could not reread the plan draft: ${errorMessage(error)}`;
       }
     },
-    async receiptError(path: string, receipt: FileHandle) {
+    async receiptError(path: string, receipt: FileHandle, expected: string) {
       try {
         const saved = await receipt.stat();
         const { file } = await openReviewFile(path, [scratch]);
@@ -111,6 +116,11 @@ export function createPlanReview(
 
           if (visible.dev !== saved.dev || visible.ino !== saved.ino)
             return 'The plan review receipt was replaced.';
+
+          const bytes = Buffer.from(expected);
+
+          if (!(await readBytes(file, bytes.length + 1)).equals(bytes))
+            return 'The plan review receipt contents changed.';
         } finally {
           await file.close();
         }

@@ -462,21 +462,25 @@ test('a Codex familiar relays only live bound command markers', async () => {
     assert.equal(f.child.exitCode, null);
     assert.equal(f.output().stdout.includes('Saved report:'), false);
     assert.equal(f.output().stdout.includes('ordinary command output'), false);
-
-    for (const ignored of [foreign, noncommand, discarded])
-      assert.equal(f.output().stdout.includes(ignored), false);
-
     await writeFile(join(f.root, 'release'), 'finish');
     assert.equal(await within(f.closed, 8000, 'nested marker completion'), 0);
+    const prefix = 'WITCH_FAMILIAR ';
 
-    for (const expected of relayed)
-      assert.equal(
-        f
-          .output()
-          .stdout.split('\n')
-          .filter((line) => line === expected.trim()).length,
-        1,
-      );
+    const registration = f.requests.find(
+      ({ action }) => action.kind === 'familiar-register',
+    )!;
+
+    assert.ok('run' in registration.action);
+    const ownRun = registration.action.run;
+
+    assert.deepEqual(
+      f
+        .output()
+        .stdout.split('\n')
+        .filter((line) => line.startsWith(prefix))
+        .filter((line) => JSON.parse(line.slice(prefix.length)).run !== ownRun),
+      relayed.map((line) => line.trimEnd()),
+    );
 
     assert.equal(await readFile(f.report, 'utf8'), 'Nested markers finished.');
     assert.equal(f.updates().at(-1)!.status, 'completed');

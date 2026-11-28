@@ -83,7 +83,15 @@ if (existsSync('review-reply.txt') && mode !== 'claude-unreported-model')
     ...(mode !== 'claude-missing-answer-id' && { session_id }),
     message: {
       model: 'claude-response',
-      content: [{ type: 'text', text: result.result }],
+      content: [
+        {
+          type: 'text',
+          text:
+            mode === 'claude-mismatched-answer'
+              ? 'Earlier assistant text.'
+              : result.result,
+        },
+      ],
     },
   });
 
