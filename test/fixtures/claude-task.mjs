@@ -51,7 +51,11 @@ emit({
   subtype: 'success',
   session_id,
   is_error: false,
-  result: mode === 'repeat-turn' ? answer : 'Full review.\n'.repeat(7000),
+  result: existsSync('review-reply.txt')
+    ? readFileSync('review-reply.txt', 'utf8')
+    : mode === 'repeat-turn'
+      ? answer
+      : 'Full review.\n'.repeat(7000),
   permission_denials:
     mode === 'denied'
       ? [
@@ -65,6 +69,23 @@ emit({
 });
 
 writeFileSync('result-sent', 'yes');
+
+if (mode === 'review-empty-turn') {
+  emit({
+    type: 'assistant',
+    session_id,
+    message: { model: 'claude-observed', content: [] },
+  });
+
+  emit({
+    type: 'result',
+    subtype: 'success',
+    session_id,
+    is_error: false,
+    result: '',
+    permission_denials: [],
+  });
+}
 
 if (mode === 'nonzero') process.exitCode = 2;
 else if (mode === 'held-pipe') {

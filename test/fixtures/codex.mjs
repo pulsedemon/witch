@@ -1012,6 +1012,28 @@ for await (const line of lines) {
 
     reply({ turn: { id: 'turn-1' } });
 
+    if (familiar === 'plan-review') {
+      const mode = readFileSync(file('review-mode'), 'utf8');
+
+      if (Object.hasOwn(limitTurns, mode)) {
+        const [status, codexErrorInfo] = limitTurns[mode];
+        finish(status, { message: 'Review unavailable', codexErrorInfo });
+      } else {
+        notify('item/completed', {
+          turnId: 'turn-1',
+          item: {
+            type: 'agentMessage',
+            id: 'review-report',
+            text: readFileSync(file('review-reply.txt'), 'utf8'),
+          },
+        });
+
+        finish('completed');
+      }
+
+      continue;
+    }
+
     if (familiar === 'nested-markers') {
       const markers = JSON.parse(
         readFileSync(file('marker-input.json'), 'utf8'),

@@ -345,6 +345,23 @@ test('an answer the familiar repeats after a background turn is saved once', asy
   }
 });
 
+test('an empty later result leaves the saved answer attributed to its original model', async () => {
+  const f = await fixture('review-empty-turn');
+
+  try {
+    assert.equal(await f.closed, 0, f.output().stderr);
+
+    assert.equal(
+      await readFile(join(f.root, 'report.txt'), 'utf8'),
+      'Full review.\n'.repeat(7000),
+    );
+
+    assert.equal(f.updates().at(-1)!.progress.model, 'claude-response');
+  } finally {
+    await f.close();
+  }
+});
+
 test('a lean familiar starts Claude with hooks, MCP servers and slash commands off', async () => {
   const f = await fixture('repeat-turn', undefined, undefined, ['--lean']);
 

@@ -274,17 +274,27 @@ test('only a supporting session receives familiar instructions and the exact use
 
   assert.match(
     rule,
-    /--route review --of <runtime>:<model> --json, naming the runtime and model that wrote the plan/,
+    /--route review --of <runtime>:<model> --json using the actual author runtime and model/,
   );
 
   assert.match(
     rule,
-    /with the plan, the request, the rules that apply and the files needed to check it, asking each to report as a finding any plan step that asks the user for a decision the request, the applicable rules or the evidence settles, and wait for every one to finish/,
+    /Stage the exact draft and a brief with the request, applicable rules and relevant authorized files/,
   );
 
   assert.match(
     rule,
-    /Resolve a verified finding of that kind by making the decision in the plan/,
+    /--review-plan <draft> --review-brief <brief> --review-model <routed-model>/,
+  );
+
+  assert.match(
+    rule,
+    /Require exit code 0 and a JSON report with status completed, the routed runtime and model, and planSha256 matching the exact draft you will present or carry out/,
+  );
+
+  assert.match(
+    rule,
+    /Resolve verified findings about settled decisions by making the decision in the plan/,
   );
 
   assert.match(
@@ -294,7 +304,7 @@ test('only a supporting session receives familiar instructions and the exact use
 
   assert.match(
     rule,
-    /every route of your latest routing has a reviewer that finished with its report and no other reviewer failed, stopped or was interrupted/,
+    /every route of your latest routing has a matching completed report for the draft being reviewed and no other reviewer failed, stopped or was interrupted/,
   );
 
   assert.match(

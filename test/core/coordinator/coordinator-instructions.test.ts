@@ -1,8 +1,72 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
+import { CodexAdapter } from '../../../src/agents/codex/adapter.js';
+import { launcher as claudeLauncher } from '../../fixtures/claude-adapter.js';
+import { unreportedContextCatalog } from '../../fixtures/codex-adapter.js';
+import { coordinationFixture } from '../../fixtures/coordination.js';
 import { unitFixture, readRecord } from '../../fixtures/coordinator.js';
+
+for (const runtime of ['codex', 'claude'] as const) {
+  test(`${runtime} receives Witch instructions on its first normal turn with empty memory`, async (t) => {
+    const f = await coordinationFixture(t.onTestFinished);
+    const claude = runtime === 'claude' ? await claudeLauncher() : undefined;
+
+    const codex = fileURLToPath(
+      new URL('../../fixtures/codex.mjs', import.meta.url),
+    );
+
+    const adapter =
+      claude?.adapter ??
+      new CodexAdapter(
+        (_executable, cwd, signal) =>
+          spawn(process.execPath, [codex], { cwd, signal, stdio: 'pipe' }),
+        unreportedContextCatalog,
+      );
+
+    const { coordinator, coordination } = await f.start('A', {}, [
+      { adapter, executable: runtime },
+    ]);
+
+    const capture = claude
+      ? join(claude.cwd, 'content.json')
+      : join(f.root, 'A', 'context.json');
+
+    const prompt = 'turn text';
+
+    const readContext = async (): Promise<string> => {
+      const outbound = JSON.parse(await readFile(capture, 'utf8'));
+
+      return claude ? outbound : outbound.items[0].content[0].text;
+    };
+
+    await coordinator.send(prompt);
+    const context = await readContext();
+
+    for (const rule of [
+      'Make the smallest sufficient fix',
+      'Every pull request leaves the codebase better',
+      'When a step is blocked and you have a recommended route',
+      'Before asking for visual approval',
+      'claim its full URL through Witch',
+      '--review-plan <draft> --review-brief <brief> --review-model <routed-model>',
+    ])
+      assert.ok(context.includes(rule), rule);
+
+    assert.ok(context.includes(coordination.commandPrefixes().familiar));
+    assert.match(context, /# Global memory\n/);
+    assert.match(context, /\(No saved essentials\.\)/);
+    await coordinator.send(prompt);
+
+    assert.doesNotMatch(
+      await readContext(),
+      /You are running inside Witch|Accepted shared memory/,
+    );
+  });
+}
 
 for (const outcome of ['interrupted', 'failed'] as const) {
   test(`a ${outcome} first turn retries fixed instructions before recording delivery`, async () => {
