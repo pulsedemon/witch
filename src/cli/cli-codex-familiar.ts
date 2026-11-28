@@ -23,12 +23,15 @@ import {
   exitCode,
   FamiliarReports,
   registerFamiliar,
+  saveFinalReport,
   saveReport,
+  settlePlanReview,
   watchSuspension,
 } from './familiar-run.js';
 import { questionReply } from '../core/prompts.js';
 import type { ControlBinding } from '../persistence/control.js';
 import { elapsed } from '../ui/status/elapsed.js';
+import type { PlanReview } from './plan-review.js';
 
 /** bounds registration to the turn being sent; a running turn can stay silent for minutes. */
 const startupDeadlineMs = 180_000;
@@ -68,6 +71,7 @@ export async function runCodexFamiliar(
   reportFile: string,
   args: readonly string[],
   lean: boolean,
+  review?: PlanReview,
 ): Promise<number> {
   const argv = codexArguments(
     lean ? ['-c', 'skills.include_instructions=false', ...args] : args,
@@ -222,7 +226,8 @@ export async function runCodexFamiliar(
 
       progress = { ...progress, spells };
     } else if (event.type === 'request') {
-      request(event.request);
+      if (review) fail(new Error('A plan reviewer cannot request input.'));
+      else request(event.request);
 
       return;
     } else if (event.type === 'request-resolved') {
@@ -255,6 +260,7 @@ export async function runCodexFamiliar(
   let report = '';
   /** the last turn's final message: a follow-up turn only carries the reply to the familiar's own question. */
   let answer = '';
+  let answerModel: string | undefined;
   let status: FamiliarProgress['status'] = 'failed';
   let exhausted = false;
   let registered = false;
@@ -279,10 +285,13 @@ export async function runCodexFamiliar(
 
     reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);
-    let prompt = '';
-    process.stdin.setEncoding('utf8');
+    let prompt = review?.prompt ?? '';
 
-    for await (const chunk of process.stdin) prompt += chunk as string;
+    if (!review) {
+      process.stdin.setEncoding('utf8');
+
+      for await (const chunk of process.stdin) prompt += chunk as string;
+    }
 
     waiting = 'Codex to start';
     const codex = nativeExecutable('codex');
@@ -346,10 +355,12 @@ export async function runCodexFamiliar(
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
       answer = result.final ?? '';
+      answerModel = session.info.model;
       status = result.status === 'interrupted' ? 'stopped' : result.status;
       exhausted = !!result.exhausted;
+
       // a checkpoint: the familiar can still await a question's reply or run another turn
-      await save();
+      if (!review) await save();
 
       if (result.status !== 'completed') break;
 
@@ -383,8 +394,11 @@ export async function runCodexFamiliar(
     for (const pending of requests.values()) pending.resolved = true;
 
     await Promise.all([...requests.values()].map((pending) => pending.work));
-    process.off('SIGINT', stop);
-    process.off('SIGTERM', stop);
+
+    if (!review) {
+      process.off('SIGINT', stop);
+      process.off('SIGTERM', stop);
+    }
   }
 
   try {
@@ -411,28 +425,48 @@ export async function runCodexFamiliar(
       .filter(Boolean)
       .join('\n\n');
 
-    await saveReport(file, status === 'completed' ? answer : report);
+    let terminal: FamiliarProgress = {
+      ...progress,
+      status,
+      report,
+      // codex names no limit, so routing holds the whole runtime
+      ...(exhausted && status === 'failed' && { exhausted: {} }),
+    };
 
-    if (registered) {
+    if (review) {
+      if (status === 'completed') terminal.model = answerModel;
+
+      terminal = await settlePlanReview(
+        file,
+        review,
+        terminal,
+        answer,
+        () => stopped,
+        registered ? reports : undefined,
+      );
+    } else {
+      await saveFinalReport(file, terminal, answer);
+    }
+
+    if (!review && registered) {
       try {
-        await reports.finish({
-          ...progress,
-          status,
-          report,
-          // Codex names no limit, so routing holds the whole runtime
-          ...(exhausted && status === 'failed' && { exhausted: {} }),
-        });
+        await reports.finish(terminal);
       } catch (error) {
         status = stopped ? 'stopped' : 'failed';
         report = [report, errorMessage(error)].filter(Boolean).join('\n\n');
+        terminal = { ...terminal, status, report };
         await save();
       }
     }
 
-    process.stdout.write(`${report}\n\nSaved report: ${reportFile}\n`);
+    process.stdout.write(
+      `${review ? terminal.report : report}\n\nSaved report: ${reportFile}\n`,
+    );
 
-    return exitCode(status);
+    return exitCode(terminal.status);
   } finally {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
     await file.close();
   }
 }

@@ -59,6 +59,8 @@ Delegated tasks (use the familiar prefix supplied in the current Witch context):
                       report a native Claude task as a familiar
   --familiar-codex <name> --report-file <file> [--lean] -- <native app-server options>
                       report a Codex task as a familiar; read its prompt from stdin
+  --review-plan <file> --review-brief <file> --review-model <model>
+                      use a read-only plan-review preset with either familiar command
                       --lean starts either familiar without MCP servers or the spell catalog, and on Claude without hooks
 
 Every word that starts with - is read as an option, so quote a prompt that
@@ -107,11 +109,17 @@ const { values, control, familiar, spawn } = command;
 
 if (familiar) {
   try {
-    const { binding, name, reportFile, args, lean } = familiar;
+    const { runtime, binding, name, reportFile, args, lean, review } = familiar;
+
+    const planReview = review
+      ? await (
+          await import('./cli/plan-review.js')
+        ).preparePlanReview(runtime, review, reportFile)
+      : undefined;
 
     process.exitCode = await (
-      familiar.runtime === 'codex' ? runCodexFamiliar : runClaudeFamiliar
-    )(binding, name, reportFile, args, lean);
+      runtime === 'codex' ? runCodexFamiliar : runClaudeFamiliar
+    )(binding, name, reportFile, args, lean, planReview);
   } catch (error) {
     process.stderr.write(`witch: ${errorMessage(error)}\n`);
     process.exitCode = 1;

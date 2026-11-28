@@ -20,6 +20,12 @@ const findingsSchema = z.strictObject({
 
 export type Finding = z.infer<typeof findingsSchema>['findings'][number];
 
+export const findingsFormat = [
+  '```json',
+  '{"findings":[{"file":"path","line":1,"blocking":true,"summary":"what is wrong","correction":"the minimal fix"}]}',
+  '```',
+].join('\n');
+
 /** the findings in a report's last fenced json block, with each file normalized to a listed target; `invalid` says why there are none to read. */
 export function parseFindings(
   report: string,
@@ -293,10 +299,39 @@ export function brief({
     '',
     'End your report with a fenced json block in exactly this shape, using the paths listed above:',
     '',
-    '```json',
-    '{"findings":[{"file":"path","line":1,"blocking":true,"summary":"what is wrong","correction":"the minimal fix"}]}',
-    '```',
+    findingsFormat,
   ].join('\n');
+}
+
+export function reviewerArguments(
+  runtime: Routed['runtime'],
+  model: string,
+): string[] {
+  return runtime === 'claude'
+    ? [
+        '--model',
+        model,
+        '--tools',
+        'Read',
+        'Grep',
+        'Glob',
+        '--allowedTools',
+        'Read',
+        'Grep',
+        'Glob',
+        '--permission-prompts',
+        'none',
+        '--permission-mode',
+        'dontAsk',
+      ]
+    : [
+        '-c',
+        `model=${JSON.stringify(model)}`,
+        '-c',
+        'sandbox_mode="read-only"',
+        '-c',
+        'approval_policy="never"',
+      ];
 }
 
 /** the familiar wrapper command for one routed reviewer, read-only and lean: no MCP server or spell catalog, and no hooks on Claude. */
@@ -313,33 +348,6 @@ export function reviewerCommand({
   reportFile: string;
   briefFile: string;
 }): string {
-  const native =
-    route.runtime === 'claude'
-      ? [
-          '--model',
-          route.model,
-          '--tools',
-          'Read',
-          'Grep',
-          'Glob',
-          '--allowedTools',
-          'Read',
-          'Grep',
-          'Glob',
-          '--permission-prompts',
-          'none',
-          '--permission-mode',
-          'dontAsk',
-        ]
-      : [
-          '-c',
-          `model="${route.model}"`,
-          '-c',
-          'sandbox_mode="read-only"',
-          '-c',
-          'approval_policy="never"',
-        ];
-
   return [
     prefix,
     `--familiar-${route.runtime}`,
@@ -348,7 +356,7 @@ export function reviewerCommand({
     quote(reportFile),
     '--lean',
     '--',
-    ...native.map(quote),
+    ...reviewerArguments(route.runtime, route.model).map(quote),
     '<',
     quote(briefFile),
   ].join(' ');

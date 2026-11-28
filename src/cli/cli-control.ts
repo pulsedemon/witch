@@ -8,6 +8,7 @@ import { previewBytes } from '../core/preview.js';
 import { aborted, errorMessage } from '../errors.js';
 import { claudeArguments } from './cli-familiar.js';
 import { codexArguments } from './cli-codex-familiar.js';
+import { reviewerArguments } from '../core/review/review.js';
 import {
   coordinationActionSchema,
   selectionStatus,
@@ -64,24 +65,41 @@ type CommandValues = ReturnType<
   typeof parseArgs<{ options: typeof cliOptions }>
 >['values'];
 
+const reviewOptions = ['review-plan', 'review-brief', 'review-model'] as const;
+
 function familiarMode(
   values: CommandValues,
   positionals: string[],
   args: string[],
   separator: number,
 ) {
-  const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
+  const runtime: 'codex' | 'claude' =
+    values['familiar-codex'] !== undefined ? 'codex' : 'claude';
+
   const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
   const label = runtime === 'codex' ? 'Codex' : 'Claude';
-  const allowed = new Set([...bindingOptions, option, 'report-file', 'lean']);
+  const plan = values['review-plan'];
+  const brief = values['review-brief'];
+  const model = values['review-model']?.trim();
+  const review = reviewOptions.some((key) => values[key] !== undefined);
+
+  const allowed = new Set([
+    ...bindingOptions,
+    option,
+    'report-file',
+    ...(review ? reviewOptions : ['lean']),
+  ]);
 
   if (
     Object.keys(values).some((key) => !allowed.has(key)) ||
-    separator < 0 ||
-    positionals.length !== args.length - separator - 1
+    (review
+      ? separator >= 0 || positionals.length > 0
+      : separator < 0 || positionals.length !== args.length - separator - 1)
   )
     throw new Error(
-      `${label} familiar mode requires -- before native arguments and cannot include other Witch options or prompts.`,
+      review
+        ? 'Plan review supplies its own native arguments and cannot include other Witch options or prompts.'
+        : `${label} familiar mode requires -- before native arguments and cannot include other Witch options or prompts.`,
     );
 
   if (!values[option]?.trim() || !values['report-file'])
@@ -90,15 +108,32 @@ function familiarMode(
     );
 
   const binding = bindingOf(values);
-  (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
+  let reviewInput;
+  let native = positionals;
+
+  if (review) {
+    if (!plan || !brief || !model)
+      throw new Error(
+        'Plan review needs --review-plan, --review-brief and --review-model.',
+      );
+
+    if (model.startsWith('-'))
+      throw new Error('Plan review needs a routed model ID.');
+
+    reviewInput = { plan: resolve(plan), brief: resolve(brief), model };
+    native = reviewerArguments(runtime, model);
+  } else {
+    (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
+  }
 
   return {
     runtime,
     binding,
     name: values[option].trim(),
     reportFile: resolve(values['report-file']),
-    args: positionals,
-    lean: values.lean === true,
+    args: native,
+    lean: review || values.lean === true,
+    review: reviewInput,
   };
 }
 
@@ -207,7 +242,8 @@ export function parseCommand(args = process.argv.slice(2)) {
     values['familiar-claude'] !== undefined ||
     values['familiar-codex'] !== undefined ||
     values['report-file'] !== undefined ||
-    values.lean !== undefined;
+    values.lean !== undefined ||
+    reviewOptions.some((key) => values[key] !== undefined);
 
   if (reporting) {
     return {

@@ -14,6 +14,7 @@ import {
 } from '../persistence/control.js';
 import type { ControlBinding, ControlResult } from '../persistence/control.js';
 import { elapsed } from '../ui/status/elapsed.js';
+import type { PlanReview } from './plan-review.js';
 
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
 export class FamiliarReports {
@@ -132,6 +133,64 @@ export async function saveReport(
 
   await file.truncate(bytes.length);
   await file.sync();
+}
+
+export async function saveFinalReport(
+  file: FileHandle,
+  progress: FamiliarProgress,
+  answer: string,
+): Promise<void> {
+  await saveReport(
+    file,
+    progress.status === 'completed' ? answer : (progress.report ?? ''),
+  );
+}
+
+export async function settlePlanReview(
+  file: FileHandle,
+  review: PlanReview,
+  progress: FamiliarProgress,
+  answer: string,
+  stopped: () => boolean,
+  reports?: FamiliarReports,
+): Promise<FamiliarProgress> {
+  let terminal = await review.finish(progress, answer);
+
+  try {
+    await reports?.finish(terminal);
+
+    if (terminal.status === 'completed')
+      terminal = await review.finish(progress, answer);
+  } catch (error) {
+    terminal = await review.finish(
+      {
+        ...progress,
+        status: 'failed',
+        report: [progress.report, errorMessage(error)]
+          .filter(Boolean)
+          .join('\n\n'),
+      },
+      answer,
+    );
+  }
+
+  const stoppedResult = () =>
+    review.finish(
+      { ...progress, status: 'stopped', report: 'Plan review stopped.' },
+      answer,
+    );
+
+  if (stopped() && terminal.status !== 'stopped')
+    terminal = await stoppedResult();
+
+  await saveReport(file, terminal.report ?? '');
+
+  if (stopped() && terminal.status !== 'stopped') {
+    terminal = await stoppedResult();
+    await saveReport(file, terminal.report ?? '');
+  }
+
+  return terminal;
 }
 
 export function exitCode(status: TaskStatus): number {

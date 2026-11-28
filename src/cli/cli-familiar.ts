@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { ClaudeTask } from '../agents/claude/task.js';
+import type { FamiliarProgress } from '../agents/familiar-report.js';
 import { nativeExecutable } from '../agents/executable.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import { running, terminateGraceMs } from '../agents/shutdown.js';
@@ -11,9 +12,11 @@ import {
   exitCode,
   FamiliarReports,
   registerFamiliar,
-  saveReport,
+  saveFinalReport,
+  settlePlanReview,
   watchSuspension,
 } from './familiar-run.js';
+import type { PlanReview } from './plan-review.js';
 import type { ControlBinding } from '../persistence/control.js';
 
 /** outranks user, project and local settings, so the routed model runs as named and an overload doesn't switch it; lean also turns hooks off. */
@@ -84,6 +87,7 @@ export async function runClaudeFamiliar(
   reportFile: string,
   args: readonly string[],
   lean: boolean,
+  review?: PlanReview,
 ): Promise<number> {
   const argv = claudeArguments(args, lean);
   const file = await open(reportFile, 'wx', 0o600);
@@ -135,7 +139,7 @@ export async function runClaudeFamiliar(
 
     child = nativeLaunch(claude, (executable) =>
       spawn(executable, argv, {
-        stdio: ['inherit', 'pipe', 'pipe'],
+        stdio: [review ? 'pipe' : 'inherit', 'pipe', 'pipe'],
         detached: false,
       }),
     );
@@ -155,6 +159,14 @@ export async function runClaudeFamiliar(
     child.once('error', (error) =>
       task.failed(`Claude could not start: ${error.message}`),
     );
+
+    if (review) {
+      child.stdin!.on('error', (error) =>
+        task.failed(`Could not send the plan draft: ${error.message}`),
+      );
+
+      child.stdin!.end(review.prompt);
+    }
 
     child.once('exit', () => {
       clearTimeout(escalation);
@@ -191,20 +203,32 @@ export async function runClaudeFamiliar(
 
     let terminal = closed(stopped ?? (reports.error ? null : signal));
 
-    const save = () =>
-      saveReport(
+    if (review) {
+      const result = task.latestAnswer;
+
+      const progress =
+        terminal.status === 'completed'
+          ? { ...terminal, model: result?.model }
+          : terminal;
+
+      terminal = await settlePlanReview(
         file,
-        terminal.status === 'completed' ? task.answer : (terminal.report ?? ''),
+        review,
+        progress,
+        result?.text ?? '',
+        () => !!stopped,
+        reports,
       );
+    } else {
+      await saveFinalReport(file, terminal, task.answer);
 
-    await save();
-
-    try {
-      await reports.finish(terminal);
-    } catch (error) {
-      task.failed(errorMessage(error));
-      terminal = closed(stopped ?? null);
-      await save();
+      try {
+        await reports.finish(terminal);
+      } catch (error) {
+        task.failed(errorMessage(error));
+        terminal = closed(stopped ?? null);
+        await saveFinalReport(file, terminal, task.answer);
+      }
     }
 
     process.stdout.write(
@@ -214,7 +238,16 @@ export async function runClaudeFamiliar(
     return exitCode(terminal.status);
   } catch (error) {
     const message = errorMessage(error);
-    await file.writeFile(message);
+
+    const progress: FamiliarProgress = {
+      status: stopped ? 'stopped' : 'failed',
+      report: message,
+    };
+
+    if (review)
+      await settlePlanReview(file, review, progress, '', () => !!stopped);
+    else await saveFinalReport(file, progress, '');
+
     process.stderr.write(`witch: ${message}\nSaved report: ${reportFile}\n`);
 
     return stopped ? 130 : 1;

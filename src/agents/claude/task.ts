@@ -74,7 +74,9 @@ export class ClaudeTask {
   private spells?: Cast[];
   private activity?: string;
   private readonly reports: string[] = [];
-  private final = '';
+  private final?: { text: string; model?: string };
+  private latest?: { text: string; model?: string };
+  private draftModel?: string;
   /** the current turn's latest text, its report if the turn ends without a result. */
   private draft = '';
   private success = false;
@@ -177,7 +179,10 @@ export class ClaudeTask {
           .map((block) => z.string().parse(block.text))
           .join('\n');
 
-        if (text) this.draft = text;
+        if (text) {
+          this.draft = text;
+          this.draftModel = observed;
+        }
       } else if (message.type === 'result') {
         const finished = result.parse(value);
 
@@ -197,9 +202,16 @@ export class ClaudeTask {
           ...denials,
         );
 
-        if (this.success && finished.result) this.final = finished.result;
-
         if (this.success) {
+          const text = finished.result ?? '';
+
+          this.latest = {
+            text,
+            model: this.draftModel ?? this.identity?.model,
+          };
+
+          if (text) this.final = this.latest;
+
           this.rateLimit.clear();
           this.rejected = undefined;
         } else this.rejected = this.rejection();
@@ -207,6 +219,7 @@ export class ClaudeTask {
         this.turn = {};
         this.open = false;
         this.draft = '';
+        this.draftModel = undefined;
       }
     } catch (error) {
       this.failed(`Invalid Claude task stream: ${errorMessage(error)}`);
@@ -214,7 +227,11 @@ export class ClaudeTask {
   }
 
   get answer(): string {
-    return this.final;
+    return this.final?.text ?? '';
+  }
+
+  get latestAnswer() {
+    return this.latest;
   }
 
   failed(message: string): void {
@@ -246,6 +263,7 @@ export class ClaudeTask {
 
     return {
       ...this.progress(),
+      ...(!signal && !reason && this.final && { model: this.final.model }),
       status: signal ? 'stopped' : reason ? 'failed' : 'completed',
       report: [...this.reports, this.draft, reason]
         .filter(Boolean)
