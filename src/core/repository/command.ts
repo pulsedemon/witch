@@ -78,12 +78,15 @@ async function cancellable(
   const probe = () => signalOwned(stopped ? 'SIGKILL' : 0);
 
   for (const name of ['stdout', 'stderr'] as const) {
+    let size = 0;
     child[name].setEncoding('utf8');
 
     child[name].on('data', (text: string) => {
       if (failure) return;
 
-      if (Buffer.byteLength(output[name]) + Buffer.byteLength(text) > limit) {
+      size += Buffer.byteLength(text);
+
+      if (size > limit) {
         failure = Object.assign(
           new Error(`${name} maxBuffer length exceeded`),
           {

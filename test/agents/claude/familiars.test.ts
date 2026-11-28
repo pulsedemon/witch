@@ -769,7 +769,7 @@ test('a task end or expired deadline during an output read prevents admission', 
         status: 'completed',
       });
 
-    if (change === 'connection') f.owner.stop();
+    if (change === 'connection') void f.owner.stop();
 
     output.resolve({ output: f.marker });
 

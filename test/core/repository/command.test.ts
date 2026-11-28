@@ -59,18 +59,18 @@ test('a cancelled command cannot start another checkout mutation', async () => {
   await assert.rejects(readFile(join(cwd, 'mutation')), { code: 'ENOENT' });
 });
 
-test("a cancellable command stops at the caller's maxBuffer", async () => {
+test('a cancellable command counts bytes across stream chunks', async () => {
   const cwd = await scratch('witch-command-');
 
   await assert.rejects(
     runCommand(
       process.execPath,
-      ['-e', "process.stdout.write('x'.repeat(64))"],
+      ['-e', "process.stdout.write('é'.repeat(65537))"],
       {
         cwd,
         timeout: 5000,
         signal: new AbortController().signal,
-        maxBuffer: 16,
+        maxBuffer: 64 * 1024 + 1,
       },
     ),
     {

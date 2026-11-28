@@ -292,7 +292,9 @@ export class SessionLink {
           }
 
           if (
-            (event.type === 'subagent' || event.type === 'command') &&
+            (event.type === 'subagent' ||
+              event.type === 'command' ||
+              event.type === 'closed') &&
             this.connection !== connection
           )
             return;
@@ -473,7 +475,19 @@ export class SessionLink {
       this.usage.report(agent, event.usage.account);
 
       if (this.live(agent)) host.publish({ usage: event.usage });
-    } else if (event.type === 'subagent' || event.type === 'command') {
+    } else if (event.type === 'subagent') {
+      const finishing =
+        event.subagent.status !== 'running' &&
+        host
+          .snapshot()
+          .subagents.some(
+            ({ id, status }) =>
+              id === event.subagent.id && status === 'running',
+          );
+
+      if (this.live(agent) || finishing)
+        host.background(event, conversation.cwd);
+    } else if (event.type === 'command') {
       if (this.live(agent)) host.background(event, conversation.cwd);
     } else if (event.type === 'running') {
       if (this.live(agent)) host.publish({ nativeRunning: event.running });

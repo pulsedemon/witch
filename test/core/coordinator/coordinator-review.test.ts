@@ -947,38 +947,52 @@ test('closing Witch during a review aborts its reviewers', async (t) => {
   assert.equal(await reviewing, false);
 });
 
-test('Escape stops a Git lookup in the mechanical checks', async (t) => {
-  const h = await harness(t);
-  const probe = await scratch('witch-review-git-');
-  const started = join(h.cwd, 'mechanical-git-started');
+for (const lookup of ['origin', 'blob'] as const) {
+  test(`Escape stops the ${lookup} lookup in the mechanical checks`, async (t) => {
+    const h = await harness(t, {
+      plan: '[reference](https://github.com/owner/repo/blob/HEAD/source.ts#L1)\n',
+    });
 
-  await withGit(
-    probe,
-    `if (args.join(' ') === 'remote get-url origin') {
+    const probe = await scratch('witch-review-git-');
+    const started = join(h.cwd, 'mechanical-git-started');
+
+    await withGit(
+      probe,
+      `if (args.join(' ') === 'remote get-url origin' && ${lookup === 'blob'}) {
+  console.log('https://github.com/owner/repo.git');
+  return;
+}
+if (args.join(' ') === 'remote get-url origin' || args[0] === 'show') {
   writeFileSync('mechanical-git-started', String(process.pid));
   setInterval(() => {}, 1000);
   return;
 }`,
-    async () => {
-      const reviewing = h.coordinator.review('plan.md');
+      async () => {
+        const reviewing = h.coordinator.review('plan.md');
 
-      await until('mechanical Git lookup', async () => {
-        try {
-          return !!(await readFile(started, 'utf8'));
-        } catch {
-          return false;
-        }
-      });
+        await until('mechanical Git lookup', async () => {
+          try {
+            return !!(await readFile(started, 'utf8'));
+          } catch {
+            return false;
+          }
+        });
 
-      const pid = Number(await readFile(started, 'utf8'));
-      await h.coordinator.interrupt();
-      assert.equal(await within(reviewing, 1500, 'interrupted review'), false);
-      assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
-    },
-  );
+        const pid = Number(await readFile(started, 'utf8'));
+        await h.coordinator.interrupt();
 
-  assert.equal(h.rounds.length, 0);
-});
+        assert.equal(
+          await within(reviewing, 1500, 'interrupted review'),
+          false,
+        );
+
+        assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+      },
+    );
+
+    assert.equal(h.rounds.length, 0);
+  });
+}
 
 test('closing Witch as a round starts ends the review cleanly', async (t) => {
   const h = await harness(t);

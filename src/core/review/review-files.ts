@@ -108,17 +108,21 @@ export async function verifyReviewReceipt(
     if (!(await readBytes(file, bytes.length + 1)).equals(bytes))
       throw new ReviewInputError('The plan review receipt contents changed.');
 
-    const named = await stat(await reviewPath(receipt.path, [scratch]), {
-      bigint: true,
-    });
+    const { file: namedFile } = await openReviewFile(receipt.path, [scratch]);
 
-    if (named.dev !== original.dev || named.ino !== original.ino)
-      throw new ReviewInputError('The plan review receipt was replaced.');
+    try {
+      const named = await namedFile.stat({ bigint: true });
 
-    if (named.ctimeNs !== original.ctimeNs)
-      throw new ReviewInputError(
-        'The plan review receipt changed while being read.',
-      );
+      if (named.dev !== original.dev || named.ino !== original.ino)
+        throw new ReviewInputError('The plan review receipt was replaced.');
+
+      if (named.ctimeNs !== original.ctimeNs)
+        throw new ReviewInputError(
+          'The plan review receipt changed while being read.',
+        );
+    } finally {
+      await namedFile.close();
+    }
   } finally {
     await file.close();
   }

@@ -839,7 +839,7 @@ class ClaudeSession implements AgentSession {
       if (!(error instanceof NativeStopTimeout)) throw error;
 
       this.reportStopTimeout();
-      this.commands.stop();
+      void this.commands.stop();
       this.requests.cancel();
       this.input.close();
       this.query.close();
@@ -935,8 +935,9 @@ class ClaudeSession implements AgentSession {
     } finally {
       // closed before stopped commands report, so their listeners can't start a turn
       const closing = this.markClosed();
-      this.commands.stop();
+      const verifications = this.commands.stop();
       await closing.catch(() => {});
+      await verifications;
       this.requests.cancel();
 
       if (this.connected) this.options.onEvent({ type: 'closed' });

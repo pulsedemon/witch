@@ -10,6 +10,7 @@ import {
   boundMarker,
   checkReporting,
   findFamiliar,
+  pendingFamiliarVerifications,
   respondFamiliar,
 } from '../familiar-report.js';
 import { FamiliarRun } from '../familiar-requests.js';
@@ -47,6 +48,7 @@ export class ClaudeCommands {
   private readonly entries = new Map<string, Command>();
   private stopped = false;
   private closing = false;
+  private finalizing?: Promise<void>;
 
   constructor(
     private readonly query: ClaudeTaskControl,
@@ -309,17 +311,22 @@ export class ClaudeCommands {
         .map((entry) => this.query.stopTask(entry.id)),
     );
 
-    this.stop();
+    await this.stop();
 
     for (const result of results)
       if (result.status === 'rejected') throw result.reason;
   }
 
-  stop(): void {
+  stop(): Promise<void> | undefined {
+    if (this.stopped) return this.finalizing;
+
     this.stopped = true;
+    this.finalizing = pendingFamiliarVerifications(this.entries.values());
 
     for (const entry of this.entries.values()) this.end(entry, 'stopped');
 
     this.entries.clear();
+
+    return this.finalizing;
   }
 }

@@ -2,7 +2,6 @@ import { isUtf8 } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type {
   FamiliarProgress,
@@ -60,15 +59,12 @@ export function createPlanReview(
         throw new Error('Witch did not authorize the plan review inputs.');
 
       const resolved = await realpath(mailbox);
-      scratch = await realpath(tmpdir());
+      scratch = scope.scratch;
 
       if (resolved !== join(scratch, 'control', 'familiars'))
         throw new Error(
           'Plan review requires the bound Witch familiar mailbox.',
         );
-
-      if (scope.scratch !== scratch)
-        throw new Error('Witch reported a different review scratch directory.');
 
       const destination = join(await realpath(dirname(path)), basename(path));
 

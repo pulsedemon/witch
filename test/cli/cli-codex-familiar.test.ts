@@ -509,6 +509,12 @@ test('ordinary lean Codex familiars preserve a later native permission override'
 
   try {
     assert.equal(await f.closed, 0);
+    const { argv } = await f.launch();
+
+    assert.deepEqual(
+      argv.filter((arg) => arg.startsWith('approval_policy=')),
+      ['approval_policy="never"', 'approval_policy="on-request"'],
+    );
 
     assert.match(
       await readFile(join(f.root, 'prompt.json'), 'utf8'),

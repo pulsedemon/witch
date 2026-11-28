@@ -8,7 +8,14 @@ import {
   readFileSync,
   writeSync,
 } from 'node:fs';
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -196,6 +203,30 @@ test('a familiar request fails the reviewer', async (t) => {
   assert.notEqual(result!.code, 0);
   assert.equal(result!.status, 'failed');
   assert.match(result!.report, /runs read-only and cannot ask for anything/);
+});
+
+test('a Witch-launched Codex reviewer refuses a writable native policy before dispatch', async (t) => {
+  const { coordinator, root, reviewer } = await setup(t.onTestFinished);
+  const routed = await reviewer('review-policy-codex', 'codex');
+  vi.stubEnv('WITCH_CODEX_FAMILIAR_FIXTURE', 'writable-review');
+
+  try {
+    const [result] = await coordinator.reviewers.run({
+      cwd: root,
+      reviewers: [routed],
+      signal: new AbortController().signal,
+    });
+
+    assert.notEqual(result!.code, 0);
+    assert.equal(result!.status, 'failed');
+    assert.match(result!.report, /did not grant read-only permissions/);
+
+    await assert.rejects(access(join(routed.directory, 'prompt.json')), {
+      code: 'ENOENT',
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 
 test('a reviewer that cannot spawn ends the run with its launch error', async () => {

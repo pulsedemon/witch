@@ -10,6 +10,7 @@ import {
   realpath,
   rename,
   symlink,
+  stat,
   unlink,
   writeFile,
 } from 'node:fs/promises';
@@ -17,6 +18,7 @@ import type * as NativeFiles from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { test, vi } from 'vitest';
+import { runCommand } from '../../../src/core/repository/command.js';
 import {
   checkTargets,
   reviewRoot,
@@ -33,6 +35,7 @@ import { within } from '../../fixtures/within.js';
 
 const execute = promisify(execFile);
 vi.mock('node:fs/promises', { spy: true });
+vi.mock('../../../src/core/repository/command.js', { spy: true });
 
 const checkFiles = async (cwd: string, files: readonly string[]) =>
   checkTargets(cwd, await snapshotTargets(cwd, files, [await realpath(cwd)]));
@@ -55,6 +58,58 @@ async function check(
 }
 
 const a = 'function a() {\n  b();\n  c();\n}\n';
+
+test('mechanical checks retain the admitted checkout root after it moves', async () => {
+  const directory = await scratch('witch-review-bound-');
+  const root = join(directory, 'original');
+  const moved = join(directory, 'moved');
+  await mkdir(root);
+  await writeFile(join(root, 'source.ts'), 'one\n');
+  await rename(root, moved);
+  await symlink(moved, root);
+  const target = { texts: { 'plan.md': '`source.ts:400`\n' }, canonical: {} };
+  assert.deepEqual(await checkTargets(root, target, { root }), []);
+});
+
+test('a blob lookup timeout reaches the mechanical review caller', async () => {
+  const { root, commit } = await committed('https://github.com/owner/repo', {
+    'source.ts': 'one\n',
+  });
+
+  const command = vi.mocked(runCommand);
+
+  const native = await vi.importActual<{ runCommand: typeof runCommand }>(
+    '../../../src/core/repository/command.js',
+  );
+
+  const timeout = Object.assign(new Error('Timed out reading the Git blob'), {
+    killed: true,
+  });
+
+  command.mockImplementation((program, args, options) =>
+    args[0] === 'show'
+      ? Promise.reject(timeout)
+      : native.runCommand(program, args, options),
+  );
+
+  try {
+    await assert.rejects(
+      checkTargets(
+        root,
+        {
+          texts: {
+            'plan.md': `[source](https://github.com/owner/repo/blob/${commit}/source.ts#L1)\n`,
+          },
+          canonical: {},
+        },
+        { root, signal: new AbortController().signal },
+      ),
+      timeout,
+    );
+  } finally {
+    command.mockReset();
+  }
+});
 
 test('mechanical checks skip a Unix socket citation', async () => {
   const root = await scratch('witch-review-socket-');
@@ -149,6 +204,72 @@ for (const change of ['unlink', 'chmod'] as const) {
     }
   });
 }
+
+test('receipt verification reopens its final path without following a redirected parent', async () => {
+  const root = await scratch('witch-receipt-parent-');
+  const admitted = join(root, 'scratch');
+  const parent = join(admitted, 'receipts');
+  const moved = join(root, 'moved');
+  const path = join(parent, 'receipt.json');
+  await mkdir(parent, { recursive: true });
+  const handle = await open(path, 'wx');
+  const expected = '{"findings":[]}';
+  let redirected = false;
+
+  try {
+    await handle.writeFile(expected);
+    const receipt = await receiptFile(path, handle);
+    const prototype = Object.getPrototypeOf(handle) as NativeFiles.FileHandle;
+    const read = prototype.read;
+
+    const native =
+      await vi.importActual<typeof NativeFiles>('node:fs/promises');
+
+    const lookup = vi.mocked(stat);
+
+    const duringRead = vi
+      .spyOn(prototype, 'read')
+      .mockImplementationOnce(async function (
+        this: NativeFiles.FileHandle,
+        ...args: Parameters<NativeFiles.FileHandle['read']>
+      ) {
+        const result = (await Reflect.apply(read, this, args)) as Awaited<
+          ReturnType<NativeFiles.FileHandle['read']>
+        >;
+
+        lookup.mockImplementationOnce(
+          async (...statArgs: Parameters<typeof stat>) => {
+            await rename(parent, moved);
+            await symlink(moved, parent);
+            redirected = true;
+
+            return (await Reflect.apply(
+              native.stat,
+              native,
+              statArgs,
+            )) as Awaited<ReturnType<typeof stat>>;
+          },
+        );
+
+        return result;
+      });
+
+    try {
+      await assert.rejects(verifyReviewReceipt(receipt, expected, admitted));
+      assert.equal(redirected, true);
+
+      assert.equal(
+        await readFile(join(moved, 'receipt.json'), 'utf8'),
+        expected,
+      );
+    } finally {
+      duringRead.mockRestore();
+      lookup.mockReset();
+    }
+  } finally {
+    await handle.close();
+  }
+});
 
 test('the review root retains the exact checkout name from Git', async () => {
   const root = await scratch('witch-review-');

@@ -206,6 +206,18 @@ export function admitted(slots: readonly FamiliarSlot[]): FamiliarRun[] {
   return slots.flatMap(({ familiar }) => (familiar ? [familiar] : []));
 }
 
+export function pendingFamiliarVerifications(
+  entries: Iterable<{ familiars: readonly FamiliarSlot[] }>,
+): Promise<void> | undefined {
+  const checks = [...entries].flatMap(({ familiars }) =>
+    admitted(familiars).flatMap(({ pendingVerification }) =>
+      pendingVerification ? [pendingVerification] : [],
+    ),
+  );
+
+  if (checks.length) return Promise.all(checks).then(() => {});
+}
+
 /** the command and slot whose marker names the action's run; undefined only for a registration whose marker hasn't appeared yet. */
 export function findFamiliar<T extends { familiars: FamiliarSlot[] }>(
   entries: Iterable<T>,

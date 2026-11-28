@@ -102,6 +102,7 @@ const session = () => ({
       sandbox: {
         type:
           reviewMode === 'writable-policy' ||
+          familiar === 'writable-review' ||
           (answering && mode === 'writable-answer')
             ? 'workspaceWrite'
             : 'readOnly',

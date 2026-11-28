@@ -103,6 +103,7 @@ type Fault =
   | 'started-only'
   | 'claude-bad-state'
   | 'wrong-mailbox'
+  | 'native-tmpdir'
   | 'receipt-conflict-and-reply'
   | 'partial-and-final'
   | 'reroute-before-answer'
@@ -275,7 +276,13 @@ async function launch(
   );
 
   const activation = randomUUID();
-  const control = join(root, 'control', 'familiars');
+
+  const control = join(
+    root,
+    fault === 'wrong-mailbox' ? 'other-control' : 'control',
+    'familiars',
+  );
+
   const pending = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const dropReply = Promise.withResolvers<void>();
@@ -397,7 +404,7 @@ async function launch(
       cwd,
       env: {
         ...process.env,
-        TMPDIR: fault === 'wrong-mailbox' ? checkout : root,
+        TMPDIR: fault === 'native-tmpdir' ? checkout : root,
         ...(fault === 'stalled-checkout' && {
           PATH: `${root}:${process.env.PATH ?? ''}`,
         }),
@@ -691,7 +698,7 @@ for (const [fault, reason] of [
 for (const [fault, reason] of [
   ['stale', /Stale activation/],
   ['no-scope', /did not authorize the plan review inputs/],
-  ['wrong-scratch', /different review scratch directory/],
+  ['wrong-scratch', /bound Witch familiar mailbox/],
   ['wrong-mailbox', /bound Witch familiar mailbox/],
 ] as const) {
   test(`${fault} fails before creating a receipt or launching a reviewer`, async (t) => {
@@ -721,6 +728,13 @@ test('a nested caller can review a file in the admitted checkout root', async (t
   const { checkout, outcome } = await launch(t, 'codex', 'checkout-input');
   assert.equal((await outcome(0)).planSha256, planSha256);
   await access(join(checkout, 'launched.json'));
+});
+
+test('a native TMPDIR override preserves the admitted plan review scope', async (t) => {
+  const { outcome } = await launch(t, 'claude', 'native-tmpdir');
+  const receipt = await outcome(0);
+  assert.equal(receipt.planSha256, planSha256);
+  assert.deepEqual(receipt.findings, [finding]);
 });
 
 for (const [runtime, fault] of [

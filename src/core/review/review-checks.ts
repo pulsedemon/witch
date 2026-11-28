@@ -53,7 +53,7 @@ export async function checkTargets(
 ): Promise<CheckFailure[]> {
   const { signal } = scope;
   const repository = await repositoryOf(cwd, scope);
-  const root = await realpath(repository.root);
+  const root = scope.root ?? (await realpath(repository.root));
   const references = new Map<string, Promise<string | undefined>>();
 
   const cache = new Map<string, ReturnType<typeof readText>>(
@@ -870,6 +870,8 @@ async function show(
     return { text: stdout };
   } catch (error) {
     signal?.throwIfAborted();
+
+    if ((error as { killed?: boolean }).killed) throw error;
 
     return /does not exist in|exists on disk, but not in/.test(
       String((error as { stderr?: unknown }).stderr ?? ''),

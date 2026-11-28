@@ -7,6 +7,7 @@ import {
   admitted,
   checkReporting,
   findFamiliar,
+  pendingFamiliarVerifications,
   respondFamiliar,
   scanMarkers,
 } from '../familiar-report.js';
@@ -269,17 +270,12 @@ export class CodexCommands {
     if (this.stopped) return this.finalizing;
 
     this.stopped = true;
-    const checks: Promise<void>[] = [];
+    this.finalizing = pendingFamiliarVerifications(this.entries.values());
 
     for (const entry of this.entries.values()) {
       const familiars = admitted(entry.familiars);
 
-      for (const familiar of familiars) {
-        familiar.end('stopped');
-
-        if (familiar.pendingVerification)
-          checks.push(familiar.pendingVerification);
-      }
+      for (const familiar of familiars) familiar.end('stopped');
 
       if (!familiars.length && entry.command)
         this.emit({
@@ -289,8 +285,6 @@ export class CodexCommands {
     }
 
     this.entries.clear();
-
-    if (checks.length) this.finalizing = Promise.all(checks).then(() => {});
 
     return this.finalizing;
   }
