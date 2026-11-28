@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -127,6 +127,24 @@ for (const runtime of ['codex', 'claude']) {
     assert.equal((await session.send('normal afterward')).status, 'completed');
   });
 }
+
+test('an effective writable Codex policy prevents peer-answer dispatch', async (t) => {
+  const { session, cwd } = await codex(undefined, { mode: 'writable-answer' });
+  t.onTestFinished(() => session.close());
+  const batch = await input(cwd);
+
+  await assert.rejects(
+    session.send(answerInstruction, {
+      context: batch.context,
+      purpose: 'peer-answer',
+      answer: { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
+    }),
+    /did not grant read-only permissions/,
+  );
+
+  for (const name of ['context.json', 'prompt.json'])
+    await assert.rejects(access(join(cwd, name)), { code: 'ENOENT' });
+});
 
 for (const history of [false, true]) {
   test(`Codex answers in a separate restricted ${history ? 'fork' : 'fresh thread'} and preserves its owner`, async (t) => {

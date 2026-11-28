@@ -29,6 +29,10 @@ const modelChange = z.object({
   fallback_model: z.string().min(1),
 });
 
+const sessionState = z.object({
+  state: z.enum(['idle', 'running', 'requires_action']),
+});
+
 const assistant = z.object({
   session_id: z.string(),
   message: z.object({
@@ -63,10 +67,14 @@ const result = z.object({
   ),
 });
 
+interface Answer {
+  readonly text: string;
+  readonly model?: string;
+}
+
 /**
- * every native result adds to the report; the answer is the latest successful non-empty one, since a finished
- * background task can start a turn after the answer and the wrapper tells the familiar to repeat it there. only the
- * child's exit can finish the task.
+ * every native result adds to the report. ordinary familiars save the latest successful nonempty answer because
+ * a background task can start a turn after it. only the child's exit can finish the task.
  */
 export class ClaudeTask {
   private identity?: z.infer<typeof init>;
@@ -74,7 +82,10 @@ export class ClaudeTask {
   private spells?: Cast[];
   private activity?: string;
   private readonly reports: string[] = [];
-  private final = '';
+  private final?: Answer;
+  private latest?: Answer;
+  private readonly denials: string[] = [];
+  private draftModel?: string;
   /** the current turn's latest text, its report if the turn ends without a result. */
   private draft = '';
   private success = false;
@@ -90,6 +101,7 @@ export class ClaudeTask {
   constructor(
     private readonly cwd: string,
     private readonly emit: (progress: FamiliarProgress) => void,
+    private readonly planReview = false,
   ) {}
 
   message(value: unknown): void {
@@ -104,6 +116,18 @@ export class ClaudeTask {
         this.emit(this.progress());
 
       if (nested) return;
+
+      if (
+        this.planReview &&
+        (message.type === 'assistant' ||
+          message.type === 'result' ||
+          (message.type === 'system' &&
+            message.subtype === 'session_state_changed')) &&
+        !message.session_id
+      )
+        throw new Error(
+          `Claude did not identify the session for ${message.subtype === 'session_state_changed' ? 'a state event' : `its ${message.type} event`}.`,
+        );
 
       if (this.identity && message.session_id !== this.identity.session_id)
         return;
@@ -127,6 +151,15 @@ export class ClaudeTask {
           this.identity = { ...this.identity, model };
           this.emit(this.progress());
         }
+      } else if (
+        message.type === 'system' &&
+        message.subtype === 'session_state_changed'
+      ) {
+        const state = sessionState.safeParse(value);
+
+        if (!state.success && this.planReview) throw state.error;
+
+        if (state.data && state.data.state !== 'idle') this.open = true;
       } else if (message.type === 'rate_limit_event') {
         // only advisory: a frame of another shape is skipped rather than failing the task
         const event = rateLimitEvent.safeParse(value).data;
@@ -177,7 +210,10 @@ export class ClaudeTask {
           .map((block) => z.string().parse(block.text))
           .join('\n');
 
-        if (text) this.draft = text;
+        if (text) {
+          this.draft = text;
+          this.draftModel = observed;
+        }
       } else if (message.type === 'result') {
         const finished = result.parse(value);
 
@@ -192,14 +228,27 @@ export class ClaudeTask {
             `Permission denied: ${claudeTitle(denial.tool_name, denial.tool_input, this.cwd).title}`,
         );
 
+        this.denials.push(...denials);
+
         this.reports.push(
           finished.result ?? finished.errors?.join('\n') ?? this.draft,
           ...denials,
         );
 
-        if (this.success && finished.result) this.final = finished.result;
-
         if (this.success) {
+          const text = finished.result!;
+
+          this.latest = {
+            text,
+            model: this.planReview
+              ? text === this.draft
+                ? this.draftModel
+                : undefined
+              : (this.draftModel ?? this.identity?.model),
+          };
+
+          if (text) this.final = this.latest;
+
           this.rateLimit.clear();
           this.rejected = undefined;
         } else this.rejected = this.rejection();
@@ -207,6 +256,7 @@ export class ClaudeTask {
         this.turn = {};
         this.open = false;
         this.draft = '';
+        this.draftModel = undefined;
       }
     } catch (error) {
       this.failed(`Invalid Claude task stream: ${errorMessage(error)}`);
@@ -214,7 +264,20 @@ export class ClaudeTask {
   }
 
   get answer(): string {
-    return this.final;
+    return this.final?.text ?? '';
+  }
+
+  /** plan review uses the latest result, including an empty result, once its turn closes. */
+  get latestAnswer() {
+    return this.open ? undefined : this.latest;
+  }
+
+  get pendingExhaustion() {
+    return this.open ? this.rejection() : undefined;
+  }
+
+  get permissionDenials(): readonly string[] {
+    return this.denials;
   }
 
   failed(message: string): void {
@@ -246,6 +309,7 @@ export class ClaudeTask {
 
     return {
       ...this.progress(),
+      ...(!signal && !reason && this.final && { model: this.final.model }),
       status: signal ? 'stopped' : reason ? 'failed' : 'completed',
       report: [...this.reports, this.draft, reason]
         .filter(Boolean)

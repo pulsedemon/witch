@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { getEventListeners } from 'node:events';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
@@ -14,6 +23,7 @@ import type {
   ReviewerResult,
 } from '../../../src/core/review/reviewers.js';
 import type { Routed } from '../../../src/core/runtime/routing.js';
+import * as checks from '../../../src/core/review/review-checks.js';
 import { main } from '../../../src/memory/names.js';
 import { Workspace } from '../../../src/memory/workspace.js';
 import { ConversationStore } from '../../../src/persistence/store.js';
@@ -27,6 +37,7 @@ import {
 } from '../../fixtures/coordination.js';
 import { png } from '../../fixtures/png.js';
 import { scratch } from '../../fixtures/scratch.js';
+import { withGit } from '../../fixtures/merged.js';
 import { until, within } from '../../fixtures/within.js';
 
 const claudeRoute: Routed = {
@@ -555,6 +566,78 @@ test('an empty or bad target refuses', async (t) => {
   assert.deepEqual(runs.ran, ['review', 'review', 'review', 'clear']);
 });
 
+test('manual review refuses a checkout link to an outside file before routing', async (t) => {
+  const h = await harness(t);
+  const outside = join(h.cwd, '..', 'outside.md');
+  await writeFile(outside, 'Outside the checkout.\n');
+  await symlink(outside, join(h.cwd, 'link.md'));
+  assert.equal(await h.coordinator.review('link.md'), false);
+
+  assert.match(
+    h.notice('Review refused: link.md') ?? '',
+    /outside the allowed directories/,
+  );
+
+  assert.equal(h.actions.length, 0);
+  assert.equal(h.rounds.length, 0);
+});
+
+test('reviewers receive the checked snapshot even when a target is redirected during dispatch', async (t) => {
+  const h = await harness(t);
+  const outside = join(h.cwd, '..', 'outside.md');
+  await writeFile(outside, 'Outside the checkout.\n');
+  let staged: string | undefined;
+
+  h.state.during = async () => {
+    await unlink(join(h.cwd, 'plan.md'));
+    await symlink(outside, join(h.cwd, 'plan.md'));
+    const [, json] = /^Target snapshots: (.+)$/m.exec(h.rounds[0]!.brief)!;
+    const paths = JSON.parse(json!) as Record<string, string>;
+    staged = paths['plan.md']!;
+    assert.equal(await readFile(staged, 'utf8'), `${target.join('\n')}\n`);
+  };
+
+  await assert.rejects(
+    h.coordinator.review('plan.md'),
+    /outside the allowed directories/,
+  );
+
+  assert.equal(h.correctionPrompts().length, 0);
+  await assert.rejects(access(staged!), { code: 'ENOENT' });
+});
+
+test('manual review checks the same target text it dispatches after a disk edit', async (t) => {
+  const h = await harness(t);
+  const original = checks.checkTargets;
+  const plan = join(h.cwd, 'plan.md');
+  const content = await readFile(plan, 'utf8');
+  const edited = 'see [changed](missing-file.md#test)\n';
+
+  const check = vi
+    .spyOn(checks, 'checkTargets')
+    .mockImplementation(async (cwd, snapshot) => {
+      await writeFile(plan, edited);
+
+      return original(cwd, snapshot);
+    });
+
+  h.state.during = async () => {
+    const [, json] = /^Target snapshots: (.+)$/m.exec(h.rounds[0]!.brief)!;
+    const paths = JSON.parse(json!) as Record<string, string>;
+    assert.equal(await readFile(plan, 'utf8'), edited);
+    assert.equal(await readFile(paths['plan.md']!, 'utf8'), content);
+    await writeFile(plan, content);
+  };
+
+  try {
+    assert.equal(await h.coordinator.review('plan.md'), true);
+    assert.equal(h.rounds.length, 1);
+    assert.deepEqual(h.correctionPrompts(), []);
+  } finally {
+    check.mockRestore();
+  }
+});
+
 test('quotes or a backslash keep a space inside a target name', async (t) => {
   const h = await harness(t);
 
@@ -864,9 +947,63 @@ test('closing Witch during a review aborts its reviewers', async (t) => {
   assert.equal(await reviewing, false);
 });
 
+for (const lookup of ['origin', 'blob'] as const) {
+  test(`Escape stops the ${lookup} lookup in the mechanical checks`, async (t) => {
+    const h = await harness(t, {
+      plan: '[reference](https://github.com/owner/repo/blob/HEAD/source.ts#L1)\n',
+    });
+
+    const probe = await scratch('witch-review-git-');
+    const started = join(h.cwd, 'mechanical-git-started');
+
+    await withGit(
+      probe,
+      `if (args.join(' ') === 'remote get-url origin' && ${lookup === 'blob'}) {
+  console.log('https://github.com/owner/repo.git');
+  return;
+}
+if (args.join(' ') === 'remote get-url origin' || args[0] === 'show') {
+  writeFileSync('mechanical-git-started', String(process.pid));
+  setInterval(() => {}, 1000);
+  return;
+}`,
+      async () => {
+        const reviewing = h.coordinator.review('plan.md');
+
+        await until('mechanical Git lookup', async () => {
+          try {
+            return !!(await readFile(started, 'utf8'));
+          } catch {
+            return false;
+          }
+        });
+
+        const pid = Number(await readFile(started, 'utf8'));
+        await h.coordinator.interrupt();
+
+        assert.equal(
+          await within(reviewing, 1500, 'interrupted review'),
+          false,
+        );
+
+        assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+      },
+    );
+
+    assert.equal(h.rounds.length, 0);
+  });
+}
+
 test('closing Witch as a round starts ends the review cleanly', async (t) => {
   const h = await harness(t);
   let closing: Promise<void> | undefined;
+  let dispatched = false;
+
+  h.coordinator.reviewers.run = async () => {
+    dispatched = true;
+
+    return [];
+  };
 
   const stop = h.coordinator.subscribe(() => {
     if (!closing && h.notice('Review round 1')) closing = h.coordinator.close();
@@ -877,6 +1014,7 @@ test('closing Witch as a round starts ends the review cleanly', async (t) => {
   stop();
   await closing;
   assert.equal(await reviewing, false);
+  assert.equal(dispatched, false);
   assert.equal(h.notice('Review finished'), undefined);
 });
 

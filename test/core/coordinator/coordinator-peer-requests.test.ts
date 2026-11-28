@@ -120,6 +120,12 @@ test('idle owner answers in one attributed turn', async (t) => {
     undefined,
   );
 
+  assert.equal(
+    b.coordinator.snapshot.conversation!.sessions.a!
+      .deliveredInstructionsRevision,
+    undefined,
+  );
+
   assert.ok(input!.context!.includes(request.id));
 
   for (const absent of [

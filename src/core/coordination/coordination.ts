@@ -1,6 +1,6 @@
 import { isFamiliarAction } from '../../agents/familiar-report.js';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { AgentSession } from '../../agents/types.js';
 import { errorMessage } from '../../errors.js';
 import type { Memory } from '../../memory/memory.js';
@@ -345,7 +345,7 @@ export class SessionCoordination {
       coordination.familiarHost = await ControlHost.open(
         join(directory, 'familiars'),
         async (request) => {
-          coordination.admit(request);
+          const active = coordination.admit(request);
           const { action } = request;
 
           if (!isFamiliarAction(action))
@@ -360,7 +360,22 @@ export class SessionCoordination {
           if (!familiar)
             throw new Error('This runtime cannot report delegated familiars.');
 
-          return familiar.report(action, request.deadline);
+          const outcome = await familiar.report(action, request.deadline);
+
+          if (
+            outcome.kind === 'familiar-registered' &&
+            action.kind === 'familiar-register' &&
+            action.planReview
+          )
+            return {
+              ...outcome,
+              reviewScope: {
+                cwd: active.conversation.cwd,
+                scratch: dirname(coordination.host.directory),
+              },
+            };
+
+          return outcome;
         },
         (error) => coordination.fail('familiar-control', error),
         () => coordination.recover('familiar-control'),

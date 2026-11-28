@@ -1,3 +1,4 @@
+import { quote } from '../../src/shell.js';
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { once } from 'node:events';
@@ -45,7 +46,7 @@ async function check(
 
   await writeFile(
     join(bin, runtime),
-    `#!/bin/sh\nexec '${process.execPath}' '${fixture}' '${mode}' ${runtime === 'codex' && action === 'exit' ? '--ignore-term' : ''} "$@"\n`,
+    `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(fixture)} ${quote(mode)} ${runtime === 'codex' && action === 'exit' ? '--ignore-term' : ''} "$@"\n`,
     { mode: 0o755 },
   );
 
@@ -217,6 +218,15 @@ async function check(
         const current = await record();
 
         return !!current.process && !sameProcess(current.process, native);
+      });
+
+      // the next prompt carries this prefix, so the probe needs no clearing keystroke.
+      await wait('replacement composer accepts input', async () => {
+        if ((await record()).draft?.includes('x')) return true;
+
+        child.stdin.write('x');
+
+        return false;
       });
     }
 

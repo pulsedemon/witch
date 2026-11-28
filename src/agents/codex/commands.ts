@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dirname } from 'node:path';
 import type { ControlBinding } from '../../persistence/control.js';
 import {
   addFamiliar,
@@ -6,6 +7,7 @@ import {
   admitted,
   checkReporting,
   findFamiliar,
+  pendingFamiliarVerifications,
   respondFamiliar,
   scanMarkers,
 } from '../familiar-report.js';
@@ -65,6 +67,7 @@ export class CodexCommands {
   private readonly entries = new Map<string, Command>();
   private stopped = false;
   private closing = false;
+  private finalizing?: Promise<void>;
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -133,6 +136,12 @@ export class CodexCommands {
 
     const familiars = admitted(entry.familiars);
 
+    if (
+      params.turnId !== entry.turnId &&
+      familiars.some((familiar) => familiar.planReview)
+    )
+      return;
+
     const status =
       entry.command && !familiars.length
         ? commandStatus.parse(item.status)
@@ -147,7 +156,9 @@ export class CodexCommands {
         this.interrupted(entry.threadId, entry.turnId);
 
       for (const familiar of familiars)
-        familiar.end(stopped ? 'stopped' : 'failed');
+        familiar.end(
+          stopped ? 'stopped' : item.exitCode === 0 ? 'completed' : 'failed',
+        );
 
       // the parent reads a real exit from Codex's record, and once read its process id can be reused.
       // codex never lists an exited record, so skipping cleanup also spares a list read
@@ -229,6 +240,7 @@ export class CodexCommands {
           action,
           this.emit,
           entry.threadId === this.mainThread() ? undefined : entry.threadId,
+          dirname(dirname(this.binding!.directory)),
         );
       },
       (run) => {
@@ -257,11 +269,14 @@ export class CodexCommands {
         .map((entry) => this.collect(entry)),
     );
 
-    this.stop();
+    await this.stop();
   }
 
-  stop(): void {
+  stop(): Promise<void> | undefined {
+    if (this.stopped) return this.finalizing;
+
     this.stopped = true;
+    this.finalizing = pendingFamiliarVerifications(this.entries.values());
 
     for (const entry of this.entries.values()) {
       const familiars = admitted(entry.familiars);
@@ -276,6 +291,8 @@ export class CodexCommands {
     }
 
     this.entries.clear();
+
+    return this.finalizing;
   }
 
   /**

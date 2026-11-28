@@ -1,9 +1,17 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { unlessGone } from '../../persistence/json.js';
+import { join, relative, resolve } from 'node:path';
+import { errorMessage } from '../../errors.js';
+import { gone } from '../../persistence/json.js';
 import type { SessionCoordination } from '../coordination/coordination.js';
+import {
+  insideDirectory,
+  openReviewFile,
+  ReviewInputError,
+  snapshotTargets,
+  withTargetSnapshots,
+} from './review-files.js';
 import {
   afterCorrection,
   brief,
@@ -15,7 +23,7 @@ import {
   scopeFor,
 } from './review.js';
 import type { Finding, Review, SitOut, Texts } from './review.js';
-import { checkTargets } from './review-checks.js';
+import { checkTargets, reviewRoot } from './review-checks.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Reviewer, ReviewerResult, Reviewers } from './reviewers.js';
 import type { Routed } from '../runtime/routing.js';
@@ -59,6 +67,14 @@ interface ReviewOutcome {
   directory: string;
 }
 
+function isReviewAbort(error: unknown, signal: AbortSignal): boolean {
+  return (
+    signal.aborted &&
+    (error === signal.reason ||
+      (error instanceof Error && error.cause === signal.reason))
+  );
+}
+
 /** `/review`'s rounds as one operation; true once they settle or stop at a regression and the operation settles cleanly. */
 export async function runReviewCommand(
   argument: string,
@@ -67,7 +83,11 @@ export async function runReviewCommand(
   let outcome: ReviewOutcome | undefined;
 
   await host.operate(async () => {
-    outcome = await runReview(argument, host);
+    outcome = await runReview(argument, host).catch((error: unknown) => {
+      if (!isReviewAbort(error, host.signal)) throw error;
+
+      return undefined;
+    });
   });
 
   if (!outcome?.ok || host.signal.aborted || !host.idle()) return false;
@@ -82,37 +102,20 @@ export async function runReviewCommand(
 }
 
 async function reviewTargets(
-  argument: string,
+  named: readonly string[],
   cwd: string,
+  roots: readonly string[],
+  signal: AbortSignal,
 ): Promise<string[] | { refused: string }> {
-  // quotes or a backslash keep a space inside one name
-  const named = [
-    ...argument.matchAll(/(?:[^\s"'\\]|\\[^]|"[^"]*"|'[^']*')+/g),
-  ].map(([name]) =>
-    name.replace(
-      /\\([^])|"([^"]*)"|'([^']*)'/g,
-      (_, escaped?: string, double?: string, single?: string) =>
-        escaped ?? double ?? single!,
-    ),
-  );
-
-  if (!named.length) return { refused: 'Use /review <files>.' };
-
   const files: string[] = [];
 
   for (const file of named) {
+    signal.throwIfAborted();
     // file completion inserts `@path`
     const path = resolve(cwd, file.replace(/^@/, ''));
     const inside = relative(cwd, path);
-    const exists = (await unlessGone(stat(path)))?.isFile() ?? false;
 
-    if (
-      !inside ||
-      inside === '..' ||
-      inside.startsWith(`..${sep}`) ||
-      isAbsolute(inside) ||
-      !exists
-    )
+    if (!insideDirectory(cwd, path))
       return { refused: `Review refused: ${file} is not a file in ${cwd}` };
 
     // the brief and the correction prompt list targets one per line
@@ -120,6 +123,17 @@ async function reviewTargets(
       return {
         refused: `Review refused: ${JSON.stringify(inside)} has a line break in its name`,
       };
+
+    try {
+      const opened = await openReviewFile(path, roots);
+      await opened.file.close();
+    } catch (error) {
+      if (!gone(error) && !(error instanceof ReviewInputError)) throw error;
+
+      return {
+        refused: `Review refused: ${file} is not a file in ${cwd}. ${errorMessage(error)}`,
+      };
+    }
 
     files.push(inside);
   }
@@ -163,7 +177,26 @@ async function runReview(
     return;
   }
 
-  const files = await reviewTargets(argument, cwd);
+  // quotes or a backslash keep a space inside one name
+  const named = [
+    ...argument.matchAll(/(?:[^\s"'\\]|\\[^]|"[^"]*"|'[^']*')+/g),
+  ].map(([name]) =>
+    name.replace(
+      /\\([^])|"([^"]*)"|'([^']*)'/g,
+      (_, escaped?: string, double?: string, single?: string) =>
+        escaped ?? double ?? single!,
+    ),
+  );
+
+  if (!named.length) {
+    host.notice('Use /review <files>.');
+
+    return;
+  }
+
+  const root = await realpath(await reviewRoot(cwd, signal));
+  const roots = [root];
+  const files = await reviewTargets(named, cwd, roots, signal);
 
   if ('refused' in files) {
     host.notice(files.refused);
@@ -191,16 +224,10 @@ async function runReview(
 
   const directory = await mkdtemp(join(tmpdir(), 'review-'));
   const run = randomBytes(4).toString('hex');
+  const read = () => snapshotTargets(cwd, files, roots, signal);
 
-  const read = async (): Promise<Texts> =>
-    Object.fromEntries(
-      await Promise.all(
-        files.map(
-          async (file) =>
-            [file, await readFile(resolve(cwd, file), 'utf8')] as const,
-        ),
-      ),
-    );
+  const check = (snapshot: Awaited<ReturnType<typeof read>>) =>
+    checkTargets(cwd, snapshot, { root, signal });
 
   const same = (a: Texts, b: Texts) =>
     files.every((file) => a[file] === b[file]);
@@ -243,12 +270,12 @@ async function runReview(
   for (;;) {
     const number = next.number;
     const incomplete = `round ${number} did not complete`;
-    let texts = await read();
-    let failures = await checkTargets(cwd, files);
+    let snapshot = await read();
+    let failures = await check(snapshot);
 
     // a second pass sends failures the first correction introduced
     for (let pass = 0; pass < 2; pass++) {
-      const seen = identities(failures, texts);
+      const seen = identities(failures, snapshot.texts);
       const unsent = seen.filter((identity) => !sent.has(identity));
       const fresh = failures.filter((_, index) => !sent.has(seen[index]!));
 
@@ -259,11 +286,12 @@ async function runReview(
       if (!(await host.turn(correctionPrompt({ failures: fresh }))))
         return stopped(incomplete);
 
-      texts = await read();
-      failures = await checkTargets(cwd, files);
+      snapshot = await read();
+      failures = await check(snapshot);
     }
 
     known = failures;
+    const { texts } = snapshot;
     const current = identities(failures, texts);
     sent = new Set(current.filter((identity) => sent.has(identity)));
     const reported = failures.filter((_, index) => sent.has(current[index]!));
@@ -322,16 +350,6 @@ async function runReview(
 
     const briefFile = join(directory, `round-${number}-brief.md`);
 
-    await writeFile(
-      briefFile,
-      brief({
-        files,
-        scope,
-        ...(scope === 'diff' && delta ? { diff: delta.diff } : {}),
-        known: reported,
-      }),
-    );
-
     const reviewers: (Reviewer & { route: Routed })[] = routes.map((route) => {
       const name = `review-${run}-${number}-${route.runtime}`;
       const reportFile = join(directory, `${name}.md`);
@@ -350,9 +368,33 @@ async function runReview(
       };
     });
 
-    const results = await host.reviewers.run({ cwd, reviewers, signal });
+    const results = await withTargetSnapshots(
+      directory,
+      texts,
+      async (snapshots) => {
+        await writeFile(
+          briefFile,
+          brief({
+            snapshots,
+            scope,
+            ...(scope === 'diff' && delta ? { diff: delta.diff } : {}),
+            known: reported,
+          }),
+          { signal },
+        );
 
-    if (signal.aborted) return stopped(incomplete);
+        signal.throwIfAborted();
+
+        return host.reviewers.run({ cwd, reviewers, signal });
+      },
+      signal,
+    ).catch((error: unknown) => {
+      if (isReviewAbort(error, signal)) return undefined;
+
+      throw error;
+    });
+
+    if (!results || signal.aborted) return stopped(incomplete);
 
     const reviews: Review[] = [];
     const failed: string[] = [];
@@ -371,7 +413,7 @@ async function runReview(
 
     if (failed.length) return stopped(failed.join('; '));
 
-    if (!same(await read(), texts))
+    if (!same((await read()).texts, texts))
       return stopped('the targets changed while reviewers read them');
 
     const round = {
@@ -396,7 +438,7 @@ async function runReview(
     const corrected = await read();
 
     const remaining = async () =>
-      findings.length ? (await checkTargets(cwd, files)).length : known.length;
+      findings.length ? (await check(corrected)).length : known.length;
 
     if ('stop' in decided)
       return outcome(decided.stop, true, await remaining());
@@ -406,7 +448,7 @@ async function runReview(
       blockers: decided.blockers.length,
       sittingOut: decided.sittingOut,
       ...(decided.stopAfter ? { stopAfter: decided.stopAfter } : {}),
-      changedDuring: !same(corrected, texts),
+      changedDuring: !same(corrected.texts, texts),
     });
 
     if ('stop' in after) {

@@ -8,7 +8,14 @@ import {
   readFileSync,
   writeSync,
 } from 'node:fs';
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -198,6 +205,51 @@ test('a familiar request fails the reviewer', async (t) => {
   assert.match(result!.report, /runs read-only and cannot ask for anything/);
 });
 
+test('a Witch-launched Codex reviewer refuses a writable native policy before dispatch', async (t) => {
+  const { coordinator, root, reviewer } = await setup(t.onTestFinished);
+  const routed = await reviewer('review-policy-codex', 'codex');
+  vi.stubEnv('WITCH_CODEX_FAMILIAR_FIXTURE', 'writable-review');
+
+  try {
+    const [result] = await coordinator.reviewers.run({
+      cwd: root,
+      reviewers: [routed],
+      signal: new AbortController().signal,
+    });
+
+    assert.notEqual(result!.code, 0);
+    assert.equal(result!.status, 'failed');
+    assert.match(result!.report, /did not grant read-only permissions/);
+
+    await assert.rejects(access(join(routed.directory, 'prompt.json')), {
+      code: 'ENOENT',
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+test('a Witch-launched Codex reviewer reports the model that finished its answer', async (t) => {
+  const { coordinator, root, reviewer } = await setup(t.onTestFinished);
+  const routed = await reviewer('review-model-codex', 'codex');
+  vi.stubEnv('WITCH_CODEX_FAMILIAR_FIXTURE', 'review-model-after-answer');
+
+  try {
+    const [result] = await coordinator.reviewers.run({
+      cwd: root,
+      reviewers: [routed],
+      signal: new AbortController().signal,
+    });
+
+    assert.equal(result!.code, 0);
+    assert.equal(result!.status, 'completed');
+    assert.equal(result!.report, 'Reviewed.');
+    assert.equal(result!.model, 'model-a');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 test('a reviewer that cannot spawn ends the run with its launch error', async () => {
   const root = await scratch('witch-reviewers-');
 
@@ -241,7 +293,7 @@ test('late updates never reopen a finished reviewer', () => {
       name: 'r',
       runtime: 'claude',
     }),
-    { kind: 'familiar-registered' },
+    { kind: 'familiar-registered', readOnlyReview: true },
   );
 
   const update = (sequence: number, status: 'running' | 'completed') =>
@@ -286,8 +338,16 @@ test('a repeated registration is acknowledged again but published once, and anot
       runtime: 'claude',
     });
 
-  assert.deepEqual(register(run), { kind: 'familiar-registered' });
-  assert.deepEqual(register(run), { kind: 'familiar-registered' });
+  assert.deepEqual(register(run), {
+    kind: 'familiar-registered',
+    readOnlyReview: true,
+  });
+
+  assert.deepEqual(register(run), {
+    kind: 'familiar-registered',
+    readOnlyReview: true,
+  });
+
   const other = randomUUID();
   assert.throws(() => register(other), /already registered/);
   assert.deepEqual(events, [`${run} running`]);

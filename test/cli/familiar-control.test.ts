@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
 import { test, vi } from 'vitest';
 import type { FamiliarAction } from '../../src/agents/familiar-report.js';
 import { familiarMarker } from '../../src/agents/familiar-report.js';
@@ -111,6 +112,21 @@ test('familiar reports bypass a blocked task mailbox and preserve active-session
     );
 
     assert.equal(client.coordinator.snapshot.subagents[0]!.tools, 7);
+
+    const review = await callControl(binding, {
+      kind: 'familiar-register',
+      run: randomUUID(),
+      name: 'Plan review',
+      runtime: 'codex',
+      planReview: true,
+    });
+
+    assert.equal(review.kind, 'familiar-registered');
+
+    assert.deepEqual(review.reviewScope, {
+      cwd: client.coordinator.snapshot.conversation!.cwd,
+      scratch: dirname(dirname(binding.directory)),
+    });
 
     const stale = await callControl(
       { ...binding, activation: randomUUID() },
@@ -274,17 +290,29 @@ test('only a supporting session receives familiar instructions and the exact use
 
   assert.match(
     rule,
-    /--route review --of <runtime>:<model> --json, naming the runtime and model that wrote the plan/,
+    /--route review --of <runtime>:<model> --json using the actual author runtime and model/,
   );
 
   assert.match(
     rule,
-    /with the plan, the request, the rules that apply and the files needed to check it, asking each to report as a finding any plan step that asks the user for a decision the request, the applicable rules or the evidence settles, and wait for every one to finish/,
+    /Stage the exact draft and a brief with the request, applicable rules and relevant authorized files/,
   );
 
   assert.match(
     rule,
-    /Resolve a verified finding of that kind by making the decision in the plan/,
+    /--review-plan <draft> --review-brief <brief> --review-model <routed-model>/,
+  );
+
+  assert.match(
+    rule,
+    /Require exit code 0 and a JSON report with status completed, the routed runtime and model, and planSha256 matching the exact draft you will present or carry out/,
+  );
+
+  assert.match(rule, /The receipt file must match the command’s terminal JSON/);
+
+  assert.match(
+    rule,
+    /Resolve verified findings about settled decisions by making the decision in the plan/,
   );
 
   assert.match(
@@ -294,12 +322,12 @@ test('only a supporting session receives familiar instructions and the exact use
 
   assert.match(
     rule,
-    /every route of your latest routing has a reviewer that finished with its report and no other reviewer failed, stopped or was interrupted/,
+    /every route of your latest routing has a matching completed report for the draft being reviewed and every earlier failure was a confirmed usage refusal on a route superseded by that routing/,
   );
 
   assert.match(
     rule,
-    /if routing is refused or the review isn't complete, say the plan's review is incomplete and never call it reviewed/,
+    /If routing is refused or any other attempt failed, stopped, was interrupted or has no matching report, say the plan's review is incomplete and never call it reviewed/,
   );
 
   await client.coordinator.send(prompt);

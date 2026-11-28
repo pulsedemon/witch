@@ -67,7 +67,10 @@ for await (const line of createInterface({ input: process.stdin })) {
       reply({
         thread: { id: threadId },
         model: 'fixture',
-        approvalPolicy: 'on-request',
+        approvalPolicy: restricted ? 'never' : 'on-request',
+        ...(restricted && {
+          sandbox: { type: 'readOnly', networkAccess: false },
+        }),
         approvalsReviewer: 'user',
         reasoningEffort: 'low',
       });

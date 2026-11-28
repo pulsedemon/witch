@@ -55,6 +55,12 @@ let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 let answering = false;
+let reviewMode;
+let permissionProfile;
+
+const readOnlyReview =
+  process.argv.includes('sandbox_mode="read-only"') &&
+  process.argv.includes('approval_policy="never"');
 
 const notify = (method, params) =>
   send({
@@ -84,12 +90,35 @@ const session = () => ({
   thread: { id: answering ? 'answer-thread' : mainThreadId },
   model: run.model,
   cwd: process.cwd(),
-  approvalPolicy: 'on-request',
+  approvalPolicy:
+    (answering || readOnlyReview) &&
+    reviewMode !== 'approval-policy' &&
+    familiar !== 'ordinary-overrides'
+      ? 'never'
+      : 'on-request',
   approvalsReviewer: 'user',
   reasoningEffort: effort,
+  ...((answering || readOnlyReview) &&
+    reviewMode !== 'missing-policy' && {
+      sandbox: {
+        type:
+          reviewMode === 'writable-policy' ||
+          familiar === 'writable-review' ||
+          (answering && mode === 'writable-answer')
+            ? 'workspaceWrite'
+            : 'readOnly',
+        networkAccess: reviewMode === 'network-policy',
+      },
+    }),
   ...(mode === 'named-profile'
     ? { activePermissionProfile: { id: 'owner' } }
-    : {}),
+    : permissionProfile && reviewMode !== 'missing-profile'
+      ? {
+          activePermissionProfile: {
+            id: reviewMode === 'wrong-profile' ? 'owner' : permissionProfile,
+          },
+        }
+      : {}),
 });
 
 const finish = (status, error = null) =>
@@ -720,6 +749,13 @@ for await (const line of lines) {
       mainThreadId = `native-thread-${threadStarts}`;
 
     answering = request.params.ephemeral === true;
+
+    reviewMode =
+      familiar === 'plan-review'
+        ? readFileSync(file('review-mode'), 'utf8')
+        : undefined;
+
+    permissionProfile = request.params.permissions;
     effort = request.params.config?.model_reasoning_effort ?? effort;
     record(answering ? 'answer-connect.json' : 'connect.json', request);
 
@@ -1010,7 +1046,173 @@ for await (const line of lines) {
       continue;
     }
 
-    reply({ turn: { id: 'turn-1' } });
+    if (reviewMode !== 'bad-start-reply') reply({ turn: { id: 'turn-1' } });
+
+    if (familiar === 'plan-review') {
+      const mode = readFileSync(file('review-mode'), 'utf8');
+
+      if (Object.hasOwn(limitTurns, mode)) {
+        const [status, codexErrorInfo] = limitTurns[mode];
+        finish(status, { message: 'Review unavailable', codexErrorInfo });
+      } else if (mode === 'question') {
+        notify('item/completed', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          item: {
+            type: 'agentMessage',
+            id: 'review-question',
+            text: 'Which target?',
+            phase: 'final_answer',
+            delivery: 'async',
+            questions: [
+              { title: 'Which target?', options: ['draft', 'brief'] },
+            ],
+          },
+        });
+      } else {
+        if (mode === 'unknown-request')
+          send({
+            id: 'review-unsupported',
+            method: 'review/unknown',
+            params: {},
+          });
+
+        if (mode === 'partial-and-final')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'partial-answer',
+              phase: 'partial_answer',
+              text: 'Still reviewing.',
+            },
+          });
+
+        if (mode === 'reroute-before-answer')
+          notify('model/rerouted', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            toModel: 'later-model',
+          });
+
+        if (
+          mode === 'different-turn-reroute' ||
+          mode === 'missing-turn-reroute'
+        )
+          notify('model/rerouted', {
+            threadId: 'native-thread',
+            ...(mode === 'different-turn-reroute' && { turnId: 'older-turn' }),
+            toModel: 'later-model',
+          });
+
+        if (mode === 'different-turn-completion' || mode === 'bad-start-reply')
+          notify('turn/started', {
+            threadId: 'native-thread',
+            turn: { id: 'turn-1' },
+          });
+
+        if (mode === 'different-turn-completion')
+          notify('turn/completed', {
+            threadId: 'native-thread',
+            turn: { id: 'older-turn', status: 'completed', error: null },
+          });
+
+        notify(mode === 'started-only' ? 'item/started' : 'item/completed', {
+          ...(mode !== 'missing-thread' && { threadId: 'native-thread' }),
+          turnId: mode === 'different-turn' ? 'older-turn' : 'turn-1',
+          item: {
+            type: 'agentMessage',
+            id: 'review-report',
+            text: readFileSync(file('review-reply.txt'), 'utf8'),
+            phase: mode.startsWith('legacy-')
+              ? null
+              : mode === 'partial-only'
+                ? 'partial_answer'
+                : mode === 'commentary-only'
+                  ? 'commentary'
+                  : 'final_answer',
+            ...(mode === 'malformed-question' && {
+              questions: [{ options: [123] }],
+            }),
+          },
+        });
+
+        if (mode === 'model-after-answer')
+          notify('model/rerouted', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            toModel: 'later-model',
+          });
+
+        if (mode === 'explicit-then-legacy')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'later-legacy',
+              phase: null,
+              text: 'Follow-up.',
+            },
+          });
+
+        if (mode === 'legacy-then-blank')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'blank-legacy',
+              phase: null,
+              text: '  ',
+            },
+          });
+
+        if (mode === 'bad-notification')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: { type: 'agentMessage' },
+          });
+
+        if (mode === 'bad-final')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'bad-final',
+              phase: 'final_answer',
+            },
+          });
+
+        if (mode === 'bad-reroute')
+          notify('model/rerouted', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            toModel: null,
+          });
+
+        if (
+          mode === 'empty-completed-thread' ||
+          mode === 'empty-completed-turn'
+        )
+          notify('turn/completed', {
+            threadId: mode === 'empty-completed-thread' ? '' : 'native-thread',
+            turn: {
+              id: mode === 'empty-completed-turn' ? '' : 'turn-1',
+              status: 'completed',
+              error: null,
+            },
+          });
+        else finish('completed');
+
+        if (mode === 'bad-start-reply') reply({ turn: {} });
+      }
+
+      continue;
+    }
 
     if (familiar === 'nested-markers') {
       const markers = JSON.parse(
@@ -1073,6 +1275,8 @@ for await (const line of lines) {
             },
           });
 
+        output('nested-a', markers.late);
+
         notify('item/completed', {
           threadId: 'native-thread',
           turnId: 'turn-1',
@@ -1089,9 +1293,33 @@ for await (const line of lines) {
       continue;
     }
 
+    if (familiar === 'review-model-after-answer') {
+      notify('item/completed', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        item: {
+          type: 'agentMessage',
+          id: 'review-answer',
+          text: 'Reviewed.',
+          phase: 'final_answer',
+        },
+      });
+
+      notify('model/rerouted', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        toModel: 'later-model',
+      });
+
+      finish('completed');
+
+      continue;
+    }
+
     if (familiar && prompt !== 'hold') {
       notify('model/rerouted', {
         threadId: 'native-thread',
+        turnId: 'turn-1',
         toModel: 'observed-codex',
       });
 

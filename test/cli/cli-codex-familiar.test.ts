@@ -1,3 +1,4 @@
+import { quote } from '../../src/shell.js';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -39,6 +40,7 @@ async function fixture(
     reject?: boolean;
     existing?: boolean;
     lean?: boolean;
+    nativeOverrides?: string[];
     config?: Record<string, unknown>;
     tools?: unknown[];
   } = {},
@@ -56,7 +58,7 @@ async function fixture(
 
   await writeFile(
     join(bin, 'codex'),
-    `#!/bin/sh\nexec '${process.execPath}' '${join(root, 'codex.mjs')}' "$@"\n`,
+    `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root, 'codex.mjs'))} "$@"\n`,
   );
 
   await chmod(join(bin, 'codex'), 0o700);
@@ -186,6 +188,7 @@ syncBuiltinESMExports();
       '--',
       '-c',
       'model="requested-alias"',
+      ...(options.nativeOverrides ?? []).flatMap((setting) => ['-c', setting]),
       '-c',
       'approval_policy="on-request"',
     ],
@@ -432,47 +435,91 @@ test('a Codex familiar relays only live bound command markers', async () => {
     run: randomUUID(),
   });
 
-  const valid = familiarMarker(marker());
-  const recovered = familiarMarker(marker());
+  const first = marker();
+  const second = marker();
+  const valid = familiarMarker(first);
+  const recovered = familiarMarker(second);
+
+  const relayed = [first, second].map((value) =>
+    familiarMarker({ ...value, relayed: true }),
+  );
+
   const foreign = familiarMarker({ ...marker(), activation: randomUUID() });
   const noncommand = familiarMarker(marker());
   const discarded = familiarMarker(marker());
+  const late = familiarMarker(marker());
 
   try {
     await writeFile(
       join(f.root, 'marker-input.json'),
-      JSON.stringify({ valid, recovered, foreign, noncommand, discarded }),
+      JSON.stringify({
+        valid,
+        recovered,
+        foreign,
+        noncommand,
+        discarded,
+        late,
+      }),
     );
 
     f.child.stdin.end();
 
     await until('bound markers before command completion', () =>
-      f.output().stdout.includes(recovered),
+      f.output().stdout.includes(relayed[1]!),
     );
 
-    assert.equal(f.output().stdout.split(valid).length - 1, 1);
+    assert.equal(f.output().stdout.split(relayed[0]!).length - 1, 1);
     assert.equal(f.child.exitCode, null);
     assert.equal(f.output().stdout.includes('Saved report:'), false);
     assert.equal(f.output().stdout.includes('ordinary command output'), false);
-
-    for (const ignored of [foreign, noncommand, discarded])
-      assert.equal(f.output().stdout.includes(ignored), false);
-
     await writeFile(join(f.root, 'release'), 'finish');
     assert.equal(await within(f.closed, 8000, 'nested marker completion'), 0);
+    const prefix = 'WITCH_FAMILIAR ';
 
-    for (const expected of [valid, recovered])
-      assert.equal(
-        f
-          .output()
-          .stdout.split('\n')
-          .filter((line) => line === expected.trim()).length,
-        1,
-      );
+    const registration = f.requests.find(
+      ({ action }) => action.kind === 'familiar-register',
+    )!;
+
+    assert.ok('run' in registration.action);
+    const ownRun = registration.action.run;
+
+    assert.deepEqual(
+      f
+        .output()
+        .stdout.split('\n')
+        .filter((line) => line.startsWith(prefix))
+        .filter((line) => JSON.parse(line.slice(prefix.length)).run !== ownRun),
+      relayed.map((line) => line.trimEnd()),
+    );
 
     assert.equal(await readFile(f.report, 'utf8'), 'Nested markers finished.');
     assert.equal(f.updates().at(-1)!.status, 'completed');
     assert.equal(await identifyProcess((await f.launch()).pid), undefined);
+  } finally {
+    await f.close();
+  }
+});
+
+test('ordinary lean Codex familiars preserve a later native permission override', async () => {
+  const f = await fixture({
+    mode: 'ordinary-overrides',
+    lean: true,
+    nativeOverrides: ['sandbox_mode="read-only"', 'approval_policy="never"'],
+  });
+
+  try {
+    assert.equal(await f.closed, 0);
+    const { argv } = await f.launch();
+
+    assert.deepEqual(
+      argv.filter((arg) => arg.startsWith('approval_policy=')),
+      ['approval_policy="never"', 'approval_policy="on-request"'],
+    );
+
+    assert.match(
+      await readFile(join(f.root, 'prompt.json'), 'utf8'),
+      /implement/,
+    );
   } finally {
     await f.close();
   }

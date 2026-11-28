@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reviewReceiptFileSchema } from '../core/review/review-files.js';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
 import { FamiliarRun } from './familiar-requests.js';
@@ -16,6 +17,7 @@ const familiarProgressSchema = z.object({
   activity: z.string().optional(),
   tools: z.number().int().nonnegative().optional(),
   report: z.string().optional(),
+  receiptFile: reviewReceiptFileSchema.optional(),
   /** the transient notices its native session posted, oldest first. */
   notices: z.array(z.string()).optional(),
   spells: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
@@ -43,6 +45,7 @@ export const familiarActionSchema = z.discriminatedUnion('kind', [
     name: z.string().trim().min(1),
     /** the wrapper's runtime, since either runtime's session can launch either wrapper. */
     runtime: z.enum(['claude', 'codex']),
+    planReview: z.literal(true).optional(),
   }),
   z.object({
     kind: z.literal('familiar-update'),
@@ -69,10 +72,21 @@ export const familiarActionSchema = z.discriminatedUnion('kind', [
 
 export type FamiliarAction = z.infer<typeof familiarActionSchema>;
 
+const reviewScopeSchema = z.object({
+  cwd: z.string().min(1),
+  scratch: z.string().min(1),
+});
+
+export type ReviewScope = z.infer<typeof reviewScopeSchema>;
+
 export const familiarOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({
+    kind: z.literal('familiar-registered'),
+    reviewScope: reviewScopeSchema.optional(),
+    readOnlyReview: z.literal(true).optional(),
+  }),
+  z.object({
     kind: z.enum([
-      'familiar-registered',
       'familiar-pending',
       'familiar-updated',
       'familiar-request-pending',
@@ -97,6 +111,7 @@ const familiarMarkerSchema = z.object({
   conversation: z.string().min(1),
   activation: z.string().uuid(),
   run: z.string().uuid(),
+  relayed: z.literal(true).optional(),
 });
 
 export type FamiliarMarker = z.infer<typeof familiarMarkerSchema>;
@@ -175,6 +190,7 @@ export function checkReporting(deadline: number, available: boolean): void {
 /** a familiar run a command's output named; one command can start several. */
 export interface FamiliarSlot {
   run: string;
+  relayed?: true;
   familiar?: FamiliarRun;
 }
 
@@ -183,11 +199,23 @@ export function addFamiliar(
   marker: FamiliarMarker,
 ): void {
   if (!slots.some(({ run }) => run === marker.run))
-    slots.push({ run: marker.run });
+    slots.push({ run: marker.run, relayed: marker.relayed });
 }
 
 export function admitted(slots: readonly FamiliarSlot[]): FamiliarRun[] {
   return slots.flatMap(({ familiar }) => (familiar ? [familiar] : []));
+}
+
+export function pendingFamiliarVerifications(
+  entries: Iterable<{ familiars: readonly FamiliarSlot[] }>,
+): Promise<void> | undefined {
+  const checks = [...entries].flatMap(({ familiars }) =>
+    admitted(familiars).flatMap(({ pendingVerification }) =>
+      pendingVerification ? [pendingVerification] : [],
+    ),
+  );
+
+  if (checks.length) return Promise.all(checks).then(() => {});
 }
 
 /** the command and slot whose marker names the action's run; undefined only for a registration whose marker hasn't appeared yet. */
@@ -228,9 +256,20 @@ export function admitFamiliar(
   if (action.kind === 'familiar-register') {
     if (done) throw new Error('The familiar command has already ended.');
 
+    if (action.planReview && slot.relayed)
+      throw new Error(
+        'Launch a plan reviewer directly from the owning Witch session.',
+      );
+
     if (slot.familiar) {
       if (slot.familiar.subagent.name !== action.name)
         throw new Error('The familiar name changed.');
+
+      if (slot.familiar.subagent.runtime !== action.runtime)
+        throw new Error('The familiar runtime changed.');
+
+      if (slot.familiar.planReview !== (action.planReview === true))
+        throw new Error('The familiar review mode changed.');
 
       return { kind: 'familiar-registered' };
     }

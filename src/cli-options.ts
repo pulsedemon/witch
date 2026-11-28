@@ -36,6 +36,9 @@ export const cliOptions = {
   'familiar-claude': { type: 'string' },
   'familiar-codex': { type: 'string' },
   'report-file': { type: 'string' },
+  'review-plan': { type: 'string' },
+  'review-brief': { type: 'string' },
+  'review-model': { type: 'string' },
   lean: { type: 'boolean' },
   spawn: { type: 'string' },
 } as const;

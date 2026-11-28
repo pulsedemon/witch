@@ -261,7 +261,12 @@ export const userResponseSchema = z.object({
 export type UserResponse = z.infer<typeof userResponseSchema>;
 
 export type AgentEvent =
-  | { type: 'text'; id: string; text: string; replace?: boolean }
+  | {
+      type: 'text';
+      id: string;
+      text: string;
+      replace?: boolean;
+    }
   /** the runtime withdrew the output of these earlier text and tool events; an id it never sent is ignored. */
   | { type: 'retracted'; ids: string[] }
   | (ToolTitle & {
@@ -299,13 +304,20 @@ export type AgentEvent =
   /** confirmed exhaustion in a native continuation outside the dispatched turn. */
   | { type: 'exhausted'; limit?: ExhaustedLimit }
   /** a transient notice is a diagnostic of this connection, shown but not saved. */
-  | { type: 'notice'; text: string; transient?: boolean };
+  | {
+      type: 'notice';
+      text: string;
+      transient?: boolean;
+      protocolError?: true;
+    };
 
 export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';
   text: string;
   /** Codex only: the turn's last non-empty agent message, apart from the progress messages `text` also joins. */
   final?: string;
+  /** Codex only: a completed answer and its observed model from the dispatched review turn. */
+  reviewAnswer?: { text: string; model?: string };
   error?: string;
   /** steered prompts the agent will never read, reported on interruption or a failed turn. */
   unread?: string[];
@@ -471,6 +483,8 @@ export interface SessionOptions {
   automaticCompaction?: true;
   /** Codex only: starts the thread with no MCP server and fails if Codex still exposes one. */
   withoutMcp?: boolean;
+  /** Codex only: require isolated review permissions and keep the control mailbox private. */
+  reviewMailbox?: string;
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
 

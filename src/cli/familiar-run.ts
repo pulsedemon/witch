@@ -6,6 +6,8 @@ import type {
   FamiliarProgress,
 } from '../agents/familiar-report.js';
 import type { TaskStatus } from '../agents/types.js';
+import { receiptFile } from '../core/review/review-files.js';
+import type { ReviewReceiptFile } from '../core/review/review-files.js';
 import { errorMessage } from '../errors.js';
 import {
   callControl,
@@ -14,6 +16,7 @@ import {
 } from '../persistence/control.js';
 import type { ControlBinding, ControlResult } from '../persistence/control.js';
 import { elapsed } from '../ui/status/elapsed.js';
+import type { PlanReview } from './plan-review.js';
 
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
 export class FamiliarReports {
@@ -134,6 +137,161 @@ export async function saveReport(
   await file.sync();
 }
 
+export async function saveFinalReport(
+  file: FileHandle,
+  progress: FamiliarProgress,
+  answer: string,
+): Promise<void> {
+  await saveReport(
+    file,
+    progress.status === 'completed' ? answer : (progress.report ?? ''),
+  );
+}
+
+export async function settlePlanReview(
+  file: FileHandle | undefined,
+  reportFile: string,
+  review: PlanReview,
+  progress: FamiliarProgress,
+  answer: string,
+  stopped: () => boolean,
+  reports?: FamiliarReports,
+) {
+  let terminal = review.finish(progress, answer);
+  let saved: string | undefined;
+  let receiptAvailable = !!file;
+  let receipt: ReviewReceiptFile | undefined;
+
+  const failure = (error: unknown) =>
+    review.finish(
+      {
+        ...progress,
+        status: 'failed',
+        report: [terminal.reason ?? progress.report, errorMessage(error)]
+          .filter(Boolean)
+          .join('\n\n'),
+      },
+      answer,
+    );
+
+  const checkStop = () => {
+    if (!stopped() || terminal.status === 'stopped') return;
+
+    terminal = review.finish(
+      { ...progress, status: 'stopped', report: 'Plan review stopped.' },
+      answer,
+    );
+  };
+
+  const checkDraft = async () => {
+    if (terminal.status !== 'completed') return;
+
+    const reason = await review.draftError();
+
+    if (reason)
+      terminal = review.finish(
+        { ...progress, status: 'failed', report: reason },
+        '',
+      );
+  };
+
+  const receiptError = async () => {
+    if (!file) return;
+
+    try {
+      receipt ??= await receiptFile(reportFile, file);
+      await review.verifyReceipt(receipt, terminal.report);
+    } catch (error) {
+      return `Could not verify the plan review receipt: ${errorMessage(error)}`;
+    }
+  };
+
+  const checkReceipt = async () => {
+    if (terminal.status !== 'completed') return;
+
+    const reason = await receiptError();
+
+    if (reason) {
+      receiptAvailable = false;
+
+      terminal = review.finish(
+        { ...progress, status: 'failed', report: reason },
+        '',
+      );
+    }
+  };
+
+  const save = async () => {
+    if (!file) return;
+
+    const report = terminal.report;
+    await saveReport(file, report);
+    saved = report;
+  };
+
+  try {
+    if (terminal.status === 'completed') {
+      await reports?.finish({
+        ...progress,
+        status: 'running',
+        activity: 'Checking plan review receipt',
+        report: undefined,
+      });
+
+      await checkDraft();
+    }
+
+    checkStop();
+    await save();
+    await checkDraft();
+    await checkReceipt();
+    checkStop();
+
+    if (saved !== terminal.report) await save();
+  } catch (error) {
+    terminal = failure(error);
+  }
+
+  try {
+    const completed = terminal.status === 'completed';
+
+    await reports?.finish(
+      completed ? { ...terminal, receiptFile: receipt } : terminal,
+    );
+
+    if (completed) {
+      await checkDraft();
+      await checkReceipt();
+      checkStop();
+
+      if (terminal.status !== 'completed') await reports?.finish(terminal);
+    }
+  } catch (error) {
+    terminal = failure(error);
+    checkStop();
+  }
+
+  if (saved !== terminal.report) {
+    try {
+      await save();
+    } catch (error) {
+      const detail = [
+        terminal.reason,
+        `Could not save the plan review receipt: ${errorMessage(error)}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      throw new Error(detail, { cause: error });
+    }
+  }
+
+  if (receiptAvailable && terminal.status !== 'completed')
+    receiptAvailable = !(await receiptError());
+
+  return { ...terminal, receiptAvailable };
+}
+
 export function exitCode(status: TaskStatus): number {
   return status === 'completed' ? 0 : status === 'stopped' ? 130 : 1;
 }
@@ -144,7 +302,8 @@ export async function registerFamiliar(
   name: string,
   runtime: Extract<FamiliarAction, { kind: 'familiar-register' }>['runtime'],
   stopped: () => boolean,
-): Promise<void> {
+  planReview = false,
+) {
   const marker = familiarMarker({
     version: 1,
     conversation: binding.conversation,
@@ -164,13 +323,23 @@ export async function registerFamiliar(
 
     const outcome = await callControl(
       binding,
-      { kind: 'familiar-register', run, name, runtime },
+      {
+        kind: 'familiar-register',
+        run,
+        name,
+        runtime,
+        ...(planReview && { planReview: true as const }),
+      },
       deadline,
     );
 
     if (outcome.kind === 'error') throw new Error(outcome.message);
 
-    if (outcome.kind === 'familiar-registered') break;
+    if (outcome.kind === 'familiar-registered') {
+      if (stopped()) throw new Error('Familiar stopped before launch.');
+
+      return outcome;
+    }
 
     if (outcome.kind !== 'familiar-pending')
       throw new Error(
@@ -179,8 +348,6 @@ export async function registerFamiliar(
 
     await delay(100);
   }
-
-  if (stopped()) throw new Error('Familiar stopped before launch.');
 }
 
 const suspendedGapMs = 30_000;

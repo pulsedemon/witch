@@ -581,10 +581,10 @@ for (const [prompt, status, error, exhausted] of [
 }
 
 test('an unparseable native request gets an error reply and the turn continues', async () => {
-  const notices: string[] = [];
+  const notices: Extract<AgentEvent, { type: 'notice' }>[] = [];
 
   const { session, cwd } = await fixture((event) => {
-    if (event.type === 'notice') notices.push(event.text);
+    if (event.type === 'notice') notices.push(event);
   });
 
   try {
@@ -599,9 +599,14 @@ test('an unparseable native request gets an error reply and the turn continues',
       /requestUserInput/,
     );
 
-    assert.match(
-      notices.join('\n'),
-      /could not read Codex's item\/tool\/requestUserInput request/,
+    assert.ok(
+      notices.some(
+        ({ text, protocolError }) =>
+          protocolError &&
+          /could not read Codex's item\/tool\/requestUserInput request/.test(
+            text,
+          ),
+      ),
     );
   } finally {
     await close(session, cwd);
@@ -631,6 +636,7 @@ test('an unsupported native request gets an error reply and the turn continues',
       {
         type: 'notice',
         text: 'Unsupported native request: item/unknown/request',
+        protocolError: true,
       },
     ]);
   } finally {

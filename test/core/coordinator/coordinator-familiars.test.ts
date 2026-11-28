@@ -635,6 +635,103 @@ test('the native agent running on its own keeps the session active until it idle
   }
 });
 
+test('a verified receipt from the closing native connection reaches the familiar row', async () => {
+  const { coordinator, a } = await unitFixture();
+  const current = a.sessions[0]!;
+  const emit = current.options.onEvent;
+
+  const familiar = {
+    id: 'codex-familiar/verified',
+    run: 'verified',
+    name: 'plan review',
+    kind: '',
+    runtime: 'codex',
+  };
+
+  const receipt = '{"status":"completed","findings":[]}';
+
+  try {
+    emit({ type: 'subagent', subagent: { ...familiar, status: 'running' } });
+    await current.session.close();
+
+    emit({
+      type: 'subagent',
+      subagent: { ...familiar, status: 'completed', report: receipt },
+    });
+
+    emit({ type: 'closed' });
+
+    const saved = coordinator.snapshot.subagents.find(
+      ({ id }) => id === familiar.id,
+    );
+
+    assert.equal(saved?.status, 'completed');
+    assert.equal(saved.report, receipt);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a delayed closure does not clear the replacement native connection', async () => {
+  const { coordinator, a } = await unitFixture();
+  const original = a.sessions[0]!;
+
+  try {
+    await original.session.close();
+    await coordinator.send('Reconnect');
+    const replacement = a.sessions.at(-1)!;
+    assert.notEqual(original, replacement);
+    original.options.onEvent({ type: 'closed' });
+    assert.equal(coordinator.snapshot.native?.id, replacement.session.info.id);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('reconnect retains a familiar result received during the old connection close', async () => {
+  const { coordinator, a } = await unitFixture();
+  const { session, options } = a.sessions[0]!;
+  const emit = options.onEvent;
+  const close = session.close;
+  const closing = Promise.withResolvers<void>();
+  const verified = Promise.withResolvers<void>();
+  const familiar = { id: 'familiar', name: 'pending review', kind: '' };
+  let sending: Promise<unknown> | undefined;
+
+  try {
+    emit({ type: 'subagent', subagent: { ...familiar, status: 'running' } });
+    await close();
+
+    session.close = async () => {
+      closing.resolve();
+      await verified.promise;
+    };
+
+    sending = coordinator.send('Reconnect');
+    await within(closing.promise, 5000, 'previous session draining');
+
+    emit({
+      type: 'subagent',
+      subagent: { ...familiar, status: 'completed', report: 'Verified.' },
+    });
+
+    emit({ type: 'closed' });
+    verified.resolve();
+    await sending;
+    assert.notEqual(a.sessions.at(-1)!.session, session);
+
+    const row = coordinator.snapshot.items.find(
+      ({ title }) => title === 'Familiar completed  pending review',
+    );
+
+    assert.equal(row?.text, 'Verified.');
+  } finally {
+    verified.resolve();
+    await sending?.catch(() => {});
+    await coordinator.close();
+  }
+});
+
 test('the pentacle spins while the session closes', async () => {
   const { coordinator } = await unitFixture();
   assert.equal(coordinator.pentacle.active, false);

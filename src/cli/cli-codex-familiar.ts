@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { open } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CodexAdapter } from '../agents/codex/adapter.js';
 import { nativeExecutable } from '../agents/executable.js';
@@ -23,14 +24,17 @@ import {
   exitCode,
   FamiliarReports,
   registerFamiliar,
+  saveFinalReport,
   saveReport,
+  settlePlanReview,
   watchSuspension,
 } from './familiar-run.js';
 import { questionReply } from '../core/prompts.js';
 import type { ControlBinding } from '../persistence/control.js';
 import { elapsed } from '../ui/status/elapsed.js';
+import type { PlanReview } from './plan-review.js';
 
-/** bounds registration to the turn being sent; a running turn can stay silent for minutes. */
+/** after receipt creation, expiry cancels startup and prevents dispatch. */
 const startupDeadlineMs = 180_000;
 
 /** the wrapper owns transport and input; native configuration remains Codex's. */
@@ -68,12 +72,13 @@ export async function runCodexFamiliar(
   reportFile: string,
   args: readonly string[],
   lean: boolean,
+  review?: PlanReview,
 ): Promise<number> {
   const argv = codexArguments(
     lean ? ['-c', 'skills.include_instructions=false', ...args] : args,
   );
 
-  const file = await open(reportFile, 'wx', 0o600);
+  let file = review ? undefined : await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
   const abort = new AbortController();
   let session: AgentSession | undefined;
@@ -83,7 +88,7 @@ export async function runCodexFamiliar(
   let failure: string | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let startup: ReturnType<typeof setTimeout> | undefined;
-  let waiting = 'the prompt on stdin';
+  let waiting = review ? 'the plan draft and brief' : 'the prompt on stdin';
   let stalled = false;
 
   let childExit:
@@ -193,7 +198,7 @@ export async function runCodexFamiliar(
     if (!output) return;
 
     scanMarkers(output, event.text, binding, (marker) =>
-      process.stdout.write(familiarMarker(marker)),
+      process.stdout.write(familiarMarker({ ...marker, relayed: true })),
     );
   };
 
@@ -207,6 +212,10 @@ export async function runCodexFamiliar(
     else if (event.type === 'tool' && !event.done && !event.append) {
       tools.add(event.id);
       progress = { ...progress, tools: tools.size, activity: event.title };
+    } else if (event.type === 'notice' && event.protocolError && review) {
+      fail(new Error(event.text));
+
+      return;
     } else if (event.type === 'notice' && event.transient)
       progress = {
         ...progress,
@@ -222,7 +231,8 @@ export async function runCodexFamiliar(
 
       progress = { ...progress, spells };
     } else if (event.type === 'request') {
-      request(event.request);
+      if (review) fail(new Error('A plan reviewer cannot request input.'));
+      else request(event.request);
 
       return;
     } else if (event.type === 'request-resolved') {
@@ -255,15 +265,31 @@ export async function runCodexFamiliar(
   let report = '';
   /** the last turn's final message: a follow-up turn only carries the reply to the familiar's own question. */
   let answer = '';
+  let answerModel: string | undefined;
   let status: FamiliarProgress['status'] = 'failed';
   let exhausted = false;
   let registered = false;
-  const save = () => saveReport(file, report);
+  const save = () => saveReport(file!, report);
   const suspension = watchSuspension();
 
   try {
-    await registerFamiliar(binding, run, name, 'codex', () => stopped);
+    const registration = await registerFamiliar(
+      binding,
+      run,
+      name,
+      'codex',
+      () => stopped,
+      !!review,
+    );
+
     registered = true;
+    const readOnlyReview = !!review || registration.readOnlyReview === true;
+
+    const attempt = review
+      ? await review.openReport(reportFile, registration.reviewScope)
+      : undefined;
+
+    if (attempt) file = attempt.file;
 
     startup = setTimeout(() => {
       if (failure || stopped) return;
@@ -279,11 +305,16 @@ export async function runCodexFamiliar(
 
     reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);
-    let prompt = '';
-    process.stdin.setEncoding('utf8');
+    const prepared = await attempt?.prepare(abort.signal);
+    let prompt = prepared?.prompt ?? '';
 
-    for await (const chunk of process.stdin) prompt += chunk as string;
+    if (!review) {
+      process.stdin.setEncoding('utf8');
 
+      for await (const chunk of process.stdin) prompt += chunk as string;
+    }
+
+    abort.signal.throwIfAborted();
     waiting = 'Codex to start';
     const codex = nativeExecutable('codex');
 
@@ -326,9 +357,12 @@ export async function runCodexFamiliar(
 
     session = await adapter.connect({
       executable: codex,
-      cwd: process.cwd(),
+      cwd: prepared?.cwd ?? process.cwd(),
       memoryDirectories: [],
       withoutMcp: lean,
+      ...(readOnlyReview && {
+        reviewMailbox: await realpath(binding.directory),
+      }),
       signal: abort.signal,
       onEvent: receive,
       onProcess: async () => {},
@@ -337,17 +371,31 @@ export async function runCodexFamiliar(
     if (stopped || failure)
       throw new Error(failure ?? 'Codex familiar stopped before its turn.');
 
-    waiting = 'the spell listing';
-    // only to recognize the spells it casts, so a failed listing costs only that
-    await session.skills().catch(() => {});
+    if (!review) {
+      waiting = 'the spell listing';
+      // only to recognize the spells it casts, so a failed listing costs only that
+      await session.skills().catch(() => {});
+    }
+
     clearTimeout(startup);
 
     for (;;) {
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
-      answer = result.final ?? '';
       status = result.status === 'interrupted' ? 'stopped' : result.status;
       exhausted = !!result.exhausted;
+
+      if (readOnlyReview) {
+        answer = result.reviewAnswer?.text ?? '';
+        answerModel = result.reviewAnswer?.model;
+
+        if (status === 'completed' && !answer)
+          failure ??= 'Codex completed without a final answer.';
+
+        break;
+      }
+
+      answer = result.final ?? '';
       // a checkpoint: the familiar can still await a question's reply or run another turn
       await save();
 
@@ -383,8 +431,11 @@ export async function runCodexFamiliar(
     for (const pending of requests.values()) pending.resolved = true;
 
     await Promise.all([...requests.values()].map((pending) => pending.work));
-    process.off('SIGINT', stop);
-    process.off('SIGTERM', stop);
+
+    if (!review) {
+      process.off('SIGINT', stop);
+      process.off('SIGTERM', stop);
+    }
   }
 
   try {
@@ -411,28 +462,73 @@ export async function runCodexFamiliar(
       .filter(Boolean)
       .join('\n\n');
 
-    await saveReport(file, status === 'completed' ? answer : report);
+    const terminal: FamiliarProgress = {
+      ...progress,
+      status,
+      report,
+      ...(answerModel && { model: answerModel }),
+      // codex names no limit, so routing holds the whole runtime
+      ...(exhausted && status === 'failed' && { exhausted: {} }),
+    };
 
-    if (registered) {
-      try {
-        await reports.finish({
-          ...progress,
-          status,
-          report,
-          // Codex names no limit, so routing holds the whole runtime
-          ...(exhausted && status === 'failed' && { exhausted: {} }),
-        });
-      } catch (error) {
-        status = stopped ? 'stopped' : 'failed';
-        report = [report, errorMessage(error)].filter(Boolean).join('\n\n');
-        await save();
-      }
-    }
+    const reporting = registered ? reports : undefined;
 
-    process.stdout.write(`${report}\n\nSaved report: ${reportFile}\n`);
+    const result = review
+      ? await settlePlanReview(
+          file,
+          reportFile,
+          review,
+          terminal,
+          answer,
+          () => stopped,
+          reporting,
+        )
+      : await reportOrdinaryResult(
+          file!,
+          terminal,
+          answer,
+          () => stopped,
+          reporting,
+        );
 
-    return exitCode(status);
+    const savedPath =
+      !review || ('receiptAvailable' in result && result.receiptAvailable)
+        ? `\n\nSaved report: ${reportFile}`
+        : '';
+
+    if (file) process.stdout.write(`${result.report ?? ''}${savedPath}\n`);
+    else process.stderr.write(`${result.report ?? ''}\n`);
+
+    return exitCode(result.status);
   } finally {
-    await file.close();
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+    await file?.close();
+  }
+}
+
+async function reportOrdinaryResult(
+  file: FileHandle,
+  result: FamiliarProgress,
+  answer: string,
+  stopped: () => boolean,
+  reports?: FamiliarReports,
+) {
+  await saveFinalReport(file, result, answer);
+
+  try {
+    await reports?.finish(result);
+
+    return result;
+  } catch (error) {
+    const failed: FamiliarProgress = {
+      ...result,
+      status: stopped() ? 'stopped' : 'failed',
+      report: [result.report, errorMessage(error)].filter(Boolean).join('\n\n'),
+    };
+
+    await saveFinalReport(file, failed, answer);
+
+    return failed;
   }
 }

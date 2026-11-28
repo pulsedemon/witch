@@ -46,25 +46,111 @@ for (const id of ['read-a', 'read-a', 'read-b'])
 process.stderr.write('native stderr\n');
 const answer = '{"verdict":"final"}';
 
-emit({
+const deniedRead =
+  mode === 'claude-denied' || mode === 'claude-denied-then-result';
+
+const result = {
   type: 'result',
   subtype: 'success',
   session_id,
   is_error: false,
-  result: mode === 'repeat-turn' ? answer : 'Full review.\n'.repeat(7000),
+  result: existsSync('review-reply.txt')
+    ? readFileSync('review-reply.txt', 'utf8')
+    : mode === 'repeat-turn'
+      ? answer
+      : 'Full review.\n'.repeat(7000),
   permission_denials:
-    mode === 'denied'
+    mode === 'denied' || deniedRead
       ? [
-          {
-            tool_name: 'Write',
-            tool_use_id: 'denied-write',
-            tool_input: { file_path: join(process.cwd(), 'forbidden.txt') },
-          },
+          deniedRead
+            ? {
+                tool_name: 'Read',
+                tool_use_id: 'denied-read',
+                tool_input: { file_path: join(process.cwd(), 'plan.md') },
+              }
+            : {
+                tool_name: 'Write',
+                tool_use_id: 'denied-write',
+                tool_input: { file_path: join(process.cwd(), 'forbidden.txt') },
+              },
         ]
       : [],
-});
+};
+
+if (existsSync('review-reply.txt') && mode !== 'claude-unreported-model')
+  emit({
+    type: 'assistant',
+    ...(mode !== 'claude-missing-answer-id' && { session_id }),
+    message: {
+      model: 'claude-response',
+      content: [
+        {
+          type: 'text',
+          text:
+            mode === 'claude-mismatched-answer'
+              ? 'Earlier assistant text.'
+              : result.result,
+        },
+      ],
+    },
+  });
+
+emit(result);
+
+if (mode === 'claude-denied-then-result')
+  emit({ ...result, permission_denials: [] });
+
+if (mode === 'claude-rate-after')
+  emit({
+    type: 'rate_limit_event',
+    session_id,
+    rate_limit_info: {
+      status: 'rejected',
+      rateLimitType: 'seven_day',
+      resetsAt: Math.floor(Date.now() / 1000) + 3600,
+    },
+  });
+
+if (
+  (mode === 'claude-started-turn' ||
+    mode === 'claude-bad-state' ||
+    mode === 'claude-missing-state-id') &&
+  process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS === '1'
+) {
+  emit({
+    type: 'system',
+    subtype: 'session_state_changed',
+    ...(mode !== 'claude-missing-state-id' && { session_id }),
+    state: mode === 'claude-bad-state' ? 'unknown-state' : 'running',
+  });
+
+  emit({
+    type: 'system',
+    subtype: 'init',
+    session_id,
+    model: 'claude-response',
+  });
+}
 
 writeFileSync('result-sent', 'yes');
+
+if (mode === 'review-empty-turn' || mode === 'claude-unfinished-turn') {
+  emit({
+    type: 'assistant',
+    session_id,
+    message: { model: 'claude-observed', content: [] },
+  });
+
+  if (mode === 'review-empty-turn')
+    emit({
+      type: 'result',
+      subtype: 'success',
+      session_id,
+      is_error: false,
+      result: '',
+      permission_denials: [],
+    });
+}
 
 if (mode === 'nonzero') process.exitCode = 2;
 else if (mode === 'held-pipe') {

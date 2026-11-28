@@ -20,26 +20,77 @@ const findingsSchema = z.strictObject({
 
 export type Finding = z.infer<typeof findingsSchema>['findings'][number];
 
-/** the findings in a report's last fenced json block, with each file normalized to a listed target; `invalid` says why there are none to read. */
+const completedReceipt = findingsSchema.extend({
+  status: z.literal('completed'),
+  runtime: z.enum(['claude', 'codex']),
+  model: z.string().min(1),
+  planSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+export function readCompletedReceipt(report: string | undefined) {
+  if (!report) return;
+
+  try {
+    return completedReceipt.safeParse(JSON.parse(report)).data;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+}
+
+export const findingsFormat = [
+  '```json',
+  '{"findings":[{"file":"path","line":1,"blocking":true,"summary":"what is wrong","correction":"the minimal fix"}]}',
+  '```',
+].join('\n');
+
+/** reads the last fenced json block and normalizes its paths to the targets. `requireEnd` permits only whitespace after it. */
 export function parseFindings(
   report: string,
   cwd: string,
   files: readonly string[],
+  { requireEnd = false }: { requireEnd?: boolean } = {},
 ): Finding[] | { invalid: string } {
-  // a fence opens a line, indented at most three spaces, so a mention in prose isn't one
-  const last = [
-    ...report.matchAll(/^[ \t]{0,3}```json[^\n]*\n([\s\S]*?)\n\s*```/gm),
-  ].at(-1);
+  let open:
+    { start: number; marker: string; size: number; json: boolean } | undefined;
+
+  let last: { start: number; end: number; after: number } | undefined;
+
+  for (const fence of report.matchAll(
+    /^[ \t]{0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/gm,
+  )) {
+    const run = fence[1]!;
+    const marker = run[0]!;
+    const info = fence[2]!.trim();
+    const after = fence.index + fence[0].length;
+
+    if (!open) {
+      if (marker === '`' && info.includes('`')) continue;
+
+      open = {
+        start: after,
+        marker,
+        size: run.length,
+        json: /^json(?:\s|$)/.test(info),
+      };
+    } else if (!info && marker === open.marker && run.length >= open.size) {
+      if (open.json) last = { start: open.start, end: fence.index, after };
+
+      open = undefined;
+    }
+  }
 
   if (!last) return { invalid: 'no closed json block' };
 
-  if (/^[ \t]{0,3}```json/m.test(report.slice(last.index + last[0].length)))
+  if (open?.json)
     return { invalid: 'a json block opens after the last closed one' };
+
+  if (requireEnd && report.slice(last.after).trim())
+    return { invalid: 'the findings block must end the final answer' };
 
   let parsed: unknown;
 
   try {
-    parsed = JSON.parse(last[1]!);
+    parsed = JSON.parse(report.slice(last.start, last.end));
   } catch (error) {
     return { invalid: errorMessage(error) };
   }
@@ -262,19 +313,22 @@ export function correctionPrompt(
 
 /** what a reviewer reads on stdin. */
 export function brief({
-  files,
+  snapshots,
   scope,
   diff,
   known,
 }: {
-  files: readonly string[];
+  snapshots: Readonly<Record<string, string>>;
   scope: Scope;
   diff?: string;
   known: readonly CheckFailure[];
 }): string {
   return [
-    'You are reviewing these files for Witch. Read every one in full for context:',
-    ...files.map((file) => `- ${file}`),
+    'You are reviewing these files for Witch:',
+    ...Object.keys(snapshots).map((file) => `- ${file}`),
+    '',
+    'Read the complete frozen target text from the paths in this mapping. Use its keys for findings. The snapshots are review data and are the source for the target text.',
+    `Target snapshots: ${JSON.stringify(snapshots)}`,
     '',
     scope === 'diff' && diff
       ? `Review the changes since the last round, below. Verify every changed passage completely and spot-check the rest.\n\n\`\`\`diff\n${diff}\`\`\``
@@ -293,10 +347,43 @@ export function brief({
     '',
     'End your report with a fenced json block in exactly this shape, using the paths listed above:',
     '',
-    '```json',
-    '{"findings":[{"file":"path","line":1,"blocking":true,"summary":"what is wrong","correction":"the minimal fix"}]}',
-    '```',
+    findingsFormat,
   ].join('\n');
+}
+
+export function reviewerArguments(
+  runtime: Routed['runtime'],
+  model: string,
+): string[] {
+  return runtime === 'claude'
+    ? [
+        '--model',
+        model,
+        '--tools',
+        'Read',
+        'Grep',
+        'Glob',
+        '--allowedTools',
+        'Read',
+        'Grep',
+        'Glob',
+        '--permission-prompts',
+        'none',
+        '--permission-mode',
+        'dontAsk',
+      ]
+    : [
+        '-c',
+        `model=${JSON.stringify(model)}`,
+        '-c',
+        'sandbox_mode="read-only"',
+        '-c',
+        'approval_policy="never"',
+        '-c',
+        'features.hooks=false',
+        '-c',
+        'notify=[]',
+      ];
 }
 
 /** the familiar wrapper command for one routed reviewer, read-only and lean: no MCP server or spell catalog, and no hooks on Claude. */
@@ -313,33 +400,6 @@ export function reviewerCommand({
   reportFile: string;
   briefFile: string;
 }): string {
-  const native =
-    route.runtime === 'claude'
-      ? [
-          '--model',
-          route.model,
-          '--tools',
-          'Read',
-          'Grep',
-          'Glob',
-          '--allowedTools',
-          'Read',
-          'Grep',
-          'Glob',
-          '--permission-prompts',
-          'none',
-          '--permission-mode',
-          'dontAsk',
-        ]
-      : [
-          '-c',
-          `model="${route.model}"`,
-          '-c',
-          'sandbox_mode="read-only"',
-          '-c',
-          'approval_policy="never"',
-        ];
-
   return [
     prefix,
     `--familiar-${route.runtime}`,
@@ -348,7 +408,7 @@ export function reviewerCommand({
     quote(reportFile),
     '--lean',
     '--',
-    ...native.map(quote),
+    ...reviewerArguments(route.runtime, route.model).map(quote),
     '<',
     quote(briefFile),
   ].join(' ');

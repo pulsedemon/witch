@@ -69,6 +69,21 @@ test('parseFindings reads only the last json block and normalizes paths, and say
     [],
   );
 
+  assert.deepEqual(
+    parseFindings('```json\n{"findings": []}\n````\n', '/w/repo', []),
+    [],
+  );
+
+  assert.deepEqual(
+    parseFindings(
+      ['```an inline code span```', '', json({ findings: [] })].join('\n'),
+      '/w/repo',
+      [],
+      { requireEnd: true },
+    ),
+    [],
+  );
+
   const invalid = (report: string) => {
     const parsed = parseFindings(report, '/w/repo', ['plan.md']);
     assert.ok('invalid' in parsed, JSON.stringify(parsed));
@@ -83,6 +98,21 @@ test('parseFindings reads only the last json block and normalizes paths, and say
 
   assert.equal(
     invalid('Familiar reporting failed: timeout'),
+    'no closed json block',
+  );
+
+  assert.equal(
+    invalid('```json\n{"findings":[]}\n```json\n{"findings": [\n'),
+    'no closed json block',
+  );
+
+  assert.equal(
+    invalid('````markdown\n```json\n{"findings":[]}\n```\n````\n'),
+    'no closed json block',
+  );
+
+  assert.equal(
+    invalid('````json\n{"findings":[]}\n```\n'),
     'no closed json block',
   );
 
@@ -408,6 +438,10 @@ test("reviewerCommand builds each wrapper's command", () => {
     'sandbox_mode="read-only"',
     '-c',
     'approval_policy="never"',
+    '-c',
+    'features.hooks=false',
+    '-c',
+    'notify=[]',
   ]);
 });
 
@@ -415,7 +449,10 @@ test('brief carries the diff for a diff round and asks for the full text in a fu
   const known = [{ file: 'plan.md', line: 4, message: 'em dash in prose' }];
 
   const diffed = brief({
-    files: ['plan.md', 'docs/b.md'],
+    snapshots: {
+      'plan.md': '/scratch/target-a',
+      'docs/b.md': '/scratch/target-b',
+    },
     scope: 'diff',
     diff: '@@ -1 +1 @@\n-a\n+b\n',
     known,
@@ -425,8 +462,15 @@ test('brief carries the diff for a diff round and asks for the full text in a fu
   assert.match(diffed, /^- docs\/b\.md$/m);
   assert.match(diffed, /^\+b$/m);
   assert.match(diffed, /changes since the last round/);
+  assert.match(diffed, /Target snapshots: .*\/scratch\/target-a/);
   assert.match(diffed, /^- plan\.md:4: em dash in prose$/m);
-  const full = brief({ files: ['plan.md'], scope: 'full', known: [] });
+
+  const full = brief({
+    snapshots: { 'plan.md': '/scratch/target-a' },
+    scope: 'full',
+    known: [],
+  });
+
   assert.match(full, /full text of every file/);
   assert.doesNotMatch(full, /changes since the last round/);
   assert.doesNotMatch(full, /already reported/);

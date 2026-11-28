@@ -1,11 +1,15 @@
-import { execFile } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import { decodeHTMLStrict } from 'entities';
-import { unlessGone } from '../../persistence/json.js';
-
-const execute = promisify(execFile);
+import { gone, unlessGone } from '../../persistence/json.js';
+import { runCommand } from '../repository/command.js';
+import { gitIn, topLevel } from '../repository/checkout-git.js';
+import {
+  insideDirectory,
+  openReviewFile,
+  ReviewInputError,
+} from './review-files.js';
+import type { TargetSnapshot } from './review-files.js';
 
 export interface CheckFailure {
   file: string;
@@ -44,29 +48,64 @@ type Fail = (line: number, message: string) => void;
 /** link anchors, cited ranges, quoted identifiers and the fixed writing rules in each markdown target, before any reviewer reads it. */
 export async function checkTargets(
   cwd: string,
-  files: readonly string[],
+  snapshot: TargetSnapshot,
+  scope: { root?: string; signal?: AbortSignal } = {},
 ): Promise<CheckFailure[]> {
-  const repository = await repositoryOf(cwd);
-  const cache = new Map<string, Promise<string | undefined>>();
+  const { signal } = scope;
+  const repository = await repositoryOf(cwd, scope);
+  const root = scope.root ?? (await realpath(repository.root));
+  const references = new Map<string, Promise<string | undefined>>();
+
+  const cache = new Map<string, ReturnType<typeof readText>>(
+    Object.entries(snapshot.canonical).map(([path, text]) => [
+      path,
+      Promise.resolve(text),
+    ]),
+  );
+
+  for (const [file, text] of Object.entries(snapshot.texts))
+    cache.set(resolve(cwd, file), Promise.resolve(text));
 
   const local = (path: string) => {
     let text = cache.get(path);
 
-    if (!text) cache.set(path, (text = readText(path)));
+    if (!text) cache.set(path, (text = readText(path, root, signal)));
 
     return text;
   };
 
+  const reference = (target: string) => {
+    if (cache.has(target)) return target;
+
+    if (
+      !insideDirectory(repository.root, target) &&
+      !insideDirectory(root, target)
+    )
+      return;
+
+    let path = references.get(target);
+
+    if (!path) {
+      path = unlessGone(realpath(target)).then((resolved) =>
+        resolved && !insideDirectory(root, resolved)
+          ? undefined
+          : (resolved ?? target),
+      );
+
+      references.set(target, path);
+    }
+
+    return path;
+  };
+
   const failures: CheckFailure[] = [];
 
-  for (const file of files) {
+  for (const [file, text] of Object.entries(snapshot.texts)) {
+    signal?.throwIfAborted();
+
     if (extname(file) !== '.md') continue;
 
     const path = resolve(cwd, file);
-    const text = await local(path);
-
-    if (text === undefined) continue;
-
     const lines = text.split('\n');
     const prose = proseLines(lines);
 
@@ -95,6 +134,7 @@ export async function checkTargets(
       };
 
       for (const link of links(parts)) {
+        signal?.throwIfAborted();
         const target = resolveLink(link.target, path, repository);
 
         if (!target) continue;
@@ -105,7 +145,7 @@ export async function checkTargets(
         let content: string;
 
         if ('revision' in target) {
-          const read = await show(cwd, target.revision, target.path);
+          const read = await show(cwd, target.revision, target.path, signal);
 
           if (!read) continue;
 
@@ -117,10 +157,14 @@ export async function checkTargets(
 
           content = read.text;
         } else {
-          const read = await local(target.path);
+          const path = await reference(target.path);
 
-          if (read === undefined) {
-            if (!(await isDirectory(target.path)))
+          if (!path) continue;
+
+          const read = await local(path);
+
+          if (read == null) {
+            if (read === undefined)
               fail(number, `link target ${shown} does not exist`);
 
             continue;
@@ -146,14 +190,19 @@ export async function checkTargets(
       }
 
       for (const [position, part] of parts.entries()) {
+        signal?.throwIfAborted();
         const cited = part.code ? citation.exec(part.text) : null;
 
         if (!cited) continue;
 
         const target = resolve(cwd, cited[1]!);
-        const content = await local(target);
+        const path = await reference(target);
 
-        if (content === undefined) continue;
+        if (!path) continue;
+
+        const content = await local(path);
+
+        if (content == null) continue;
 
         const start = Number(cited[2]);
         const end = Number(cited[3] ?? cited[2]);
@@ -773,48 +822,59 @@ interface Repository {
   slug?: string;
 }
 
-async function repositoryOf(cwd: string): Promise<Repository> {
-  const git = (...args: string[]) =>
-    execute('git', ['-C', cwd, ...args]).then(
-      ({ stdout }) => stdout.trim(),
-      (error: { stderr?: unknown }) => {
-        // with no repository, root-relative links resolve from cwd; with no origin, blob links go unchecked
-        if (/not a git repository|No such remote/.test(String(error.stderr)))
-          return undefined;
+const repositoryValue = (operation: Promise<string>) =>
+  operation.catch((error: { stderr?: unknown }) => {
+    // no repository means the working directory is the root, and no origin leaves blob links unchecked.
+    if (/not a git repository|No such remote/.test(String(error.stderr)))
+      return undefined;
 
-        throw error;
-      },
-    );
+    throw error;
+  });
 
+export async function reviewRoot(cwd: string, signal?: AbortSignal) {
+  return (await repositoryValue(topLevel(gitIn(cwd, signal)))) ?? cwd;
+}
+
+async function repositoryOf(
+  cwd: string,
+  { root: knownRoot, signal }: { root?: string; signal?: AbortSignal },
+): Promise<Repository> {
   const [root, origin] = await Promise.all([
-    git('rev-parse', '--show-toplevel'),
-    git('remote', 'get-url', 'origin'),
+    knownRoot ?? reviewRoot(cwd, signal),
+    repositoryValue(gitIn(cwd, signal)('remote', 'get-url', 'origin')),
   ]);
 
   const match =
     origin && /github\.com[:/]([^/]+)\/(.+?)(?:\.git)?$/.exec(origin);
 
   return {
-    root: root ?? cwd,
+    root,
     ...(match ? { slug: `${match[1]}/${match[2]}` } : {}),
   };
 }
 
-/** a file at a revision; `missing` when the revision lacks the path, undefined when the revision can't be read. */
+/** missing paths produce a finding. unavailable revisions are skipped; failed command bounds stop the check. */
 async function show(
   cwd: string,
   revision: string,
   path: string,
+  signal?: AbortSignal,
 ): Promise<{ text: string } | { missing: true } | undefined> {
   try {
-    const { stdout } = await execute(
+    const { stdout } = await runCommand(
       'git',
-      ['-C', cwd, 'show', '--end-of-options', `${revision}:${path}`],
-      { maxBuffer: 64 * 1024 * 1024 },
+      ['show', '--end-of-options', `${revision}:${path}`],
+      { cwd, signal, timeout: 60_000, maxBuffer: 64 * 1024 * 1024 },
     );
 
     return { text: stdout };
   } catch (error) {
+    signal?.throwIfAborted();
+    const failure = error as { killed?: boolean; code?: unknown };
+
+    if (failure.killed || failure.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')
+      throw error;
+
     return /does not exist in|exists on disk, but not in/.test(
       String((error as { stderr?: unknown }).stderr ?? ''),
     )
@@ -823,13 +883,23 @@ async function show(
   }
 }
 
-/** undefined for a missing path or a directory; other read failures throw, so no check passes unread. */
-async function readText(path: string): Promise<string | undefined> {
-  if (!(await unlessGone(stat(path)))?.isFile()) return;
+/** an absent file is undefined; null skips nonregular and out-of-scope references. */
+async function readText(
+  path: string,
+  root: string,
+  signal?: AbortSignal,
+): Promise<string | null | undefined> {
+  try {
+    const opened = await openReviewFile(path, [root]);
 
-  return unlessGone(readFile(path, 'utf8'));
-}
+    try {
+      return await opened.file.readFile({ encoding: 'utf8', signal });
+    } finally {
+      await opened.file.close();
+    }
+  } catch (error) {
+    if (error instanceof ReviewInputError) return null;
 
-async function isDirectory(path: string): Promise<boolean> {
-  return (await unlessGone(stat(path)))?.isDirectory() ?? false;
+    if (!gone(error)) throw error;
+  }
 }

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { ClaudeTask } from '../agents/claude/task.js';
+import type { FamiliarProgress } from '../agents/familiar-report.js';
 import { nativeExecutable } from '../agents/executable.js';
 import { nativeLaunch } from '../agents/native-launch.js';
 import { running, terminateGraceMs } from '../agents/shutdown.js';
@@ -11,9 +12,11 @@ import {
   exitCode,
   FamiliarReports,
   registerFamiliar,
-  saveReport,
+  saveFinalReport,
+  settlePlanReview,
   watchSuspension,
 } from './familiar-run.js';
+import type { PlanReview } from './plan-review.js';
 import type { ControlBinding } from '../persistence/control.js';
 
 /** outranks user, project and local settings, so the routed model runs as named and an overload doesn't switch it; lean also turns hooks off. */
@@ -27,7 +30,7 @@ function settings(lean: boolean) {
   });
 }
 
-/** the report file keeps only the latest result, and native output can't tell an acknowledgement from an answer. */
+/** a later successful nonempty result replaces the saved answer, and native output cannot identify an acknowledgement. */
 export const repeatAnswerInstruction =
   'Your last reply is saved as your final answer. If a background task notification starts a turn after you have answered, end that turn by repeating your complete answer exactly, with nothing else.';
 
@@ -84,10 +87,12 @@ export async function runClaudeFamiliar(
   reportFile: string,
   args: readonly string[],
   lean: boolean,
+  review?: PlanReview,
 ): Promise<number> {
   const argv = claudeArguments(args, lean);
-  const file = await open(reportFile, 'wx', 0o600);
+  let file = review ? undefined : await open(reportFile, 'wx', 0o600);
   const run = randomUUID();
+  const preparation = new AbortController();
   let stopped: NodeJS.Signals | undefined;
   let child: ReturnType<typeof spawn> | undefined;
   let escalation: ReturnType<typeof setTimeout> | undefined;
@@ -105,37 +110,69 @@ export async function runClaudeFamiliar(
 
   const interrupt = () => {
     stopped = 'SIGINT';
+    preparation.abort();
     terminate('SIGINT');
   };
 
   const stop = () => {
     stopped = 'SIGTERM';
+    preparation.abort();
     terminate('SIGTERM');
   };
 
   process.on('SIGINT', interrupt);
   process.on('SIGTERM', stop);
   const suspension = watchSuspension();
+  let registered = false;
+  let activeTask: ClaudeTask | undefined;
+
+  const reports = new FamiliarReports(binding, run, (error) => {
+    activeTask?.failed(error.message);
+    terminate('SIGTERM');
+  });
 
   try {
-    await registerFamiliar(binding, run, name, 'claude', () => !!stopped);
-
-    const reports = new FamiliarReports(binding, run, (error) => {
-      task.failed(error.message);
-      terminate('SIGTERM');
-    });
-
-    const task = new ClaudeTask(process.cwd(), (progress) =>
-      reports.push(progress),
+    const { reviewScope } = await registerFamiliar(
+      binding,
+      run,
+      name,
+      'claude',
+      () => !!stopped,
+      !!review,
     );
 
+    registered = true;
+
+    const attempt = review
+      ? await review.openReport(reportFile, reviewScope)
+      : undefined;
+
+    if (attempt) file = attempt.file;
+
+    const prepared = await attempt?.prepare(preparation.signal);
+
+    if (stopped) throw new Error('Familiar stopped before launch.');
+
+    const cwd = prepared?.cwd ?? process.cwd();
+
+    const task = new ClaudeTask(
+      cwd,
+      (progress) => reports.push(progress),
+      !!review,
+    );
+
+    activeTask = task;
     const claude = nativeExecutable('claude');
 
     if (!claude) throw new Error('Native executable not found: claude');
 
     child = nativeLaunch(claude, (executable) =>
       spawn(executable, argv, {
-        stdio: ['inherit', 'pipe', 'pipe'],
+        cwd,
+        ...(review && {
+          env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+        }),
+        stdio: [review ? 'pipe' : 'inherit', 'pipe', 'pipe'],
         detached: false,
       }),
     );
@@ -155,6 +192,14 @@ export async function runClaudeFamiliar(
     child.once('error', (error) =>
       task.failed(`Claude could not start: ${error.message}`),
     );
+
+    if (review) {
+      child.stdin!.on('error', (error) =>
+        task.failed(`Could not send the plan draft: ${error.message}`),
+      );
+
+      child.stdin!.end(prepared!.prompt);
+    }
 
     child.once('exit', () => {
       clearTimeout(escalation);
@@ -190,32 +235,86 @@ export async function runClaudeFamiliar(
     };
 
     let terminal = closed(stopped ?? (reports.error ? null : signal));
+    let receiptAvailable = !!file;
 
-    const save = () =>
-      saveReport(
+    if (review) {
+      const result = task.latestAnswer;
+      let progress = terminal;
+
+      if (terminal.status === 'completed') {
+        const reason = task.permissionDenials.length
+          ? task.permissionDenials.join('\n')
+          : !result
+            ? 'Claude exited before the final plan review turn returned a result.'
+            : undefined;
+
+        progress = {
+          ...terminal,
+          model: result?.model,
+          ...(reason && { status: 'failed', report: reason }),
+          exhausted: task.pendingExhaustion,
+        };
+      }
+
+      const settled = await settlePlanReview(
         file,
-        terminal.status === 'completed' ? task.answer : (terminal.report ?? ''),
+        reportFile,
+        review,
+        progress,
+        result?.text ?? '',
+        () => !!stopped,
+        reports,
       );
 
-    await save();
+      terminal = settled;
+      receiptAvailable = settled.receiptAvailable;
+    } else {
+      await saveFinalReport(file!, terminal, task.answer);
 
-    try {
-      await reports.finish(terminal);
-    } catch (error) {
-      task.failed(errorMessage(error));
-      terminal = closed(stopped ?? null);
-      await save();
+      try {
+        await reports.finish(terminal);
+      } catch (error) {
+        task.failed(errorMessage(error));
+        terminal = closed(stopped ?? null);
+        await saveFinalReport(file!, terminal, task.answer);
+      }
     }
 
-    process.stdout.write(
-      `${terminal.report ?? ''}\n\nSaved report: ${reportFile}\n`,
-    );
+    const savedPath = receiptAvailable ? `\n\nSaved report: ${reportFile}` : '';
+    process.stdout.write(`${terminal.report ?? ''}${savedPath}\n`);
 
     return exitCode(terminal.status);
   } catch (error) {
     const message = errorMessage(error);
-    await file.writeFile(message);
-    process.stderr.write(`witch: ${message}\nSaved report: ${reportFile}\n`);
+
+    const progress: FamiliarProgress = {
+      status: stopped ? 'stopped' : 'failed',
+      report: message,
+    };
+
+    let diagnostic = message;
+    let receiptAvailable = !!file;
+
+    try {
+      if (review) {
+        const result = await settlePlanReview(
+          file,
+          reportFile,
+          review,
+          progress,
+          '',
+          () => !!stopped,
+          registered ? reports : undefined,
+        );
+
+        diagnostic = result.reason ?? message;
+        receiptAvailable = result.receiptAvailable;
+      } else await saveFinalReport(file!, progress, '');
+    } finally {
+      process.stderr.write(`witch: ${diagnostic}\n`);
+    }
+
+    if (receiptAvailable) process.stderr.write(`Saved report: ${reportFile}\n`);
 
     return stopped ? 130 : 1;
   } finally {
@@ -223,6 +322,6 @@ export async function runClaudeFamiliar(
     clearTimeout(drain);
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', stop);
-    await file.close();
+    await file?.close();
   }
 }

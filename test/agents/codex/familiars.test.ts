@@ -1,18 +1,23 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { once } from 'node:events';
+import type { FileHandle } from 'node:fs/promises';
+import { open, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
+import { familiarMarker } from '../../../src/agents/familiar-report.js';
 import type { AgentEvent } from '../../../src/agents/types.js';
+import { receiptFile } from '../../../src/core/review/review-files.js';
 import { writeJson } from '../../../src/persistence/json.js';
 import { fixture } from '../../fixtures/codex-adapter.js';
+import { scratch } from '../../fixtures/scratch.js';
 import { until, within } from '../../fixtures/within.js';
 
-async function reportedFixture() {
+async function reportedFixture(root?: string) {
   const events: AgentEvent[] = [];
 
   const binding = {
-    directory: '/control/familiars',
+    directory: root ? join(root, 'control', 'familiars') : '/control/familiars',
     conversation: 'conversation',
     activation: randomUUID(),
   };
@@ -64,13 +69,17 @@ async function reportedFixture() {
     params: { ...params, threadId, itemId: item.id, delta },
   });
 
-  const register = (runtime: 'claude' | 'codex' = 'claude') =>
+  const register = (
+    runtime: 'claude' | 'codex' = 'claude',
+    planReview = false,
+  ) =>
     session.familiar!.report(
       {
         kind: 'familiar-register',
         run,
         name: 'plan review',
         runtime,
+        ...(planReview && { planReview: true }),
       },
       Date.now() + 5000,
     );
@@ -630,7 +639,7 @@ for (const [status, exitCode] of [
   ['completed', 0],
   ['failed', 1],
 ] as const)
-  test(`a familiar command that exited ${exitCode} leaves its native terminal for the parent to read`, async () => {
+  test(`an ordinary familiar command that exited ${exitCode} leaves its native terminal for the parent to read`, async () => {
     const f = await reportedFixture();
 
     try {
@@ -669,6 +678,254 @@ for (const [status, exitCode] of [
       await f.session.close();
     }
   });
+
+async function stageReviewReceipt(
+  f: Awaited<ReturnType<typeof reportedFixture>>,
+  root: string,
+) {
+  const report = JSON.stringify({
+    status: 'completed',
+    runtime: 'claude',
+    model: 'observed',
+    planSha256: 'b'.repeat(64),
+    findings: [],
+  });
+
+  const path = join(root, 'receipt.json');
+  const file = await open(path, 'wx');
+
+  try {
+    await file.writeFile(report);
+    const receipt = await receiptFile(path, file);
+
+    await f.session.familiar!.report(
+      {
+        kind: 'familiar-update',
+        run: f.run,
+        sequence: 0,
+        progress: {
+          status: 'completed',
+          model: 'observed',
+          report,
+          receiptFile: receipt,
+        },
+      },
+      Date.now() + 5000,
+    );
+
+    return { report, prototype: Object.getPrototypeOf(file) as FileHandle };
+  } finally {
+    await file.close();
+  }
+}
+
+for (const [status, exitCode] of [
+  ['completed', 0],
+  ['failed', 1],
+  ['failed', null],
+] as const)
+  test(`a familiar command that exited ${exitCode} leaves its native terminal for the parent to read`, async () => {
+    const root = await scratch('witch-review-exit-');
+    const f = await reportedFixture(root);
+
+    try {
+      await f.emit(
+        { method: 'item/started', params: { ...f.params, item: f.item } },
+        f.output(f.marker),
+      );
+
+      assert.equal(
+        (await f.register('claude', true)).kind,
+        'familiar-registered',
+      );
+
+      const { report } = await stageReviewReceipt(f, root);
+      assert.equal(f.familiarEvents().at(-1)!.status, 'running');
+      const other = { ...f.item, id: 'other-command' };
+
+      await f.emit(
+        { method: 'item/started', params: { ...f.params, item: other } },
+        {
+          method: 'item/completed',
+          params: {
+            ...f.params,
+            item: { ...other, status: 'completed', exitCode: 0 },
+          },
+        },
+      );
+
+      assert.equal(f.familiarEvents().at(-1)!.status, 'running');
+
+      for (const turnId of ['another-turn', undefined]) {
+        await f.emit({
+          method: 'item/completed',
+          params: {
+            ...f.params,
+            turnId,
+            item: { ...f.item, status: 'completed', exitCode: 0 },
+          },
+        });
+
+        assert.equal(f.familiarEvents().at(-1)!.status, 'running');
+      }
+
+      if (exitCode === null) await f.list(1);
+
+      await f.emit({
+        method: 'item/completed',
+        params: {
+          ...f.params,
+          item: { ...f.item, status: 'completed', exitCode },
+        },
+      });
+
+      // a model read follows any cleanup request the completion sent, so the fixture has recorded it
+      await f.session.models();
+
+      assert.equal(
+        (await listRequests(f.cwd)).length,
+        exitCode === null ? 1 : 0,
+      );
+
+      assert.deepEqual(await terminateRequests(f.cwd), []);
+
+      await until(
+        'the carrying command result',
+        () => f.familiarEvents().at(-1)!.status === status,
+      );
+
+      assert.equal(
+        f.familiarEvents().at(-1)!.report,
+        exitCode === 0 ? report : undefined,
+      );
+
+      await f.session.close();
+
+      assert.equal(
+        (await listRequests(f.cwd)).length,
+        exitCode === null ? 1 : 0,
+      );
+
+      assert.deepEqual(await terminateRequests(f.cwd), []);
+    } finally {
+      await f.session.close();
+    }
+  });
+
+test('a confirmed Codex exit settles its staged receipt before publishing connection closure', async () => {
+  const root = await scratch('witch-review-shutdown-');
+  const f = await reportedFixture(root);
+  const reading = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+
+    assert.equal(
+      (await f.register('claude', true)).kind,
+      'familiar-registered',
+    );
+
+    const { report, prototype } = await stageReviewReceipt(f, root);
+    const original = prototype.read;
+
+    const read = vi
+      .spyOn(prototype, 'read')
+      .mockImplementationOnce(async function (
+        this: FileHandle,
+        ...args: Parameters<FileHandle['read']>
+      ) {
+        reading.resolve();
+        await release.promise;
+
+        return (await Reflect.apply(original, this, args)) as Awaited<
+          ReturnType<FileHandle['read']>
+        >;
+      });
+
+    try {
+      await f.emit({
+        method: 'item/completed',
+        params: {
+          ...f.params,
+          item: { ...f.item, status: 'completed', exitCode: 0 },
+        },
+      });
+
+      await within(reading.promise, 1500, 'host receipt read');
+      const closed = once(f.child, 'close');
+      assert.equal(f.child.kill(), true);
+      await closed;
+      assert.equal(f.familiarEvents().at(-1)!.status, 'running');
+
+      assert.equal(
+        f.events.some(({ type }) => type === 'closed'),
+        false,
+      );
+
+      release.resolve();
+
+      await until('native connection close', () =>
+        f.events.some(({ type }) => type === 'closed'),
+      );
+
+      const verified = f.events.findIndex(
+        (event) =>
+          event.type === 'subagent' &&
+          event.subagent.status === 'completed' &&
+          event.subagent.report === report,
+      );
+
+      const closure = f.events.findIndex(({ type }) => type === 'closed');
+      assert.ok(verified >= 0 && verified < closure);
+    } finally {
+      release.resolve();
+      read.mockRestore();
+    }
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a relayed marker cannot register a plan review under the outer command', async () => {
+  const f = await reportedFixture();
+
+  try {
+    const marker = familiarMarker({
+      version: 1,
+      conversation: f.binding.conversation,
+      activation: f.binding.activation,
+      run: f.run,
+      relayed: true,
+    });
+
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(marker),
+    );
+
+    await assert.rejects(
+      f.register('claude', true),
+      /directly from the owning Witch session/,
+    );
+
+    assert.deepEqual(f.familiarEvents(), []);
+    assert.equal((await f.register('claude')).kind, 'familiar-registered');
+
+    await f.emit({
+      method: 'item/completed',
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'completed', exitCode: 0 },
+      },
+    });
+  } finally {
+    await f.session.close();
+  }
+});
 
 test('a familiar whose process id codex reassigned is not terminated', async () => {
   const f = await reportedFixture();

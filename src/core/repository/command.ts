@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import type { ExecFileException, ExecFileOptions } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { StringDecoder } from 'node:string_decoder';
 import { promisify } from 'node:util';
 import { running, signalGroup } from '../../agents/shutdown.js';
 import { ps } from '../../persistence/process.js';
@@ -78,12 +79,15 @@ async function cancellable(
   const probe = () => signalOwned(stopped ? 'SIGKILL' : 0);
 
   for (const name of ['stdout', 'stderr'] as const) {
-    child[name].setEncoding('utf8');
+    let size = 0;
+    const decoder = new StringDecoder('utf8');
 
-    child[name].on('data', (text: string) => {
+    child[name].on('data', (chunk: Buffer) => {
       if (failure) return;
 
-      if (Buffer.byteLength(output[name]) + Buffer.byteLength(text) > limit) {
+      size += chunk.length;
+
+      if (size > limit) {
         failure = Object.assign(
           new Error(`${name} maxBuffer length exceeded`),
           {
@@ -92,8 +96,10 @@ async function cancellable(
         );
 
         interrupt();
-      } else output[name] += text;
+      } else output[name] += decoder.write(chunk);
     });
+
+    child[name].once('end', () => (output[name] += decoder.end()));
   }
 
   signal.addEventListener('abort', interrupt, { once: true });

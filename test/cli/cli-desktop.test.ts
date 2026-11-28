@@ -1,3 +1,4 @@
+import { quote } from '../../src/shell.js';
 import assert from 'node:assert/strict';
 import stripAnsi from 'strip-ansi';
 import { execFile, spawn } from 'node:child_process';
@@ -51,7 +52,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
 
   await writeFile(
     join(bin, 'codex'),
-    `#!/bin/sh\nexec '${process.execPath}' '${repository}/test/fixtures/codex.mjs' brews "$@"\n`,
+    `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(repository, 'test/fixtures/codex.mjs'))} brews "$@"\n`,
     { mode: 0o755 },
   );
 

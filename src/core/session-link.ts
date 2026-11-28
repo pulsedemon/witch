@@ -292,7 +292,9 @@ export class SessionLink {
           }
 
           if (
-            (event.type === 'subagent' || event.type === 'command') &&
+            (event.type === 'subagent' ||
+              event.type === 'command' ||
+              event.type === 'closed') &&
             this.connection !== connection
           )
             return;
@@ -357,20 +359,7 @@ export class SessionLink {
 
     const conversationId = this.host.record()?.id;
     const session = this.connected;
-    this.connection = undefined;
     this.connected = undefined;
-    const owned = this.reviewers.owns;
-    const ended = this.ended();
-    const snapshot = this.host.snapshot();
-
-    this.host.publish({
-      ...ended,
-      skills: [],
-      subagents: snapshot.subagents.filter(({ id }) => owned(id)),
-      requests: keepQuestions
-        ? snapshot.requests.filter((request) => request.replyAsPrompt)
-        : [],
-    });
 
     try {
       await session?.close(stop);
@@ -381,8 +370,20 @@ export class SessionLink {
       delete record.process;
       await this.host.save();
     } finally {
-      // discard questions delivered while the old process was closing
-      if (!keepQuestions) this.host.publish({ requests: [] });
+      this.connection = undefined;
+      const ended = this.ended();
+      const snapshot = this.host.snapshot();
+
+      this.host.publish({
+        ...ended,
+        skills: [],
+        subagents: snapshot.subagents.filter(({ id }) =>
+          this.reviewers.owns(id),
+        ),
+        requests: keepQuestions
+          ? snapshot.requests.filter((request) => request.replyAsPrompt)
+          : [],
+      });
 
       if (conversationId)
         this.host.retain(conversationId, session?.takeUnreadContext?.());
@@ -473,7 +474,19 @@ export class SessionLink {
       this.usage.report(agent, event.usage.account);
 
       if (this.live(agent)) host.publish({ usage: event.usage });
-    } else if (event.type === 'subagent' || event.type === 'command') {
+    } else if (event.type === 'subagent') {
+      const finishing =
+        event.subagent.status !== 'running' &&
+        host
+          .snapshot()
+          .subagents.some(
+            ({ id, status }) =>
+              id === event.subagent.id && status === 'running',
+          );
+
+      if (this.live(agent) || finishing)
+        host.background(event, conversation.cwd);
+    } else if (event.type === 'command') {
       if (this.live(agent)) host.background(event, conversation.cwd);
     } else if (event.type === 'running') {
       if (this.live(agent)) host.publish({ nativeRunning: event.running });

@@ -8,7 +8,12 @@ import {
   withContextWindows,
 } from './compaction-policy.js';
 import type { CodexSelection } from './compaction-policy.js';
-import { permissionProfile, sessionInfo } from './session-info.js';
+import {
+  permissionProfile,
+  requireReadOnlySession,
+  reviewPermissionSettings,
+  sessionInfo,
+} from './session-info.js';
 import { spawn } from 'node:child_process';
 import { nativeLaunch } from '../native-launch.js';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -193,6 +198,13 @@ class CodexSession implements AgentSession {
     started: ReturnType<typeof Promise.withResolvers<string>>;
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
     messages: TurnText;
+    reviewAnswers?: Map<
+      string,
+      { text: string; model?: string; explicit: boolean }
+    >;
+    reviewModels?: Map<string, string>;
+    reviewInitialModel?: string;
+    completedId?: string;
     interrupted: boolean;
     id?: string;
     compaction?: { item?: string; completed: boolean };
@@ -274,11 +286,16 @@ class CodexSession implements AgentSession {
       // a turn or settings change in flight reports the exit itself
       const reported = !!(this.turn || this.settings);
       this.settings?.reject(error);
-      this.commands.stop();
+      const verifications = this.commands.stop();
       this.proposals.clear();
       this.closed = true;
 
-      if (this.connected) this.options.onEvent({ type: 'closed' });
+      if (this.connected) {
+        const closed = () => this.options.onEvent({ type: 'closed' });
+
+        if (verifications) void verifications.then(closed);
+        else closed();
+      }
 
       this.finish(
         this.turn?.interrupted ? 'interrupted' : 'failed',
@@ -304,6 +321,10 @@ class CodexSession implements AgentSession {
 
     const isolated = !answer && this.options.withoutMcp;
 
+    const review = this.options.reviewMailbox
+      ? reviewPermissionSettings(this.options.reviewMailbox)
+      : undefined;
+
     const base = {
       cwd: this.options.cwd,
       // an omitted selection restores the thread's saved workspace roots
@@ -315,6 +336,7 @@ class CodexSession implements AgentSession {
         ...answer?.config,
         ...(isolated &&
           withoutMcp(await readConfig(this.rpc, this.options.cwd))),
+        ...review?.config,
         ...Object.fromEntries(
           Object.entries(this.options.mark?.environment ?? {}).map(
             ([key, value]) => [`shell_environment_policy.set.${key}`, value],
@@ -332,6 +354,7 @@ class CodexSession implements AgentSession {
 
     const parameters = {
       ...answer,
+      ...review,
       ...(answer && this.options.resume ? { excludeTurns: true } : {}),
       ...base,
       model: this.options.model,
@@ -342,17 +365,18 @@ class CodexSession implements AgentSession {
       ...(this.options.resume ? { threadId: this.options.resume } : {}),
     };
 
-    this.updateInfo(
-      await this.rpc.request(
-        this.options.resume
-          ? answer
-            ? 'thread/fork'
-            : 'thread/resume'
-          : 'thread/start',
-        parameters,
-      ),
+    const started = await this.rpc.request(
+      this.options.resume
+        ? answer
+          ? 'thread/fork'
+          : 'thread/resume'
+        : 'thread/start',
+      parameters,
     );
 
+    if (answer || review) requireReadOnlySession(started, review?.permissions);
+
+    this.updateInfo(started);
     const holder = answer ? 'a peer answer' : isolated && 'a familiar';
 
     if (holder) await checkNoMcpTools(this.rpc, this.info.id, holder);
@@ -463,10 +487,15 @@ class CodexSession implements AgentSession {
     if (this.turn || this.answers.busy)
       throw new Error('This agent is already running');
 
-    const turn = {
+    const turn: NonNullable<CodexSession['turn']> = {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
       messages: new TurnText(),
+      ...(this.options.reviewMailbox && {
+        reviewAnswers: new Map(),
+        reviewModels: new Map(),
+        reviewInitialModel: this.info.model,
+      }),
       interrupted: false,
     };
 
@@ -541,16 +570,29 @@ class CodexSession implements AgentSession {
         }),
       );
 
+      if (this.options.reviewMailbox && !response.turn.id)
+        throw new Error('Codex did not identify the dispatched review turn.');
+
       turn.started.resolve(response.turn.id);
-
-      if (this.turn === turn) this.turn.id = response.turn.id;
-
+      turn.id = response.turn.id;
       this.setInfo({ ...this.info, hasHistory: true });
     } catch (error) {
       if (this.turn === turn) this.finish('failed', errorMessage(error));
+      else if (this.options.reviewMailbox) throw error;
     }
 
     const result = await turn.finished.promise;
+
+    const reviewAnswer =
+      result.status === 'completed' && turn.id && turn.id === turn.completedId
+        ? turn.reviewAnswers?.get(turn.id)
+        : undefined;
+
+    if (reviewAnswer)
+      return {
+        ...result,
+        reviewAnswer: { text: reviewAnswer.text, model: reviewAnswer.model },
+      };
 
     return submitted ? result : { ...result, inputUnsent: true };
   }
@@ -725,7 +767,7 @@ class CodexSession implements AgentSession {
 
       this.reportStopTimeout();
       this.closing = true;
-      this.commands.stop();
+      void this.commands.stop();
       await this.rpc.close(options);
     }
   }
@@ -779,7 +821,7 @@ class CodexSession implements AgentSession {
 
       this.reportStopTimeout();
     } finally {
-      this.commands.stop();
+      void this.commands.stop();
 
       if (await this.rpc.close(options)) this.reportStopTimeout();
 
@@ -815,7 +857,7 @@ class CodexSession implements AgentSession {
     this.setInfo(info);
   }
 
-  /** one malformed notification posts a notice per method and fails only what it settles. */
+  /** posts one malformed-notification notice per method; a plan reviewer rejects malformed native evidence. */
   private receive(message: RpcMessage): void {
     if (message.id !== undefined && message.method) {
       this.requestInput(message);
@@ -854,6 +896,15 @@ class CodexSession implements AgentSession {
         item: item ? object.parse(params.item) : undefined,
       };
 
+      if (this.options.reviewMailbox && message.method === 'turn/completed') {
+        const id = turnId.parse(params).turn.id;
+
+        if (typeof params.threadId !== 'string' || !params.threadId || !id)
+          throw new Error(
+            'Codex did not identify the completed review thread and turn.',
+          );
+      }
+
       const diff = this.fileChangeDiff(notification);
       this.commands.receive(notification);
       this.familiars.cast(notification, child, this.castIndex);
@@ -869,10 +920,7 @@ class CodexSession implements AgentSession {
       else if (!child && message.method === 'thread/settings/updated')
         this.settings?.reject(new Error(text));
 
-      if (this.malformed.has(message.method!)) return;
-
-      this.malformed.add(message.method!);
-      this.options.onEvent({ type: 'notice', text });
+      this.malformedNotice(message.method!, text);
     }
   }
 
@@ -1025,39 +1073,12 @@ class CodexSession implements AgentSession {
             this.options.onEvent({ type: 'compacted' });
           }
         } else if (type === 'agentMessage') {
-          if (typeof item.text === 'string') {
-            this.turn?.messages.replace(id, item.text);
-
-            this.options.onEvent({
-              type: 'text',
-              id,
-              text: item.text,
-              replace: true,
-            });
-          }
-
-          if (message.method === 'item/completed' && item.questions != null) {
-            const questions = messageQuestions
-              .parse(item.questions)
-              .map((question, index) => ({
-                id: String(index),
-                title: question.title,
-                options: question.options ?? [],
-              }));
-
-            if (questions.length)
-              this.options.onEvent({
-                type: 'request',
-                request: {
-                  id: `question/${id}`,
-                  kind: 'question',
-                  title: 'Questions',
-                  detail: '',
-                  questions,
-                  replyAsPrompt: true,
-                },
-              });
-          }
+          this.agentMessage(
+            item,
+            id,
+            message.method === 'item/completed',
+            data,
+          );
         } else if (type === 'reasoning') {
           // Codex reports a reasoning step only when it ends
           if (message.method === 'item/completed')
@@ -1149,7 +1170,13 @@ class CodexSession implements AgentSession {
       case 'turn/completed': {
         const turn = object.parse(data.turn);
 
-        if (this.turn?.compaction && turn.id !== this.turn.id) break;
+        if (
+          (this.turn?.compaction && turn.id !== this.turn.id) ||
+          (this.options.reviewMailbox &&
+            this.turn?.id &&
+            turn.id !== this.turn.id)
+        )
+          break;
 
         const status = stringValue.parse(turn.status);
         const error = turn.error == null ? undefined : object.parse(turn.error);
@@ -1173,15 +1200,45 @@ class CodexSession implements AgentSession {
         break;
       }
 
-      case 'model/rerouted':
-        if (typeof data.toModel === 'string') {
-          if (data.toModel !== this.info.model)
+      case 'model/rerouted': {
+        const { threadId, turnId, toModel } = data;
+        const active = this.turn;
+
+        if (this.options.reviewMailbox) {
+          if (typeof toModel !== 'string' || !toModel)
+            throw new Error(
+              'Witch could not read the model in Codex’s reroute.',
+            );
+
+          if (
+            typeof threadId !== 'string' ||
+            !threadId ||
+            typeof turnId !== 'string' ||
+            !turnId
+          )
+            throw new Error(
+              'Codex did not identify the thread and turn for its reroute.',
+            );
+
+          if (
+            !active ||
+            threadId !== this.info.id ||
+            (active.id && turnId !== active.id)
+          )
+            break;
+
+          active.reviewModels?.set(turnId, toModel);
+        }
+
+        if (typeof toModel === 'string') {
+          if (toModel !== this.info.model)
             this.report({ context: undefined, contextWindow: undefined });
 
-          this.setInfo({ ...this.info, model: data.toModel });
+          this.setInfo({ ...this.info, model: toModel });
         }
 
         break;
+      }
 
       case 'mcpServer/startupStatus/updated': {
         const { name, status, error } = mcpStartup.parse(data);
@@ -1218,6 +1275,101 @@ class CodexSession implements AgentSession {
     }
   }
 
+  private agentMessage(
+    item: Record<string, unknown>,
+    id: string,
+    completed: boolean,
+    data: Record<string, unknown>,
+  ): void {
+    const { text, phase } = item;
+    const turn = this.turn;
+
+    if (completed && turn?.reviewAnswers) {
+      const { threadId, turnId } = data;
+
+      if (
+        typeof text !== 'string' ||
+        typeof threadId !== 'string' ||
+        typeof turnId !== 'string' ||
+        (phase != null &&
+          phase !== 'commentary' &&
+          phase !== 'partial_answer' &&
+          phase !== 'final_answer')
+      ) {
+        this.malformedNotice(
+          'item/completed',
+          'Witch could not read Codex’s completed agent message.',
+        );
+
+        return;
+      }
+
+      if (threadId !== this.info.id || (turn.id && turn.id !== turnId)) return;
+
+      if (
+        phase === 'final_answer' ||
+        (phase == null &&
+          text.trim() &&
+          !turn.reviewAnswers.get(turnId)?.explicit)
+      )
+        turn.reviewAnswers.set(turnId, {
+          text,
+          model: turn.reviewModels?.get(turnId) ?? turn.reviewInitialModel,
+          explicit: phase === 'final_answer',
+        });
+    }
+
+    if (typeof text === 'string') {
+      this.turn?.messages.replace(id, text);
+
+      this.options.onEvent({
+        type: 'text',
+        id,
+        text,
+        replace: true,
+      });
+    }
+
+    if (!completed || item.questions == null) return;
+
+    const parsed = messageQuestions.safeParse(item.questions);
+
+    if (!parsed.success) {
+      this.malformedNotice(
+        'item/completed',
+        `Witch could not read Codex's item/completed questions: ${errorMessage(parsed.error)}`,
+      );
+
+      return;
+    }
+
+    const questions = parsed.data.map((question, index) => ({
+      id: String(index),
+      title: question.title,
+      options: question.options ?? [],
+    }));
+
+    if (questions.length)
+      this.options.onEvent({
+        type: 'request',
+        request: {
+          id: `question/${id}`,
+          kind: 'question',
+          title: 'Questions',
+          detail: '',
+          questions,
+          replyAsPrompt: true,
+        },
+      });
+  }
+
+  private malformedNotice(method: string, text: string): void {
+    if (this.malformed.has(method)) return;
+
+    this.malformed.add(method);
+    this.options.onEvent({ type: 'notice', text, protocolError: true });
+  }
+
   private requestInput(message: RpcMessage): void {
     if (this.options.answer) {
       this.rpc.reject(
@@ -1235,7 +1387,7 @@ class CodexSession implements AgentSession {
     } catch (error) {
       const text = `Witch could not read Codex's ${message.method} request: ${errorMessage(error)}`;
       this.rpc.reject(message.id!, text);
-      this.options.onEvent({ type: 'notice', text });
+      this.options.onEvent({ type: 'notice', text, protocolError: true });
 
       return;
     }
@@ -1243,7 +1395,7 @@ class CodexSession implements AgentSession {
     if (!request) {
       const text = `Unsupported native request: ${message.method}`;
       this.rpc.reject(message.id!, text);
-      this.options.onEvent({ type: 'notice', text });
+      this.options.onEvent({ type: 'notice', text, protocolError: true });
 
       return;
     }
@@ -1313,6 +1465,8 @@ class CodexSession implements AgentSession {
         this.options.onEvent({ type: 'request-resolved', id });
       }
     }
+
+    if (turn?.reviewAnswers) turn.completedId = completedTurnId;
 
     turn?.finished.resolve({
       status,

@@ -1,4 +1,5 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { dirname } from 'node:path';
 import { z } from 'zod';
 import type { ControlBinding } from '../../persistence/control.js';
 import { beforeDeadline } from '../../persistence/coordination.js';
@@ -9,6 +10,7 @@ import {
   boundMarker,
   checkReporting,
   findFamiliar,
+  pendingFamiliarVerifications,
   respondFamiliar,
 } from '../familiar-report.js';
 import { FamiliarRun } from '../familiar-requests.js';
@@ -46,6 +48,7 @@ export class ClaudeCommands {
   private readonly entries = new Map<string, Command>();
   private stopped = false;
   private closing = false;
+  private finalizing?: Promise<void>;
 
   constructor(
     private readonly query: ClaudeTaskControl,
@@ -108,7 +111,13 @@ export class ClaudeCommands {
       if (!entry || this.late(entry, message.run_id)) return;
 
       if (message.subtype === 'task_notification') {
-        this.end(entry, message.status);
+        this.end(
+          entry,
+          message.status,
+          message.run_id === entry.run &&
+            message.summary ===
+              `Background command "${entry.description}" completed (exit code 0)`,
+        );
       } else {
         const { status, is_backgrounded: background } = message.patch;
 
@@ -118,7 +127,10 @@ export class ClaudeCommands {
         }
 
         if (
-          status === 'completed' ||
+          (status === 'completed' &&
+            !admitted(entry.familiars).some(
+              (familiar) => familiar.planReview,
+            )) ||
           status === 'failed' ||
           status === 'killed'
         )
@@ -185,13 +197,21 @@ export class ClaudeCommands {
     });
   }
 
-  private end(entry: Command, status: TaskStatus): void {
+  private end(
+    entry: Command,
+    status: Exclude<TaskStatus, 'running'>,
+    zeroExit = false,
+  ): void {
     if (entry.status !== 'running') return;
 
     entry.status = status;
 
     for (const familiar of admitted(entry.familiars))
-      familiar.end(status === 'stopped' ? 'stopped' : 'failed');
+      familiar.end(
+        familiar.planReview && status === 'completed' && !zeroExit
+          ? 'failed'
+          : status,
+      );
 
     this.publish(entry);
 
@@ -269,6 +289,7 @@ export class ClaudeCommands {
           entry.parent && this.knownParent(entry.parent)
             ? entry.parent
             : undefined,
+          dirname(dirname(this.binding!.directory)),
         ),
       () => this.publish(entry),
     );
@@ -290,17 +311,22 @@ export class ClaudeCommands {
         .map((entry) => this.query.stopTask(entry.id)),
     );
 
-    this.stop();
+    await this.stop();
 
     for (const result of results)
       if (result.status === 'rejected') throw result.reason;
   }
 
-  stop(): void {
+  stop(): Promise<void> | undefined {
+    if (this.stopped) return this.finalizing;
+
     this.stopped = true;
+    this.finalizing = pendingFamiliarVerifications(this.entries.values());
 
     for (const entry of this.entries.values()) this.end(entry, 'stopped');
 
     this.entries.clear();
+
+    return this.finalizing;
   }
 }

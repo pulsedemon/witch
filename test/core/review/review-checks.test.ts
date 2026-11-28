@@ -1,14 +1,44 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import {
+  chmod,
+  access,
+  mkdir,
+  open,
+  readFile,
+  realpath,
+  rename,
+  symlink,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
+import type * as NativeFiles from 'node:fs/promises';
+import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { test } from 'vitest';
-import { checkTargets } from '../../../src/core/review/review-checks.js';
+import { test, vi } from 'vitest';
+import { runCommand } from '../../../src/core/repository/command.js';
+import {
+  checkTargets,
+  reviewRoot,
+} from '../../../src/core/review/review-checks.js';
+import {
+  snapshotTargets,
+  withTargetSnapshots,
+  receiptFile,
+  verifyReviewReceipt,
+} from '../../../src/core/review/review-files.js';
 import { scratch } from '../../fixtures/scratch.js';
 import { identity } from '../../fixtures/git.js';
+import { within } from '../../fixtures/within.js';
 
 const execute = promisify(execFile);
+vi.mock('node:fs/promises', { spy: true });
+vi.mock('../../../src/core/repository/command.js', { spy: true });
+
+const checkFiles = async (cwd: string, files: readonly string[]) =>
+  checkTargets(cwd, await snapshotTargets(cwd, files, [await realpath(cwd)]));
 
 /** the failures for `plan.md`, or `target`, among the given files, as `line: message` rows. */
 async function check(
@@ -22,12 +52,412 @@ async function check(
     await writeFile(join(root, path), content);
   }
 
-  return (await checkTargets(root, [target])).map(
+  return (await checkFiles(root, [target])).map(
     ({ line, message }) => `${line}: ${message}`,
   );
 }
 
 const a = 'function a() {\n  b();\n  c();\n}\n';
+
+test('mechanical checks retain the admitted checkout root after it moves', async () => {
+  const directory = await scratch('witch-review-bound-');
+  const root = join(directory, 'original');
+  const moved = join(directory, 'moved');
+  await mkdir(root);
+  await writeFile(join(root, 'source.ts'), 'one\n');
+  await rename(root, moved);
+  await symlink(moved, root);
+  const target = { texts: { 'plan.md': '`source.ts:400`\n' }, canonical: {} };
+  assert.deepEqual(await checkTargets(root, target, { root }), []);
+});
+
+test.each([
+  ['timeout', { killed: true }],
+  ['output limit', { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }],
+] as const)(
+  'a blob lookup %s reaches the mechanical review caller',
+  async (name, code) => {
+    const { root, commit } = await committed('https://github.com/owner/repo', {
+      'source.ts': 'one\n',
+    });
+
+    const command = vi.mocked(runCommand);
+
+    const native = await vi.importActual<{ runCommand: typeof runCommand }>(
+      '../../../src/core/repository/command.js',
+    );
+
+    const failure = Object.assign(new Error(`Git blob lookup ${name}`), code);
+
+    command.mockImplementation((program, args, options) =>
+      args[0] === 'show'
+        ? Promise.reject(failure)
+        : native.runCommand(program, args, options),
+    );
+
+    try {
+      await assert.rejects(
+        checkTargets(
+          root,
+          {
+            texts: {
+              'plan.md': `[source](https://github.com/owner/repo/blob/${commit}/source.ts#L1)\n`,
+            },
+            canonical: {},
+          },
+          { root, signal: new AbortController().signal },
+        ),
+        failure,
+      );
+    } finally {
+      command.mockReset();
+    }
+  },
+);
+
+test('mechanical checks skip a Unix socket citation', async () => {
+  const root = await scratch('witch-review-socket-');
+
+  const child = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      "import { createServer } from 'node:net'; createServer().listen('n.sock', () => console.log('ready'));",
+    ],
+    { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+
+  const closed = once(child, 'close');
+
+  try {
+    await within(once(child.stdout, 'data'), 3000, 'the socket');
+    await writeFile(join(root, 'plan.md'), '`n.sock:1`\n[socket](n.sock#L1)\n');
+    assert.deepEqual(await checkFiles(root, ['plan.md']), []);
+  } finally {
+    child.kill();
+    await closed;
+  }
+});
+
+test('receipt verification keeps the original canonical scratch root', async () => {
+  const root = await scratch('witch-receipt-scope-');
+  const bound = join(root, 'bound');
+  const moved = join(root, 'moved');
+  await mkdir(bound);
+  const path = join(bound, 'receipt.json');
+  const handle = await open(path, 'wx');
+  const expected = '{"findings":[]}';
+
+  try {
+    await handle.writeFile(expected);
+    const receipt = await receiptFile(path, handle);
+    await rename(bound, moved);
+    await symlink(moved, bound);
+
+    await assert.rejects(
+      verifyReviewReceipt(receipt, expected, bound),
+      /outside the allowed directories/,
+    );
+  } finally {
+    await handle.close();
+  }
+});
+
+for (const change of ['unlink', 'chmod', 'replace'] as const) {
+  test(`receipt verification rejects ${change} during its read`, async () => {
+    const root = await scratch('witch-receipt-recheck-');
+    const path = join(root, 'receipt.json');
+    const expected = '{"findings":[]}';
+    const handle = await open(path, 'wx');
+
+    try {
+      await handle.writeFile(expected);
+      const receipt = await receiptFile(path, handle);
+      const prototype = Object.getPrototypeOf(handle) as NativeFiles.FileHandle;
+      const read = prototype.read;
+
+      const spy = vi
+        .spyOn(prototype, 'read')
+        .mockImplementationOnce(async function (
+          this: NativeFiles.FileHandle,
+          ...args: Parameters<NativeFiles.FileHandle['read']>
+        ) {
+          const result = (await Reflect.apply(read, this, args)) as Awaited<
+            ReturnType<NativeFiles.FileHandle['read']>
+          >;
+
+          if (change === 'unlink') await unlink(path);
+          else if (change === 'chmod') await chmod(path, 0o400);
+          else {
+            await rename(path, join(root, 'original.json'));
+            await writeFile(path, expected);
+          }
+
+          return result;
+        });
+
+      try {
+        await assert.rejects(
+          verifyReviewReceipt(receipt, expected, root),
+          change === 'unlink'
+            ? { code: 'ENOENT' }
+            : change === 'chmod'
+              ? /receipt changed while being read/
+              : /receipt was replaced/,
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    } finally {
+      await handle.close();
+    }
+  });
+}
+
+test('receipt verification reopens its final path without following a redirected parent', async () => {
+  const root = await scratch('witch-receipt-parent-');
+  const admitted = join(root, 'scratch');
+  const parent = join(admitted, 'receipts');
+  const moved = join(root, 'moved');
+  const path = join(parent, 'receipt.json');
+  await mkdir(parent, { recursive: true });
+  const handle = await open(path, 'wx');
+  const expected = '{"findings":[]}';
+  let redirected = false;
+
+  try {
+    await handle.writeFile(expected);
+    const receipt = await receiptFile(path, handle);
+    const prototype = Object.getPrototypeOf(handle) as NativeFiles.FileHandle;
+    const read = prototype.read;
+
+    const native =
+      await vi.importActual<typeof NativeFiles>('node:fs/promises');
+
+    const lookup = vi.mocked(stat);
+
+    const duringRead = vi
+      .spyOn(prototype, 'read')
+      .mockImplementationOnce(async function (
+        this: NativeFiles.FileHandle,
+        ...args: Parameters<NativeFiles.FileHandle['read']>
+      ) {
+        const result = (await Reflect.apply(read, this, args)) as Awaited<
+          ReturnType<NativeFiles.FileHandle['read']>
+        >;
+
+        lookup.mockImplementationOnce(
+          async (...statArgs: Parameters<typeof stat>) => {
+            await rename(parent, moved);
+            await symlink(moved, parent);
+            redirected = true;
+
+            return (await Reflect.apply(
+              native.stat,
+              native,
+              statArgs,
+            )) as Awaited<ReturnType<typeof stat>>;
+          },
+        );
+
+        return result;
+      });
+
+    try {
+      await assert.rejects(verifyReviewReceipt(receipt, expected, admitted));
+      assert.equal(redirected, true);
+
+      assert.equal(
+        await readFile(join(moved, 'receipt.json'), 'utf8'),
+        expected,
+      );
+    } finally {
+      duringRead.mockRestore();
+      lookup.mockReset();
+    }
+  } finally {
+    await handle.close();
+  }
+});
+
+test('the review root retains the exact checkout name from Git', async () => {
+  const root = await scratch('witch-review-');
+  const checkout = join(root, 'checkout ');
+  await mkdir(checkout);
+  await mkdir(checkout.trimEnd());
+  await execute('git', ['init', '--quiet', checkout]);
+  assert.equal(await reviewRoot(checkout), checkout);
+});
+
+test('reviewers share one staged copy for targets with the same text', async () => {
+  const root = await scratch('witch-review-');
+
+  await withTargetSnapshots(
+    root,
+    { 'target.md': '# Shared', 'alias.md': '# Shared', 'other.md': '# Other' },
+    async (paths) => {
+      assert.equal(paths['target.md'], paths['alias.md']);
+      assert.equal(await readFile(paths['target.md']!, 'utf8'), '# Shared');
+      assert.equal(await readFile(paths['other.md']!, 'utf8'), '# Other');
+    },
+  );
+});
+
+test('cancellation closes the target being read and skips the next target', async () => {
+  const root = await realpath(await scratch('witch-review-'));
+  const path = join(root, 'first.md');
+  await writeFile(path, 'first');
+  const probe = await open(path);
+  const prototype = Object.getPrototypeOf(probe) as NativeFiles.FileHandle;
+  await probe.close();
+  const abort = new AbortController();
+  const fault = new Error('Stop while reading the target');
+  let descriptor: (() => number) | undefined;
+
+  const spy = vi
+    .spyOn(prototype, 'readFile')
+    .mockImplementationOnce(async function (
+      this: NativeFiles.FileHandle,
+      options,
+    ) {
+      assert.ok(options && typeof options === 'object');
+      assert.equal(options.signal, abort.signal);
+      descriptor = () => this.fd;
+      abort.abort(fault);
+      options.signal.throwIfAborted();
+
+      return '';
+    });
+
+  try {
+    await assert.rejects(
+      snapshotTargets(root, ['first.md', 'unread.md'], [root], abort.signal),
+      fault,
+    );
+
+    assert.equal(descriptor?.(), -1);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+test('a reviewer dispatch failure removes its staged target', async () => {
+  const root = await scratch('witch-review-');
+  const failed = new Error('Reviewer dispatch failed.');
+  let staged: string | undefined;
+
+  await assert.rejects(
+    withTargetSnapshots(root, { 'target.md': '# Selected' }, async (paths) => {
+      staged = paths['target.md'];
+      assert.equal(await readFile(staged!, 'utf8'), '# Selected');
+
+      throw failed;
+    }),
+    failed,
+  );
+
+  await assert.rejects(access(staged!), { code: 'ENOENT' });
+});
+
+test('cancellation interrupts target staging between copies and cleans up', async () => {
+  const root = await scratch('witch-review-');
+  const abort = new AbortController();
+  const native = await vi.importActual<typeof NativeFiles>('node:fs/promises');
+  const writer = vi.mocked(writeFile);
+  const dispatch = vi.fn(async () => []);
+  let staged: string | undefined;
+  writer.mockClear();
+
+  writer.mockImplementationOnce(async (path, data, options) => {
+    assert.ok(options && typeof options === 'object');
+    assert.equal(options.signal, abort.signal);
+    await native.writeFile(path, data, options);
+    staged = dirname(String(path));
+    abort.abort();
+  });
+
+  await assert.rejects(
+    withTargetSnapshots(
+      root,
+      { 'first.md': 'first', 'second.md': 'second' },
+      dispatch,
+      abort.signal,
+    ),
+    { name: 'AbortError' },
+  );
+
+  assert.equal(writer.mock.calls.length, 1);
+  assert.equal(dispatch.mock.calls.length, 0);
+  await assert.rejects(access(staged!), { code: 'ENOENT' });
+});
+
+test('mechanical checks use the selected snapshot instead of rereading their target', async () => {
+  const cwd = await scratch('witch-review-snapshot-');
+  await writeFile(join(cwd, 'plan.md'), '# On disk\n');
+
+  const failures = await checkTargets(cwd, {
+    texts: { 'plan.md': 'see [rules](missing.md#target)\n' },
+    canonical: {},
+  });
+
+  assert.deepEqual(
+    failures.map(({ message }) => message),
+    ['link target missing.md does not exist'],
+  );
+});
+
+test('a link through another alias uses the canonical target snapshot', async () => {
+  const cwd = await scratch('witch-review-alias-');
+  const canonicalFile = join(cwd, 'plan.md');
+  await writeFile(canonicalFile, 'see [the target](second.md#target)\n');
+  await symlink(canonicalFile, join(cwd, 'alias.md'));
+  await symlink(canonicalFile, join(cwd, 'second.md'));
+  const snapshot = await snapshotTargets(cwd, ['alias.md'], [cwd]);
+  await writeFile(canonicalFile, '# Target\n');
+
+  assert.deepEqual(await checkTargets(cwd, snapshot), [
+    {
+      file: 'alias.md',
+      line: 1,
+      message: 'no heading in second.md has the anchor #target',
+    },
+  ]);
+});
+
+test('links and citations cannot check text beyond the checkout', async () => {
+  const cwd = await scratch('witch-review-references-');
+  const outside = join(await scratch('witch-review-outside-'), 'outside.md');
+  await writeFile(outside, '# Outside\n');
+  await symlink(outside, join(cwd, 'link.md'));
+
+  await writeFile(
+    join(cwd, 'plan.md'),
+    'see [linked file](link.md#missing) and `link.md:500`\n',
+  );
+
+  assert.deepEqual(await checkFiles(cwd, ['plan.md']), []);
+});
+
+test('an inaccessible sibling reference has no bearing on the checkout review', async () => {
+  const cwd = await scratch('witch-review-reference-');
+  const sibling = await scratch('witch-review-inaccessible-');
+  const target = join(sibling, 'outside.md');
+  await writeFile(target, '# Outside\n');
+
+  await writeFile(
+    join(cwd, 'plan.md'),
+    `see [outside](${relative(cwd, target)}#absent)\n`,
+  );
+
+  await chmod(sibling, 0o000);
+
+  try {
+    assert.deepEqual(await checkFiles(cwd, ['plan.md']), []);
+  } finally {
+    await chmod(sibling, 0o700);
+  }
+});
 
 test('link to a missing heading fails', async () => {
   assert.deepEqual(
@@ -312,7 +742,7 @@ test('a git failure other than a missing repository or origin stops the checks',
   await execute('git', ['init', '-q'], { cwd: root });
   await writeFile(join(root, '.git', 'config'), '[core\n');
   await writeFile(join(root, 'plan.md'), 'x\n');
-  await assert.rejects(checkTargets(root, ['plan.md']), /bad config/);
+  await assert.rejects(checkFiles(root, ['plan.md']), /bad config/);
 });
 
 test('a target that is not markdown gets no checks', async () => {
@@ -357,7 +787,7 @@ test('a leading slash resolves from the repository root', async () => {
   );
 
   assert.deepEqual(
-    (await checkTargets(join(root, 'docs'), ['plan.md'])).map(
+    (await checkFiles(join(root, 'docs'), ['plan.md'])).map(
       ({ message }) => message,
     ),
     ['link target ../MISSING.md does not exist'],
@@ -425,7 +855,7 @@ test('a blob link to a missing path fails and an unreadable revision is skipped'
   );
 
   assert.deepEqual(
-    (await checkTargets(root, ['plan.md'])).map(
+    (await checkFiles(root, ['plan.md'])).map(
       ({ line, message }) => `${line}: ${message}`,
     ),
     ['1: link target gone.ts does not exist'],
@@ -450,7 +880,7 @@ test('a blob revision that looks like an option reads nothing and writes nothing
     '[a](https://github.com/owner/repo/blob/--output=written/x.ts)\n',
   );
 
-  assert.deepEqual(await checkTargets(root, ['plan.md']), []);
+  assert.deepEqual(await checkFiles(root, ['plan.md']), []);
 
   await assert.rejects(readFile(join(root, 'written:x.ts')), {
     code: 'ENOENT',
@@ -465,14 +895,20 @@ test('blob link to this repository reads the cited revision', async () => {
     },
   );
 
-  await writeFile(join(root, 'src/x.ts'), 'changed\n');
+  await writeFile(join(root, 'src/x.ts'), 'changed\nonlyInWorktree();\n');
 
   await writeFile(
     join(root, 'plan.md'),
-    `[\`close()\`](https://github.com/owner/repo/blob/${commit}/src/x.ts#L2)\n`,
+    `[\`close()\`](https://github.com/owner/repo/blob/${commit}/src/x.ts#L2)\n[\`onlyInWorktree()\`](https://github.com/owner/repo/blob/${commit}/src/x.ts#L2)\n`,
   );
 
-  assert.deepEqual(await checkTargets(root, ['plan.md']), []);
+  assert.deepEqual(await checkFiles(root, ['plan.md']), [
+    {
+      file: 'plan.md',
+      line: 2,
+      message: '`onlyInWorktree()` does not appear at src/x.ts:2',
+    },
+  ]);
 });
 
 test('range that stops inside its block fails', async () => {
@@ -618,7 +1054,7 @@ test('a cited file that cannot be read stops the checks', async () => {
   await writeFile(join(root, 'plan.md'), '`close()` at `src/x.ts:2`\n');
   await writeFile(join(root, 'src/x.ts'), 'one\nclosed();\n');
   await chmod(join(root, 'src/x.ts'), 0o000);
-  await assert.rejects(checkTargets(root, ['plan.md']), { code: 'EACCES' });
+  await assert.rejects(checkFiles(root, ['plan.md']), { code: 'EACCES' });
 });
 
 test('identifier missing from its cited line fails', async () => {
