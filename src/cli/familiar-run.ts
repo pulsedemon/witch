@@ -200,7 +200,6 @@ export async function settlePlanReview(
 
   try {
     if (terminal.status === 'completed') {
-      // show draft validation while the wrapper is still checking the receipt.
       await reports?.finish({
         ...progress,
         status: 'running',
@@ -235,7 +234,20 @@ export async function settlePlanReview(
     checkStop();
   }
 
-  if (saved !== terminal.report) await save();
+  if (saved !== terminal.report) {
+    try {
+      await save();
+    } catch (error) {
+      const detail = [
+        terminal.reason,
+        `Could not save the plan review receipt: ${errorMessage(error)}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      throw new Error(detail, { cause: error });
+    }
+  }
 
   return terminal;
 }

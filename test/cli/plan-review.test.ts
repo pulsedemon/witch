@@ -103,6 +103,13 @@ type Fault =
   | 'claude-bad-state'
   | 'wrong-mailbox'
   | 'receipt-conflict-and-reply'
+  | 'partial-and-final'
+  | 'reroute-before-answer'
+  | 'different-turn'
+  | 'missing-thread'
+  | 'explicit-then-legacy'
+  | 'claude-missing-state-id'
+  | 'missing-draft-and-write'
   | 'edit-at-publication'
   | 'missing-draft-and-reply';
 
@@ -149,6 +156,7 @@ const probeFaults = new Set<Fault>([
   'lost-after-stage',
   'missing-draft-and-reply',
   'receipt-conflict-and-reply',
+  'missing-draft-and-write',
   'draft-after-save',
   'grow-on-read',
 ]);
@@ -288,7 +296,8 @@ async function launch(
       if (
         ((fault === 'pending-report' ||
           fault === 'stop-at-check' ||
-          fault === 'missing-draft-and-reply') &&
+          fault === 'missing-draft-and-reply' ||
+          fault === 'missing-draft-and-write') &&
           action.progress.activity === 'Checking plan review receipt') ||
         ((fault === 'stop-at-publication' || fault === 'edit-at-publication') &&
           completed)
@@ -589,6 +598,7 @@ for (const [fault, reason] of [
   ['claude-unfinished-turn', /final plan review turn returned/],
   ['claude-started-turn', /final plan review turn returned/],
   ['claude-bad-state', /Invalid Claude task stream/],
+  ['claude-missing-state-id', /did not identify the session for a state event/],
   ['claude-denied', /Permission denied: Read .*plan\.md/],
   ['claude-denied-then-result', /Permission denied: Read .*plan\.md/],
 ] as const) {
@@ -616,6 +626,7 @@ for (const [fault, reason] of [
   ['bad-notification', /could not read Codex's item\/completed notification/],
   ['bad-final', /could not read Codex’s completed agent message/],
   ['bad-reroute', /could not read the model in Codex’s reroute/],
+  ['missing-thread', /could not read Codex’s completed agent message/],
 ] as const) {
   test(`a Codex plan review surfaces ${fault} without forwarding a request`, async (t) => {
     const { outcome, forwarded } = await launch(t, 'codex', fault);
@@ -689,7 +700,11 @@ test('a lost failure update retains the draft reread diagnostic', async (t) => {
   assert.match(result.reason, /host did not reply before the deadline/);
 });
 
-for (const fault of ['commentary-only', 'started-only'] as const) {
+for (const fault of [
+  'commentary-only',
+  'started-only',
+  'different-turn',
+] as const) {
   test(`Codex ${fault} cannot supply a completed review answer`, async (t) => {
     const { outcome } = await launch(t, 'codex', fault);
     const result = await outcome(1);
@@ -700,7 +715,12 @@ for (const fault of ['commentary-only', 'started-only'] as const) {
   });
 }
 
-for (const fault of ['legacy-answer', 'model-after-answer'] as const) {
+for (const fault of [
+  'legacy-answer',
+  'model-after-answer',
+  'partial-and-final',
+  'explicit-then-legacy',
+] as const) {
   test(`${fault} retains the completed Codex answer and its model`, async (t) => {
     const { outcome } = await launch(t, 'codex', fault);
     const receipt = await outcome(0);
@@ -708,6 +728,32 @@ for (const fault of ['legacy-answer', 'model-after-answer'] as const) {
     assert.deepEqual(receipt.findings, [finding]);
   });
 }
+
+test('a reroute before the Codex answer attributes the answer to the new model', async (t) => {
+  const { outcome } = await launch(t, 'codex', 'reroute-before-answer');
+  const result = await outcome(1);
+  assert.equal(result.model, 'later-model');
+  assert.match(result.reason, /ran on later-model, expected model-a/);
+});
+
+test('a failed receipt write preserves the draft reread diagnostic on stderr', async (t) => {
+  const { root, pending, release, output } = await launch(
+    t,
+    'codex',
+    'missing-draft-and-write',
+  );
+
+  await pending;
+  await unlink(join(root, 'plan.md'));
+  release();
+  const log = await output(1);
+  assert.match(log, /Could not reread the plan draft: ENOENT/);
+
+  assert.match(
+    log,
+    /Could not save the plan review receipt: Fixture receipt sync failed/,
+  );
+});
 
 test('editing the draft during the staged reply prevents publication', async (t) => {
   const { root, outcome, pending, release, status } = await launch(

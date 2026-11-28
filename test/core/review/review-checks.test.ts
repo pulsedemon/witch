@@ -8,7 +8,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'vitest';
 import { checkTargets } from '../../../src/core/review/review-checks.js';
@@ -85,6 +85,26 @@ test('links and citations cannot check text beyond the checkout', async () => {
   );
 
   assert.deepEqual(await checkFiles(cwd, ['plan.md']), []);
+});
+
+test('an inaccessible sibling reference has no bearing on the checkout review', async () => {
+  const cwd = await scratch('witch-review-reference-');
+  const sibling = await scratch('witch-review-inaccessible-');
+  const target = join(sibling, 'outside.md');
+  await writeFile(target, '# Outside\n');
+
+  await writeFile(
+    join(cwd, 'plan.md'),
+    `see [outside](${relative(cwd, target)}#absent)\n`,
+  );
+
+  await chmod(sibling, 0o000);
+
+  try {
+    assert.deepEqual(await checkFiles(cwd, ['plan.md']), []);
+  } finally {
+    await chmod(sibling, 0o700);
+  }
 });
 
 test('link to a missing heading fails', async () => {

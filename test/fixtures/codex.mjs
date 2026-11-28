@@ -1041,8 +1041,28 @@ for await (const line of lines) {
             params: {},
           });
 
+        if (mode === 'partial-and-final')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'partial-answer',
+              phase: 'partial_answer',
+              text: 'Still reviewing.',
+            },
+          });
+
+        if (mode === 'reroute-before-answer')
+          notify('model/rerouted', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            toModel: 'later-model',
+          });
+
         notify(mode === 'started-only' ? 'item/started' : 'item/completed', {
-          turnId: 'turn-1',
+          ...(mode !== 'missing-thread' && { threadId: 'native-thread' }),
+          turnId: mode === 'different-turn' ? 'older-turn' : 'turn-1',
           item: {
             type: 'agentMessage',
             id: 'review-report',
@@ -1064,6 +1084,18 @@ for await (const line of lines) {
             threadId: 'native-thread',
             turnId: 'turn-1',
             toModel: 'later-model',
+          });
+
+        if (mode === 'explicit-then-legacy')
+          notify('item/completed', {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'later-legacy',
+              phase: null,
+              text: 'Follow-up.',
+            },
           });
 
         if (mode === 'bad-notification')

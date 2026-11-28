@@ -35,13 +35,23 @@ if (fault === 'stop-at-check' || fault === 'stop-at-publication') {
 
       return read.apply(this, args);
     };
-  } else if (fault === 'draft-after-save') {
+  } else if (
+    fault === 'draft-after-save' ||
+    fault === 'missing-draft-and-write'
+  ) {
     const sync = prototype.sync;
     const receiptFile = join(root, 'attempt.json');
 
     prototype.sync = async function () {
-      await sync.call(this);
       const receipt = await readFile(receiptFile, 'utf8').catch(() => '');
+
+      if (
+        fault === 'missing-draft-and-write' &&
+        receipt.includes('Could not reread the plan draft')
+      )
+        throw new Error('Fixture receipt sync failed');
+
+      await sync.call(this);
 
       if (receipt.includes('"status":"completed"')) {
         prototype.sync = sync;

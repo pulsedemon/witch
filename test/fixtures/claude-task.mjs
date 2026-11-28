@@ -94,13 +94,15 @@ if (mode === 'claude-rate-after')
   });
 
 if (
-  (mode === 'claude-started-turn' || mode === 'claude-bad-state') &&
+  (mode === 'claude-started-turn' ||
+    mode === 'claude-bad-state' ||
+    mode === 'claude-missing-state-id') &&
   process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS === '1'
 ) {
   emit({
     type: 'system',
     subtype: 'session_state_changed',
-    session_id,
+    ...(mode !== 'claude-missing-state-id' && { session_id }),
     state: mode === 'claude-bad-state' ? 'unknown-state' : 'running',
   });
 

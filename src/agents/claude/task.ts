@@ -118,6 +118,16 @@ export class ClaudeTask {
 
       if (nested) return;
 
+      if (
+        this.planReview &&
+        message.type === 'system' &&
+        message.subtype === 'session_state_changed' &&
+        !message.session_id
+      )
+        throw new Error(
+          'Claude did not identify the session for a state event.',
+        );
+
       if (this.identity && message.session_id !== this.identity.session_id)
         return;
 

@@ -8,7 +8,7 @@ import type {
   FamiliarProgress,
   ReviewScope,
 } from '../agents/familiar-report.js';
-import { repositoryOf } from '../core/review/review-checks.js';
+import { reviewRoot } from '../core/review/review-checks.js';
 import {
   insideDirectory,
   openReviewFile,
@@ -140,7 +140,7 @@ export function createPlanReview(
     ]);
 
     if (cwd !== caller) {
-      const checkout = await realpath((await repositoryOf(caller)).root);
+      const checkout = await realpath(await reviewRoot(caller));
 
       if (
         !insideDirectory(cwd, caller) ||

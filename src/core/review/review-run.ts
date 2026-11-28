@@ -23,7 +23,7 @@ import {
   scopeFor,
 } from './review.js';
 import type { Finding, Review, SitOut, Texts } from './review.js';
-import { checkTargets, repositoryOf } from './review-checks.js';
+import { checkTargets, reviewRoot } from './review-checks.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Reviewer, ReviewerResult, Reviewers } from './reviewers.js';
 import type { Routed } from '../runtime/routing.js';
@@ -176,7 +176,7 @@ async function runReview(
     return;
   }
 
-  const roots = [await realpath((await repositoryOf(cwd)).root)];
+  const roots = [await realpath(await reviewRoot(cwd))];
   const files = await reviewTargets(argument, cwd, roots);
 
   if ('refused' in files) {

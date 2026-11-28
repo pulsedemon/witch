@@ -88,7 +88,7 @@ export async function runCodexFamiliar(
   let failure: string | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let startup: ReturnType<typeof setTimeout> | undefined;
-  let waiting = 'the prompt on stdin';
+  let waiting = review ? 'the plan draft and brief' : 'the prompt on stdin';
   let stalled = false;
 
   let childExit:
@@ -96,7 +96,6 @@ export async function runCodexFamiliar(
     | undefined;
 
   let progress: FamiliarProgress = { status: 'running', tools: 0 };
-  let reviewAnswer: { text: string; model?: string } | undefined;
   const tools = new Set<string>();
   const prompts: string[] = [];
 
@@ -205,12 +204,6 @@ export async function runCodexFamiliar(
 
   const receive = (event: AgentEvent) => {
     if (ending) return;
-
-    if (review && event.type === 'text' && event.finalAnswer) {
-      reviewAnswer = { text: event.text, model: progress.model };
-
-      return;
-    }
 
     if (event.type === 'tool') forwardMarkers(event);
 
@@ -386,8 +379,8 @@ export async function runCodexFamiliar(
       exhausted = !!result.exhausted;
 
       if (review) {
-        answer = reviewAnswer?.text ?? '';
-        answerModel = reviewAnswer?.model;
+        answer = result.reviewAnswer?.text ?? '';
+        answerModel = result.reviewAnswer?.model;
 
         if (status === 'completed' && !answer)
           failure ??= 'Codex completed without a final answer.';

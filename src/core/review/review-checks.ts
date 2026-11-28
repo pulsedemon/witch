@@ -54,6 +54,7 @@ export async function checkTargets(
 ): Promise<CheckFailure[]> {
   const repository = await repositoryOf(cwd);
   const root = await realpath(repository.root);
+  const references = new Map<string, Promise<string | undefined>>();
 
   const cache = new Map<string, Promise<string | undefined>>(
     Object.entries(snapshot.canonical).map(([path, text]) => [
@@ -73,14 +74,28 @@ export async function checkTargets(
     return text;
   };
 
-  const reference = async (target: string) => {
+  const reference = (target: string) => {
     if (cache.has(target)) return target;
 
-    const resolved = await unlessGone(realpath(target));
+    if (
+      !insideDirectory(repository.root, target) &&
+      !insideDirectory(root, target)
+    )
+      return;
 
-    if (resolved) return insideDirectory(root, resolved) ? resolved : undefined;
+    let path = references.get(target);
 
-    return insideDirectory(repository.root, target) ? target : undefined;
+    if (!path) {
+      path = unlessGone(realpath(target)).then((resolved) =>
+        resolved && !insideDirectory(root, resolved)
+          ? undefined
+          : (resolved ?? target),
+      );
+
+      references.set(target, path);
+    }
+
+    return path;
   };
 
   const failures: CheckFailure[] = [];
@@ -803,29 +818,33 @@ interface Repository {
   slug?: string;
 }
 
-export async function repositoryOf(cwd: string): Promise<Repository> {
-  const git = (...args: string[]) =>
-    execute('git', ['-C', cwd, ...args]).then(
-      ({ stdout }) => stdout.trim(),
-      (error: { stderr?: unknown }) => {
-        // with no repository, root-relative links resolve from cwd; with no origin, blob links go unchecked
-        if (/not a git repository|No such remote/.test(String(error.stderr)))
-          return undefined;
+const repositoryValue = (cwd: string, ...args: string[]) =>
+  execute('git', ['-C', cwd, ...args]).then(
+    ({ stdout }) => stdout.trim(),
+    (error: { stderr?: unknown }) => {
+      // no repository means the working directory is the root, and no origin leaves blob links unchecked.
+      if (/not a git repository|No such remote/.test(String(error.stderr)))
+        return undefined;
 
-        throw error;
-      },
-    );
+      throw error;
+    },
+  );
 
+export async function reviewRoot(cwd: string) {
+  return (await repositoryValue(cwd, 'rev-parse', '--show-toplevel')) ?? cwd;
+}
+
+async function repositoryOf(cwd: string): Promise<Repository> {
   const [root, origin] = await Promise.all([
-    git('rev-parse', '--show-toplevel'),
-    git('remote', 'get-url', 'origin'),
+    reviewRoot(cwd),
+    repositoryValue(cwd, 'remote', 'get-url', 'origin'),
   ]);
 
   const match =
     origin && /github\.com[:/]([^/]+)\/(.+?)(?:\.git)?$/.exec(origin);
 
   return {
-    root: root ?? cwd,
+    root,
     ...(match ? { slug: `${match[1]}/${match[2]}` } : {}),
   };
 }
@@ -853,7 +872,7 @@ async function show(
   }
 }
 
-/** undefined for a missing path or a directory; other read failures throw, so no check passes unread. */
+/** skips missing, nonregular and out-of-scope references; other filesystem failures reach the caller. */
 async function readText(
   path: string,
   root: string,

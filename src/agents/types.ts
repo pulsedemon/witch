@@ -266,7 +266,6 @@ export type AgentEvent =
       id: string;
       text: string;
       replace?: boolean;
-      finalAnswer?: true;
     }
   /** the runtime withdrew the output of these earlier text and tool events; an id it never sent is ignored. */
   | { type: 'retracted'; ids: string[] }
@@ -317,6 +316,8 @@ export interface TurnResult {
   text: string;
   /** Codex only: the turn's last non-empty agent message, apart from the progress messages `text` also joins. */
   final?: string;
+  /** Codex only: a completed answer and its observed model from the dispatched review turn. */
+  reviewAnswer?: { text: string; model?: string };
   error?: string;
   /** steered prompts the agent will never read, reported on interruption or a failed turn. */
   unread?: string[];

@@ -193,6 +193,11 @@ class CodexSession implements AgentSession {
     started: ReturnType<typeof Promise.withResolvers<string>>;
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
     messages: TurnText;
+    reviewAnswers?: Map<
+      string,
+      { text: string; model?: string; explicit: boolean }
+    >;
+    completedId?: string;
     interrupted: boolean;
     id?: string;
     compaction?: { item?: string; completed: boolean };
@@ -463,10 +468,11 @@ class CodexSession implements AgentSession {
     if (this.turn || this.answers.busy)
       throw new Error('This agent is already running');
 
-    const turn = {
+    const turn: NonNullable<CodexSession['turn']> = {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
       messages: new TurnText(),
+      ...(this.options.planReview && { reviewAnswers: new Map() }),
       interrupted: false,
     };
 
@@ -542,15 +548,24 @@ class CodexSession implements AgentSession {
       );
 
       turn.started.resolve(response.turn.id);
-
-      if (this.turn === turn) this.turn.id = response.turn.id;
-
+      turn.id = response.turn.id;
       this.setInfo({ ...this.info, hasHistory: true });
     } catch (error) {
       if (this.turn === turn) this.finish('failed', errorMessage(error));
     }
 
     const result = await turn.finished.promise;
+
+    const reviewAnswer =
+      result.status === 'completed' && turn.id && turn.id === turn.completedId
+        ? turn.reviewAnswers?.get(turn.id)
+        : undefined;
+
+    if (reviewAnswer)
+      return {
+        ...result,
+        reviewAnswer: { text: reviewAnswer.text, model: reviewAnswer.model },
+      };
 
     return submitted ? result : { ...result, inputUnsent: true };
   }
@@ -815,7 +830,7 @@ class CodexSession implements AgentSession {
     this.setInfo(info);
   }
 
-  /** one malformed notification posts a notice per method and fails only what it settles. */
+  /** posts one malformed-notification notice per method; a plan reviewer rejects malformed native evidence. */
   private receive(message: RpcMessage): void {
     if (message.id !== undefined && message.method) {
       this.requestInput(message);
@@ -1022,7 +1037,12 @@ class CodexSession implements AgentSession {
             this.options.onEvent({ type: 'compacted' });
           }
         } else if (type === 'agentMessage') {
-          this.agentMessage(item, id, message.method === 'item/completed');
+          this.agentMessage(
+            item,
+            id,
+            message.method === 'item/completed',
+            data,
+          );
         } else if (type === 'reasoning') {
           // Codex reports a reasoning step only when it ends
           if (message.method === 'item/completed')
@@ -1114,7 +1134,11 @@ class CodexSession implements AgentSession {
       case 'turn/completed': {
         const turn = object.parse(data.turn);
 
-        if (this.turn?.compaction && turn.id !== this.turn.id) break;
+        if (
+          (this.turn?.compaction && turn.id !== this.turn.id) ||
+          (this.options.planReview && this.turn?.id && turn.id !== this.turn.id)
+        )
+          break;
 
         const status = stringValue.parse(turn.status);
         const error = turn.error == null ? undefined : object.parse(turn.error);
@@ -1195,21 +1219,42 @@ class CodexSession implements AgentSession {
     item: Record<string, unknown>,
     id: string,
     completed: boolean,
+    data: Record<string, unknown>,
   ): void {
     const { text, phase } = item;
-    const planCompletion = completed && this.options.planReview;
+    const turn = this.turn;
 
-    if (
-      planCompletion &&
-      (typeof text !== 'string' ||
-        (phase != null && phase !== 'commentary' && phase !== 'final_answer'))
-    ) {
-      this.malformedNotice(
-        'item/completed',
-        'Witch could not read Codex’s completed agent message.',
-      );
+    if (completed && turn?.reviewAnswers) {
+      const { threadId, turnId } = data;
 
-      return;
+      if (
+        typeof text !== 'string' ||
+        typeof threadId !== 'string' ||
+        typeof turnId !== 'string' ||
+        (phase != null &&
+          phase !== 'commentary' &&
+          phase !== 'partial_answer' &&
+          phase !== 'final_answer')
+      ) {
+        this.malformedNotice(
+          'item/completed',
+          'Witch could not read Codex’s completed agent message.',
+        );
+
+        return;
+      }
+
+      if (threadId !== this.info.id || (turn.id && turn.id !== turnId)) return;
+
+      if (
+        phase === 'final_answer' ||
+        (phase == null && !turn.reviewAnswers.get(turnId)?.explicit)
+      )
+        turn.reviewAnswers.set(turnId, {
+          text,
+          model: this.info.model,
+          explicit: phase === 'final_answer',
+        });
     }
 
     if (typeof text === 'string') {
@@ -1220,9 +1265,6 @@ class CodexSession implements AgentSession {
         id,
         text,
         replace: true,
-        ...(planCompletion && phase !== 'commentary'
-          ? { finalAnswer: true }
-          : {}),
       });
     }
 
@@ -1361,6 +1403,8 @@ class CodexSession implements AgentSession {
         this.options.onEvent({ type: 'request-resolved', id });
       }
     }
+
+    if (turn?.reviewAnswers) turn.completedId = completedTurnId;
 
     turn?.finished.resolve({
       status,
